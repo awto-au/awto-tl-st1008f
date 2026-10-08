@@ -69,6 +69,13 @@ From the OpenWrt v2 DTS (`SWITCH_PORT_SFP(p,l,s,c,g)` = SoC port, label, SerDes,
 - GPIO21: DTS external-watchdog toggle pin (1.2 s, always-running). Found static output-high at the U-Boot prompt; board does not reset. Unexplained.
 - USB: on-chip EHCI host, 1 root-hub port (`io mem 0x18021000`, irq 28). No external connector; likely pads/header. U-Boot has no USB commands.
 
+## Thermal
+
+- No throttling or over-temperature shutdown in stock U-Boot, stock Linux or the stock SDK startup; passive cooling, no fan. PT7A7514 is a voltage supervisor only. Never run without the heatsink unsupervised. Details: issue #13.
+- On-die meter, read-only at `RTL9300#`: `md.l 0xBB00006C 1` → `TEMP_OUT` = bits 22:16 (switch-SDK `swcore_rtl9300.h` layout; the U-Boot-header addresses are 8 bytes off). Runs with no CTRL write.
+- 2026-10-08, heatsink off, idle U-Boot ~1 min after power-on, before `rtk network on`: 42 (assumed °C, no external probe yet).
+- OpenWrt v2 DTS thermal zone covers the 8 SFP module sensors only (critical 110 °C), not the SoC.
+
 ## SFP lasers are OFF in stock U-Boot (root cause of "no 10G in U-Boot")
 
 - PCA9534 power-on: all pins input (reg3 = `0xff`) → tx-disable pulled high → all 8 lasers off.
