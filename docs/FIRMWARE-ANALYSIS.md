@@ -39,10 +39,24 @@ Excerpts: [../artifacts/stock-initramfs-excerpts.md](../artifacts/stock-initramf
 - Result: printk during boot, then silence. No getty, no shell, no CLI on serial.
 - BREAK (0.3 s, 0.5 s) and BREAK + SysRq `h`/`9`/`l` produce nothing; `kernel.sysrq` is not enabled.
 - `bootargs` are honoured by `boota`:
-  - `console=ttyS0,115200 rdinit=/bin/sh` → `/etc/rc` skipped, then `Kernel panic - not syncing: Attempted to kill init! exitcode=0x00000000` (sh reads EOF from the fake console).
-  - `rdinit=/bin/sh -c "mknod /dev/s c 4 64; exec /bin/sh </dev/s >/dev/s 2>&1"` → same panic, exit 0; the words after `rdinit=` do not appear to reach init's argv.
+  - `console=ttyS0,115200 rdinit=/bin/sh` → `/etc/rc` skipped, then panic `exitcode=0x00000000` (sh reads EOF from the fake console).
+  - `rdinit=/bin/sh -c "mknod …"` (no `--`) → same panic, exit 0: init args do NOT reach argv.
+  - `rdinit=/bin/sh -- -c "mknod /dev/c c 4 64; exec /bin/sh <>/dev/c 1>&0 2>&0"` → panic `exitcode=0x0000ff00` (255): the `--` separator DOES pass args to sh (the `-c` body ran), but the `<>` (open rw) redirect fails in this busybox ash. Fix to try: separate redirects `</dev/c >/dev/c 2>/dev/c`. [2026-10-08]
   - No `panic=` and no watchdog reset → power cycle after each panic.
   - Log: [../artifacts/stock-rdinit-sh-test-20261008.log](../artifacts/stock-rdinit-sh-test-20261008.log).
+
+### Initramfs binaries (non-busybox)
+
+All MIPS32 BE, built Realtek MSDK-4.8.5p1 / SDK3.6.6.55087 (same as kernel). busybox gives the shell + standard applets (`login`, `setsid`, `telnet`/`tftp` **clients** — no `telnetd`/`getty`/`httpd`/`dropbear`). Standalone binaries:
+
+| Binary | Size | What |
+|---|---|---|
+| `diag` | 2.4 M | Realtek SDK `cparser` management CLI (reads stdin/stdout; see above) |
+| `doc_loadbios` | 14 K | reads/writes the **IPL (bootloader) flash area** — loader-flashing tool, brick risk |
+| mtd-utils 1.5.2 | — | NOR: `flashcp`, `flash_erase`, `mtd_debug`, `mtdinfo`, `mtdpart`. NAND/UBI: `nanddump`, `nandtest`, `nandwrite`, `ftl_format`, 12× `ubi*` |
+
+- **NAND + UBI + FTL tooling on a SPI-NOR unit** → generic Realtek SDK image for a NAND-capable board family, shipped unchanged; dead weight here. Same pattern as the stripped managed rootfs (`/bin/cli` + network servers removed).
+- Full MTD write tools + `doc_loadbios` present → the runtime *can* rewrite flash incl. the loader. We never write flash (see safety rules).
 
 ### USB
 
