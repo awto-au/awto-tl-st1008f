@@ -136,3 +136,9 @@ Kept as used on 2026-10-07/08. New tooling is Python. Run from the repo root wit
 - Purpose: in a Realtek SDK ELF, scan for raw `syscall` sites (with the v0 o32 number) and thunk-aware callers of socket/bind/listen/accept/connect/system/dup2/execve, decompiled. Finds network code the libc PLT hides.
 - Run: `analyzeHeadless private/ghidra <proj> -process <bin> -noanalysis -postScript DiagNetScan.java <out.c> [import ...]`
 - Output: the `.c` first arg (keep in `private/ghidra/`; vendor decompilation not published).
+
+### st1008_cpu_punt_probe.py
+- Purpose: find the process that answers CPU-punted frames. Sends trapped-class frames (ARP/ICMP/LLDP/STP-BPDU/Realtek-0x8899) at the switch over one cabled port and logs every reply + unsolicited emission. ARP/ICMP reply = Linux kernel; any L2-protocol reply = an SDK responder (the sought interface). Non-destructive: secondary `ip addr add`, removed on exit. Raw AF_PACKET (needs root).
+- Precondition: switch booted into STOCK firmware (rc up, eth0 configured); ONE port cabled to `<iface>` (cage-loop hazard).
+- Run: `sudo scripts/st1008_cpu_punt_probe.py <iface> [--target 192.168.1.1] [--ip 192.168.1.2/24] [--listen 5]`
+- Log: `tmp/logs/st1008_cpu_punt_probe.log`.
