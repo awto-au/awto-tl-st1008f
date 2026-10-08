@@ -51,6 +51,7 @@ From the OpenWrt v2 DTS (`SWITCH_PORT_SFP(p,l,s,c,g)` = SoC port, label, SerDes,
 
 ### Port LEDs
 
+- 3 LEDs per port, 24 total, via 3× 74HC164 shift registers (serial-LED output) — [svanheule.net](https://www.svanheule.net/switches/tl-st1008f).
 - Driven by the RTL9303 hardware LED engine (`RTL930X_LED_GLB_CTRL` `0xCC00`; 3 LED sets), no CPU involvement.
 - v2 DTS `led_set0`: set 0 = 1G/100M/10M, set 1 = 2.5G, set 2 = 10G, each LINK + ACT, active-high.
 - Activity is combined RX+TX (no directional indicator in the HW engine). Richer scheme: issue "per-port LEDs".
@@ -58,8 +59,10 @@ From the OpenWrt v2 DTS (`SWITCH_PORT_SFP(p,l,s,c,g)` = SoC port, label, SerDes,
 ## Other GPIO / I2C
 
 - SFP data I2C = `i2c_mst1`, SDA0-7 = GPIO9-16. SDK formula per SoC port: `scl_pin = 8 + 9*(port/4)`, `sda_pin = port/2`, `interface = 1-(port/4)`, 8-bit reg, random read. EEPROM `0x50`, DOM `0x51`.
-- TX-disable: PCA9534 @ `0x38` on an `i2c-gpio` bus, SCL GPIO22 / SDA GPIO23 (`delay-us = 2`). Pin N = cage N+1, **active-high**.
+- TX-disable: expander @ `0x38` on an `i2c-gpio` bus, SCL GPIO22 / SDA GPIO23 (`delay-us = 2`). Pin N = cage N+1, **active-high**.
+  - Part is a TI TCA9534A (svanheule.net); "PCA9534" in these docs = same register map. The `A` variant's base address `0x38` matches.
 - 3-position mode switch M1/M2/M3 = `gpio-keys` on gpio0 pins 17/18/19 (`BTN_0/1/2`, EV_SW, active-low, 50 ms debounce) per the OpenWrt v2 DTS.
+  - Stock firmware: selects 2.5 Gbps mode (svanheule.net). Which position, and how the stock SDK reads it: not mapped.
   - Read with raw `md.l 0xb800330c 1` (DAT), bits 17-19 (bank C bits 1-3). Not `rtk pinGet` before `rtk network on` (hangs the console).
   - One read at the prompt: bit 17 low (M1 asserted). Position → behaviour not mapped yet (issue: mode switch).
 - GPIO21: DTS external-watchdog toggle pin (1.2 s, always-running). Found static output-high at the U-Boot prompt; board does not reset. Unexplained.
