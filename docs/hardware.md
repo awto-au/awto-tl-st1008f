@@ -62,7 +62,8 @@ From the OpenWrt v2 DTS (`SWITCH_PORT_SFP(p,l,s,c,g)` = SoC port, label, SerDes,
 - TX-disable: expander @ `0x38` on an `i2c-gpio` bus, SCL GPIO22 / SDA GPIO23 (`delay-us = 2`). Pin N = cage N+1, **active-high**.
   - Part is a TI TCA9534A (svanheule.net); "PCA9534" in these docs = same register map. The `A` variant's base address `0x38` matches.
 - 3-position mode switch M1/M2/M3 = `gpio-keys` on gpio0 pins 17/18/19 (`BTN_0/1/2`, EV_SW, active-low, 50 ms debounce) per the OpenWrt v2 DTS.
-  - Stock firmware: selects 2.5 Gbps mode (svanheule.net). Which position, and how the stock SDK reads it: not mapped.
+  - GPIO input only. Stock Linux (`rtcore.ko` SFP-insert handler) reads it and sets the SerDes media mode for the cages (`10G fiber insert` / `2.5G fiber insert`, then `rtk.ko` `media`/`sdsMode`). svanheule.net: one position = 2.5 Gbps. Stock U-Boot ignores it.
+  - Appears global: with M1 asserted a 1G module was also set up as 10G fiber. Position → mode not mapped (issue: mode switch).
   - Read with raw `md.l 0xb800330c 1` (DAT), bits 17-19 (bank C bits 1-3). Not `rtk pinGet` before `rtk network on` (hangs the console).
   - One read at the prompt: bit 17 low (M1 asserted). Position → behaviour not mapped yet (issue: mode switch).
 - GPIO21: DTS external-watchdog toggle pin (1.2 s, always-running). Found static output-high at the U-Boot prompt; board does not reset. Unexplained.
