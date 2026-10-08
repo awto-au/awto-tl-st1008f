@@ -83,6 +83,11 @@ End-to-end workflow: [../README.md#workflow](../README.md#workflow).
 - Run: `scripts/mips_find_string_refs.py private/stock-loader-20261007/loader.bin 0x83efaf80 "tx dis set"`
 - Log: `tmp/logs/mips_find_string_refs.log`.
 
+### diag_listener_audit.py
+- Purpose: decide whether stock `/bin/diag` is a network agent (imports `bind`/`listen`/`accept`) or a console-only REPL, from its ELF dynamic-import table and strings. Static only; does not execute the (MIPS BE) target.
+- Run: `scripts/diag_listener_audit.py private/stock-initramfs/bin/diag` (or set `DIAG_BIN`). Needs binutils (`readelf`, `nm`, `strings`).
+- Log: `tmp/logs/diag_listener_audit.log`. If it reports a LISTENER, follow up with `ghidra/DiagSocketAudit.java`.
+
 ### extract_console_excerpts.py
 - Purpose: cut the redacted `artifacts/` logs from the console log (fixed line ranges; MAC/SFP-serial/IP redaction; refuses on leaks).
 - Run: `scripts/extract_console_excerpts.py --map <lan-ip>=<switch-ip> --map <host-ip>=<tftp-server-ip>`
@@ -92,6 +97,11 @@ End-to-end workflow: [../README.md#workflow](../README.md#workflow).
 - Purpose: Ghidra headless post-scripts. `TraceLoader`: decompile functions at given addresses (`addr` or `addr=exact_<name>` to force a function boundary). `DecompileSelected`: decompile functions by name.
 - Run: `analyzeHeadless private/ghidra <project> -process loader.bin -postScript TraceLoader.java <out.c> <addr>[=exact_name] ...`
 - Output: the `.c` file given as the first script argument (keep it in `private/ghidra/`; vendor-code decompilation is not published).
+
+### ghidra/DiagSocketAudit.java
+- Purpose: in `diag`, find and decompile the functions that call the socket-server API (`bind`/`listen`/`accept`/`dup2`/`execve`/`socket`) — the listener loop reveals the port, the config gate, and the `dup2(sock,…)`+`execve` shell handoff.
+- Run: `analyzeHeadless private/ghidra <project> -process diag -postScript DiagSocketAudit.java <out.c> [import ...]`
+- Output: the `.c` given as the first arg (keep it in `private/ghidra/`; vendor-code decompilation is not published). Untested against `diag` here — the binary lives in `private/`.
 
 ## Repo maintenance
 
