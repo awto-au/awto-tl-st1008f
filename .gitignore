@@ -1,0 +1,11 @@
+# Raw binaries, dumps, vendor firmware, serial logs, Ghidra projects (incl. private/README.md)
+private/
+# Logs, TFTP root, scratch, issue drafts
+tmp/
+__pycache__/
+*.pyc
+# Ghidra lock / repository files anywhere
+*.lock
+*.lock~
+*.rep/
+*.gpr

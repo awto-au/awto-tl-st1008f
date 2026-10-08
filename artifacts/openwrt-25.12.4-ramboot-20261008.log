@@ -1,0 +1,276 @@
+[    0.000000] Linux version 6.12.87 (builder@buildhost) (mips-openwrt-linux-musl-gcc (OpenWrt GCC 14.3.0 r32933-4ccb782af7) 14.3.0, GNU ld (GNU Binutils) 2.44) #0 SMP Wed May 13 22:42:09 2026
+[    0.000000] SoC Type: Realtek RTL9303 rev B (6487)
+[    0.000000] printk: legacy bootconsole [early0] enabled
+[    0.000000] CPU0 revision is: 00019555 (MIPS 34Kc)
+[    0.000000] MIPS: machine is TP-Link TL-ST1008F v2.0
+[    0.000000] earlycon: ns16550a0 at MMIO 0x18002000 (options '115200n8')
+[    0.000000] printk: legacy bootconsole [ns16550a0] enabled
+[    0.000000] Initrd not found or empty - disabling initrd
+[    0.000000] Using appended Device Tree.
+[    0.000000] OF: reserved mem: Reserved memory: No reserved-memory node in the DT
+[    0.000000] Detected 1 available secondary CPU(s)
+[    0.000000] Primary instruction cache 32kB, VIPT, 4-way, linesize 32 bytes.
+[    0.000000] Primary data cache 32kB, 4-way, PIPT, no aliases, linesize 32 bytes
+[    0.000000] Zone ranges:
+[    0.000000]   Normal   [mem 0x0000000000000000-0x000000001fffffff]
+[    0.000000]   HighMem  [mem 0x0000000020000000-0x000000002fffffff]
+[    0.000000] Movable zone start for each node
+[    0.000000] Early memory node ranges
+[    0.000000]   node   0: [mem 0x0000000000000000-0x000000000fffffff]
+[    0.000000]   node   0: [mem 0x0000000020000000-0x000000002fffffff]
+[    0.000000] Initmem setup node 0 [mem 0x0000000000000000-0x000000002fffffff]
+[    0.000000] On node 0, zone HighMem: 65536 pages in unavailable ranges
+[    0.000000] percpu: Embedded 12 pages/cpu s18288 r8192 d22672 u49152
+[    0.000000] pcpu-alloc: s18288 r8192 d22672 u49152 alloc=12*4096
+[    0.000000] pcpu-alloc: [0] 0 [0] 1 
+[    0.000000] Kernel command line: earlycon
+[    0.000000] Dentry cache hash table entries: 32768 (order: 5, 131072 bytes, linear)
+[    0.000000] Inode-cache hash table entries: 16384 (order: 4, 65536 bytes, linear)
+[    0.000000] Writing ErrCtl register=0002964f
+[    0.000000] Readback ErrCtl register=0002964f
+[    0.000000] Built 1 zonelists, mobility grouping on.  Total pages: 131072
+[    0.000000] mem auto-init: stack:off, heap alloc:off, heap free:off
+[    0.000000] SLUB: HWalign=32, Order=0-3, MinObjects=0, CPUs=2, Nodes=1
+[    0.000000] rcu: Hierarchical RCU implementation.
+[    0.000000] 	Tracing variant of Tasks RCU enabled.
+[    0.000000] rcu: RCU calculated value of scheduler-enlistment delay is 10 jiffies.
+[    0.000000] RCU Tasks Trace: Setting shift to 1 and lim to 1 rcu_task_cb_adjust=1 rcu_task_cpu_ids=2.
+[    0.000000] NR_IRQS: 256
+[    0.000000] rcu: srcu_init: Setting srcu_struct sizes based on contention.
+[    0.000000] Failed to get CPU clock: -2
+[    0.000000] CPU frequency from device tree: 800MHz
+[    0.000000] clocksource: realtek_otto_timer: mask: 0xfffffff max_cycles: 0xfffffff, max_idle_ns: 38225208801 ns
+[    0.000002] sched_clock: 28 bits at 3125kHz, resolution 320ns, wraps every 42949672800ns
+[    0.009070] Calibrating delay loop... 531.66 BogoMIPS (lpj=2658304)
+[    0.065735] pid_max: default: 32768 minimum: 301
+[    0.082105] Mount-cache hash table entries: 1024 (order: 0, 4096 bytes, linear)
+[    0.090162] Mountpoint-cache hash table entries: 1024 (order: 0, 4096 bytes, linear)
+[    0.112307] rcu: Hierarchical SRCU implementation.
+[    0.117559] rcu: 	Max phase no-delay instances is 1000.
+[    0.125324] smp: Bringing up secondary CPUs ...
+[    0.132165] Primary instruction cache 32kB, VIPT, 4-way, linesize 32 bytes.
+[    0.132227] Primary data cache 32kB, 4-way, PIPT, no aliases, linesize 32 bytes
+[    0.132438] CPU1 revision is: 00019555 (MIPS 34Kc)
+[    0.208924] Counter synchronization [CPU#0 -> CPU#1]: passed
+[    0.236259] smp: Brought up 1 node, 2 CPUs
+[    0.242244] Memory: 493232K/524288K available (7788K kernel code, 722K rwdata, 972K rodata, 12848K init, 254K bss, 29880K reserved, 0K cma-reserved, 262144K highmem)
+[    0.265983] clocksource: jiffies: mask: 0xffffffff max_cycles: 0xffffffff, max_idle_ns: 19112604462750000 ns
+[    0.276835] futex hash table entries: 512 (order: 2, 16384 bytes, linear)
+[    0.291094] pinctrl core: initialized pinctrl subsystem
+[    0.300085] NET: Registered PF_NETLINK/PF_ROUTE protocol family
+[    0.307331] thermal_sys: Registered thermal governor 'step_wise'
+[    0.336185] clocksource: Switched to clocksource realtek_otto_timer
+[    0.361678] NET: Registered PF_INET protocol family
+[    0.367438] IP idents hash table entries: 4096 (order: 3, 32768 bytes, linear)
+[    0.377744] tcp_listen_portaddr_hash hash table entries: 512 (order: 0, 4096 bytes, linear)
+[    0.387007] Table-perturb hash table entries: 65536 (order: 6, 262144 bytes, linear)
+[    0.395493] TCP established hash table entries: 2048 (order: 1, 8192 bytes, linear)
+[    0.403970] TCP bind hash table entries: 2048 (order: 3, 32768 bytes, linear)
+[    0.411990] TCP: Hash tables configured (established 2048 bind 2048)
+[    0.419621] MPTCP token hash table entries: 256 (order: 0, 4096 bytes, linear)
+[    0.428065] UDP hash table entries: 256 (order: 1, 8192 bytes, linear)
+[    0.435259] UDP-Lite hash table entries: 256 (order: 1, 8192 bytes, linear)
+[    0.444251] NET: Registered PF_UNIX/PF_LOCAL protocol family
+[    0.453621] workingset: timestamp_bits=14 max_order=17 bucket_order=3
+[    0.463341] squashfs: version 4.0 (2009/01/31) Phillip Lougher
+[    0.469935] jffs2: version 2.2 (NAND) (SUMMARY) (ZLIB) (LZMA) (RTIME) (CMODE_PRIORITY) (c) 2001-2006 Red Hat, Inc.
+[    0.493890] Block layer SCSI generic (bsg) driver version 0.4 loaded (major 252)
+[    0.508715] pinctrl-single 1b000200.pinmux: 32 pins, size 4
+[    0.515592] pinctrl-single 1b00c600.pinmux: 32 pins, size 4
+[    0.522765] pinctrl-single 1b00cc00.pinmux: 32 pins, size 4
+[    0.533810] Serial: 8250/16550 driver, 16 ports, IRQ sharing enabled
+[    0.555517] printk: legacy console [ttyS0] disabled
+[    0.562726] 18002000.uart: ttyS0 at MMIO 0x18002000 (irq = 30, base_baud = 10937500) is a 16550A
+[    0.572641] printk: legacy console [ttyS0] enabled
+[    0.572641] printk: legacy console [ttyS0] enabled
+[    0.583563] printk: legacy bootconsole [early0] disabled
+[    0.583563] printk: legacy bootconsole [early0] disabled
+[    0.597289] printk: legacy bootconsole [ns16550a0] disabled
+[    0.597289] printk: legacy bootconsole [ns16550a0] disabled
+[    0.667678] brd: module loaded
+[    0.678595] 6 fixed-partitions partitions found on MTD device spi0.0
+[    0.686430] Creating 6 MTD partitions on "spi0.0":
+[    0.691862] 0x000000000000-0x0000000e0000 : "u-boot"
+[    0.701801] 0x0000000e0000-0x0000000f0000 : "u-boot-env"
+[    0.711294] 0x0000000f0000-0x000000100000 : "u-boot-env2"
+[    0.720901] 0x000000100000-0x000000200000 : "jffs2-cfg"
+[    0.730719] 0x000000200000-0x000000300000 : "jffs2-log"
+[    0.740136] 0x000000300000-0x000002000000 : "firmware"
+[    0.771009] mtdsplit_uimage: no uImage found in "firmware"
+[    0.801426] mtdsplit_uimage: no uImage found in "firmware"
+[    0.833913] mdio-rtl-otto 1b000000.switchcore:mdio-controller: probing RTL9300 family mdio bus
+[    0.845247] c45_mask: 00000000
+[    0.852326] realtek-otto-serdes-mdio 1b000000.switchcore:mdio-serdes: Realtek SerDes mdio bus initialized, 12 SerDes, 64 pages, 32 registers
+[    0.867515] realtek-otto-pcs 1b000000.switchcore:pcs: Realtek PCS driver initialized
+[    0.877583] Probing RTL838X eth device pdev: 82169000, dev: 82169010
+[    0.907312] Found SoC ID: 9303: RTL9303, family 9300
+[    0.913201] Using MAC <redacted>
+[    0.926064] i2c_dev: i2c /dev entries driver
+[    0.945491] NET: Registered PF_INET6 protocol family
+[    0.983444] Segment Routing with IPv6
+[    0.988137] In-situ OAM (IOAM) with IPv6
+[    0.992796] NET: Registered PF_PACKET protocol family
+[    0.998990] bridge: filtering via arp/ip/ip6tables is no longer available by default. Update your scripts to load br_netfilter if you need this.
+[    1.015373] 8021q: 802.1Q VLAN Support v1.8
+[    1.115727] pca953x 8-0038: using no AI
+[    1.121822] i2c-gpio i2c_gpio: using lines 535 (SDA) and 534 (SCL)
+[    1.129586] sfp sfp-p1: Host maximum power 2.9W
+[    1.140367] sfp sfp-p2: Host maximum power 1.5W
+[    1.148601] sfp sfp-p3: Host maximum power 1.5W
+[    1.157065] sfp sfp-p4: Host maximum power 2.0W
+[    1.165990] sfp sfp-p5: Host maximum power 2.0W
+[    1.175160] sfp sfp-p6: Host maximum power 1.5W
+[    1.183063] sfp sfp-p7: Host maximum power 1.5W
+[    1.191069] sfp sfp-p8: Host maximum power 2.9W
+[    1.222293] rtl93xx_setup called
+[    1.225989] In rtl83xx_vlan_setup
+[    1.229796] UNKNOWN_MC_PMASK: 000000001fffffff
+[    1.479549] sfp sfp-p1: module FS               SFP-10GSR-85     rev      sn <redacted>      dc 211223  
+[    1.564676] sfp sfp-p2: module FS               SFP-10GSR-85     rev      sn <redacted>      dc 211223  
+[    2.276193] rtl83xx_enable_phy_polling:          f110101
+[    2.282477] rtl83xx-switch switch@1b000000: led_set0 has 3 LEDs configured
+[    2.290391] rtl83xx-switch switch@1b000000: configuring for fixed/internal link mode
+[    2.299364] rtl83xx-switch switch@1b000000 lan1 (uninitialized): switched to inband/10gbase-r link mode
+[    2.312141] rtl83xx-switch switch@1b000000 lan2 (uninitialized): switched to inband/10gbase-r link mode
+[    2.339518] rtl838x-eth 1b00a300.ethernet eth0: entered promiscuous mode
+[    2.347497] DSA: tree 0 setup
+[    2.350955] LINK state irq: 23
+[    2.354573] rtl930x_dbgfs_init called
+[    2.358855] rtl83xx-switch switch@1b000000: Link is Up - 10Gbps/Full - flow control off
+[    2.369787] clk: Disabling unused clocks
+[    2.433616] Freeing unused kernel image (initmem) memory: 12848K
+[    2.440403] This architecture does not have kernel memory protection.
+[    2.447651] Run /init as init process
+[    2.451742]   with arguments:
+[    2.455033]     /init
+[    2.457651]   with environment:
+[    2.461160]     HOME=/
+[    2.463774]     TERM=linux
+[    2.586627] sfp sfp-p6: please wait, module slow to respond
+[    2.593348] sfp sfp-p4: please wait, module slow to respond
+[    2.600306] sfp sfp-p5: please wait, module slow to respond
+[    3.240081] init: Console is alive
+[    3.244424] init: - watchdog -
+[    3.264663] kmodloader: loading kernel modules from /etc/modules-boot.d/*
+[    3.275689] gpio_button_hotplug: loading out-of-tree module taints kernel.
+[    3.287760] kmodloader: done loading kernel modules from /etc/modules-boot.d/*
+[    3.300391] init: - preinit -
+[    4.686222] random: crng init done
+Cannot parse config file '/etc/fw_env.config': No such file or directory
+Failed to find NVMEM device
+[    5.840613] RESETTING 9300, CPU_PORT 28
+[    6.045512] rtl838x-eth 1b00a300.ethernet eth0: configuring for fixed/internal link mode
+[    6.054559] In rtl838x_mac_config, mode 1
+[    6.060119] rtl83xx-switch switch@1b000000 lan1: configuring for inband/10gbase-r link mode
+[    6.069544] realtek-otto-pcs 1b000000.switchcore:pcs: pcs_config(10gbase-r) for port 0 and sds 2 not yet fully implemented
+[    6.081929] rtpcs_930x_sds_set 31
+[    6.095911] rtpcs_930x_phy_enable_10g_1g 1gbit phy: 00001940
+[    6.102298] rtpcs_930x_phy_enable_10g_1g 1gbit phy enabled: 00001140
+[    6.109457] rtpcs_930x_phy_enable_10g_1g 10gbit phy: 00002840
+[    6.115873] rtpcs_930x_phy_enable_10g_1g 10gbit phy after: 00002040
+[    6.122949] rtpcs_930x_phy_enable_10g_1g set medium: 00000002
+[    6.129458] rtpcs_930x_phy_enable_10g_1g set medium after: 00000002
+[    6.136523] rtpcs_930x_setup_serdes: Configuring RTL9300 SERDES 2
+[    6.143376] rtpcs_930x_sds_config_pll: SDS 2 using LC PLL for 10gbase-r
+[    6.150937] rtl838x-eth 1b00a300.ethernet eth0: Link is Up - 1Gbps/Full - flow control off
+[    6.271743] rtpcs_930x_sds_10g_idle WARNING: Waiting for RX idle timed out, SDS 2
+[    6.280149] start_1.1.1 initial value for sds 2
+[    6.285321] end_1.1.1 --
+[    6.288184] start_1.1.2 Load DFE init. value
+[    6.292959] end_1.1.2
+[    6.295490] start_1.1.3 disable LEQ training,enable DFE clock
+[    6.301954] end_1.1.3 --
+[    6.304786] start_1.1.4 offset cali setting
+[    6.309482] end_1.1.4
+[    6.312026] start_1.1.5 LEQ and DFE setting
+[    6.316746] end_1.1.5
+[    6.324282] start_1.2.1 ForegroundOffsetCal_Manual
+[    6.329686] end_1.2.1
+[    6.334699] start_1.2.3 Foreground Calibration
+[    6.342246] rtpcs_930x_sds_do_rx_calibration_2_3: fgcal_gray: 63, fgcal_binary 32
+[    6.350635] rtpcs_930x_sds_do_rx_calibration_2_3: end_1.2.3
+[    6.356900] start_1.4.1
+[    6.577288] end_1.4.1
+[    6.580039] start_1.4.2
+[    6.583591] vth_set_bin = 7
+[    6.586355] vth_set_bin = 7
+[    6.589491] Vth Maunal = 0
+[    6.693776] Tap0 Sign : +
+[    6.696850] tap0_coef_bin = 31
+[    6.699793] tap0 manual = 0
+[    6.703205] end_1.4.2
+[    6.706353] start_1.5.2
+[    6.779120] end_1.5.2
+[    6.801923] rtpcs_930x_sds_do_rx_calibration: SDS enabled
+[    6.821623] start_1.4.1
+[    7.041931] end_1.4.1
+[    7.044674] start_1.4.2
+[    7.048274] vth_set_bin = 7
+[    7.051009] vth_set_bin = 7
+[    7.054113] Vth Maunal = 0
+[    7.158533] Tap0 Sign : +
+[    7.161569] tap0_coef_bin = 31
+[    7.164486] tap0 manual = 0
+[    7.167980] end_1.4.2
+[    7.171107] start_1.5.2
+[    7.243804] end_1.5.2
+[    7.298696] 8021q: adding VLAN 0 to HW filter on device lan1
+Press the [f] key and hit [enter] to enter failsafe mode
+Press the [1], [2], [3] or [4] key and hit [enter] to select the debug level
+[   11.540137] procd: - early -
+[   11.543762] procd: - watchdog -
+[   12.210278] procd: - watchdog -
+[   12.214383] procd: - ubus -
+[   12.276756] procd: - init -
+Please press Enter to activate this console.
+[   12.987380] kmodloader: loading kernel modules from /etc/modules.d/*
+[   13.090994] kmodloader: done loading kernel modules from /etc/modules.d/*
+[   14.401660] urngd: v1.0.2 started.
+
+[TX 14:54:59] '\\r'
+
+
+
+BusyBox v1.37.0 (2026-05-13 22:42:09 UTC) built-in shell (ash)
+
+  _______                     ________        __
+ |       |.-----.-----.-----.|  |  |  |.----.|  |_
+ |   -   ||  _  |  -__|     ||  |  |  ||   _||   _|
+ |_______||   __|_____|__|__||________||__|  |____|
+          |__| W I R E L E S S   F R E E D O M
+ -----------------------------------------------------
+ OpenWrt 25.12.4, r32933-4ccb782af7 Dave's Guitar
+ -----------------------------------------------------
+
+ === WARNING! =====================================
+ There is no root password defined on this device!
+ Use the "passwd" command to set up a new password
+ in order to prevent unauthorized SSH logins.
+ --------------------------------------------------
+
+
+ OpenWrt recently switched to the "apk" package manager!
+
+ OPKG Command           APK Equivalent      Description
+ ------------------------------------------------------------------
+ opkg install <pkg>     apk add <pkg>       Install a package
+ opkg remove <pkg>      apk del <pkg>       Remove a package
+ opkg upgrade           apk upgrade         Upgrade all packages
+ opkg files <pkg>       apk info -L <pkg>   List package contents
+ opkg list-installed    apk info            List installed packages
+ opkg update            apk update          Update package lists
+ opkg search <pkg>      apk search <pkg>    Search for packages
+ ------------------------------------------------------------------
+
+For more information visit:
+https://openwrt.org/docs/guide-user/additional-software/opkg-to-apk-cheatsheet
+
+root@OpenWrt:~# 
+dev:    size   erasesize  name
+mtd0: 000e0000 00010000 "u-boot"
+mtd1: 00010000 00010000 "u-boot-env"
+mtd2: 00010000 00010000 "u-boot-env2"
+mtd3: 00100000 00010000 "jffs2-cfg"
+mtd4: 00100000 00010000 "jffs2-log"
+mtd5: 01d00000 00010000 "firmware"
+root@OpenWrt:~#

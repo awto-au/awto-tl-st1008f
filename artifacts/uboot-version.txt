@@ -1,0 +1,7 @@
+[TX 12:51:09] 'version\\r'
+version
+
+U-Boot 2011.12.(3.6.6.55087) (Jan 19 2022 - 16:34:33)
+mips-linux-uclibc-xgcc (Realtek MSDK-4.8.5p1 Build 2536) 4.8.5 20150209 (prerelease)
+GNU ld (Realtek MSDK-4.8.5p1 Build 2536) 2.24.0
+RTL9300# #

@@ -1,0 +1,277 @@
+# One power-on, 2026-10-08 (TX times are +11:00). Gaps marked [...].
+[TX 13:41:51] '\\r'
+
+
+U-Boot 2011.12.(3.6.6.55087) (Jan 19 2022 - 16:34:33)
+
+Board: RTL9300 CPU:800MHz LX:175MHz DDR:600MHz
+DRAM:  512 MB
+SPI-F: WINBOND/EF4019/MMIO32-2/ModeC 1x32 MB (plr_flash_info @ 83f922a4)
+Loading 65536B env. variables from offset 0xe0000
+Net:   Net Initialization Skipped
+No ethernet found.
+Hit Esc key to stop autoboot:  1 
+
+ 0 
+RTL9300# # 
+RTL9300# # 
+[TX 13:47:06] 'rtk sdsreg set 0 2 0x1f 0x2 0x35\\r'
+rtk sdsreg set 0 2 0x1f 0x2 0x35
+Set unit 0 sds 02 page 31 reg 02 val: 0x0035    Failed!! 0xf010
+RTL9300# # 
+[TX 13:47:09] 'rtk sdsreg get 0 2 0x1f 0x14\\r'
+rtk sdsreg get 0 2 0x1f 0x14
+Get unit 0 sds 02 page 31 reg 20    Failed!! 0xf010 
+RTL9300# # 
+[TX 13:49:46] 'rtk network on\\r'
+rtk network on
+Enable network
+RTCORE Driver Module Initialize
+  IOAL init
+  Hardware-profile probe (RTL9303_8XGE)
+  Hardware-profile init
+  GPIO probe (unit 0): (found)
+  GPIO Init
+  SPI init (unit 0) (type3)
+    SPI Master init
+  I2C probe (unit 0)
+  I2C init (unit 0)
+  I2C device init (unit 0)
+  I2C device init (unit 0)
+  I2C device init (unit 0)
+  I2C device init (unit 0)
+  I2C device init (unit 0)
+  I2C device init (unit 0)
+  I2C device init (unit 0)
+  I2C device init (unit 0)
+  I2C device init (unit 0)
+  SFP insert init (unit 0)
+  NIC probe (unit 0)
+  Loader RTNIC Driver Module Initialize
+  IOAL init
+RTK Driver Module Initialize
+  MAC probe (unit 0)
+    Chip 9303 (found)
+  MAC init (unit 0)
+  SMI protocol probe (unit 0)
+  PHY probe (unit 0)
+  Chip Construct (unit 0)
+    Chip Construct
+    Disable PHY Polling
+    PHY Reset
+    MAC Construct
+    Turn Off Serdes
+    Serdes Construct
+    PHY Construct
+    Turn On Serdes
+
+[TX 13:49:48] 'rtk sdsreg set 0 2 0x1f 0x2 0x35\\r'
+    Mac_Polling_PHY Config
+    Enable PHY Polling
+    Misc
+  PHY init (unit 0)
+  Mgmt_dev init (unit 0) 
+Please wait for PHY init-time ...
+
+
+[TX 13:49:50] 'rtk sdsreg get 0 2 0x1f 0x14\\r'
+Err:0xf030:FAIL (0xf030)
+RTL9300# # rtk sdsreg set 0
+[TX 13:51:25] 'md.l 0xb8003300 0x10\\r'
+md.l 0xb8003300 0x10
+b8003300: 00ffffff 00000000 00e00000 00ec00c4    ................
+b8003310: 00000000 00000000 00000000 00000000    ................
+b8003320: 00000000 00000000 00000000 00000000    ................
+b8003330: 00000000 00000000 00ffffff 00000000    ................
+RTL9300# # 
+[TX 13:51:26] 'md.l 0xb8003300 0x10\\r'
+md.l 0xb8003300 0x10
+b8003300: 00ffffff 00000000 00e00000 00ec00c4    ................
+b8003310: 00000000 00000000 00000000 00000000    ................
+b8003320: 00000000 00000000 00000000 00000000    ................
+b8003330: 00000000 00000000 00ffffff 00000000    ................
+RTL9300# # 
+[... PCA9534 enabled by GPIO bit-bang (scripts/st1008_pca9534.py), cage 1 only; lines elided ...]
+[TX 13:59:05] 'setenv ipaddr <switch-ip>; setenv serverip <tftp-server-ip>; setenv bootfile st1008f.bin\\r'
+setenv ipaddr <switch-ip>; setenv serverip <tftp-server-ip>; setenv bootfile st1008f.bin
+RTL9300# # 
+[TX 13:59:25] 'rtk network on\\r'
+rtk network on
+Enable network
+Please wait for PHY init-time ...
+
+Err:0xf030:FAIL (0xf030)
+RTL9300# # 
+[TX 13:59:52] 'md.l 0xBB000708 1\\r'
+md.l 0xBB000708 1
+bb000708: 00262fc4    .&/.
+RTL9300# # 
+[TX 14:00:17] 'md.l 0xBB000700 8\\r'
+md.l 0xBB000700 8
+bb000700: 00000000 00000000 002a9c4a 002ca128    .........*.J.,.(
+bb000710: 025f7e66 0022d9e7 0002f145 0000efd2    ._~f.".....E....
+RTL9300# # 
+[TX 14:00:18] 'md.l 0xBB000F00 8\\r'
+md.l 0xBB000F00 8
+bb000f00: 00000000 00000000 002ca353 003525e1    .........,.S.5%.
+bb000f10: 0022dfc8 025f842f 0000efd2 0002f145    ."..._./.......E
+RTL9300# # 
+[TX 14:00:18] 'md.l 0xBB000700 8\\r'
+md.l 0xBB000700 8
+bb000700: 00000000 00000000 003520cd 002ca84e    .........5 ..,.N
+bb000710: 025f842f 0022dfc8 0002f6d1 0000f56a    ._./.".........j
+RTL9300# # 
+[TX 14:00:19] 'md.l 0xBB00CB10 1\\r'
+md.l 0xBB00CB10 1
+bb00cb10: 00000000    ....
+RTL9300# # 
+[TX 14:00:37] 'rtk port disable 8\\r'
+rtk port disable 8
+Disable port (0,8)
+RTL9300# # 
+[TX 14:00:38] 'md.l 0xBB000700 8\\r'
+md.l 0xBB000700 8
+bb000700: 00000000 00000000 0035898e 002d1272    .........5...-.r
+bb000710: 025fa15f 0022fd77 0003123b 00011113    ._._.".w...;....
+RTL9300# # 
+[... lines elided ...]
+[TX 14:02:01] 'tftpboot 0x84f00000 st1008f.bin\\r'
+tftpboot 0x84f00000 st1008f.bin
+Using rtl9300#0 device
+TFTP from server <tftp-server-ip>; our IP address is <switch-ip>
+Filename 'st1008f.bin'.
+Load address: 0x84f00000
+Loading: *T #################################################################
+	 #################################################################
+	 #################################################################
+	 #################################################################
+	 #################################################################
+	 ##########################################
+done
+Bytes transferred = 5383940 (522704 hex)
+RTL9300# # 
+[TX 14:02:44] 'iminfo 0x84f00000\\r'
+iminfo 0x84f00000
+
+## Checking Image at 84f00000 ...
+   Legacy image found
+   Image Name:   MIPS OpenWrt Linux-6.12.87
+   Created:      2026-05-13  22:42:09 UTC
+   Image Type:   MIPS Linux Kernel Image (lzma compressed)
+   Data Size:    5383876 Bytes = 5.1 MB
+   Load Address: 80100000
+   Entry Point:  80100000
+   Verifying Checksum ... OK
+[TX 14:06:36] 'rtk port disable 0\\r'
+rtk port disable 0
+Disable port (0,0)
+RTL9300# # 
+[TX 14:06:36] 'rtk port enable 8\\r'
+rtk port enable 8
+Enable port (0,8)
+RTL9300# # 
+[... cage 2 laser via bit-bang; tftpboot repeated on cage 2 (5383940 bytes); lines elided ...]
+[TX 14:12:42] 'rtk i2c read 8 1\\r'
+rtk i2c read 8 1
+data 0xfd
+RTL9300# # 
+[TX 14:12:42] 'rtk i2c read 8 3\\r'
+rtk i2c read 8 3
+data 0x0
+RTL9300# # 
+[TX 14:12:43] 'rtk i2c read 0 0\\r'
+rtk i2c read 0 0
+data 0x3
+RTL9300# # 
+[TX 14:12:43] 'rtk i2c read 1 0\\r'
+rtk i2c read 1 0
+data 0x3
+RTL9300# # 
+[TX 14:12:43] 'rtk i2c read 9 1\\r'
+rtk i2c read 9 1
+FAIL (61455)
+RTL9300# # 
+[TX 14:17:27] 'rtk i2c write 8 1 0xfd\\r'
+rtk i2c write 8 1 0xfd
+OK
+RTL9300# # 
+[TX 14:17:28] 'rtk i2c read 8 1\\r'
+rtk i2c read 8 1
+data 0xfd
+RTL9300# # 
+[TX 14:17:28] 'setenv laser1 rtk i2c write 8 1 0xfd\\r'
+setenv laser1 rtk i2c write 8 1 0xfd
+RTL9300# # 
+[TX 14:17:29] 'setenv laser2 rtk i2c write 8 3 0\\r'
+setenv laser2 rtk i2c write 8 3 0
+RTL9300# # 
+[TX 14:17:29] 'setenv laser3\\r'
+setenv laser3
+RTL9300# # 
+[TX 14:17:30] 'setenv laser run laser1 laser2\\r'
+setenv laser run laser1 laser2
+RTL9300# # 
+[TX 14:17:30] 'run laser\\r'
+run laser
+OK
+OK
+RTL9300# # 
+[TX 14:17:30] 'printenv laser laser1 laser2\\r'
+printenv laser laser1 laser2
+laser=run laser1 laser2
+laser1=rtk i2c write 8 1 0xfd
+laser2=rtk i2c write 8 3 0
+RTL9300# # 
+[... serial flash-dump experiments; lines elided ...]
+[TX 14:53:22] 'rtk i2c read 8 1\\r'
+rtk i2c read 8 1
+data 0xfd
+RTL9300# # 
+[TX 14:53:23] 'rtk i2c read 8 3\\r'
+rtk i2c read 8 3
+data 0x0
+RTL9300# # 
+[TX 14:53:27] 'setenv ipaddr <switch-ip>; setenv serverip <tftp-server-ip>\\r'
+setenv ipaddr <switch-ip>; setenv serverip <tftp-server-ip>
+RTL9300# # 
+[TX 14:53:45] 'tftpboot 0x84f00000 st1008f.bin\\r'
+tftpboot 0x84f00000 st1008f.bin
+Using rtl9300#0 device
+TFTP from server <tftp-server-ip>; our IP address is <switch-ip>
+Filename 'st1008f.bin'.
+Load address: 0x84f00000
+Loading: *T #################################################################
+	 #################################################################
+	 #################################################################
+	 #################################################################
+	 #################################################################
+	 ##########################################
+done
+Bytes transferred = 5383940 (522704 hex)
+RTL9300# # 
+[TX 14:53:55] 'iminfo 0x84f00000\\r'
+iminfo 0x84f00000
+
+## Checking Image at 84f00000 ...
+   Legacy image found
+   Image Name:   MIPS OpenWrt Linux-6.12.87
+   Created:      2026-05-13  22:42:09 UTC
+   Image Type:   MIPS Linux Kernel Image (lzma compressed)
+   Data Size:    5383876 Bytes = 5.1 MB
+   Load Address: 80100000
+   Entry Point:  80100000
+   Verifying Checksum ... OK
+RTL9300# # 
+[TX 14:54:34] 'bootm 0x84f00000\\r'
+bootm 0x84f00000
+## Booting kernel from Legacy Image at 84f00000 ...
+   Image Name:   MIPS OpenWrt Linux-6.12.87
+   Created:      2026-05-13  22:42:09 UTC
+   Image Type:   MIPS Linux Kernel Image (lzma compressed)
+   Data Size:    5383876 Bytes = 5.1 MB
+   Load Address: 80100000
+   Entry Point:  80100000
+   Verifying Checksum ... OK
+   Uncompressing Kernel Image ... OK
+
+Starting kernel ...

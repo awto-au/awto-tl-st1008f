@@ -1,0 +1,25 @@
+[TX 14:32:05] 'printsys\\r'
+printsys
+Invalid system information
+RTL9300# # 
+[TX 14:32:18] 'flshow\\r'
+flshow
+=============== FLASH Partition Layout ===============
+Index  Name       Size       Address
+------------------------------------------------------
+ 0     LOADER     0xe0000    0xb4000000-0xb40dffff
+ 1     BDINFO     0x10000    0xb40e0000-0xb40effff
+ 2     SYSINFO    0x10000    0xb40f0000-0xb40fffff
+ 3     JFFS2_CFG  0x100000   0xb4100000-0xb41fffff
+ 4     JFFS2_LOG  0x100000   0xb4200000-0xb42fffff
+ 5     RUNTIME1   0xe80000   0xb4300000-0xb517ffff
+ 6     RUNTIME2   0xe80000   0xb5180000-0xb5ffffff
+======================================================
+RTL9300# # 
+[TX 14:32:20] 'md.b b40e0000 40\\r'
+md.b b40e0000 40
+b40e0000: fb 43 59 aa 62 61 75 64 72 61 74 65 3d 31 31 35    .CY.baudrate=115
+b40e0010: 32 30 30 00 62 6f 61 72 64 6d 6f 64 65 6c 3d 52    200.boardmodel=R
+b40e0020: 54 4c 39 33 30 33 5f 38 58 47 45 00 62 6f 6f 74    TL9303_8XGE.boot
+b40e0030: 63 6d 64 3d 62 6f 6f 74 61 00 62 6f 6f 74 64 65    cmd=boota.bootde
+RTL9300# #

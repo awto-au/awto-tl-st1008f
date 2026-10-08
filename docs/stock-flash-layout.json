@@ -1,0 +1,22 @@
+{
+  "model": "TP-Link TL-ST1008F",
+  "hardwareRevision": "V2",
+  "source": "Captured U-Boot flshow output, 2026-10-07",
+  "sourceTranscript": "artifacts/uboot-flshow.txt",
+  "flashChip": "Winbond EF4019",
+  "flashBytes": 33554432,
+  "ubootMappedBase": "0xb4000000",
+  "stockFullFlashCrc32BeforeAcquisition": "dd984f95",
+  "partitions": [
+    { "name": "LOADER", "offset": "0x0000000", "size": "0x00e0000" },
+    { "name": "BDINFO", "offset": "0x00e0000", "size": "0x0010000" },
+    { "name": "SYSINFO", "offset": "0x00f0000", "size": "0x0010000" },
+    { "name": "JFFS2_CFG", "offset": "0x0100000", "size": "0x0100000" },
+    { "name": "JFFS2_LOG", "offset": "0x0200000", "size": "0x0100000" },
+    { "name": "RUNTIME1", "offset": "0x0300000", "size": "0x0e80000" },
+    { "name": "RUNTIME2", "offset": "0x1180000", "size": "0x0e80000" }
+  ],
+  "verifiedLoaderSha256": "0acb263012d910cfbc53815d8a040519242fb08c5531a8e4e15b84384d84a4e1",
+  "openwrtDifference": "OpenWrt calls BDINFO/SYSINFO u-boot-env/u-boot-env2 and combines both RUNTIME slots into firmware at offset 0x300000, size 0x1d00000. Verify the running image's actual MTD offsets and sizes before reading.",
+  "backupAcceptance": "Two identical full-chip images of 33554432 bytes; cover each physical byte once, exclude overlapping subpartitions, match the verified loader, preserve original bytes without mounting or modifying stock filesystems."
+}

@@ -1,0 +1,140 @@
+[11:45:54.305] 
+
+[11:45:56.876] U-Boot 2011.12.(3.6.6.55087) (Jan 19 2022 - 16:34:33)
+
+[11:45:56.881] Board: RTL9300 CPU:800MHz LX:175MHz DDR:600MHz
+[11:45:56.886] DRAM:  512 MB
+[11:45:56.887] SPI-F: WINBOND/EF4019/MMIO32-2/ModeC 1x32 MB (plr_flash_info @ 83f922a4)
+[11:45:56.894] Loading 65536B env. variables from offset 0xe0000
+[11:45:56.899] Net:   Net Initialization Skipped
+[11:45:56.902] No ethernet found.
+[11:45:56.904] Hit Esc key to stop autoboot:  1  0 
+[11:45:57.916] ## Booting image from partition ... 0
+[11:46:00.360] ## Booting kernel from Legacy Image at 81000000 ...
+[11:46:00.365]    Image Name:   RTK_SDK
+[11:46:00.368]    Created:      2022-01-19  16:37:57 UTC
+[11:46:00.372]    Image Type:   MIPS Linux Kernel Image (lzma compressed)
+[11:46:00.377]    Data Size:    4917870 Bytes = 4.7 MB
+[11:46:00.381]    Load Address: 80000000
+[11:46:00.384]    Entry Point:  80283850
+[11:46:00.386]    Verifying Checksum ... OK
+[11:46:00.455]    Uncompressing Kernel Image ... OK
+
+[11:46:02.321] Starting kernel ...
+
+[11:46:02.487] console [ttyS0] enabled
+[11:46:02.489] bootconsole [early0] disabled
+[11:46:02.492] Calibrating delay loop... 531.66 BogoMIPS (lpj=2658304)
+[11:46:02.540] pid_max: default: 32768 minimum: 301
+[11:46:02.543] Mount-cache hash table entries: 1024 (order: 0, 4096 bytes)
+[11:46:02.549] Mountpoint-cache hash table entries: 1024 (order: 0, 4096 bytes)
+[11:46:02.559] NET: Registered protocol family 16
+[11:46:02.574] SCSI subsystem initialized
+[11:46:02.576] usbcore: registered new interface driver usbfs
+[11:46:02.581] usbcore: registered new interface driver hub
+[11:46:02.586] usbcore: registered new device driver usb
+[11:46:02.592] NET: Registered protocol family 2
+[11:46:02.596] TCP established hash table entries: 2048 (order: 1, 8192 bytes)
+[11:46:02.602] TCP bind hash table entries: 2048 (order: 3, 40960 bytes)
+[11:46:02.608] TCP: Hash tables configured (established 2048 bind 2048)
+[11:46:02.614] TCP: reno registered
+[11:46:02.616] UDP hash table entries: 256 (order: 1, 12288 bytes)
+[11:46:02.621] UDP-Lite hash table entries: 256 (order: 1, 12288 bytes)
+[11:46:02.627] NET: Registered protocol family 1
+[11:46:03.151] futex hash table entries: 256 (order: 0, 7168 bytes)
+[11:46:03.157] msgmni has been set to 484
+[11:46:03.169] bounce: pool size: 64 pages
+[11:46:03.172] io scheduler noop registered
+[11:46:03.175] io scheduler deadline registered
+[11:46:03.178] io scheduler cfq registered (default)
+[11:46:03.227] Serial: 8250/16550 driver, 1 ports, IRQ sharing disabled
+[11:46:03.232] serial8250: ttyS0 at MMIO 0x0 (irq = 47, base_baud = 10764700) is a 16550A
+[11:46:03.240] RTK_SPI_FLASH_MIO driver is bypassed
+[11:46:03.244] RTK_NORSFG3 driver is used
+[11:46:03.247] =================================================================
+[11:46:03.253] init_luna_nor_spi_map: flash map at 0xb4000000
+[11:46:03.257] SPI NOR driver probe...
+[11:46:03.260] WINBOND/EF4019/MMIO32-2/ModeC add SPI NOR partition
+[11:46:03.268] MTD partitions obtained from built-in array
+[11:46:03.272] Creating 7 MTD partitions on "rtk_norsf_g3":
+[11:46:03.277] 0x000000000000-0x0000000e0000 : "LOADER"
+[11:46:03.281] 0x0000000e0000-0x0000000f0000 : "BDINFO"
+[11:46:03.285] 0x0000000f0000-0x000000100000 : "SYSINFO"
+[11:46:03.289] 0x000000100000-0x000000200000 : "JFFS2 CFG"
+[11:46:03.294] 0x000000200000-0x000000300000 : "JFFS2 LOG"
+[11:46:03.298] 0x000000300000-0x000001180000 : "RUNTIME"
+[11:46:03.303] 0x000001180000-0x000002000000 : "RUNTIME2"
+[11:46:03.307] =================================================================
+[11:46:03.314] ehci_hcd: USB 2.0 'Enhanced' Host Controller (EHCI) Driver
+[11:46:03.319] rtk_gen1_hcd_cs_init: rtk_gen1_hcd_cs_init()!
+[11:46:03.324] rtk_gen1_hcd_cs_init: register rtk_gen1_ehci ok!
+[11:46:03.329] usb_phy_configure_process: usb_phy_configure_process()!
+[11:46:03.334] rtk_gen1-ehci rtk_gen1-ehci: Realtek On-Chip EHCI Host Controller
+[11:46:03.341] rtk_gen1-ehci rtk_gen1-ehci: new USB bus registered, assigned bus number 1
+[11:46:03.348] rtk_gen1-ehci rtk_gen1-ehci: irq 28, io mem 0x18021000
+[11:46:03.367] rtk_gen1-ehci rtk_gen1-ehci: USB 2.0 started, EHCI 1.00
+[11:46:03.373] hub 1-0:1.0: USB hub found
+[11:46:03.376] hub 1-0:1.0: 1 port detected
+[11:46:03.379] usbcore: registered new interface driver usbtmc
+[11:46:03.384] usbcore: registered new interface driver usb-storage
+[11:46:03.389] TCP: cubic registered
+[11:46:03.391] NET: Registered protocol family 17
+[11:46:03.413] Freeing unused kernel memory: 3700K (803a3000 - 80740000)
+[11:46:03.475] RTCORE LKM Insert...
+[11:46:03.477] RTCORE Driver Module Initialize
+[11:46:03.480]   IOAL init
+[11:46:03.482]   Log init
+[11:46:03.483]   Hardware-profile probe (RTL9303_8XGE)
+[11:46:03.516]   Hardware-profile init
+[11:46:03.519]   GPIO probe (unit 0): (found)
+[11:46:03.522]   GPIO Init
+[11:46:03.523]   SPI init (unit 0)  SPI none dev init
+
+[11:46:03.527]   Intr Probe (unit 0)
+[11:46:03.529]   TC probe (unit 0): (found)
+[11:46:03.532]   TC init (unit 0)
+[11:46:03.534]     TC util init (unit 0)
+[11:46:03.536]     TC util init (isr)
+[11:46:03.539]   Watchdog probe (unit 0): (found)
+[11:46:03.542]   Watchdog init (unit 0)
+[11:46:03.545]   I2C probe (unit 0)
+[11:46:03.547]   I2C init (unit 0)
+[11:46:03.549]   I2C device init (unit 0)
+[11:46:03.551]   I2C device init (unit 0)
+[11:46:03.554]   I2C device init (unit 0)
+[11:46:03.557]   I2C device init (unit 0)
+[11:46:03.559]   I2C device init (unit 0)
+[11:46:03.562]   I2C device init (unit 0)
+[11:46:03.565]   I2C device init (unit 0)
+[11:46:03.567]   I2C device init (unit 0)
+[11:46:03.570]   I2C device init (unit 0)
+[11:46:03.573]   SFP insert init (unit 0)
+[11:46:03.575]   NIC probe (unit 0)
+[11:46:03.577]   IOAL init
+[11:46:03.579]   L2Ntfy probe (unit 0): (found)
+[11:46:03.740] RTK Driver Module Initialize
+[11:46:03.743]   MAC probe (unit 0)
+[11:46:03.745]     Chip 9303 (found)
+[11:46:03.748]   MAC init (unit 0)
+[11:46:03.816]   SMI protocol probe (unit 0)
+[11:46:03.819]   PHY probe (unit 0)
+[11:46:03.821]   Chip Construct (unit 0)
+[11:46:03.824]     Chip Construct
+[11:46:03.828]     Disable PHY Polling
+[11:46:03.833]     PHY Reset
+[11:46:04.333]     MAC Construct
+[11:46:04.336]     Turn Off Serdes
+[11:46:04.338]     Serdes Construct
+[11:46:04.355]     PHY Construct
+[11:46:04.357]     Turn On Serdes
+[11:46:06.480]     Mac_Polling_PHY Config
+[11:46:06.482]     Enable PHY Polling
+[11:46:06.484]     Misc
+[11:46:06.485]   PHY init (unit 0)
+[11:46:06.488]   Mgmt_dev init (unit 0) 
+[11:46:10.397] RTNIC Driver Module Initialize
+[11:46:10.547] cur pattern = 1
+[11:46:10.613] RTDRV Driver Module Initialize
+[11:46:10.780] 10G fiber insert
+[11:46:11.180] 10G fiber insert
+[11:46:11.279] port 0 media 5

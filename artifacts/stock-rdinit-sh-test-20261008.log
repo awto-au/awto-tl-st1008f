@@ -1,0 +1,197 @@
+[TX 15:02:59] 'printenv\\r'
+printenv
+baudrate=115200
+boardmodel=RTL9303_8XGE
+bootcmd=boota
+bootdelay=1
+ethaddr=xx:xx:xx:xx:xx:xx
+ipaddr=192.168.0.100
+ledModeInitSkip=0
+serverip=192.168.0.145
+stderr=serial
+stdin=serial
+stdout=serial
+
+Environment size: 218/65532 bytes
+RTL9300# # 
+[TX 15:03:10] 'setenv bootargs console=ttyS0,115200 rdinit=/bin/sh\\r'
+setenv bootargs console=ttyS0,115200 rdinit=/bin/sh
+RTL9300# # 
+[TX 15:03:11] 'boota\\r'
+boota
+## Booting image from partition ... 0
+## Booting kernel from Legacy Image at 81000000 ...
+   Image Name:   RTK_SDK
+   Created:      2022-01-19  16:37:57 UTC
+   Image Type:   MIPS Linux Kernel Image (lzma compressed)
+   Data Size:    4917870 Bytes = 4.7 MB
+   Load Address: 80000000
+   Entry Point:  80283850
+   Verifying Checksum ... OK
+   Uncompressing Kernel Image ... OK
+
+Starting kernel ...
+
+console [ttyS0] enabled
+bootconsole [early0] disabled
+Calibrating delay loop... 531.66 BogoMIPS (lpj=2658304)
+pid_max: default: 32768 minimum: 301
+Mount-cache hash table entries: 1024 (order: 0, 4096 bytes)
+Mountpoint-cache hash table entries: 1024 (order: 0, 4096 bytes)
+NET: Registered protocol family 16
+SCSI subsystem initialized
+usbcore: registered new interface driver usbfs
+usbcore: registered new interface driver hub
+usbcore: registered new device driver usb
+NET: Registered protocol family 2
+TCP established hash table entries: 2048 (order: 1, 8192 bytes)
+TCP bind hash table entries: 2048 (order: 3, 40960 bytes)
+TCP: Hash tables configured (established 2048 bind 2048)
+TCP: reno registered
+UDP hash table entries: 256 (order: 1, 12288 bytes)
+UDP-Lite hash table entries: 256 (order: 1, 12288 bytes)
+NET: Registered protocol family 1
+futex hash table entries: 256 (order: 0, 7168 bytes)
+msgmni has been set to 484
+bounce: pool size: 64 pages
+io scheduler noop registered
+io scheduler deadline registered
+io scheduler cfq registered (default)
+Serial: 8250/16550 driver, 1 ports, IRQ sharing disabled
+serial8250: ttyS0 at MMIO 0x0 (irq = 47, base_baud = 10764700) is a 16550A
+RTK_SPI_FLASH_MIO driver is bypassed
+RTK_NORSFG3 driver is used
+=================================================================
+init_luna_nor_spi_map: flash map at 0xb4000000
+SPI NOR driver probe...
+WINBOND/EF4019/MMIO32-2/ModeC add SPI NOR partition
+MTD partitions obtained from built-in array
+Creating 7 MTD partitions on "rtk_norsf_g3":
+0x000000000000-0x0000000e0000 : "LOADER"
+0x0000000e0000-0x0000000f0000 : "BDINFO"
+0x0000000f0000-0x000000100000 : "SYSINFO"
+0x000000100000-0x000000200000 : "JFFS2 CFG"
+0x000000200000-0x000000300000 : "JFFS2 LOG"
+0x000000300000-0x000001180000 : "RUNTIME"
+0x000001180000-0x000002000000 : "RUNTIME2"
+=================================================================
+ehci_hcd: USB 2.0 'Enhanced' Host Controller (EHCI) Driver
+rtk_gen1_hcd_cs_init: rtk_gen1_hcd_cs_init()!
+rtk_gen1_hcd_cs_init: register rtk_gen1_ehci ok!
+usb_phy_configure_process: usb_phy_configure_process()!
+rtk_gen1-ehci rtk_gen1-ehci: Realtek On-Chip EHCI Host Controller
+rtk_gen1-ehci rtk_gen1-ehci: new USB bus registered, assigned bus number 1
+rtk_gen1-ehci rtk_gen1-ehci: irq 28, io mem 0x18021000
+rtk_gen1-ehci rtk_gen1-ehci: USB 2.0 started, EHCI 1.00
+hub 1-0:1.0: USB hub found
+hub 1-0:1.0: 1 port detected
+usbcore: registered new interface driver usbtmc
+usbcore: registered new interface driver usb-storage
+TCP: cubic registered
+NET: Registered protocol family 17
+Freeing unused kernel memory: 3700K (803a3000 - 80740000)
+Kernel panic - not syncing: Attempted to kill init! exitcode=0x00000000
+
+---[ end Kernel panic - not syncing: Attempted to kill init! exitcode=0x00000000
+
+random: nonblocking pool is initialized
+
+[TX 15:04:40] '\\r'
+
+
+U-Boot 2011.12.(3.6.6.55087) (Jan 19 2022 - 16:34:33)
+
+Board: RTL9300 CPU:800MHz LX:175MHz DDR:600MHz
+DRAM:  512 MB
+SPI-F: WINBOND/EF4019/MMIO32-2/ModeC 1x32 MB (plr_flash_info @ 83f922a4)
+Loading 65536B env. variables from offset 0xe0000
+Net:   Net Initialization Skipped
+No ethernet found.
+Hit Esc key to stop autoboot:  1 
+
+ 0 
+RTL9300# # 
+RTL9300# # 
+[TX 15:05:28] 'setenv bootargs \'console=ttyS0,115200 rdinit=/bin/sh -c "mknod /dev/s c 4 64; exec /bin/sh </dev/s >/dev/s 2>&1"\'\\r'
+setenv bootargs 'console=ttyS0,115200 rdinit=/bin/sh -c "mknod /dev/s c 4 64; exec /bin/sh </dev/s >/dev/s 2>&1"'
+RTL9300# # 
+[TX 15:05:28] 'printenv bootargs\\r'
+printenv bootargs
+bootargs=console=ttyS0,115200 rdinit=/bin/sh -c "mknod /dev/s c 4 64; exec /bin/sh </dev/s >/dev/s 2>&1"
+RTL9300# # 
+[TX 15:05:36] 'boota\\r'
+boota
+## Booting image from partition ... 0
+## Booting kernel from Legacy Image at 81000000 ...
+   Image Name:   RTK_SDK
+   Created:      2022-01-19  16:37:57 UTC
+   Image Type:   MIPS Linux Kernel Image (lzma compressed)
+   Data Size:    4917870 Bytes = 4.7 MB
+   Load Address: 80000000
+   Entry Point:  80283850
+   Verifying Checksum ... OK
+   Uncompressing Kernel Image ... OK
+
+Starting kernel ...
+
+console [ttyS0] enabled
+bootconsole [early0] disabled
+Calibrating delay loop... 531.66 BogoMIPS (lpj=2658304)
+pid_max: default: 32768 minimum: 301
+Mount-cache hash table entries: 1024 (order: 0, 4096 bytes)
+Mountpoint-cache hash table entries: 1024 (order: 0, 4096 bytes)
+NET: Registered protocol family 16
+SCSI subsystem initialized
+usbcore: registered new interface driver usbfs
+usbcore: registered new interface driver hub
+usbcore: registered new device driver usb
+NET: Registered protocol family 2
+TCP established hash table entries: 2048 (order: 1, 8192 bytes)
+TCP bind hash table entries: 2048 (order: 3, 40960 bytes)
+TCP: Hash tables configured (established 2048 bind 2048)
+TCP: reno registered
+UDP hash table entries: 256 (order: 1, 12288 bytes)
+UDP-Lite hash table entries: 256 (order: 1, 12288 bytes)
+NET: Registered protocol family 1
+futex hash table entries: 256 (order: 0, 7168 bytes)
+msgmni has been set to 484
+bounce: pool size: 64 pages
+io scheduler noop registered
+io scheduler deadline registered
+io scheduler cfq registered (default)
+Serial: 8250/16550 driver, 1 ports, IRQ sharing disabled
+serial8250: ttyS0 at MMIO 0x0 (irq = 47, base_baud = 10764700) is a 16550A
+RTK_SPI_FLASH_MIO driver is bypassed
+RTK_NORSFG3 driver is used
+=================================================================
+init_luna_nor_spi_map: flash map at 0xb4000000
+SPI NOR driver probe...
+WINBOND/EF4019/MMIO32-2/ModeC add SPI NOR partition
+MTD partitions obtained from built-in array
+Creating 7 MTD partitions on "rtk_norsf_g3":
+0x000000000000-0x0000000e0000 : "LOADER"
+0x0000000e0000-0x0000000f0000 : "BDINFO"
+0x0000000f0000-0x000000100000 : "SYSINFO"
+0x000000100000-0x000000200000 : "JFFS2 CFG"
+0x000000200000-0x000000300000 : "JFFS2 LOG"
+0x000000300000-0x000001180000 : "RUNTIME"
+0x000001180000-0x000002000000 : "RUNTIME2"
+=================================================================
+ehci_hcd: USB 2.0 'Enhanced' Host Controller (EHCI) Driver
+rtk_gen1_hcd_cs_init: rtk_gen1_hcd_cs_init()!
+rtk_gen1_hcd_cs_init: register rtk_gen1_ehci ok!
+usb_phy_configure_process: usb_phy_configure_process()!
+rtk_gen1-ehci rtk_gen1-ehci: Realtek On-Chip EHCI Host Controller
+rtk_gen1-ehci rtk_gen1-ehci: new USB bus registered, assigned bus number 1
+rtk_gen1-ehci rtk_gen1-ehci: irq 28, io mem 0x18021000
+rtk_gen1-ehci rtk_gen1-ehci: USB 2.0 started, EHCI 1.00
+hub 1-0:1.0: USB hub found
+hub 1-0:1.0: 1 port detected
+usbcore: registered new interface driver usbtmc
+usbcore: registered new interface driver usb-storage
+TCP: cubic registered
+NET: Registered protocol family 17
+Freeing unused kernel memory: 3700K (803a3000 - 80740000)
+Kernel panic - not syncing: Attempted to kill init! exitcode=0x00000000
+
+---[ end Kernel panic - not syncing: Attempted to kill init! exitcode=0x00000000

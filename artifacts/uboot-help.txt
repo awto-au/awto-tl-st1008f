@@ -1,0 +1,68 @@
+[TX 12:51:39] 'help\\r'
+help
+?       - alias for 'help'
+base    - print or set address offset
+boota   - boota  - boot application image from one of dual images partition automatically
+bootm   - boot application image from memory
+bootp   - boot image via network using BOOTP/TFTP protocol
+cmp     - memory compare
+cp      - memory copy
+crc32   - checksum calculation
+env     - environment handling commands
+erase   - erase FLASH memory
+flerase - Erase flash partition
+flinfo  - print FLASH memory information
+flshow  - Show flash partition layout
+go      - start application at address 'addr'
+help    - print command description/usage
+iminfo  - print header information for application image
+loadb   - load binary file over serial line (kermit mode)
+loads   - load S-Record file over serial line
+loady   - load binary file over serial line (ymodem mode)
+loop    - infinite loop on address range
+md      - memory display
+mm      - memory modify (auto-incrementing address)
+mtest   - simple RAM read/write test
+mw      - memory write (fill)
+nm      - memory modify (constant address)
+ping    - send ICMP ECHO_REQUEST to network host
+printenv- print environment variables
+printsys- printsys - print system information variables
+
+protect - enable or disable FLASH write protection
+reset   - Perform RESET of the CPU
+reset_all- Perform whole chip RESET of the CPU
+rtk     - rtk     - Realtek commands
+
+run     - run commands in an environment variable
+saveenv - save environment variables to persistent storage
+savesys - savesys - save system information variables to persistent storage
+
+setenv  - set environment variables
+setsys  - setsys  - set system information variables
+
+sf      - SPI flash sub-system
+sleep   - delay execution for some time
+tftpboot- boot image via network using TFTP protocol
+upgrade - Upgrade loader or runtime image
+version - print monitor, compiler and linker version
+RTL9300# # 
+[TX 12:52:26] 'help sf\\r'
+help sf
+sf - SPI flash sub-system
+
+Usage:
+sf probe [bus:]cs [hz] [mode]	- init flash device on given SPI bus
+				  and chip select
+sf read addr offset len 	- read `len' bytes starting at
+				  `offset' to memory at `addr'
+sf write addr offset len	- write `len' bytes from memory
+				  at `addr' to flash at `offset'
+sf erase offset [+]len		- erase `len' bytes from `offset'
+				  `+len' round up `len' to block size
+sf update addr offset len	- erase and write `len' bytes from memory
+				  at `addr' to flash at `offset'
+RTL9300# # 
+[TX 12:52:35] 'sf probe 0\\r'
+sf probe 0
+RTL9300# #

@@ -1,0 +1,59 @@
+[TX 13:39:55] 'help rtk\\r'
+help rtk
+rtk - rtk     - Realtek commands
+
+
+Usage:
+rtk rtk network on
+        - Enable the networking function
+rtk netowkr off
+        - Disable the networking function
+rtk testmode [mode] [port]
+        - Set default value for specific testing
+rtk ext-devInit [deviceAddress]
+        - set RTL8231 MDC address
+rtk ext-pinGet [pinNum]
+        - get external 8231 GPIO pin status
+rtk ext-pinSet [pinNum] [status]
+        - set external 8231 GPIO pin status
+rtk i2c init sw [i2c_dev_id] [sck_dev] [sck_pin] [sda_dev] [sda_pin] [8/16 access type] [chipid] [delay] [rtl8231_address (for Ext-GPIO only)] [read_type 0~1]
+        - create a i2c group and init
+rtk i2c init hw [i2c_dev_id] [intf_id 0~1 for HW] [sda_pin] [8/16 access type] [chipid] [freq 0~3] [read_type 0~1]
+        - create a i2c group and init
+rtk i2c read [i2c_dev_id] [reg]
+rtk i2c write [i2c_dev_id] [reg] [data]
+rtk pinGet [pinNum]
+        - get internal GPIO pin status
+rtk pinSet [pinNum] [status]
+        - set internal GPIO pin status
+rtk ledtest [port] [led_index]
+        - led test
+rtk show hw_profile_list
+        - show the current all supported hw_profile list
+rtk phytestmode mode port channel
+        - Set PHY into test mode; channel: 1=A,2=B,3=C,4=D,0=None
+rtk boardid
+        - Get board model id
+rtk boardid id
+        - Set board model id
+rtk boardmodel
+        - Get board model
+rtk boardmode <str>model
+        - Set board model
+rtk 10g PORT [none | fiber10g | fiber1g | fiber100m | dac50cm | dac100cm | dac300cm]        - Set 10g port media
+rtk phyreg get [port] [page] [reg]
+rtk phyreg set [port] [page] [reg] [data]
+        - Get/Set PHY register
+rtk phymmd get [port] [addr] [reg]
+rtk phymmd set [port] [addr] [reg] [data]
+        - Get/Set PHY mmd register
+rtk sdsreg get [sdsId] [page] [reg]
+rtk sdsreg set [sdsId] [page] [reg] [data]
+        - Get/Set MAC serdes register
+rtk macsds set [sdsId] [sds_mode]
+        - Set MAC serdes mode
+rtk unit get
+rtk unit set [unit]
+        - Get/set unit ID
+
+RTL9300# #

@@ -1,0 +1,16 @@
+[TX 12:51:09] 'printenv\\r'
+printenv
+baudrate=115200
+boardmodel=RTL9303_8XGE
+bootcmd=boota
+bootdelay=1
+ethaddr=xx:xx:xx:xx:xx:xx
+ipaddr=192.168.0.100
+ledModeInitSkip=0
+serverip=192.168.0.145
+stderr=serial
+stdin=serial
+stdout=serial
+
+Environment size: 218/65532 bytes
+RTL9300# #

@@ -1,0 +1,7 @@
+dev:    size   erasesize  name
+mtd0: 000e0000 00010000 "u-boot"
+mtd1: 00010000 00010000 "u-boot-env"
+mtd2: 00010000 00010000 "u-boot-env2"
+mtd3: 00100000 00010000 "jffs2-cfg"
+mtd4: 00100000 00010000 "jffs2-log"
+mtd5: 01d00000 00010000 "firmware"
