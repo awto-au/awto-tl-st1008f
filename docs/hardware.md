@@ -71,10 +71,14 @@ From the OpenWrt v2 DTS (`SWITCH_PORT_SFP(p,l,s,c,g)` = SoC port, label, SerDes,
 
 ## Thermal
 
-- No throttling or over-temperature shutdown in stock U-Boot, stock Linux or the stock SDK startup; passive cooling, no fan. PT7A7514 is a voltage supervisor only. Never run without the heatsink unsupervised. Details: issue #13.
-- On-die meter, read-only at `RTL9300#`: `md.l 0xBB00006C 1` → `TEMP_OUT` = bits 22:16 (switch-SDK `swcore_rtl9300.h` layout; the U-Boot-header addresses are 8 bytes off). Runs with no CTRL write.
-- 2026-10-08, heatsink off, idle U-Boot ~1 min after power-on, before `rtk network on`: 42 (assumed °C, no external probe yet).
-- OpenWrt v2 DTS thermal zone covers the 8 SFP module sensors only (critical 110 °C), not the SoC.
+- Stock U-Boot / stock Linux: no thermal handling at all; the meter is never enabled. Passive cooling, no fan; PT7A7514 is a voltage supervisor only. Details: issue #13.
+- OpenWrt 25.12.4: `CONFIG_REALTEK_THERMAL=y` + `CONFIG_THERMAL_HWMON=y` → `/sys/class/thermal/thermal_zone*/temp`, hwmon (`sensors`). SoC `cpu-thermal` zone (`rtl930x.dtsi`): critical 105 °C, `THERMAL_EMERGENCY_POWEROFF_DELAY_MS=0` → emergency power-off (a halt on this board). Board DTS adds `sfp-thermal` (8 module sensors, critical 110 °C).
+- On-die meter (switch-SDK `swcore_rtl9300.h` layout; the U-Boot-header addresses are 8 bytes off):
+  - **Off at power-on**: `CTRL_2.TM_ENABLE` (`0xBB000068` bit 16) = 0; `RESULT_0` holds a reset value with `TEMP_VALID` clear. Do not read it as a temperature.
+  - Enable (as OpenWrt's `rtl9300_thermal_init`): `CTRL_1` (`0xBB000064`) bits 31:16 `SAMPLE_DLY` = `0x0800`; `CTRL_2` bit 16 = 1. RMW; no flash involved.
+  - Read `RESULT_0` (`0xBB00006C`): `TEMP_VALID` = bit 24, `TEMP_OUT` = bits 23:16 = °C (OpenWrt `coefficients = <1000 0>`). `RESULT_1` (`0x70`): `TEMP_MAX` 14:8, `TEMP_MIN` 6:0, latched since enable.
+  - U-Boot one-liner (RMW values from a stock boot): `mw.l 0xBB000064 0x08000007; mw.l 0xBB000068 0x00034cd7; md.l 0xBB00006C 2`.
+- 2026-10-08, heatsink off, idle at U-Boot after `rtk network on`, one laser on, ~7 min after power-on: **73 °C** steady (3 reads); min/max since enable 55/73. Not yet checked against an external probe.
 
 ## SFP lasers are OFF in stock U-Boot (root cause of "no 10G in U-Boot")
 
