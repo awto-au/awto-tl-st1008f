@@ -93,6 +93,13 @@ End-to-end workflow: [../README.md#workflow](../README.md#workflow).
 - Run: `analyzeHeadless private/ghidra <project> -process loader.bin -postScript TraceLoader.java <out.c> <addr>[=exact_name] ...`
 - Output: the `.c` file given as the first script argument (keep it in `private/ghidra/`; vendor-code decompilation is not published).
 
+## Repo maintenance
+
+### gh_issue_from_draft.py
+- Purpose: create a GitHub issue from a Markdown draft; title = first `# ` line; relative links rewritten to absolute blob URLs (issues don't resolve relative links).
+- Run: `scripts/gh_issue_from_draft.py tmp/issue-draft-<name>.md [--close] [--dry-run]` (needs an authenticated `gh`).
+- Log: `tmp/logs/gh_issue_from_draft.log`.
+
 ## Historical Node helpers (scripts/node/)
 
 Kept as used on 2026-10-07/08. New tooling is Python. Run from the repo root with Node ≥ 20; serial helpers need `SERIAL_PORT=/dev/serial/by-id/<adapter>` and nothing else on the port.
