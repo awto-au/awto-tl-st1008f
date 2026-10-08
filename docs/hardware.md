@@ -45,8 +45,10 @@ From the OpenWrt v2 DTS (`SWITCH_PORT_SFP(p,l,s,c,g)` = SoC port, label, SerDes,
 
 ### Switch fabric
 
+- One chip: the RTL9303 package holds the CPU (1× MIPS 34Kc, 800 MHz, 2 hardware threads → Linux shows 2 CPUs), the switch core, 8 SerDes, GPIO/I2C/SPI/LED/thermal blocks. No separate processor on the board. External: DDR3, SPI NOR, TCA9534A, 74HC164s.
+- CPU ↔ switch core = internal CPU port (SDK port 28, `eth0` 1G-class under OpenWrt). Software routing tops out there (issue #15).
 - All 8 SFP+ ports are switched by the RTL9303 L2/L3 ASIC (store-and-forward, line rate per port). Not a software bridge.
-- The CPU (embedded MIPS, 800 MHz) only programs the ASIC (VLAN/STP/forwarding tables via SDK or DSA) and handles control-plane / CPU-port traffic.
+- The CPU only programs the ASIC (VLAN/STP/forwarding tables via SDK or DSA) and handles control-plane / CPU-port traffic.
 - Managed vs unmanaged = which software programs the ASIC tables, not where switching happens.
 
 ### Port LEDs
