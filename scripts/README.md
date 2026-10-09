@@ -39,6 +39,12 @@ End-to-end workflow: [../README.md#workflow](../README.md#workflow).
 - Output: `tmp/logs/st1008_pca9534.log`. ~40 s per `enable-tx`; every byte ACK-checked; aborts if the prompt does not return.
 - Hazard: preserves GPIO21 (DTS watchdog toggle) output-high; refuses if it is not. `--out 0x00` lights all 8 lasers (cage loop).
 
+### routing_wirespeed.py
+- Purpose: measure HW-L3 routed throughput through the switch and prove the ASIC (not CPU) forwards, watching error counters on switch + host. Gateway-routed hairpin over one 10G host NIC (two netns in far subnets behind per-VLAN gateways → both directions HW-forwardable; on-link would trap to CPU).
+- Run: `routing_wirespeed.py setup | run [--secs N --streams P --udp MBPS] | probe | status | teardown`. Needs ssh to the switch (blank root pw) + host sudo. Log: `tmp/logs/routing_wirespeed.log`.
+- Result (snapshot 6.18): 9.19 Gbit/s TCP / 9.53 Gbit/s UDP routed, 0.000 % via CPU, 0 errors. See `docs/ROUTING-OFFLOAD.md`.
+- Config lands on OpenWrt overlay only (not U-Boot/vendor flash); `teardown` reverts it; mgmt VLAN1 untouched.
+
 ### tftpd.py
 - Purpose: minimal TFTP server. RRQ for `tftpboot`; WRQ accepted for future uploads; blksize/tsize negotiation.
 - Run: `sudo scripts/tftpd.py` (udp/69; stock U-Boot always uses 69) or `scripts/tftpd.py --port 6969 --once`.
