@@ -77,6 +77,12 @@ End-to-end workflow: [../README.md#workflow](../README.md#workflow).
 - Output: `private/stock-runtime-<ts>/runtime.bin`. Log: `tmp/logs/auto_dump_runtime.log`.
 - Notes: on 2026-10-08 every higher rate fell back to 115200. Superseded by the OpenWrt route.
 
+### ubnt_fw_unpack.py
+- Purpose: split a Ubiquiti UBNT firmware `.bin` (e.g. UniFi `US.bcm5334x`) into PART payloads; decompress the uImage; extract embedded xz/gzip/LZMA-alone streams (built-in initramfs cpio).
+- Run: `scripts/ubnt_fw_unpack.py <fw.bin> <out-dir>`; entropy map only: `scripts/ubnt_fw_unpack.py x x --entropy <file> [--block 0x400]`.
+- Output: `<out>/<idx>-<name>.bin`, `.img` (decompressed uImage), `.<kind>@<off>` streams. Log: `tmp/logs/ubnt_fw_unpack.log`.
+- Notes: LZMA-alone detection takes any lc/lp/pb (US.bcm5334x initramfs uses props `0x6d`, missed by a fixed `0x5d` magic). Unpack the cpio with `cpio -idm --no-absolute-filenames -D <empty dir>`.
+
 ## Static analysis
 
 ### st1008_uboot_funcmap.py
