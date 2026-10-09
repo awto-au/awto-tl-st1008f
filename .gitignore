@@ -12,3 +12,6 @@ __pycache__/
 firmware/hello/*.o
 firmware/hello/*.elf
 firmware/hello/*.bin
+uboot/*.o
+uboot/*.elf
+uboot/*.bin
