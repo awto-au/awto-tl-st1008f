@@ -129,3 +129,31 @@ Extend: `scripts/st1008_uboot_funcmap.py resolve <mapname> ...`.
 **SPEC**
 - Exact arg types of `clk_routine`, `linkFault_check`, `phy_sdsRxCaliStatus_get`.
 - `swnic_send` / `drv_nic_rx_start` argument layout (signatures from dms1250, not re-derived).
+
+---
+
+## 5. Full reversal (ledger-driven naming pass)
+
+Whole-image decompile + iterative naming per the awto-unvr Ghidra method. Tooling: [scripts/ghidra/DecompileAll.java](../scripts/ghidra/DecompileAll.java) (dump all), [scripts/ghidra/ApplyNames.java](../scripts/ghidra/ApplyNames.java) (apply ledger, create analyzer-gap functions), [scripts/loader_names.py](../scripts/loader_names.py) (`autoseed|build|apply|rank|ctx|stats`). Ledger + named decompile stay local (vendor code not published).
+
+- Coverage: 1599 funcs ≥0x83f00000; **877 evidence-named**, 722 region placeholders, 34 truly unnamed. SPL (<0x83f00000) skipped (wrong base in the dump — re-import separately).
+- `ApplyNames` recovered 35 analyzer-gap functions incl. `do_go do_boota do_loop do_cmp do_mm do_nm do_env do_run do_setsys do_flerase` (`do_flerase` = "Forbid to erase LOADER").
+
+### SDK structure
+- `hal_get_ctrl(unit)` @0x83f228c8 (179 callers) → `g_hal_ctrl[unit]` (stride 0x134); chip info @+4, MAC-ops table @chip+0x18.
+- MAC-ops slots: 0x04 PHY read, 0x08 write, 0x0c read-masked, 0x10 write-masked, 0x24/0x28 MMD read/write, 0x4c/0x50 SerDes write.
+- `g_hal_unit_tbl` @0x83ff84f8 = `{devinfo*, flags}` per unit.
+- Error codes: 0xf007 null, 0xf00c bad-input, 0xf00d no-op, 0xf00f not-init, 0xf010 no-driver, 0xf013/0xf014 sem lock/unlock fail, 0xf030 port-not-supported (benign on PHY-less ports).
+
+### Register / PHY / port layer
+- `reg_field_read` @0x83f2be7c (70 callers), `reg_array_addr` @0x83f2b5e4, `reg_array_field_write` @0x83f2c5b4.
+- `phy_read`/`phy_write` + `_masked` @0x83f2c814/0x83f2c98c/0x83f2cb20/0x83f2cc48.
+- `port_mac_poll_save_disable` @0x83f2d600, `port_mac_poll_restore` @0x83f2d684.
+- `phy_patch_apply` @0x83f3fa50; profile engine 0x83f3de78–0x83f3eb54; `sds_reg_*` 0x83f87c74–0x83f88194; `spi_master_*` 0x83f1ffb8–0x83f20794; `gpio_*_locked` 0x83f1f668–0x83f1fb78.
+- `mac_park_tx_disable` @0x83f6f710 = the all-lasers-off write (dev8 reg3/reg1=0xff) in SDK init.
+
+### Correction
+- §earlier "do_parterase @0x83f1668c" is the delay slot inside `flerase` (entry 0x83f16684). Routine is `flerase`, not "parterase".
+
+### Remaining gaps (722 placeholders)
+- ~190 `dal_longan_*`, ~155 PHY driver (8218B/D + SerDes-iface), ~120 `mac_drv_*` — mostly vtable-slot-numbered; need the Realtek SDK register/enum tables to resolve per-slot semantics.
