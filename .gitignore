@@ -9,3 +9,6 @@ __pycache__/
 *.lock~
 *.rep/
 *.gpr
+firmware/hello/*.o
+firmware/hello/*.elf
+firmware/hello/*.bin
