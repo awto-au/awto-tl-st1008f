@@ -116,8 +116,18 @@ class Owner:
                 else:
                     time.sleep(0.01)  # nothing waiting; yield without the lock
             except Exception as exc:
-                self._logfh.write(f"\n[daemon] read error: {exc}\n".encode())
-                time.sleep(0.2)
+                # Adapter powered from the switch header re-enumerates on every
+                # power cycle (ttyUSB1->2->...); the old fd then EIOs forever.
+                # Reopen the by-id path — it follows to the new ttyUSB — so the
+                # daemon self-heals across power cycles (no manual restart).
+                self._logfh.write(f"\n[daemon] read error: {exc}; reopening\n".encode())
+                time.sleep(0.5)  # let udev re-create the by-id symlink
+                try:
+                    self._open()
+                    self._logfh.write(b"[daemon] reopened OK\n")
+                except Exception as e2:
+                    self._logfh.write(f"[daemon] reopen failed: {e2}\n".encode())
+                    time.sleep(0.5)
 
     def _watch(self, data: bytes):
         """Banner detection on the live RX stream. Keep a short rolling tail so
