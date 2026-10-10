@@ -26,7 +26,8 @@ CHECKS = {
     "version": ("version", r"U-Boot 2026\.07", 1),
     "bdinfo": ("bdinfo", r"-> start\s*= 0x80000000\r?\n-> size\s*= 0x10000000", 1),  # 256 MiB @ KSEG0
     "dm": ("dm tree", r"root_driver.*\r?\n.*simple_bus.*\r?\n.*ns16550_serial", 1),
-    "env": ("printenv baudrate", r"baudrate=115200", 1),
+    # 115200, or a CFG_SYS_BAUDRATE_TABLE rate after `ramload --fast`
+    "env": ("printenv baudrate", r"baudrate=(115200|1822916|2187500|2734375|3645833|5468750|10937500)\r?\n", 1),
 }
 # mode switch via gpio-keys: all three probe (a state, not "not found"); M1 = pin 17 low = on
 CHECKS["buttons"] = ("button M1; button M2; button M3",

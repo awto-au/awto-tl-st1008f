@@ -62,6 +62,8 @@ Full stock `rtk` parity inventory, registers and parity harness: [RTK-COMMANDS.m
 ## Console speed
 
 - UART = LX 175 MHz / 16 / divisor; every divisor 47..1 (232 k .. 10.94 MBd) passes byte-exact (`./dev.py serial-speed`). Results + host request table: #32.
+- `./dev.py ramload uboot-mainline --fast [DIV]`: after boot, `setenv baudrate` to 10.9375 MBd/DIV (default 1) and find the host request (`tmp/serial-cal.json` first, then sweep). `uboot-test` 29/29 at 10.94 MBd.
+- After `--fast` the board stays fast until power-off; `console-restart`, the daemon's autoboot catch and `uboot-test reset` assume 115200.
 - `CFG_SYS_BAUDRATE_TABLE` lists the exact divisor rates so `setenv baudrate` accepts them.
 - Long input lines lose characters (#31): scripts type through `Console.send_checked` (echo-verified, Enter last).
 

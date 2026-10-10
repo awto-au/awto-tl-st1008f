@@ -193,6 +193,8 @@ def main() -> int:
                     help="`stock` = stop at the caught stock prompt (+ rtk network on)")
     ap.add_argument("--cage", type=int, default=1, help="the ONE cage to light for TFTP (cage-loop hazard)")
     ap.add_argument("--no-cycle", action="store_true", help="already at the stock RTL9300# prompt")
+    ap.add_argument("--fast", type=int, nargs="?", const=1, metavar="DIV",
+                    help="uboot-mainline: switch console to 10.9375 MBd/DIV after boot (default 1)")
     ap.add_argument("--no-network", action="store_true", help="rtk network on already done this boot")
     a = ap.parse_args()
 
@@ -212,6 +214,9 @@ def main() -> int:
                        capture_output=True, text=True, timeout=30)  # local file scan, <2 s
     sys.stdout.write(r.stdout)
     log(f"boot_log_check exit {r.returncode} ({['CLEAN', 'UNKNOWN', 'ERRORS'][min(r.returncode, 2)]})")
+    if a.fast and a.image == "uboot-mainline":
+        from serial_speed_test import go_fast  # imports this module; late import avoids a cycle
+        go_fast(con, a.fast)
     return r.returncode
 
 

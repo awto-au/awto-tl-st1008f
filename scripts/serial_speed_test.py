@@ -21,6 +21,7 @@ from st1008_ramload import CONSOLE, SOCK, Console  # noqa: E402
 
 ROOT = Path(__file__).resolve().parent.parent
 LOG = ROOT / "tmp/logs/serial_speed_test.log"
+CAL = ROOT / "tmp/serial-cal.json"  # {divisor: host request that decodes}; written by the ladder
 PROMPT = r"\r?\nst1008f-mainline # "
 UART = 0xB8002000  # ns16550, one register per word, data in byte 0 (docs/UBOOT-MAINLINE.md)
 LCR, DLL, DLM = UART + 0x0C, UART + 0x00, UART + 0x04
@@ -108,6 +109,32 @@ def step(con: Console, div: int, base: bytes, host: int | None = None) -> dict:
     return res
 
 
+def go_fast(con: Console, div: int = 1) -> int:
+    """`setenv baudrate` to BASE_CLK/div (an exact CFG_SYS_BAUDRATE_TABLE entry), then find the
+    host request that sees the prompt: calibrated value first, then the sweep. Returns it."""
+    rate = BASE_CLK // div  # truncated, as listed in the U-Boot table
+    cal = json.loads(CAL.read_text()) if CAL.exists() else {}
+    f0 = min(1.0, HOST_MAX / rate)
+    tries = ([cal[str(div)]] if str(div) in cal else []) + \
+        [round(rate * (f0 - SWEEP_STEP * i)) for i in range(int((f0 - SWEEP_MIN) / SWEEP_STEP) + 1)]
+    mark = con.send_checked(f"setenv baudrate {rate}")
+    con.expect(r"press ENTER", 1, mark, "baudrate switch prompt")  # printed at 115200 before switch
+    for req in tries:
+        host_baud(req)
+        mark = con.size()
+        con.send("", cr=True)  # U-Boot discards input until a CR decodes at the new rate
+        try:
+            # prompt line at >=1 MBd arrives in <1 ms; 0.3 s = poll slack, names a wrong request
+            con.expect(PROMPT, 0.3, mark, f"prompt at {rate} (host {req})")
+            con.send_checked("echo FAST_OK")
+            con.expect(r"\nFAST_OK\r?\n", 0.3, con.size() - 40, "typed command at speed")
+            log(f"console at {rate:,} Bd (host request {req:,})")
+            return req
+        except SystemExit:
+            continue
+    raise SystemExit(f"FAIL: no host request decodes {rate} Bd; board needs a power cycle")
+
+
 def main() -> int:
     ap = argparse.ArgumentParser(description=__doc__.splitlines()[0])
     ap.add_argument("divisors", nargs="*", type=int, default=LADDER)
@@ -139,6 +166,9 @@ def main() -> int:
     for r in results:
         if r["ok"] and r["host"] != r["rate"]:
             log(f"  div {r['div']}: board {r['rate']:,} decoded with host request {r['host']:,}")
+    cal = json.loads(CAL.read_text()) if CAL.exists() else {}
+    cal.update({str(r["div"]): r["host"] for r in results if r["ok"]})
+    CAL.write_text(json.dumps(cal, indent=1))
     good = [r["rate"] for r in results if r["ok"]]
     log(f"=== {len(good)}/{len(results)} rates pass; fastest {max(good) if good else '-'} Bd")
     return 0 if len(good) == len(results) else 1
