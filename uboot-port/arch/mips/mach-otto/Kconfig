@@ -1,0 +1,26 @@
+menu "Realtek Otto platforms"
+	depends on ARCH_OTTO
+
+config SYS_SOC
+	default "otto"
+
+config SOC_RTL9300
+	bool
+	select SUPPORT_BIG_ENDIAN
+	select SUPPORTS_CPU_MIPS32_R1
+	select SUPPORTS_CPU_MIPS32_R2
+	help
+	  Realtek RTL930x (MIPS 34Kc, 2 threads, 800 MHz).
+
+choice
+	prompt "Board select"
+
+config TARGET_TPLINK_TL_ST1008F
+	bool "TP-Link TL-ST1008F v2 (RTL9303)"
+	select SOC_RTL9300
+
+endchoice
+
+source "board/tplink/tl-st1008f/Kconfig"
+
+endmenu

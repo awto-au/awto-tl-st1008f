@@ -1,0 +1,8 @@
+TP-LINK TL-ST1008F V2 BOARD
+M:	Dan <dan@awto.au>
+S:	Maintained
+F:	arch/mips/mach-otto/
+F:	arch/mips/dts/tplink_tl-st1008f.dts
+F:	board/tplink/tl-st1008f/
+F:	include/configs/tplink_tl-st1008f.h
+F:	configs/tplink_tl-st1008f_ram_defconfig

@@ -1,0 +1,58 @@
+// SPDX-License-Identifier: GPL-2.0+
+/*
+ * TP-Link TL-ST1008F v2 (RTL9303), U-Boot stage 0: console + memory only.
+ * UART/clock facts match Linux (OpenWrt rtl930x.dtsi, ns16550a @ 0x18002000).
+ */
+/dts-v1/;
+
+/ {
+	compatible = "tplink,tl-st1008f-v2", "realtek,rtl9302-soc";
+	model = "TP-Link TL-ST1008F v2.0";
+	#address-cells = <1>;
+	#size-cells = <1>;
+
+	aliases {
+		serial0 = &uart0;
+	};
+
+	chosen {
+		stdout-path = "serial0:115200n8";
+	};
+
+	cpus {
+		#address-cells = <1>;
+		#size-cells = <0>;
+
+		cpu@0 {
+			device_type = "cpu";
+			compatible = "mips,mips34Kc";
+			reg = <0>;
+		};
+	};
+
+	/* Second 256 MiB is not linearly mapped (needs highmem remap). */
+	memory@0 {
+		device_type = "memory";
+		reg = <0x00000000 0x10000000>;
+	};
+
+	soc {
+		compatible = "simple-bus";
+		#address-cells = <1>;
+		#size-cells = <1>;
+		ranges = <0x0 0x18000000 0x10000>;
+
+		/* Data in bits 31:24 = byte 0 of each 32-bit reg. U-Boot's BE ns16550 reads
+		 * byte (1 << shift) - 1; reg-offset -3 (u32 wrap) cancels that. */
+		uart0: serial@2000 {
+			compatible = "ns16550a";
+			reg = <0x2000 0x100>;
+			reg-io-width = <1>;
+			reg-shift = <2>;
+			reg-offset = <0xfffffffd>;
+			clock-frequency = <175000000>;	/* LX bus */
+			current-speed = <115200>;
+			no-loopback-test;
+		};
+	};
+};
