@@ -218,7 +218,9 @@ static int sfp_read(struct udevice *dev, u8 reg, u8 *buf, int len, int *mode)
  * Detect (>=4 of the 8 compliance bytes == 0x20), treat the 0x20 as 0 and drop byte 36. */
 static bool sfp_space_padded(u8 *id)
 {
-	static const u8 fields[] = { 3, 4, 5, 6, 7, 8, 9, 10, 11, 12, 13, 37, 38, 39, 64, 65 };
+	/* incl. lengths 14-19: GLC-SX-MM otherwise decodes as SMF 32 km / copper 32 m */
+	static const u8 fields[] = { 3, 4, 5, 6, 7, 8, 9, 10, 11, 12, 13, 14, 15, 16, 17, 18, 19,
+				     37, 38, 39, 64, 65 };
 	int i, n = 0;
 
 	for (i = 3; i <= 10; i++)
