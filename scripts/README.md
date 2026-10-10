@@ -122,6 +122,11 @@ End-to-end workflow: [../README.md#workflow](../README.md#workflow).
 - Run: `analyzeHeadless private/ghidra <project> -process loader.bin -postScript TraceLoader.java <out.c> <addr>[=exact_name] ...`
 - Output: the `.c` file given as the first script argument (keep it in `private/ghidra/`; vendor-code decompilation is not published).
 
+### ghidra/DumpBytes.java
+- Purpose: print the memory-block map and raw bytes at given addresses of a loaded program (reads initialised `.data`/`.rodata` tables the decompiler shows only as `DAT_`).
+- Run: `analyzeHeadless private/ghidra <proj> -process <bin> -noanalysis -readOnly -postScript DumpBytes.java <out.txt> <addr>:<nbytes> ...`
+- Used for issue #8: `gpio_pin[] = {17,18,19}` and the `DAT_003576f0` first-pass flag in stock `rtk.ko` (project `stock-gpio17`, built with `-import <module> -postScript DecompileAll.java <out.c>`).
+
 ### ghidra/DiagSocketAudit.java
 - Purpose: in `diag`, find and decompile the functions that call the socket-server API (`bind`/`listen`/`accept`/`dup2`/`execve`/`socket`) — the listener loop reveals the port, the config gate, and the `dup2(sock,…)`+`execve` shell handoff.
 - Run: `analyzeHeadless private/ghidra <project> -process diag -postScript DiagSocketAudit.java <out.c> [import ...]`

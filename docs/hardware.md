@@ -66,13 +66,61 @@ From the OpenWrt v2 DTS (`SWITCH_PORT_SFP(p,l,s,c,g)` = SoC port, label, SerDes,
   - USB EHCI (`0xb8021000`, little-endian regs): readable at the U-Boot prompt without hanging; at reset: halted, CONFIGFLAG 0, PORTSC1 `0x2000` (port power off, no connect, companion-owned). Issue #5.
 - TX-disable: expander @ `0x38` on an `i2c-gpio` bus, SCL GPIO22 / SDA GPIO23 (`delay-us = 2`). Pin N = cage N+1, **active-high**.
   - Part is a TI TCA9534A (svanheule.net); "PCA9534" in these docs = same register map. The `A` variant's base address `0x38` matches.
-- 3-position mode switch M1/M2/M3 = `gpio-keys` on gpio0 pins 17/18/19 (`BTN_0/1/2`, EV_SW, active-low, 50 ms debounce) per the OpenWrt v2 DTS.
-  - GPIO input only. Stock Linux (`rtcore.ko` SFP-insert handler) reads it and sets the SerDes media mode for the cages (`10G fiber insert` / `2.5G fiber insert`, then `rtk.ko` `media`/`sdsMode`). svanheule.net: one position = 2.5 Gbps. Stock U-Boot ignores it.
-  - Appears global: with M1 asserted a 1G module was also set up as 10G fiber. Position → mode not mapped (issue: mode switch).
+- 3-position mode switch M1/M2/M3 = `gpio-keys` on gpio0 pins 17/18/19 (`BTN_0/1/2`, EV_SW, active-low, 50 ms debounce) per the OpenWrt v2 DTS. Stock behaviour: see "Mode switch (stock firmware)" below.
   - Read with raw `md.l 0xb800330c 1` (DAT), bits 17-19 (bank C bits 1-3). Not `rtk pinGet` before `rtk network on` (hangs the console).
-  - One read at the prompt: bit 17 low (M1 asserted). Position → behaviour not mapped yet (issue: mode switch).
 - GPIO21: DTS external-watchdog toggle pin (1.2 s, always-running). Found static output-high at the U-Boot prompt; board does not reset. Unexplained.
 - USB: on-chip EHCI host, 1 root-hub port (`io mem 0x18021000`, irq 28). No external connector; likely pads/header. U-Boot has no USB commands.
+
+## Mode switch (stock firmware)
+
+Source: static RE of stock `rtk.ko` (TP-Link additions, `TP_CHKPATTERN` thread). Addresses = Ghidra VA of `rtk.ko` (ELF symbol value = VA - 0x14290). Issue #8.
+
+### Behaviour by position
+
+| Position | Live pins 17/18/19 (1 = high) | Pattern | Stock behaviour |
+|---|---|---|---|
+| M1 | 0 / 1 / 1 | 1 | "1G mode": 1G modules up at 1G; 2.5G modules forced down to 1G (`media 2 for auto speed down`); 10G modules unaffected |
+| M2 (middle) | 0 / 0 / 1 | 3 (fall-through) | "2.5G mode": 2.5G modules up at 2.5G; 1G modules left down (`will not set because of unmatched pattern`); 10G unaffected |
+| M3 | 0 / 1 / 0 | 3 (fall-through) | same as M2 |
+| not reachable on this board | 1 / 0 / 1 | 2 | split: SoC ports 0-3 (cages 1-4) as pattern 1, ports 4-7 (cages 5-8) as pattern 3 |
+
+- Pattern decode (`custom_judge_pattern_mode`, `0x0020c240`): `(p17,p18,p19) == (0,1,1)` -> 1; `== (1,0,1)` -> 2; anything else -> 3.
+- Pin 17 is the discriminating bit for pattern 2 only. It reads low in every position on this board, so pattern 2 never occurs; M2 and M3 are indistinguishable to the firmware.
+- Why pin 17 is always low is not explained by the code (it only reads the level). Board-level cause (strap/pull-down/pinmux) unverified.
+- Global: `check_pattern_thread_func` stores one pattern, `sfpPatternSet` fans it out to the 8 per-port bytes at `0x00396838..3f`. Per-port values differ only in pattern 2.
+- 10G modules (type 5) never consult the pattern. The switch only chooses 1G vs 2.5G for modules that SFP EEPROM-classify as 1G/2.5G.
+
+### Decision chain
+
+- `init_module` (`0x0020e8b0`) starts 3 kthreads: `TP_CHKMEDIA` (`check_media_thread_func` `0x0020b834`), `TP_CHKPATTERN` (`check_pattern_thread_func` `0x0020c490`), `TP_CHKELECP`.
+- `check_pattern_thread_func` loop: `custom_get_pattern_mode` -> if first iteration (`DAT_003576f0` = 1 in .data) print `cur pattern = %d`, latch `DAT_00396840`, call `sfpPatternSet`.
+- `custom_get_pattern_mode` (`0x0020c29c`): for each of `gpio_pin[] = {17,18,19}` (rodata `0x0022078c`): `osal_time_usleep(30000)` then `drv_generalCtrlGPIO_dataBit_get(0,0,pin,&v)` -> `rtl9300_gpio_dataBit_get` (`rtcore.ko` `0x00014550`) = raw read of `0xb800330c` bit n, no inversion.
+- `sfpPatternSet` (`0x0020c394`): 1 -> all 8 bytes = 1; 3 -> all = 2; 2 -> bytes 0-3 = 1, 4-7 = 2; then sets `DAT_0039680c` = 1.
+- `tpSfpSetType` (`0x0020b07c`, run by `TP_CHKMEDIA`) first spins `while (DAT_0039680c == 0) osal_time_sleep(1)`: no port is configured before the first pattern read.
+- Per port, module class from SFP EEPROM (`tpSfpGetType` / `tpSfpGetTypeOnce`, `rtcore.ko` `0x000151bc` / `0x000157a4`): 2 = `1G fiber insert`, 3 = `2.5G fiber insert` (EEPROM byte 12 nominal bit rate 0x19..0x20 = 2.5-3.2 GBd), 5 = `10G fiber insert` (10G compliance bits in byte 3). Presence = MOD-DEF0 pins 0-7 (not 17-19).
+- Pattern value p (per port) x class:
+  - class 3, p = 1: `rtk_port_10gMedia_set(2)`, `phy_speed_set(2)`, nway force-link on, autoneg on (runs as 1G).
+  - class 3, p != 1: `rtk_port_10gMedia_set(3)`, `rtk_port_phyForceModeAbility_set(5,1)`, nway off, autoneg off (2.5G forced).
+  - class 2, p != 2: media 2, `phy_speed_set(2)`, autoneg on.
+  - class 2, p = 2: port not configured (`unmatched pattern`).
+  - class 5 and other: media = class, `phy_speed_set(7)`.
+- Copper SFP-T modules (`tpSfpIsElec`) read the same per-port byte: p = 1 -> speed mask `0x04` / media 5, p = 2 -> mask `0x08` / media 2. Lower confidence (decompile only).
+
+### Timing
+
+- Read when: once at module init (first iteration latches), then polled every loop of `TP_CHKPATTERN`.
+- Poll period ~1 s + 3 x 30 ms settle: `osal_time_sleep(1)` = `schedule_timeout(100)` (HZ = 100, 1 s).
+- Debounce: none beyond the 30 ms settle before each pin read; a single changed sample counts.
+- On change: prints `pattern changed switch reset`, drives gpio0 pin 21 low (`drv_generalCtrlGPIO_dataBit_set(0,0,0x15,0)`) = `switch_reset`; presumably reboots and re-latches the new pattern.
+  - Pin 21 is the DTS "external watchdog" pin; the stock code calls the pin-21-low write `switch_reset` (`0x0020c374`). Effect on the board not observed live.
+- A GPIO read error leaves the stack value stale (error path prints `gpio read failed ret=%d` and continues).
+
+### Notes
+
+- The `10G/2.5G/1G fiber insert` lines are EEPROM classification, not the switch. A 1G module logged as `10G fiber insert` under M1 means its EEPROM claimed 10G compliance bits; it is not evidence of a global mode.
+- `gpioInit` (`0x0020c6dc`) is dead code (no caller).
+- Stock U-Boot never reads pins 17-19.
+- Replacement-U-Boot implication: read DAT bits 17-19 directly; M1 vs not-M1 is the only distinguishable split on this board.
 
 ## Thermal
 
