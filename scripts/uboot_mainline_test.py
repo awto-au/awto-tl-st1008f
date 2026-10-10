@@ -28,6 +28,10 @@ CHECKS = {
     "dm": ("dm tree", r"root_driver.*\r?\n.*simple_bus.*\r?\n.*ns16550_serial", 1),
     "env": ("printenv baudrate", r"baudrate=115200", 1),
 }
+# mode switch via gpio-keys: all three probe (a state, not "not found"); M1 = pin 17 low = on
+CHECKS["buttons"] = ("button M1; button M2; button M3",
+                     r"button M3\r?\n(on|off)\r?\n(on|off)\r?\n(on|off)\r?\n", 1)
+GPIO_DAT = 0xB800330C  # gpio0 DATA (docs/hardware.md)
 TIMER_SECS = 5
 TIMER_TOL = 0.03  # CP0 count rate guess (CPU/2 = 400 MHz): a wrong guess is off by ~2x, not 3 %
 
@@ -52,6 +56,24 @@ def check(con: Console, name: str) -> bool:
     return ok
 
 
+def gpio(con: Console) -> bool:
+    """Driver vs raw register: every `gpio status -a` value must equal the DATA bit."""
+    try:
+        _, raw = con.run(f"md.l 0x{GPIO_DAT:08x} 1", PROMPT, 1, "raw gpio DATA")
+        _, st = con.run("gpio status -a", PROMPT, 1, "gpio status")
+    except SystemExit as e:
+        log(f"FAIL gpio: {e}")
+        return False
+    word = int(re.search(rf"{GPIO_DAT:08x}: ([0-9a-f]{{8}})", raw).group(1), 16)
+    lines = {int(n): int(v) for n, v in re.findall(r"gpio(\d+): \w+: ([01])", st)}
+    bad = [n for n, v in lines.items() if v != (word >> n) & 1]
+    ok = len(lines) == 24 and not bad
+    log(f"{'PASS' if ok else 'FAIL'} gpio: {len(lines)} lines vs DATA 0x{word:08x}"
+        + (f"; mismatch {bad}" if bad else "")
+        + f"; mode pins 17/18/19 = {(word >> 17) & 1}/{(word >> 18) & 1}/{(word >> 19) & 1}")
+    return ok
+
+
 def timer(con: Console) -> bool:
     mark = con.size()
     t0 = time.monotonic()
@@ -71,12 +93,13 @@ def timer(con: Console) -> bool:
 
 def main() -> int:
     ap = argparse.ArgumentParser(description=__doc__.splitlines()[0])
-    ap.add_argument("checks", nargs="*", default=[*CHECKS, "timer"])
+    ap.add_argument("checks", nargs="*", default=[*CHECKS, "gpio", "timer"])
     a = ap.parse_args()
     con = Console()
     # presence probe: a command with a known reply (a bare CR once got no reply at all)
     con.run("echo PROMPT_OK", r"\r?\nPROMPT_OK" + PROMPT, 1, "mainline prompt present")
-    results = {n: (timer(con) if n == "timer" else check(con, n)) for n in a.checks}
+    special = {"timer": timer, "gpio": gpio}
+    results = {n: (special[n](con) if n in special else check(con, n)) for n in a.checks}
     bad = [n for n, ok in results.items() if not ok]
     log(f"=== {len(results) - len(bad)}/{len(results)} pass" + (f"; FAIL: {', '.join(bad)}" if bad else ""))
     return 1 if bad else 0

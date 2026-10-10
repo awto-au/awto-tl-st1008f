@@ -39,6 +39,7 @@ FILES = {
     "arch/mips/dts/tplink_tl-st1008f.dts": "arch/mips/dts/tplink_tl-st1008f.dts",
     "include/configs/tplink_tl-st1008f.h": "include/configs/tplink_tl-st1008f.h",
     "configs/" + DEFCONFIG: "configs/" + DEFCONFIG,
+    "drivers/gpio/gpio-realtek-otto.c": "drivers/gpio/gpio-realtek-otto.c",
 }
 DIRS = {
     "arch/mips/mach-otto": "arch/mips/mach-otto",
@@ -65,6 +66,11 @@ HOOKS = [
      "machine-$(CONFIG_ARCH_OTTO) += otto\n", "after", "+= otto"),
     ("arch/mips/dts/Makefile", "dtb-$(CONFIG_TARGET_JZ4780_CI20) += ci20.dtb\n",
      "dtb-$(CONFIG_TARGET_TPLINK_TL_ST1008F) += tplink_tl-st1008f.dtb\n", "after", "tplink_tl-st1008f.dtb"),
+    ("drivers/gpio/Kconfig", "config MT7621_GPIO\n",
+     "config GPIO_REALTEK_OTTO\n\tbool \"Realtek Otto (RTL930x) GPIO\"\n\tdepends on DM_GPIO && ARCH_OTTO\n\n",
+     "before", "config GPIO_REALTEK_OTTO"),
+    ("drivers/gpio/Makefile", "obj-$(CONFIG_MT7621_GPIO)\t+= mt7621_gpio.o\n",
+     "obj-$(CONFIG_GPIO_REALTEK_OTTO)\t+= gpio-realtek-otto.o\n", "after", "gpio-realtek-otto.o"),
 ]
 
 

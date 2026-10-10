@@ -54,5 +54,36 @@
 			current-speed = <115200>;
 			no-loopback-test;
 		};
+
+		gpio0: gpio@3300 {
+			compatible = "realtek,rtl9300-gpio";
+			reg = <0x3300 0x1c>;
+			gpio-controller;
+			#gpio-cells = <2>;
+			ngpios = <24>;
+			gpio-bank-name = "gpio";
+		};
+	};
+
+	/* 3-position mode switch, one-hot active-low (stock rtk.ko decode, docs/hardware.md).
+	 * Pin 17 reads low in every position so far (#8): reported as-is, not interpreted. */
+	keys {
+		compatible = "gpio-keys";
+
+		mode-m1 {
+			label = "M1";
+			gpios = <&gpio0 17 1>;	/* GPIO_ACTIVE_LOW */
+			linux,code = <256>;	/* BTN_0; button-gpio probe requires it */
+		};
+		mode-m2 {
+			label = "M2";
+			gpios = <&gpio0 18 1>;
+			linux,code = <257>;	/* BTN_1 */
+		};
+		mode-m3 {
+			label = "M3";
+			gpios = <&gpio0 19 1>;
+			linux,code = <258>;	/* BTN_2 */
+		};
 	};
 };
