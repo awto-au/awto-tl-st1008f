@@ -56,6 +56,14 @@ def parse_dump(text: str) -> bytes:
     return bytes(int(h, 16) for _, row in rows for h in row.split())
 
 
+MARKS = ("SPD_GO", "SPD_END", "SPD_BACK", "PROMPT_OK")
+STOCK = False  # stock U-Boot 2011 has no `echo`: markers are RAM env vars (`printenv X` -> X=1)
+
+
+def mark(name: str) -> str:
+    return f"printenv {name}" if STOCK else f"echo {name}"
+
+
 def divisor_cmds(div: int) -> str:
     return (f"mw.b {LCR:x} 83; mw.b {DLL:x} {div & 0xff:x}; mw.b {DLM:x} {div >> 8:x}; "
             f"mw.b {LCR:x} 3")
@@ -69,9 +77,9 @@ HOST_MAX = 6_000_000  # Linux pl2303.c clamps TYPE_HX requests here
 
 def step(con: Console, div: int, base: bytes, host: int | None = None) -> dict:
     rate = BASE_CLK / div
-    line = (f"{divisor_cmds(div)}; sleep {SETTLE_S}; echo SPD_GO; md.b {DUMP_ADDR:x} {DUMP_LEN:x}; "
-            f"echo SPD_END; sleep {HOLD_S}; {divisor_cmds(DIV_115200)}; echo SPD_BACK")
-    mark = con.send_checked(line)  # Enter only after an exact echo (#31 lost chars)
+    line = (f"{divisor_cmds(div)}; sleep {SETTLE_S}; {mark('SPD_GO')}; md.b {DUMP_ADDR:x} {DUMP_LEN:x}; "
+            f"{mark('SPD_END')}; sleep {HOLD_S}; {divisor_cmds(DIV_115200)}; {mark('SPD_BACK')}")
+    m0 = con.send_checked(line)  # Enter only after an exact echo (#31 lost chars)
     host_baud(host or round(rate))
     t_go = None
     res = {"div": div, "rate": round(rate), "host": host or round(rate), "ok": False}
@@ -81,11 +89,11 @@ def step(con: Console, div: int, base: bytes, host: int | None = None) -> dict:
     out = ""
     while time.monotonic() - t0 < cap:
         with CONSOLE.open("rb") as fh:
-            fh.seek(mark)
+            fh.seek(m0)
             out = fh.read().decode(errors="replace")
-        if t_go is None and re.search(r"\nSPD_GO\r?\n", out):
+        if t_go is None and re.search(r"\nSPD_GO(?:=1)?\r?\n", out):
             t_go = time.monotonic()
-        if re.search(r"\nSPD_END\r?\n", out):
+        if re.search(r"\nSPD_END(?:=1)?\r?\n", out):
             break
         time.sleep(0.005)
     t_end = time.monotonic()
@@ -101,11 +109,11 @@ def step(con: Console, div: int, base: bytes, host: int | None = None) -> dict:
         res["first_bad"] = bad
     try:
         # board restores 115200 HOLD_S after SPD_END; +1 s
-        con.expect(r"\nSPD_BACK\r?\n", HOLD_S + 1, mark, "back at 115200")
+        con.expect(r"\nSPD_BACK(?:=1)?\r?\n", HOLD_S + 1, m0, "back at 115200")
     except SystemExit:
         # SPD_END never seen at this rate: board is still dumping/holding; wait for the whole
         # line to finish (remaining dump at 115200-equivalent cannot exceed the baseline time)
-        con.expect(r"\nSPD_BACK\r?\n", HOLD_S + chars * 10 / rate * 1.25 + 2, mark, "back (late)")
+        con.expect(r"\nSPD_BACK(?:=1)?\r?\n", HOLD_S + chars * 10 / rate * 1.25 + 2, m0, "back (late)")
     return res
 
 
@@ -138,9 +146,15 @@ def go_fast(con: Console, div: int = 1) -> int:
 def main() -> int:
     ap = argparse.ArgumentParser(description=__doc__.splitlines()[0])
     ap.add_argument("divisors", nargs="*", type=int, default=LADDER)
+    ap.add_argument("--stock", action="store_true", help="at the stock RTL9300# prompt (same UART)")
     a = ap.parse_args()
+    global PROMPT, STOCK
+    if a.stock:
+        PROMPT, STOCK = r"\r?\nRTL9300# ", True
+        con0 = Console()
+        con0.send_checked("; ".join(f"setenv {m} 1" for m in MARKS))  # RAM env only, no saveenv
     con = Console()
-    con.run("echo PROMPT_OK", r"\r?\nPROMPT_OK" + PROMPT, 1, "mainline prompt present")
+    con.run(mark("PROMPT_OK"), r"\r?\nPROMPT_OK(?:=1)?" + PROMPT, 1, "prompt present")
     chars = DUMP_LEN // 16 * CHARS_PER_ROW
     t0 = time.monotonic()
     _, out = con.run(f"md.b {DUMP_ADDR:x} {DUMP_LEN:x}", PROMPT, chars * 10 / 115200 * 1.25 + 1, "baseline")
@@ -162,7 +176,7 @@ def main() -> int:
         log(f"{'PASS' if r['ok'] else 'FAIL'} div {div:3d} = {r['rate']:>9,d} Bd (host {r['host']:,}): {r['bytes']} B"
             + (f", {r['cps']:,} char/s" if "cps" in r else "")
             + (f", first bad byte {r['first_bad']:#x}" if "first_bad" in r else ""))
-    con.run("echo PROMPT_OK", r"\r?\nPROMPT_OK" + PROMPT, 1, "prompt after ladder")
+    con.run(mark("PROMPT_OK"), r"\r?\nPROMPT_OK(?:=1)?" + PROMPT, 1, "prompt after ladder")
     for r in results:
         if r["ok"] and r["host"] != r["rate"]:
             log(f"  div {r['div']}: board {r['rate']:,} decoded with host request {r['host']:,}")
