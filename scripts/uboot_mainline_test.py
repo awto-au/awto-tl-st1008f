@@ -3,7 +3,7 @@
 
 - Each check: send a command, expect a regex before the prompt returns, within a stated cap.
 - `timer`: `sleep N; echo` timed host-side against the console log; must be within ±3 %.
-- Read-only: no flash, env-save or GPIO21 commands. Add a check per new driver stage.
+- Read-only: flash writes are refused by the driver (checked), no env-save or GPIO21 commands. Add a check per new driver stage.
 - Log: tmp/logs/uboot_mainline_test.log. Exit 0 = all pass.
 """
 
@@ -55,6 +55,15 @@ CHECKS["refuse_boardmodel"] = ("rtk boardmodel X", r"refused: stock does setenv"
 CHECKS["refuse_eeprom"] = ("rtk i2c write 0 0 0", r"refused: module EEPROM", 1)
 CHECKS["refuse_reset"] = ("rtk pinSet 21 0", r"refused: GPIO21 low", 1)
 CHECKS["refuse_all"] = ("rtk laser all", r"refused: all lasers", 1)
+# SPI-NOR (stage 3, #32). Caps: bytes x 8 / assumed 1 MHz floor SPI clock x 1.25 (driver RDY limit
+# basis; divider not decoded): 64 KiB -> 0.66 s, plus console echo ~30 ms; cap 2 s.
+SF_RAM, SF_RAM2, SF_LEN, SF_LAST = 0x86000000, 0x86100000, 0x10000, 0x1FF0000  # SF_LAST = bank 1 (>16 MiB)
+SF_CAP_S = 2
+CHECKS["sf_probe"] = ("sf probe 0", r"SF: Detected w25q256 with page size 256 Bytes, erase size 4 KiB, total 32 MiB", 1)
+CHECKS["refuse_sf_write"] = (f"sf probe 0; mw.b 0x{SF_RAM2:x} 0x5a 0x100; sf write 0x{SF_RAM2:x} 0x1ff0000 0x100",
+                             r"refused: no flash writes", 1)
+CHECKS["refuse_sf_erase"] = ("sf erase 0x1ff0000 0x1000", r"refused: no flash writes", 1)
+CHECKS["refuse_sf_update"] = (f"sf update 0x{SF_RAM2:x} 0x1ff0000 0x100", r"refused: no flash writes", 1)
 GPIO_DAT = 0xB800330C  # gpio0 DATA (docs/hardware.md)
 SFP_DUMPS = ROOT / "private/sfp"  # stock-loader A0 dumps (scripts/st1008_sfp_ddm.py)
 # DDM sanity: SFF-8472 Vcc 3.3 V +-5 %; room-temp module 10-70 C; laser on = bias > 1 mA.
@@ -214,15 +223,43 @@ def timer(con: Console) -> bool:
     return ok
 
 
+def crc(con: Console, cmd: str, label: str, cap: int) -> int | None:
+    _, out = con.run(cmd, PROMPT, cap, label)
+    m = re.search(r"==> ([0-9a-f]{8})", out)
+    return int(m.group(1), 16) if m else None
+
+
+def sf_read(con: Console) -> bool:
+    """`sf read` (offset 0 = LOADER, and SF_LAST = second 16 MiB bank) vs the same bytes via the
+    memory-mapped window; the window must still work after `sf` use (driver restores SFCR/SFCSR)."""
+    ok = True
+    try:
+        con.run("sf probe 0", PROMPT, 1, "sf probe")
+        con.run("md.l 0xb8001200 4", PROMPT, 1, "SFCR before")  # logged in the console log for the divider
+        for off in (0, SF_LAST):
+            con.run(f"mw.l 0x{SF_RAM:x} 0 0x{SF_LEN // 4:x}", PROMPT, 1, "clear RAM")
+            con.run(f"sf read 0x{SF_RAM:x} 0x{off:x} 0x{SF_LEN:x}", PROMPT, SF_CAP_S, f"sf read @0x{off:x}")
+            a = crc(con, f"crc32 0x{SF_RAM:x} 0x{SF_LEN:x}", "crc RAM", 1)
+            b = crc(con, f"crc32 0x{0xB4000000 + off:x} 0x{SF_LEN:x}", "crc mmio", SF_CAP_S)
+            good = a is not None and a == b
+            ok &= good
+            log(f"{'PASS' if good else 'FAIL'} sf_read @0x{off:x}: sf read crc {a and f'{a:08x}'} vs mmio {b and f'{b:08x}'}")
+        con.run("md.l 0xb8001200 4", PROMPT, 1, "SFCR after")
+    except SystemExit as e:
+        log(f"FAIL sf_read: {e}")
+        return False
+    return ok
+
+
 def main() -> int:
     ap = argparse.ArgumentParser(description=__doc__.splitlines()[0])
-    ap.add_argument("checks", nargs="*", default=[*CHECKS, "gpio", "sfp_a0", "sfp_all", "ddm", "laser", "timer"])
+    ap.add_argument("checks", nargs="*", default=[*CHECKS, "gpio", "sfp_a0", "sfp_all", "ddm", "laser", "sf_read", "timer"])
     a = ap.parse_args()
     con = Console()
     # presence probe: a command with a known reply (a bare CR once got no reply at all)
     con.run("echo PROMPT_OK", r"\r?\nPROMPT_OK" + PROMPT, 1, "mainline prompt present")
     special = {"timer": timer, "gpio": gpio, "sfp_a0": sfp_a0, "sfp_all": sfp_all, "ddm": ddm_sane, "laser": laser,
-               "reset": reset}
+               "sf_read": sf_read, "reset": reset}
     results = {n: (special[n](con) if n in special else check(con, n)) for n in a.checks}
     bad = [n for n, ok in results.items() if not ok]
     log(f"=== {len(results) - len(bad)}/{len(results)} pass" + (f"; FAIL: {', '.join(bad)}" if bad else ""))
