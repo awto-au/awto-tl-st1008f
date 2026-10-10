@@ -139,6 +139,21 @@ def ddm_sane(con: Console) -> bool:
     return ok
 
 
+def reset(con: Console) -> bool:
+    """`reset` must bring back the stock loader (caught by the daemon). Ends the session:
+    not in the default list; run `./dev.py uboot-test reset` explicitly."""
+    mark = con.size()
+    con.send("reset")
+    try:
+        # stock banner ~2.5 s after a cold start; warm reset is faster. Cap 6 s.
+        con.expect(r"\[daemon\] at RTL9300#", 6, mark, "stock prompt after reset", boot_ok=True)
+    except SystemExit as e:
+        log(f"FAIL reset: {e}")
+        return False
+    log("PASS reset: chip reset -> stock U-Boot caught")
+    return True
+
+
 def timer(con: Console) -> bool:
     mark = con.size()
     t0 = time.monotonic()
@@ -163,7 +178,8 @@ def main() -> int:
     con = Console()
     # presence probe: a command with a known reply (a bare CR once got no reply at all)
     con.run("echo PROMPT_OK", r"\r?\nPROMPT_OK" + PROMPT, 1, "mainline prompt present")
-    special = {"timer": timer, "gpio": gpio, "sfp_a0": sfp_a0, "ddm": ddm_sane, "laser": laser}
+    special = {"timer": timer, "gpio": gpio, "sfp_a0": sfp_a0, "ddm": ddm_sane, "laser": laser,
+               "reset": reset}
     results = {n: (special[n](con) if n in special else check(con, n)) for n in a.checks}
     bad = [n for n, ok in results.items() if not ok]
     log(f"=== {len(results) - len(bad)}/{len(results)} pass" + (f"; FAIL: {', '.join(bad)}" if bad else ""))

@@ -5,7 +5,9 @@
  */
 
 #include <init.h>
+#include <time.h>
 #include <vsprintf.h>
+#include <asm/io.h>
 #include <asm/global_data.h>
 #include <asm/mipsregs.h>
 #include <linux/sizes.h>
@@ -28,8 +30,19 @@ int board_early_init_f(void)
 	return 0;
 }
 
-/* GPIO21 low = board reset (stock rtk.ko); deliberately not driven. */
+/* Chip reset = switch-core 0x1b00000c write 1 (Linux rtl930x.dtsi syscon-reboot).
+ * GPIO21 (external supervisor) is not used. Reset takes effect within ~1 us; if the
+ * core is still running after 100 ms something is wrong: say so and return. */
+#define OTTO_RST_GLB_CTRL	((void __iomem *)0xbb00000c)
+
 void _machine_restart(void)
 {
-	puts("reset: not implemented (stage 0)\n");
+	ulong t0;
+
+	puts("resetting (switch-core RST_GLB_CTRL)...\n");
+	__raw_writel(1, OTTO_RST_GLB_CTRL);	/* native word, as the GPIO/I2C drivers */
+	t0 = get_timer(0);
+	while (get_timer(t0) < 100)
+		;
+	puts("reset: chip still running after 100 ms\n");
 }

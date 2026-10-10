@@ -174,20 +174,51 @@ static void sfp_str(const char *tag, const u8 *p, int n)
 	printf("  %s %.*s\n", tag, e, p);
 }
 
+/* Block read; on failure fall back to single bytes. MCU-emulated EEPROMs (10GBASE-T copper)
+ * clock-stretch on multi-byte reads, which this master cannot follow; single bytes work. */
+static int sfp_read(struct udevice *dev, u8 reg, u8 *buf, int len, bool *bytewise)
+{
+	int i;
+
+	*bytewise = false;
+	if (!dm_i2c_read(dev, reg, buf, len))
+		return 0;
+	*bytewise = true;
+	for (i = 0; i < len; i++) {
+		int tries;
+
+		/* MCU busy after the failed block read: up to 5 x 1 ms per byte (bounded 5 ms) */
+		for (tries = 0; dm_i2c_read(dev, reg + i, buf + i, 1); tries++) {
+			if (tries == 4) {
+				printf("  byte 0x%02x: no ACK after 5 tries\n", reg + i);
+				return -EIO;
+			}
+			mdelay(1);
+		}
+	}
+	return 0;
+}
+
 static int sfp_one(int cage)
 {
 	struct udevice *a0 = chip(cage - 1, SFP_A0), *a2 = chip(cage - 1, SFP_A2);
+	static const char *const plevel[] = { "1 (1.0 W)", "2 (1.5 W)", "3 (2.0 W)", "3 (2.0 W)" };
 	u8 id[96], dm[10];
+	bool slow;
 	int t;
 
-	if (!a0 || dm_i2c_read(a0, 0, id, sizeof(id))) {
+	if (!a0 || sfp_read(a0, 0, id, sizeof(id), &slow)) {
 		printf("cage %d: empty\n", cage);
 		return 0;
 	}
-	printf("cage %d: id 0x%02x, %d00 Mbd, %u nm\n", cage, id[0], id[12], id[60] << 8 | id[61]);
+	printf("cage %d: id 0x%02x, %d00 Mbd, %u nm%s\n", cage, id[0], id[12],
+	       id[60] << 8 | id[61], slow ? " (byte-wise reads: module clock-stretches)" : "");
 	sfp_str("vendor", id + 20, 16);
 	sfp_str("pn    ", id + 40, 16);
 	sfp_str("date  ", id + 84, 6);
+	/* SFF-8472 byte 64: bit 1 = power level 2 declared, bit 5 = level 3 (Linux sfp.c) */
+	printf("  power level %s declared\n",
+	       plevel[(id[64] & 0x02 ? 1 : 0) | (id[64] & 0x20 ? 2 : 0)]);
 	if (!(id[92] & 0x40) || !a2 || dm_i2c_read(a2, 96, dm, sizeof(dm))) {
 		printf("  ddm   not implemented\n");
 		return 0;
