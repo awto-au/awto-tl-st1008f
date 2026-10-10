@@ -41,6 +41,7 @@ FILES = {
     "configs/" + DEFCONFIG: "configs/" + DEFCONFIG,
     "drivers/gpio/gpio-realtek-otto.c": "drivers/gpio/gpio-realtek-otto.c",
     "drivers/i2c/i2c-rtl9300.c": "drivers/i2c/i2c-rtl9300.c",
+    "drivers/spi/spi-realtek-rtl.c": "drivers/spi/spi-realtek-rtl.c",
 }
 DIRS = {
     "arch/mips/mach-otto": "arch/mips/mach-otto",
@@ -77,6 +78,11 @@ HOOKS = [
      "before", "config SYS_I2C_RTL9300"),
     ("drivers/i2c/Makefile", "obj-$(CONFIG_SYS_I2C_MVTWSI) += mvtwsi.o\n",
      "obj-$(CONFIG_SYS_I2C_RTL9300) += i2c-rtl9300.o\n", "after", "i2c-rtl9300.o"),
+    ("drivers/spi/Kconfig", "config ATH79_SPI\n",
+     "config SPI_REALTEK_RTL\n\tbool \"Realtek RTL83xx/93xx SPI-NOR controller (read-only)\"\n\tdepends on DM_SPI && ARCH_OTTO\n\n",
+     "before", "config SPI_REALTEK_RTL"),
+    ("drivers/spi/Makefile", "obj-$(CONFIG_ATH79_SPI) += ath79_spi.o\n",
+     "obj-$(CONFIG_SPI_REALTEK_RTL) += spi-realtek-rtl.o\n", "after", "spi-realtek-rtl.o"),
 ]
 
 
