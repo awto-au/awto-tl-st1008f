@@ -19,9 +19,9 @@
 #define DATA0		0x8	/* 4 words, byte i at word i/4 bits (i%4)*8 */
 #define GLB_CTRL	0x384	/* in the switch block: SDA_SEL 7:0 (one enable bit per SDA) */
 #define MAX_LEN		16
-/* Busy wait: 16 data bytes + addr/reg/restart ~= 20 bytes * 9 bits at 100 kHz = 1.8 ms.
- * 1.25x + 0.5 ms setup = 3 ms; expiry logs the channel, address and elapsed time. */
-#define BUSY_TIMEOUT_US	3000
+/* Busy wait: (len + 4 addr/reg/restart bytes) * 9 bits at the selected SCL, x1.25, + 0.5 ms setup.
+ * 16 B at 100 kHz -> 3.2 ms; at 50 kHz -> 5.9 ms. Expiry logs channel, address, elapsed. */
+static const u32 scl_khz[] = { 100, 400, 2500, 50 };	/* by FREQ_*; 32-bit math only (see below) */
 
 enum { FREQ_100K = 0, FREQ_400K = 1, FREQ_2M5 = 2, FREQ_50K = 3 };
 
@@ -57,7 +57,7 @@ static int xfer_one(struct udevice *bus, u8 addr, u8 reg, u8 *buf, int len, bool
 	struct rtl9300_i2c_chan *c = dev_get_plat(bus);
 	struct rtl9300_i2c_priv *p = dev_get_priv(dev_get_parent(bus));
 	u32 w[4] = {};
-	ulong t0;
+	ulong t0, cap_us;
 	int i;
 
 	chan_select(p, c);
@@ -70,12 +70,14 @@ static int xfer_one(struct udevice *bus, u8 addr, u8 reg, u8 *buf, int len, bool
 		for (i = 0; i < 4; i++)
 			__raw_writel(w[i], p->mst + DATA0 + 4 * i);
 	}
+	/* 32-bit: a 64-bit divide here traps in U-Boot's MIPS __udivdi3 (seen 2026-10-10) */
+	cap_us = (len + 4) * 9 * 1250 / scl_khz[c->freq_sel] + 500;
 	rmw(p->mst + CTRL1, BIT(0), BIT(0));				/* TRIG */
 	t0 = timer_get_us();
 	while (__raw_readl(p->mst + CTRL1) & BIT(0)) {
-		if (timer_get_us() - t0 > BUSY_TIMEOUT_US) {
-			log_err("rtl9300-i2c: SDA%u addr 0x%02x reg 0x%02x busy > %u us (%lu us)\n",
-				c->sda, addr, reg, BUSY_TIMEOUT_US, timer_get_us() - t0);
+		if (timer_get_us() - t0 > cap_us) {
+			log_err("rtl9300-i2c: SDA%u addr 0x%02x reg 0x%02x busy > %lu us (%lu us)\n",
+				c->sda, addr, reg, cap_us, timer_get_us() - t0);
 			return -ETIMEDOUT;
 		}
 	}
@@ -123,20 +125,36 @@ static int rtl9300_i2c_probe_chip(struct udevice *bus, u32 addr, u32 flags)
 	return xfer_one(bus, addr, 0, &b, 1, false);
 }
 
+static u32 freq_sel(u32 hz)	/* hardware has 4 fixed rates; round down */
+{
+	return hz >= 2500000 ? FREQ_2M5 : hz >= 400000 ? FREQ_400K :
+	       hz >= 100000 ? FREQ_100K : FREQ_50K;
+}
+
 static int rtl9300_i2c_chan_of_to_plat(struct udevice *bus)
 {
 	struct rtl9300_i2c_chan *c = dev_get_plat(bus);
-	u32 hz = dev_read_u32_default(bus, "clock-frequency", 100000);
 
 	c->sda = dev_read_u32_default(bus, "reg", 0);
-	c->freq_sel = hz >= 2500000 ? FREQ_2M5 : hz >= 400000 ? FREQ_400K :
-		      hz >= 100000 ? FREQ_100K : FREQ_50K;
+	c->freq_sel = freq_sel(dev_read_u32_default(bus, "clock-frequency", 100000));
+	return 0;
+}
+
+/* `i2c speed N`: slow devices (MCU-emulated EEPROMs, copper PHYs) that clock-stretch */
+static int rtl9300_i2c_set_bus_speed(struct udevice *bus, unsigned int hz)
+{
+	struct rtl9300_i2c_chan *c = dev_get_plat(bus);
+	struct rtl9300_i2c_priv *p = dev_get_priv(dev_get_parent(bus));
+
+	c->freq_sel = freq_sel(hz);
+	p->cur_sda = -1;	/* force re-programming SCL_FREQ on the next transfer */
 	return 0;
 }
 
 static const struct dm_i2c_ops rtl9300_i2c_ops = {
 	.xfer		= rtl9300_i2c_xfer,
 	.probe_chip	= rtl9300_i2c_probe_chip,
+	.set_bus_speed	= rtl9300_i2c_set_bus_speed,
 };
 
 U_BOOT_DRIVER(rtl9300_i2c_chan) = {
