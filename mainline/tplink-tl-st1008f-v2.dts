@@ -34,25 +34,19 @@
 			label = "M1";
 			gpios = <&gpio0 17 GPIO_ACTIVE_LOW>;
 			debounce-interval = <50>;
-			linux,code = <BTN_0>;
-			linux,input-type = <EV_SW>;
-		};
+			linux,code = <BTN_0>;		};
 
 		key-m2 {
 			label = "M2";
 			gpios = <&gpio0 18 GPIO_ACTIVE_LOW>;
 			debounce-interval = <50>;
-			linux,code = <BTN_1>;
-			linux,input-type = <EV_SW>;
-		};
+			linux,code = <BTN_1>;		};
 
 		key-m3 {
 			label = "M3";
 			gpios = <&gpio0 19 GPIO_ACTIVE_LOW>;
 			debounce-interval = <50>;
-			linux,code = <BTN_2>;
-			linux,input-type = <EV_SW>;
-		};
+			linux,code = <BTN_2>;		};
 	};
 
 	/* TX-disable expander; SCL = GPIO22, SDA = GPIO23. */
@@ -137,13 +131,15 @@
 		maximum-power-milliwatt = <2900>;
 	};
 
-	/* External supervisor kicked by GPIO21 (1.2 s toggle). */
+	/* GPIO21: stock rtk.ko switch_reset() drives it low = board reset.
+	 * gpio-wdt probe drives it low too -> instant reset on 7.3. Disabled until the line is understood (#18). */
 	watchdog-ext {
 		compatible = "linux,wdt-gpio";
 		gpios = <&gpio0 21 GPIO_ACTIVE_HIGH>;
 		hw_algo = "toggle";
 		hw_margin_ms = <1200>;
 		always-running;
+		status = "disabled";
 	};
 };
 
