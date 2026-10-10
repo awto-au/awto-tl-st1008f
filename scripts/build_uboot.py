@@ -11,6 +11,7 @@ Log: tmp/logs/build_uboot.log
 
 from __future__ import annotations
 
+import argparse
 import shutil
 import subprocess
 import time
@@ -50,11 +51,15 @@ def run(cmd: list[str]) -> None:
 
 
 def main() -> int:
-    log(f"=== build_uboot {time.strftime('%Y-%m-%dT%H:%M:%S%z')} ===")
+    ap = argparse.ArgumentParser()
+    ap.add_argument("--baud", type=int, default=115200)
+    a = ap.parse_args()
+    log(f"=== build_uboot baud={a.baud} {time.strftime('%Y-%m-%dT%H:%M:%S%z')} ===")
+    cflags = CFLAGS + [f"-DUART_BAUD={a.baud}u"]
     objs = []
     for s in ASRC + CSRC:
         o = SRC / (s + ".o")
-        run(["clang", *CFLAGS, "-c", str(SRC / s), "-o", str(o)])
+        run(["clang", *cflags, "-c", str(SRC / s), "-o", str(o)])
         objs.append(str(o))
     elf = SRC / "awto-uboot.elf"
     binf = SRC / "awto-uboot.bin"

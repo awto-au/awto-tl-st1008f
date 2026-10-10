@@ -34,9 +34,12 @@ static void echo_cli(void)
 
 void board_main(void)
 {
-	uart_init(SOC_LX_HZ, 115200);
+	uart_init(SOC_LX_HZ, UART_BAUD);
 	banner();
 	uart_puts("stage: main (RAM bring-up harness)\n");
+	uart_puts("baud=");
+	uart_puthex(UART_BAUD);
+	uart_puts("\n");
 	uart_puts("stack=0x81f00000  uart0=");
 	uart_puthex(UART0_BASE);
 	uart_puts("\n");

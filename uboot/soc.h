@@ -43,4 +43,10 @@
  * we do not depend on any prior (stock) UART setup. */
 #define SOC_LX_HZ 175000000u
 
+/* Console baud — overridable at build time (-DUART_BAUD=N). The divisor formula
+ * supports any rate the LX clock allows; the host adapter/daemon must match. */
+#ifndef UART_BAUD
+#define UART_BAUD 115200u
+#endif
+
 #endif
