@@ -5,6 +5,7 @@
  * the master does register-addressed transfers of 1-16 data bytes.
  */
 
+#include <clk.h>
 #include <dm.h>
 #include <i2c.h>
 #include <log.h>
@@ -21,7 +22,9 @@
 #define MAX_LEN		16
 /* Busy wait: (len + 4 addr/reg/restart bytes) * 9 bits at the selected SCL, x1.25, + 0.5 ms setup.
  * 16 B at 100 kHz -> 3.2 ms; at 50 kHz -> 5.9 ms. Expiry logs channel, address, elapsed. */
-static const u32 scl_khz[] = { 100, 400, 2500, 50 };	/* by FREQ_*; 32-bit math only (see below) */
+static const u32 scl_khz[] = { 100, 400, 2500, 50 };	/* by FREQ_*, at LX = SCL_REF_LX_KHZ */
+/* SCL codes were characterised at the stock LX; SPEC: SCL is derived from LX (docs/CLOCKS.md) */
+#define SCL_REF_LX_KHZ	175000
 
 enum { FREQ_100K = 0, FREQ_400K = 1, FREQ_2M5 = 2, FREQ_50K = 3 };
 
@@ -29,6 +32,7 @@ struct rtl9300_i2c_priv {	/* parent: one master */
 	void __iomem *mst;
 	void __iomem *glb;
 	int cur_sda;
+	struct clk lx;
 };
 
 struct rtl9300_i2c_chan {	/* child: one SDA line = one U-Boot I2C bus */
@@ -58,6 +62,7 @@ static int xfer_one(struct udevice *bus, u8 addr, u8 reg, u8 *buf, int len, bool
 	struct rtl9300_i2c_priv *p = dev_get_priv(dev_get_parent(bus));
 	u32 w[4] = {};
 	ulong t0, cap_us;
+	u32 scl;
 	int i;
 
 	chan_select(p, c);
@@ -71,7 +76,8 @@ static int xfer_one(struct udevice *bus, u8 addr, u8 reg, u8 *buf, int len, bool
 			__raw_writel(w[i], p->mst + DATA0 + 4 * i);
 	}
 	/* 32-bit: a 64-bit divide here traps in U-Boot's MIPS __udivdi3 (seen 2026-10-10) */
-	cap_us = (len + 4) * 9 * 1250 / scl_khz[c->freq_sel] + 500;
+	scl = scl_khz[c->freq_sel] * (u32)(clk_get_rate(&p->lx) / 1000) / SCL_REF_LX_KHZ;
+	cap_us = (len + 4) * 9 * 1250 / max(scl, 1U) + 500;
 	rmw(p->mst + CTRL1, BIT(0), BIT(0));				/* TRIG */
 	t0 = timer_get_us();
 	while (__raw_readl(p->mst + CTRL1) & BIT(0)) {
@@ -182,12 +188,18 @@ static int rtl9300_i2c_bind(struct udevice *dev)
 static int rtl9300_i2c_probe(struct udevice *dev)
 {
 	struct rtl9300_i2c_priv *p = dev_get_priv(dev);
+	int ret;
 
 	p->mst = dev_remap_addr(dev);
 	if (!p->mst)
 		return -EINVAL;
 	p->glb = (void __iomem *)(((ulong)p->mst & ~0xffffUL) + GLB_CTRL);
 	p->cur_sda = -1;
+	ret = clk_get_by_index(dev, 0, &p->lx);		/* LX: scales SCL and the busy wait */
+	if (ret) {
+		log_err("rtl9300-i2c: no LX clock (%d)\n", ret);
+		return ret;
+	}
 	rmw(p->mst + CTRL2, BIT(15), 0);				/* standard read format */
 	return 0;
 }

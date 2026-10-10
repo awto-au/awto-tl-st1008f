@@ -171,6 +171,12 @@ End-to-end workflow: [../README.md#workflow](../README.md#workflow).
 - Run: `scripts/sfp_decode_host_test.py dump <a0.bin> [<a2.bin>]` (decode raw EEPROM dumps) or `selftest` (external-cal vectors and dBm vs double math).
 - Log: `tmp/logs/sfp_decode_host_test.log`.
 
+### clock_calc.py
+
+- Host-only RTL930x clock calculator; formulas and tables: [../docs/CLOCKS.md](../docs/CLOCKS.md).
+- Run: `scripts/clock_calc.py decode <md.l dump>` (same decode as U-Boot `clocks`), `cpu-table`, `mem-table`, `cpu <MHz>` (`0xbb00e208/e210` values, VCO kept in 2400-3200 MHz), `dtr <MHz> [--die-mbit 4096]` (DTR0-2 from the stock bins).
+- Log: `tmp/logs/clock_calc.log`.
+
 ## Repo maintenance
 
 ### gh_issue_from_draft.py

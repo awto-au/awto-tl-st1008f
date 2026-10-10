@@ -50,7 +50,6 @@ DIRS = {
 
 ARCH_BLOCK = """config ARCH_OTTO
 	bool "Support Realtek Otto (RTL83xx/93xx) SoCs"
-	select HAS_FIXED_TIMER_FREQUENCY
 	select DM
 	select DM_SERIAL
 	select MIPS_TUNE_34KC

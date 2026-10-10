@@ -23,9 +23,9 @@ Not hardware-verified yet (built and inspected only).
 | Relocation | U-Boot relocates itself to top of RAM (`0x8ff.....`) | stock is dead after `go`, its `0x83f00000` region is free |
 | Low-level init | `CONFIG_SKIP_LOWLEVEL_INIT`: no cache reset/disable, no DDR, no PLL | stock already did it; resetting caches could discard dirty TFTP data |
 | RAM | 256 MiB fixed (`dram_init`), no probing | second 256 MiB is not linearly mapped (needs OpenWrt highmem remap) |
-| Console | ns16550 DM, `0xb8002000`, `reg-io-width=1`, `reg-shift=2`, `clock-frequency=175000000` (LX), 115200 | matches Linux `ns16550a` node that works |
+| Console | ns16550 DM, `0xb8002000`, `reg-io-width=1`, `reg-shift=2`, `clocks = <&ccu 2>` (LX from the PLL registers), 115200 | matches Linux `ns16550a` node; rate never hard-coded ([CLOCKS.md](CLOCKS.md)) |
 | UART byte lane | `reg-offset = <0xfffffffd>` | data is in bits 31:24 = byte 0; U-Boot's BE ns16550 accesses byte `(1<<shift)-1` = 3; -3 cancels it. `CONFIG_NS16550_DYNAMIC` would be cleaner but does not compile on mips (`inb(u8 *)`) |
-| Timer | CP0 Count, `CONFIG_SYS_MIPS_TIMER_FREQ=400000000` (CPU/2) | assumption; check with `sleep 10` against a wall clock |
+| Timer | CP0 Count, board `get_tbclk()` = CPU PLL / 2, read each call | follows a runtime CPU change; `uboot-test timer` checks it against the host clock |
 | Env | `CONFIG_ENV_IS_NOWHERE`, `BOOTDELAY=-1` (stay at prompt) | no flash |
 | Commands | md mw cp cmp go bootm printenv setenv version echo itest sleep fdt dm help run | `saveenv`, `ELF`, flash and net commands disabled |
 | `reset` | prints `reset: not implemented (stage 0)`, returns | GPIO21 low = board reset (stock `rtk.ko`), deliberately not driven; SoC chip-reset register not yet RE'd |
@@ -49,6 +49,7 @@ Not hardware-verified yet (built and inspected only).
 |---|---|
 | timer | `sleep 5` = 5.013 s host (+0.3 %) → CP0 400 MHz (CPU/2) correct |
 | bdinfo | 256 MiB at `0x80000000` |
+| clocks | PLL decode shows `cpu 800 MHz`, `mem 600 MHz (DDR3-1200` (not yet run on the board) |
 | gpio | all 24 lines from the driver == raw DATA `0xb800330c` |
 | buttons | mode switch M1/M2/M3 via gpio-keys |
 | sfp_a0 | first 96 A0 bytes via our I2C master == stock-loader dumps (cages 1, 2, 8) |
@@ -96,9 +97,9 @@ st1008f-mainline #
 
 ## Implemented / not
 
-- Implemented: CP0 timer, ns16550 console, fixed 256 MiB RAM (U-Boot itself), `highmem` window for the second 256 MiB, env in RAM, `go`/`bootm`/memory commands, ERL cleared at entry; GPIO (`gpio-realtek-otto`), mode switch buttons; RTL9300 I2C master (8 SFP buses, `i2c-rtl9300`); i2c-gpio + TCA9534A lasers; `rtk` command.
+- Implemented: clock provider + read-only `clocks` command + `ft_board_setup` rate patching ([CLOCKS.md](CLOCKS.md)), CP0 timer, ns16550 console, fixed 256 MiB RAM (U-Boot itself), `highmem` window for the second 256 MiB, env in RAM, `go`/`bootm`/memory commands, ERL cleared at entry; GPIO (`gpio-realtek-otto`), mode switch buttons; RTL9300 I2C master (8 SFP buses, `i2c-rtl9300`); i2c-gpio + TCA9534A lasers; `rtk` command.
 - SPI-NOR read-only (stage 3, verified on the board 2026-10-10; see [SPI-NOR](#spi-nor-stage-3-read-only)).
-- Not: DDR/PLL, Ethernet, SerDes, flash env, reset (next: switch-core `+0x0c` write 1 = `syscon-reboot` per Linux DTS), interrupts (polled console only), second RAM bank (#32), second hardware thread.
+- Not: DDR/PLL writes (procedures in [CLOCKS.md](CLOCKS.md)), Ethernet, SerDes, flash env, reset (next: switch-core `+0x0c` write 1 = `syscon-reboot` per Linux DTS), interrupts (polled console only), second RAM bank (#32), second hardware thread.
 - `bootm`: mainline accepts only standard uImage magic `0x27051956`; `scripts/mainline_uimage.py` writes the Realtek `0x93030000` that stock accepts. Needs a `--magic` option before using `bootm` here.
 
 ## RAM above 256 MiB (`highmem`, #32)

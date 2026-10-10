@@ -1,7 +1,8 @@
 // SPDX-License-Identifier: GPL-2.0+
 /*
  * TP-Link TL-ST1008F v2 (RTL9303), U-Boot stage 0: console + memory only.
- * UART/clock facts match Linux (OpenWrt rtl930x.dtsi, ns16550a @ 0x18002000).
+ * UART facts match Linux (OpenWrt rtl930x.dtsi, ns16550a @ 0x18002000).
+ * Clock rates come from the PLL registers via &ccu, never from constants (docs/CLOCKS.md).
  */
 /dts-v1/;
 
@@ -60,7 +61,7 @@
 			reg-io-width = <1>;
 			reg-shift = <2>;
 			reg-offset = <0xfffffffd>;
-			clock-frequency = <175000000>;	/* LX bus */
+			clocks = <&ccu 2>;	/* LXB */
 			current-speed = <115200>;
 			no-loopback-test;
 		};
@@ -77,6 +78,7 @@
 		/* SPI-NOR controller (Linux rtl930x.dtsi spi@1200). Read-only driver; clock divider inherited from stock. */
 		spi0: spi@1200 {
 			compatible = "realtek,rtl8380-spi";
+			clocks = <&ccu 3>;	/* SPI SCK */
 			reg = <0x1200 0x100>;
 			#address-cells = <1>;
 			#size-cells = <0>;
@@ -131,6 +133,13 @@
 		};
 	};
 
+	/* Read-only rate provider (after soc: `dm tree` order). Cells: 0 CPU, 1 MEM, 2 LXB (OpenWrt rtl83xx-clk.h), 3 SPI SCK. */
+	ccu: clock-controller {
+		compatible = "realtek,rtl9300-clock";
+		#clock-cells = <1>;
+		bootph-all;
+	};
+
 	/* Switch core register block (Linux rtl930x.dtsi switch@1b000000). */
 	switchcore {
 		compatible = "simple-bus";
@@ -142,6 +151,7 @@
 		 * 100 kHz = SFF-8472 base rate (400 kHz optional per module; #32). */
 		i2c@36c {
 			compatible = "realtek,rtl9301-i2c";
+			clocks = <&ccu 2>;	/* LXB */
 			reg = <0x36c 0x14>;
 			#address-cells = <1>;
 			#size-cells = <0>;

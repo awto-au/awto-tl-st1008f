@@ -29,6 +29,8 @@ CHECKS = {
     # 115200, or a CFG_SYS_BAUDRATE_TABLE rate after `ramload --fast`
     "env": ("printenv baudrate", r"baudrate=(115200|1822916|2187500|2734375|3645833|5468750|10937500)\r?\n", 1),
 }
+# PLL decode (docs/CLOCKS.md) must show stock rates: CPU 800 MHz, DDR clock 600 MHz (~1 KB of output)
+CHECKS["clocks"] = ("clocks", r"(?s)\ncpu 800 MHz .*\nmem 600 MHz \(DDR3-1200", 1)
 # mode switch via gpio-keys: all three probe (a state, not "not found"); M1 = pin 17 low = on
 CHECKS["buttons"] = ("button M1; button M2; button M3",
                      r"button M3\r?\n(on|off)\r?\n(on|off)\r?\n(on|off)\r?\n", 1)
@@ -61,8 +63,8 @@ CHECKS["rtk_phymmd_short"] = ("rtk phymmd set 0 0 4 0xc441", r"phymmd parameter 
 CHECKS["refuse_eeprom"] = ("rtk i2c write 0 0 0", r"refused: module EEPROM", 1)
 CHECKS["refuse_reset"] = ("rtk pinSet 21 0", r"refused: GPIO21 low", 1)
 CHECKS["refuse_all"] = ("rtk laser all", r"refused: all lasers", 1)
-# SPI-NOR (stage 3, #32). Caps: bytes x 8 / assumed 1 MHz floor SPI clock x 1.25 (driver RDY limit
-# basis; divider not decoded): 64 KiB -> 0.66 s, plus console echo ~30 ms; cap 2 s.
+# SPI-NOR (stage 3, #32). Caps: bytes x 8 / 1 MHz floor SPI clock x 1.25 (SCK decodes to 25.5 MHz,
+# docs/CLOCKS.md; floor kept for a slower divider): 64 KiB -> 0.66 s, plus console echo ~30 ms; cap 2 s.
 SF_RAM, SF_RAM2, SF_LEN, SF_LAST = 0x86000000, 0x86100000, 0x10000, 0x1FF0000  # SF_LAST = bank 1 (>16 MiB)
 SF_CAP_S = 2
 CHECKS["sf_probe"] = ("sf probe 0", r"SF: Detected w25q256 with page size 256 Bytes, erase size 4 KiB, total 32 MiB", 1)
@@ -75,7 +77,7 @@ SFP_DUMPS = ROOT / "private/sfp"  # stock-loader A0 dumps (scripts/st1008_sfp_dd
 # DDM sanity: SFF-8472 Vcc 3.3 V +-5 %; room-temp module 10-70 C; laser on = bias > 1 mA.
 VCC_RANGE, TEMP_RANGE, BIAS_ON_MA = (3.135, 3.465), (10, 70), 1.0
 TIMER_SECS = 5
-TIMER_TOL = 0.03  # CP0 count rate guess (CPU/2 = 400 MHz): a wrong guess is off by ~2x, not 3 %
+TIMER_TOL = 0.03  # CP0 rate = CPU PLL / 2 (get_tbclk, docs/CLOCKS.md): a wrong decode is off by >>3 %
 
 
 def log(msg: str) -> None:

@@ -9,6 +9,7 @@
  * the memory-mapped window (0xb4000000) keeps working after `sf` use.
  */
 
+#include <clk.h>
 #include <dm.h>
 #include <spi.h>
 #include <errno.h>
@@ -16,6 +17,7 @@
 #include <time.h>
 #include <asm/io.h>
 #include <linux/bitops.h>
+#include <linux/kernel.h>
 #include <asm/unaligned.h>
 
 #define SFCR		0x00
@@ -44,11 +46,9 @@
 #define OP_READ_4B	0x13
 #define OP_FAST_READ_4B	0x0c
 
-/*
- * RDY wait: one 4-byte word = 32 clocks. Assumed lowest SPI clock 1 MHz -> 32 us, x1.25 = 40 us.
- * The divider is inherited from stock (not decoded, issue #32); a lower clock expires and logs.
- */
-#define RDY_TIMEOUT_US	40
+/* RDY wait: one 4-byte word = 32 SCK x1.25, SCK from the clock provider (docs/CLOCKS.md),
+ * +1 us for timer_get_us() granularity. Set per claim_bus; expiry logs limit and elapsed. */
+#define RDY_SCK_X1000	(32 * 1250)
 
 struct rtl_spi_priv {
 	void __iomem *base;
@@ -56,6 +56,8 @@ struct rtl_spi_priv {
 	u32 saved_sfcsr;
 	bool wren;	/* WREN swallowed, waiting to see if WREAR follows */
 	bool deny;	/* current CS transaction refused: swallow its remaining transfers */
+	struct clk sck;
+	ulong rdy_us;
 };
 
 static u32 rd(struct rtl_spi_priv *p, int reg)
@@ -80,9 +82,9 @@ static int wait_ready(struct rtl_spi_priv *p)
 	ulong t0 = timer_get_us();
 
 	while (!(rd(p, SFCSR) & SFCSR_RDY)) {
-		if (timer_get_us() - t0 > RDY_TIMEOUT_US) {
-			printf("spi-realtek-rtl: RDY timeout, limit %d us, elapsed %lu us\n",
-			       RDY_TIMEOUT_US, timer_get_us() - t0);
+		if (timer_get_us() - t0 > p->rdy_us) {
+			printf("spi-realtek-rtl: RDY timeout, limit %lu us, elapsed %lu us\n",
+			       p->rdy_us, timer_get_us() - t0);
 			return -ETIMEDOUT;
 		}
 	}
@@ -154,6 +156,7 @@ static int rtl_spi_claim_bus(struct udevice *dev)
 	struct rtl_spi_priv *p = dev_get_priv(dev->parent);
 	int ret;
 
+	p->rdy_us = DIV_ROUND_UP(RDY_SCK_X1000, max(clk_get_rate(&p->sck) / 1000, 1UL)) + 1;
 	p->saved_sfcr = rd(p, SFCR);
 	p->saved_sfcsr = rd(p, SFCSR);
 	wr(p, SFCR, p->saved_sfcr | SFCR_RBO | SFCR_WBO);
@@ -226,7 +229,7 @@ static int rtl_spi_xfer(struct udevice *dev, unsigned int bitlen, const void *do
 	return ret;
 }
 
-/* Clock divider is inherited from stock; nothing to set */
+/* Clock divider is inherited from stock; nothing to set (`clocks` shows the rate) */
 static int rtl_spi_set_speed(struct udevice *bus, uint speed)
 {
 	return 0;
@@ -245,7 +248,7 @@ static int rtl_spi_probe(struct udevice *bus)
 	if (addr == FDT_ADDR_T_NONE)
 		return -EINVAL;
 	p->base = map_physmem(addr, 0x100, MAP_NOCACHE);
-	return 0;
+	return clk_get_by_index(bus, 0, &p->sck);	/* SCK rate for the RDY wait */
 }
 
 static const struct dm_spi_ops rtl_spi_ops = {
