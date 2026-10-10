@@ -96,10 +96,18 @@ st1008f-mainline #
 
 ## Implemented / not
 
-- Implemented: CP0 timer, ns16550 console, fixed 256 MiB RAM, env in RAM, `go`/`bootm`/memory commands, ERL cleared at entry; GPIO (`gpio-realtek-otto`), mode switch buttons; RTL9300 I2C master (8 SFP buses, `i2c-rtl9300`); i2c-gpio + TCA9534A lasers; `rtk` command.
+- Implemented: CP0 timer, ns16550 console, fixed 256 MiB RAM (U-Boot itself), `highmem` window for the second 256 MiB, env in RAM, `go`/`bootm`/memory commands, ERL cleared at entry; GPIO (`gpio-realtek-otto`), mode switch buttons; RTL9300 I2C master (8 SFP buses, `i2c-rtl9300`); i2c-gpio + TCA9534A lasers; `rtk` command.
 - SPI-NOR read-only (stage 3, verified on the board 2026-10-10; see [SPI-NOR](#spi-nor-stage-3-read-only)).
 - Not: DDR/PLL, Ethernet, SerDes, flash env, reset (next: switch-core `+0x0c` write 1 = `syscon-reboot` per Linux DTS), interrupts (polled console only), second RAM bank (#32), second hardware thread.
 - `bootm`: mainline accepts only standard uImage magic `0x27051956`; `scripts/mainline_uimage.py` writes the Realtek `0x93030000` that stock accepts. Needs a `--magic` option before using `bootm` here.
+
+## RAM above 256 MiB (`highmem`, #32)
+
+- DRAM 512 MiB: DCR `0xb8001004` = `0x21421003` → bank+row+col bits = 29 (OpenWrt 300-02 `realtek_get_system_memory`).
+- Bus zones (OpenWrt 300-02, GPL-2.0): zone 1 = bus 0x0-0x0fffffff → DRAM 0x0 (KSEG0/1, U-Boot's 256 MiB); zone 3 = bus 0x20000000-0x9fffffff, off at reset (`O0DOR2 0`, `O0DMAR2 0x1ffff`).
+- `highmem map`: clear UMSAR0-3/SRAMSAR0-3 (stock: SRAM at bus 0x1f000000, `0x1f000001`), `O0DOR2 = 0x70000000`, `O0DMAR2 = 0x7fffffff` → bus 0x20000000 = DRAM 0x10000000. Then one wired TLB pair (256 MiB pages): VA `0xc0000000` → bus 0x20000000, uncached. Other 31 entries parked on unique KSEG0 VPNs first.
+- `highmem test [bytes]`: alias check (16 MiB stride markers must not appear in the low bank) + address^pattern, 2 passes. Full bank 2026-10-10: 0 errors, 14.3 s (uncached, ~70 MB/s of traffic).
+- Not yet: Linux handover. MIPS bootm passes one memory bank (`ram_base`/`ram_size`); the second bank needs `ft_board_setup` + `NR_DRAM_BANKS=2`, and a kernel with the zone-3 remap (OpenWrt has it; mainline 7.3 needs 300-02).
 
 ## SPI-NOR (stage 3, read-only)
 

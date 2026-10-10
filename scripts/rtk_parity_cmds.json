@@ -4,7 +4,10 @@
   {
    "cmd": "help rtk",
    "phase": "pre",
-   "cap": 3
+   "cap": 3,
+   "mask": [
+    "drop:(?s)\\n--- TL-ST1008F additions.*$"
+   ]
   },
   {
    "cmd": "rtk",

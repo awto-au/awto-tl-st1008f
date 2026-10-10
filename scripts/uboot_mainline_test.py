@@ -51,6 +51,10 @@ CHECKS["rtk_temp"] = ("rtk temp", r"temp: \d+ C \(since enable: min \d+, max \d+
 CHECKS["rtk_port"] = ("rtk port", r"(?s)cage 1 \(port 0, sds 2\): .*cage 8 \(port 27, sds 9\): ", 3)
 CHECKS["refuse_boardid"] = ("rtk boardid 5", r"refused: stock does setenv", 1)
 CHECKS["refuse_boardmodel"] = ("rtk boardmodel X", r"refused: stock does setenv", 1)
+CHECKS["rtk_help"] = ("help rtk", r"--- TL-ST1008F additions.*\r?\nrtk laser", 1)
+CHECKS["highmem_info"] = ("highmem info", r"-> 512 MiB \(high bank 256 MiB at bus 0x20000000\)", 1)
+# zone-3 remap + TLB window + alias check + 2-pass pattern over 256 MiB; 14.3 s measured x1.25
+CHECKS["highmem"] = ("highmem test", r"alias check: ok\r?\n\.+\r?\npattern test 256 MiB: 0 errors", 18)
 # safety rails: module EEPROM write, GPIO21 low (board reset), all lasers on: all refused
 CHECKS["refuse_eeprom"] = ("rtk i2c write 0 0 0", r"refused: module EEPROM", 1)
 CHECKS["refuse_reset"] = ("rtk pinSet 21 0", r"refused: GPIO21 low", 1)

@@ -550,8 +550,8 @@ static int do_rtk(struct cmd_tbl *cmdtp, int flag, int argc, char *const argv[])
 	return rtk_usage();
 }
 
-/* Text identical to the stock `help rtk` (typos included) so `help rtk` diffs clean;
- * our additions are listed by `rtk help-ours`. */
+/* Stock `help rtk` text verbatim (typos included), then our section; rtk_parity drops the
+ * section before comparing with stock. */
 U_BOOT_CMD(rtk, 16, 0, do_rtk, "rtk     - Realtek commands\n",
 	   "rtk network on\n"
 	   "        - Enable the networking function\n"
@@ -603,4 +603,21 @@ U_BOOT_CMD(rtk, 16, 0, do_rtk, "rtk     - Realtek commands\n",
 	   "        - Set MAC serdes mode\n"
 	   "rtk unit get\n"
 	   "rtk unit set [unit]\n"
-	   "        - Get/set unit ID\n");
+	   "        - Get/set unit ID\n"
+	   "--- TL-ST1008F additions (not in stock help) ---\n"
+	   "rtk laser [status | <cage> | none | all force]\n"
+	   "        - SFP TX enable via the TCA9534A; one cage at a time unless forced\n"
+	   "rtk sfp [cage [raw | brief]]\n"
+	   "        - module EEPROM + DDM: presence, checksums, ethtool-style decode\n"
+	   "rtk port [status]\n"
+	   "        - per cage: module PN, laser, SerDes mode, RX light, MAC link, LED owner\n"
+	   "rtk mode\n"
+	   "        - M1/M2/M3 front switch position (GPIO 17-19)\n"
+	   "rtk temp\n"
+	   "        - on-die temperature (enables the thermal meter if off)\n"
+	   "rtk help-ours\n"
+	   "        - one-line list of the above\n"
+	   "hidden stock verbs (work here, absent from stock help): port enable|disable <port>,\n"
+	   "  comboport copper|fiber, phyreg dump-top|setbymask; init, rtcore-init,\n"
+	   "  port-isolation, send = not yet (need the Ethernet stage)\n"
+	   "see also: highmem (RAM above 256 MiB), sf (read-only flash)\n");

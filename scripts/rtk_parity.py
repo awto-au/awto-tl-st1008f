@@ -122,8 +122,9 @@ def capture(side: str, with_state: bool, with_slow: bool) -> Path:
 
 
 def norm(text: str, masks: list[str]) -> str:
+    """Mask regexes -> <X>; a mask starting `drop:` is deleted instead (ours-only text)."""
     for m in masks:
-        text = re.sub(m, "<X>", text)
+        text = re.sub(m[5:], "", text) if m.startswith("drop:") else re.sub(m, "<X>", text)
     return text
 
 
