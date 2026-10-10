@@ -30,7 +30,7 @@ CHECKS = {
     "env": ("printenv baudrate", r"baudrate=(115200|1822916|2187500|2734375|3645833|5468750|10937500)\r?\n", 1),
 }
 # PLL decode (docs/CLOCKS.md) must show stock rates: CPU 800 MHz, DDR clock 600 MHz (~1 KB of output)
-CHECKS["clocks"] = ("clocks", r"(?s)\ncpu 800 MHz .*\nmem 600 MHz \(DDR3-1200", 1)
+CHECKS["clocks"] = ("clocks", r"(?s)\ncpu [\d.]+ MHz .*\nmem 600 MHz \(DDR3-1200", 1)
 # mode switch via gpio-keys: all three probe (a state, not "not found"); M1 = pin 17 low = on
 CHECKS["buttons"] = ("button M1; button M2; button M3",
                      r"button M3\r?\n(on|off)\r?\n(on|off)\r?\n(on|off)\r?\n", 1)

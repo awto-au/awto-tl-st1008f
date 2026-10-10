@@ -167,7 +167,25 @@ Source tags: **[SRC]** GPL file:line (`dms1250/` = `sources/rtk-dms1250/`, `xgs1
 - DT consumers to switch from fixed clocks: `cpu@0/1 clocks`, `uart0/1`, `timer@3200` (otto timer), watchdog, `i2c@36c/@388`, `/cpus frequency` (or make 300-02 read the clock).
 - Until then: U-Boot `ft_board_setup` patches the fixed-clock values.
 
-## Change procedures (not executed)
+## CPU overclock: measured (2026-10-10, mainline U-Boot RAM-loaded, heatsink off, stock core voltage)
+
+- `clocks set cpu <e208> <e210> [relock] force`: stock sequence from SRAM with the lines I-cache locked (`clocks_sram.S`). Relock = `e200` bit 30 (chip `0x93030001`, bit 4 = 0). SRAM/UMSAR window remapped for the call, restored after.
+- `./dev.py cpu-clock <e210> <e208> ...`: ladder; real rate measured from `sleep 5` vs host (CP0 Count = CPU/2).
+- DIVN2 code 1 = /3 confirmed (rates match the formula within the timer's usual -0.3 %).
+
+| CPU MHz | e208 | e210 | result |
+|---|---|---|---|
+| 775 | `0x3c8` | `0x6b439e23` | real 772.9 |
+| 800 (stock) | `0x3e8` | `0x6b439e23` | real 797.6 |
+| 816.7-983.3 | `0x2f8`-`0x398` | `0x6b439e13` | all PASS |
+| 900 | `0x348` | `0x6b439e13` | uboot-test 39/40 (only the old cpu-800 pin failed), 78 C |
+| 1000 | `0x3a8` | `0x6b439e13` | uboot-test **40/40**, highmem 12.4 s (14.3 s at 800), 79 C |
+| 1016.7 / 1033.3 / 1050 | `0x3b8` / `0x3c8` / `0x3d8` | `0x6b439e13` | PASS (timer only) |
+| 1066.7 | `0x3e8` | `0x6b439e13` | **hang** after the PLL write (VCO 3200 = stock's own max at /4, so the CPU, not the PLL) |
+
+- Ceiling ~1050 MHz. Running choice not made yet: needs a long stress (Linux load, hours, temperature) before picking a default; 1000 MHz = 25 % over stock passed the suite.
+
+## Change procedures
 
 ### (a) CPU PLL at runtime — stock sequence [BIN] `0x9f000850` -> `0x9f0002a0` (#38)
 

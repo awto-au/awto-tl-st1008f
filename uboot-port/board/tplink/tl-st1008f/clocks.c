@@ -6,6 +6,7 @@
  */
 
 #include <command.h>
+#include <cpu_func.h>
 #include <fdt_support.h>
 #include <serial.h>
 #include <asm/global_data.h>
@@ -61,6 +62,47 @@ static void ddr(u32 mem_khz)
 	       d0, d1, d2, F(d0, 3, 0));
 }
 
+extern char otto_cpu_pll_sram[], otto_cpu_pll_sram_end[];
+#define SRAM_RUN	0x9f004000	/* KSEG0 SRAM, clear of the SPL globals 0x9f000b70..bbc */
+#define SRAMSAR0	0xb8004000	/* SRAM window; stock 0x1f000001 = bus 0x1f000000, enabled */
+#define UMSAR0		0xb8001300	/* matching unmapped-memory window; `highmem map` clears both */
+#define SRAM_WIN	0x1f000001
+#define UART_LSR	0xb8002014
+#define LSR_TEMT	BIT(6)
+#define TEMT_POLL	100000	/* 16-byte FIFO at 115200 = 1.4 ms; bound only names a stuck UART */
+
+/* docs/CLOCKS.md (a): run the stock sequence from SRAM with the lines locked in the I-cache */
+static int cpu_set(u32 e208, u32 e210, u32 relock)
+{
+	u32 (*fn)(u32, u32, u32) = (void *)SRAM_RUN;
+	ulong size = otto_cpu_pll_sram_end - otto_cpu_pll_sram, a;
+	u32 left, i, sram = R(SRAMSAR0), um = R(UMSAR0);
+
+	/* map SRAM for the routine (stock window), restore afterwards: highmem map clears it */
+	__raw_writel(SRAM_WIN, (void __iomem *)UMSAR0);
+	__raw_writel(SRAM_WIN, (void __iomem *)SRAMSAR0);
+	__asm__ __volatile__("sync");
+	printf("clocks: write 0xbb00e208=0x%08x 0xbb00e210=0x%08x, relock %s\n", e208, e210,
+	       relock ? "e220 bit 17" : "e200 bit 30");
+	memcpy((void *)SRAM_RUN, otto_cpu_pll_sram, size);
+	flush_cache(SRAM_RUN, size);
+	for (a = SRAM_RUN; a < SRAM_RUN + size; a += 32)
+		__asm__ __volatile__("cache 0x1c, 0(%0)" : : "r"(a));	/* I fetch-and-lock */
+	for (i = 0; i < TEMT_POLL && !(__raw_readb((void __iomem *)UART_LSR) & LSR_TEMT); i++)
+		;
+	left = fn(e208, e210, relock);
+	flush_cache(SRAM_RUN, size);	/* hit-invalidate also unlocks */
+	__raw_writel(sram, (void __iomem *)SRAMSAR0);
+	__raw_writel(um, (void __iomem *)UMSAR0);
+	__asm__ __volatile__("sync");
+	if (!left) {
+		puts("clocks: CPU PLL did not lock in 100000 polls; CPU left on the alternate clock\n");
+		return CMD_RET_FAILURE;
+	}
+	printf("clocks: locked after %u polls\n", 100000 - left);
+	return 0;
+}
+
 static int do_clocks(struct cmd_tbl *cmdtp, int flag, int argc, char *const argv[])
 {
 	struct otto_clocks c;
@@ -68,8 +110,12 @@ static int do_clocks(struct cmd_tbl *cmdtp, int flag, int argc, char *const argv
 	u32 div;
 
 	if (argc > 1) {
-		printf("clocks: read-only; change procedures are in docs/CLOCKS.md\n");
-		return CMD_RET_USAGE;
+		/* clocks set cpu <e208> <e210> [relock 0|1] force  (values: scripts/clock_calc.py) */
+		if (argc < 6 || strcmp(argv[1], "set") || strcmp(argv[2], "cpu") ||
+		    strcmp(argv[argc - 1], "force"))
+			return CMD_RET_USAGE;
+		return cpu_set(hextoul(argv[3], NULL), hextoul(argv[4], NULL),
+			       argc > 6 ? hextoul(argv[5], NULL) : 0);
 	}
 	otto_clocks_read(&c);
 	khz("cpu", c.cpu_khz);
@@ -97,8 +143,10 @@ static int do_clocks(struct cmd_tbl *cmdtp, int flag, int argc, char *const argv
 	return 0;
 }
 
-U_BOOT_CMD(clocks, 1, 0, do_clocks, "show CPU/LX/SPI/MEM clocks and DDR3 timings (read-only)",
-	   "\n  rates decoded from the PLL registers; docs/CLOCKS.md");
+U_BOOT_CMD(clocks, 7, 0, do_clocks, "show CPU/LX/SPI/MEM clocks and DDR3 timings; set CPU PLL",
+	   "\n  rates decoded from the PLL registers; docs/CLOCKS.md\n"
+	   "clocks set cpu <e208> <e210> [relock 0|1] force\n"
+	   "  - CPU PLL from SRAM (stock sequence); relock 0 = e200 bit 30 (default), 1 = e220 bit 17");
 
 /* Kernel DTB gets the live rates: OpenWrt rtl930x.dtsi uses fixed clocks + /cpus/frequency */
 static void fdt_set_rate(void *blob, const char *path, const char *prop, u32 hz)

@@ -141,6 +141,12 @@ def cmd_serial_speed(extra: list[str]) -> int:
     return _script("serial_speed_test.py", extra)
 
 
+@command("CPU PLL experiment: set e208/e210 from SRAM, decode, measure real rate via sleep (#38)",
+         args="<e210> <e208> [e208 ...] [--relock 0|1]  (ladder; values: scripts/clock_calc.py cpu <MHz>)", kind="hardware")
+def cmd_cpu_clock(extra: list[str]) -> int:
+    return _script("cpu_clock_step.py", extra)
+
+
 @command("run the rtk command list on stock and on our U-Boot, diff (see scripts/rtk_parity.py)",
          args="capture --side stock|ours | compare | both [--state] [--slow]", kind="check")
 def cmd_rtk_parity(extra: list[str]) -> int:
