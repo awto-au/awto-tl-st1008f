@@ -286,6 +286,6 @@ Load address: 0x81000000  # tftpboot of uboot-mainline.bin
 U-Boot 2026\.07(-dirty)? \([A-Z][a-z]{2} +\d+ 20\d\d - \d\d:\d\d:\d\d [+-]\d{4}\)  # mainline U-Boot banner, pinned to v2026.07 (uboot-port/)
 Model: TP-Link TL-ST1008F v2\.0  # DTS model pinned
 DRAM:  256 MiB  # stage 0 maps 256 MiB (second bank not linear); pinned
-Core:  8 devices, 5 uclasses, devicetree: separate  # DM: root, simple-bus, serial, gpio, gpio-keys + 3 buttons; a change shows up here
+Core:  20 devices, 7 uclasses, devicetree: separate  # DM: root, 2 simple-bus, serial, gpio, gpio-keys+3, i2c master+8 SFP buses, i2c-gpio+expander; a change shows up here
 Loading Environment from <NULL>\.\.\. OK  # ENV_IS_NOWHERE: RAM-only env, no flash
 (In|Out|Err):\s+serial  # console on ns16550 UART0

@@ -40,6 +40,7 @@ FILES = {
     "include/configs/tplink_tl-st1008f.h": "include/configs/tplink_tl-st1008f.h",
     "configs/" + DEFCONFIG: "configs/" + DEFCONFIG,
     "drivers/gpio/gpio-realtek-otto.c": "drivers/gpio/gpio-realtek-otto.c",
+    "drivers/i2c/i2c-rtl9300.c": "drivers/i2c/i2c-rtl9300.c",
 }
 DIRS = {
     "arch/mips/mach-otto": "arch/mips/mach-otto",
@@ -71,6 +72,11 @@ HOOKS = [
      "before", "config GPIO_REALTEK_OTTO"),
     ("drivers/gpio/Makefile", "obj-$(CONFIG_MT7621_GPIO)\t+= mt7621_gpio.o\n",
      "obj-$(CONFIG_GPIO_REALTEK_OTTO)\t+= gpio-realtek-otto.o\n", "after", "gpio-realtek-otto.o"),
+    ("drivers/i2c/Kconfig", "config SYS_I2C_MV\n",
+     "config SYS_I2C_RTL9300\n\tbool \"Realtek RTL9300 I2C master (SFP cages)\"\n\tdepends on DM_I2C && ARCH_OTTO\n\n",
+     "before", "config SYS_I2C_RTL9300"),
+    ("drivers/i2c/Makefile", "obj-$(CONFIG_SYS_I2C_MVTWSI) += mvtwsi.o\n",
+     "obj-$(CONFIG_SYS_I2C_RTL9300) += i2c-rtl9300.o\n", "after", "i2c-rtl9300.o"),
 ]
 
 

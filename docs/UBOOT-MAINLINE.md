@@ -32,20 +32,37 @@ Not hardware-verified yet (built and inspected only).
 | Kernel decompress | `CONFIG_LZMA`, `SYS_BOOTM_LEN=0x1000000` | OpenWrt uImages are LZMA |
 | DTB | `OF_SEPARATE`, appended to `u-boot.bin` | one flat file for `go` |
 
-## Load (from stock U-Boot at `RTL9300#`)
+## Build, load, test
 
 ```
-rtk network on
-rtk i2c write 8 1 0xfe          # cage 1 laser only (cage loop hazard)
-rtk i2c write 8 3 0
-setenv ipaddr <switch-ip>; setenv serverip <tftp-server-ip>
-tftpboot 0x81000000 uboot-mainline.bin
-go 0x81000000
+./dev.py build-uboot                 # -> tmp/tftp/uboot-mainline.bin
+./dev.py ramload uboot-mainline      # power-cycle -> stock -> TFTP -> go 0x81000000 -> boot-log check
+./dev.py uboot-test                  # on-board checks (scripts/uboot_mainline_test.py)
 ```
 
-- TFTP root: `tmp/tftp/` (`scripts/tftpd.py`). Same recipe as README; only the file name and address differ.
-- Image size varies per build (about 190 KB, checked at each load by the `tftpboot` "Bytes transferred" line).
-- Entry = start of image (`_start: b reset`), no header, no uImage wrapper. `go` passes no meaningful arguments.
+- `ramload` = stock `rtk network on`, one cage lit, `tftpboot 0x81000000 uboot-mainline.bin`, `go 0x81000000`. Entry = image start, no header.
+- Status 2026-10-10 (stage 2): `uboot-test` 15/15 on the board; boot log CLEAN.
+
+## On-board checks (`./dev.py uboot-test`)
+
+| Check | Proves |
+|---|---|
+| timer | `sleep 5` = 5.013 s host (+0.3 %) → CP0 400 MHz (CPU/2) correct |
+| bdinfo | 256 MiB at `0x80000000` |
+| gpio | all 24 lines from the driver == raw DATA `0xb800330c` |
+| buttons | mode switch M1/M2/M3 via gpio-keys |
+| sfp_a0 | first 96 A0 bytes via our I2C master == stock-loader dumps (cages 1, 2, 8) |
+| ddm | live DDM: Vcc within 3.3 V ±5 %, temp 10-70 °C |
+| laser | `rtk laser 2` → expander `0xfd` **and** cage 2 bias 1 mA → 6.3 mA; back to cage 1 |
+| rtk_i2c / rtk_pin | stock output format (`data 0x..`) |
+| refuse_* | module EEPROM write, GPIO21 low, all lasers on: refused |
+
+## `rtk` command (stock-compatible subset, `board/tplink/tl-st1008f/cmd_rtk.c`)
+
+- `rtk i2c read|write <dev> <reg> [data]`: dev 0-7 = cage EEPROM `0x50` (read-only), 8 = laser expander `0x38`. `rtk i2c init …` accepted as a no-op.
+- `rtk pinGet <pin>` (non-claiming read), `rtk pinSet <pin> <0|1> [force]` (GPIO21 low needs `force`).
+- `rtk laser [status|<cage>|none|all force]`, `rtk sfp [cage]` (ID + live DDM), `rtk boardmodel`.
+- `rtk network on`: not yet (no Ethernet driver; stage 4).
 
 ## Expected console
 
@@ -67,8 +84,8 @@ st1008f-mainline #
 
 ## Implemented / not
 
-- Implemented: CP0 timer, ns16550 console, fixed 256 MiB RAM, env in RAM, `go`/`bootm`/memory commands, ERL cleared at entry.
-- Not: DDR/PLL, SPI-NOR, GPIO, I2C, Ethernet, SerDes, flash env, reset, interrupts (polled console only), second RAM bank, second hardware thread.
+- Implemented: CP0 timer, ns16550 console, fixed 256 MiB RAM, env in RAM, `go`/`bootm`/memory commands, ERL cleared at entry; GPIO (`gpio-realtek-otto`), mode switch buttons; RTL9300 I2C master (8 SFP buses, `i2c-rtl9300`); i2c-gpio + TCA9534A lasers; `rtk` command.
+- Not: DDR/PLL, SPI-NOR, Ethernet, SerDes, flash env, reset (next: switch-core `+0x0c` write 1 = `syscon-reboot` per Linux DTS), interrupts (polled console only), second RAM bank (#32), second hardware thread.
 - `bootm`: mainline accepts only standard uImage magic `0x27051956`; `scripts/mainline_uimage.py` writes the Realtek `0x93030000` that stock accepts. Needs a `--magic` option before using `bootm` here.
 
 ## Sources for later stages (GPL-2.0, attribute on port)
@@ -85,10 +102,10 @@ Stage 0 uses none of them.
 
 ## Next stages
 
-1. GPIO: `gpio0` `0xb8003300`; mode switch M1/M2/M3 = 17/18/19 (active-low); GPIO21 held high, never toggled.
-2. SPI-NOR: SFCR `0xb8001200`, read window `0xb4000000`; read-only first; `saveenv` stays out.
-3. I2C (8 channels, SCL GPIO8, SDA GPIO9-16) + TCA9534A `0x38` lasers + SFP DDM (`i2c`/`sfp` commands).
-4. RTL930x CPU-port Ethernet + SerDes 10GBASE-R; DM_ETH.
+1. ~~GPIO~~ done. ~~I2C + lasers + SFP DDM~~ done.
+2. `reset` via switch-core `0xbb00000c` = 1 (Linux `syscon-reboot`); 512 MiB (#32).
+3. SPI-NOR: SFCR `0xb8001200`, read window `0xb4000000`; read-only first; `saveenv` stays out.
+4. RTL930x CPU-port Ethernet + SerDes 10GBASE-R; DM_ETH; `rtk network on`.
 5. lwIP + iperf (lwiperf) for wire-speed tests.
 6. `hwtest` commands in the style of awto-unvr `docs/uboot-hw-test-suite.md`.
 7. DDR SPL from the RE'd preloader sequence (#23); then flash boot replacing stock SPL + payload.

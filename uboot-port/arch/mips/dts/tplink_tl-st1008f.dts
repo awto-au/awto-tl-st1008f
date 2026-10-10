@@ -13,6 +13,16 @@
 
 	aliases {
 		serial0 = &uart0;
+		/* i2c0..7 = SFP cage 1..8 (EEPROM 0x50, DDM 0x51); i2c8 = laser TX-disable expander */
+		i2c0 = &sfp_i2c0;
+		i2c1 = &sfp_i2c1;
+		i2c2 = &sfp_i2c2;
+		i2c3 = &sfp_i2c3;
+		i2c4 = &sfp_i2c4;
+		i2c5 = &sfp_i2c5;
+		i2c6 = &sfp_i2c6;
+		i2c7 = &sfp_i2c7;
+		i2c8 = &i2c_exp;
 	};
 
 	chosen {
@@ -62,6 +72,51 @@
 			#gpio-cells = <2>;
 			ngpios = <24>;
 			gpio-bank-name = "gpio";
+		};
+	};
+
+	/* Switch core register block (Linux rtl930x.dtsi switch@1b000000). */
+	switchcore {
+		compatible = "simple-bus";
+		#address-cells = <1>;
+		#size-cells = <1>;
+		ranges = <0x0 0x1b000000 0x10000>;
+
+		/* SFP I2C master 0: SCL0 = GPIO8, SDA0-7 = GPIO9-16, one SDA per cage.
+		 * 100 kHz = SFF-8472 base rate (400 kHz optional per module; #32). */
+		i2c@36c {
+			compatible = "realtek,rtl9301-i2c";
+			reg = <0x36c 0x14>;
+			#address-cells = <1>;
+			#size-cells = <0>;
+
+			sfp_i2c0: i2c@0 { reg = <0>; clock-frequency = <100000>; };
+			sfp_i2c1: i2c@1 { reg = <1>; clock-frequency = <100000>; };
+			sfp_i2c2: i2c@2 { reg = <2>; clock-frequency = <100000>; };
+			sfp_i2c3: i2c@3 { reg = <3>; clock-frequency = <100000>; };
+			sfp_i2c4: i2c@4 { reg = <4>; clock-frequency = <100000>; };
+			sfp_i2c5: i2c@5 { reg = <5>; clock-frequency = <100000>; };
+			sfp_i2c6: i2c@6 { reg = <6>; clock-frequency = <100000>; };
+			sfp_i2c7: i2c@7 { reg = <7>; clock-frequency = <100000>; };
+		};
+	};
+
+	/* Bit-banged bus to the TCA9534A laser TX-disable expander (SDA GPIO23, SCL GPIO22).
+	 * Expander pin N = cage N+1, active-high TX-disable; power-on = all inputs = lasers off. */
+	i2c_exp: i2c-expander {
+		compatible = "i2c-gpio";
+		sda-gpios = <&gpio0 23 0>;
+		scl-gpios = <&gpio0 22 0>;
+		i2c-gpio,delay-us = <2>;	/* same as the OpenWrt DTS */
+		#address-cells = <1>;
+		#size-cells = <0>;
+
+		gpio_exp: gpio@38 {
+			compatible = "nxp,pca9534";	/* TCA9534A: same register map */
+			reg = <0x38>;
+			gpio-controller;
+			#gpio-cells = <2>;
+			label = "laser";
 		};
 	};
 
