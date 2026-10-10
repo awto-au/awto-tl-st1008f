@@ -174,16 +174,28 @@ static void sfp_str(const char *tag, const u8 *p, int n)
 	printf("  %s %.*s\n", tag, e, p);
 }
 
-/* Block read; on failure fall back to single bytes. MCU-emulated EEPROMs (10GBASE-T copper)
- * clock-stretch on multi-byte reads, which this master cannot follow; single bytes work. */
-static int sfp_read(struct udevice *dev, u8 reg, u8 *buf, int len, bool *bytewise)
+/* Block read at the bus default (100 kHz); on failure retry at 50 kHz, then single bytes.
+ * MCU-emulated EEPROMs (copper modules) clock-stretch; this master cannot follow at 100 kHz
+ * (GLC-T: block reads clean at 50 kHz). The bus is restored to 100 kHz afterwards. */
+static int sfp_read(struct udevice *dev, u8 reg, u8 *buf, int len, int *mode)
 {
-	int i;
+	struct udevice *bus = dev_get_parent(dev);
+	int i, ret;
 
-	*bytewise = false;
+	*mode = 0;
 	if (!dm_i2c_read(dev, reg, buf, len))
 		return 0;
-	*bytewise = true;
+	/* the module MCU stays busy after the failed transfer: a 50 kHz read straight away
+	 * failed on all three Cisco modules, the same read on an idle bus works. 20 ms gap. */
+	mdelay(20);
+	dm_i2c_set_bus_speed(bus, 50000);
+	ret = dm_i2c_read(dev, reg, buf, len);
+	dm_i2c_set_bus_speed(bus, 100000);
+	if (!ret) {
+		*mode = 1;
+		return 0;
+	}
+	*mode = 2;
 	for (i = 0; i < len; i++) {
 		int tries;
 
@@ -199,28 +211,127 @@ static int sfp_read(struct udevice *dev, u8 reg, u8 *buf, int len, bool *bytewis
 	return 0;
 }
 
+/* Some old Cisco EEPROMs pad unused BINARY fields with ASCII spaces (0x20): GLC-SX-MM has
+ * 0x20 in compliance bytes 3-5/7-10, rate byte 12 and options byte 64. Detect (>=4 of the
+ * 8 compliance bytes == 0x20) and treat those 0x20 bytes as 0 before decoding. */
+static bool sfp_space_padded(u8 *id)
+{
+	int i, n = 0;
+
+	for (i = 3; i <= 10; i++)
+		n += id[i] == 0x20;
+	if (n < 4)
+		return false;
+	for (i = 3; i <= 10; i++)
+		if (id[i] == 0x20)
+			id[i] = 0;
+	if (id[12] == 0x20)
+		id[12] = 0;
+	if (id[64] == 0x20)
+		id[64] = 0;
+	return true;
+}
+
+static u8 sfp_csum(const u8 *p, int n)
+{
+	u8 s = 0;
+
+	while (n--)
+		s += *p++;
+	return s;
+}
+
+/* Media from SFF-8472 compliance bytes 3-10 (first match wins). */
+static const char *sfp_media(const u8 *id)
+{
+	if (id[3] & 0x10) return "10GBASE-SR";
+	if (id[3] & 0x20) return "10GBASE-LR";
+	if (id[3] & 0x40) return "10GBASE-LRM";
+	if (id[3] & 0x80) return "10GBASE-ER";
+	if (id[8] & 0x04) return "SFP+ DAC (passive)";
+	if (id[8] & 0x08) return "SFP+ DAC (active)";
+	if (id[6] & 0x08) return "1000BASE-T";
+	if (id[6] & 0x01) return "1000BASE-SX";
+	if (id[6] & 0x02) return "1000BASE-LX";
+	if (id[6] & 0x04) return "1000BASE-CX";
+	if (id[6] & 0x40) return "100BASE-FX";
+	return NULL;
+}
+
+/* No compliance code set: describe what the module does declare (rate, wavelength, reach). */
+static void sfp_media_print(const u8 *id)
+{
+	const char *m = sfp_media(id);
+	unsigned int nm = id[60] << 8 | id[61];
+
+	if (m) {
+		printf("%s", m);
+		return;
+	}
+	printf("no compliance code (%s, %u nm", id[12] >= 100 ? "10G-class" :
+	       id[12] >= 10 ? "1G-class" : "rate?", nm);
+	if (id[14])
+		printf(", SMF %u km", id[14]);
+	else if (id[16] || id[17])
+		printf(", MMF %u/%u m", id[16] * 10, id[17] * 10);
+	printf(")");
+}
+
+/* MOD-DEF0 (module present) = gpio0 line cage-1, active low; read without claiming. */
+static int sfp_present(int cage)
+{
+	struct gpio_desc d;
+
+	if (gpio_line(cage - 1, &d))
+		return -1;
+	return !gpio_get_ops(d.dev)->get_value(d.dev, d.offset);
+}
+
 static int sfp_one(int cage)
 {
 	struct udevice *a0 = chip(cage - 1, SFP_A0), *a2 = chip(cage - 1, SFP_A2);
 	static const char *const plevel[] = { "1 (1.0 W)", "2 (1.5 W)", "3 (2.0 W)", "3 (2.0 W)" };
+	static const char *const rmode[] = { "", " [50 kHz: module clock-stretches]",
+					     " [byte-wise: module clock-stretches]" };
 	u8 id[96], dm[10];
-	bool slow;
-	int t;
+	int t, mode, pres = sfp_present(cage);
+	bool cc_base, cc_ext, padded;
 
-	if (!a0 || sfp_read(a0, 0, id, sizeof(id), &slow)) {
-		printf("cage %d: empty\n", cage);
+	if (!a0 || sfp_read(a0, 0, id, sizeof(id), &mode)) {
+		printf("cage %d: no EEPROM answer, MOD-DEF0 %s%s\n", cage,
+		       pres ? "says PRESENT" : "absent", pres ? "  <-- mismatch (#29)" : "");
 		return 0;
 	}
-	printf("cage %d: id 0x%02x, %d00 Mbd, %u nm%s\n", cage, id[0], id[12],
-	       id[60] << 8 | id[61], slow ? " (byte-wise reads: module clock-stretches)" : "");
+	/* checksums over the raw bytes, before any space-padding fix-up */
+	cc_base = sfp_csum(id, 63) == id[63];
+	cc_ext = sfp_csum(id + 64, 31) == id[95];
+	padded = sfp_space_padded(id);
+	printf("cage %d: ", cage);
+	sfp_media_print(id);
+	if (id[12])
+		printf(", %d00 Mbd", id[12]);
+	else
+		printf(", rate not declared");
+	printf(", %u nm, MOD-DEF0 %s%s%s\n", id[60] << 8 | id[61],
+	       pres ? "present" : "ABSENT", pres ? "" : "  <-- mismatch", rmode[mode]);
 	sfp_str("vendor", id + 20, 16);
 	sfp_str("pn    ", id + 40, 16);
+	sfp_str("rev   ", id + 56, 4);
+	sfp_str("sn    ", id + 68, 16);
 	sfp_str("date  ", id + 84, 6);
+	printf("  eeprom CC_BASE %s, CC_EXT %s%s; compliance %02x %02x %02x %02x %02x %02x %02x %02x\n",
+	       cc_base ? "ok" : "BAD", cc_ext ? "ok" : "BAD",
+	       padded ? ", NON-COMPLIANT (0x20 padding in binary fields, treated as 0)" : "",
+	       id[3], id[4], id[5], id[6], id[7], id[8], id[9], id[10]);
 	/* SFF-8472 byte 64: bit 1 = power level 2 declared, bit 5 = level 3 (Linux sfp.c) */
 	printf("  power level %s declared\n",
 	       plevel[(id[64] & 0x02 ? 1 : 0) | (id[64] & 0x20 ? 2 : 0)]);
-	if (!(id[92] & 0x40) || !a2 || dm_i2c_read(a2, 96, dm, sizeof(dm))) {
-		printf("  ddm   not implemented\n");
+	if (!(id[92] & 0x40)) {
+		printf("  ddm   not implemented (A0 byte 92 = 0x%02x)\n", id[92]);
+		return 0;
+	}
+	if (!a2 || sfp_read(a2, 96, dm, sizeof(dm), &mode)) {
+		printf("  ddm   declared but A2 (0x51) did not answer\n");
 		return 0;
 	}
 	t = (s16)(dm[0] << 8 | dm[1]);		/* 1/256 C, internal calibration (byte 92 bit 5) */

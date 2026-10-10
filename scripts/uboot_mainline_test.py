@@ -101,6 +101,31 @@ def sfp_a0(con: Console) -> bool:
     return ok
 
 
+def sfp_all(con: Console) -> bool:
+    """Every cage: either an EEPROM with both checksums ok and MOD-DEF0 present, or no
+    EEPROM and MOD-DEF0 absent. Anything else (bad checksum, presence mismatch) fails."""
+    try:
+        # 8 cages; worst case a slow module: 100 kHz fail + 20 ms + 50 kHz block (~25 ms) each
+        _, out = con.run("rtk sfp", PROMPT, 3, "rtk sfp (all cages)")
+    except SystemExit as e:
+        log(f"FAIL sfp_all: {e}")
+        return False
+    blocks = re.split(r"\r?\ncage (?=\d:)", "\n" + out.split("rtk sfp", 1)[1])[1:]
+    ok = len(blocks) == 8
+    for b in blocks:
+        cage = b[0]
+        if "no EEPROM answer" in b:
+            good = "absent" in b and "mismatch" not in b
+            what = "empty"
+        else:
+            good = "CC_BASE ok, CC_EXT ok" in b and "mismatch" not in b
+            what = re.search(r"pn\s+(\S+)", b).group(1) if re.search(r"pn\s+(\S+)", b) else "?"
+        ok &= good
+        log(f"  {'ok ' if good else 'BAD'} cage {cage}: {what}")
+    log(f"{'PASS' if ok else 'FAIL'} sfp_all: {len(blocks)} cages")
+    return ok
+
+
 def ddm(con: Console, cage: int) -> dict | None:
     _, out = con.run(f"rtk sfp {cage}", PROMPT, 1, f"ddm cage {cage}")
     m = re.search(r"temp (-?[\d.]+) C, vcc ([\d.]+) V, bias ([\d.]+) mA, tx ([\d.]+) mW, rx ([\d.]+) mW", out)
@@ -173,12 +198,12 @@ def timer(con: Console) -> bool:
 
 def main() -> int:
     ap = argparse.ArgumentParser(description=__doc__.splitlines()[0])
-    ap.add_argument("checks", nargs="*", default=[*CHECKS, "gpio", "sfp_a0", "ddm", "laser", "timer"])
+    ap.add_argument("checks", nargs="*", default=[*CHECKS, "gpio", "sfp_a0", "sfp_all", "ddm", "laser", "timer"])
     a = ap.parse_args()
     con = Console()
     # presence probe: a command with a known reply (a bare CR once got no reply at all)
     con.run("echo PROMPT_OK", r"\r?\nPROMPT_OK" + PROMPT, 1, "mainline prompt present")
-    special = {"timer": timer, "gpio": gpio, "sfp_a0": sfp_a0, "ddm": ddm_sane, "laser": laser,
+    special = {"timer": timer, "gpio": gpio, "sfp_a0": sfp_a0, "sfp_all": sfp_all, "ddm": ddm_sane, "laser": laser,
                "reset": reset}
     results = {n: (special[n](con) if n in special else check(con, n)) for n in a.checks}
     bad = [n for n, ok in results.items() if not ok]

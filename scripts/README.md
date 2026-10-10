@@ -104,7 +104,7 @@ End-to-end workflow: [../README.md#workflow](../README.md#workflow).
 ### st1008_sfp_ddm.py
 - Purpose: SFP ID EEPROM (`0x50`) dump + SFF-8472 decode, and live DDM (`0x51`: temp/Vcc/bias/TX/RX) from stock U-Boot `rtk i2c`, through the console daemon.
 - Run (after `rtk network on`): `scripts/st1008_sfp_ddm.py probe`; `dump --dev <cage-1>`; `ddm --dev <cage-1> --intf 0 --sda <cage-1>`.
-- Output: `private/sfp/<YYYYMMDD-HHMMSS>/cageN-*.bin`. Log: `tmp/logs/st1008_sfp_ddm.log`. SN redacted unless `--show-sn`.
+- Output: `private/sfp/<YYYYMMDD-HHMMSS>/cageN-*.bin`. Log: `tmp/logs/st1008_sfp_ddm.log`. Serial numbers shown (not sensitive here).
 - Notes: batches `cmd; cmd; …` lines ≤200 chars (U-Boot rejects >256, UART drops input past ~240). DDM uses scratch dev 10 via `rtk i2c init hw 10 0 <cage-1> 8 0x51 0 0` (7-bit addr, intf 0). Read-only.
 
 ### mainline_uimage.py

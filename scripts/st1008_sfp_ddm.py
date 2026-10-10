@@ -95,14 +95,14 @@ def text(b: bytes) -> str:
     return b.decode("ascii", errors="replace").strip()
 
 
-def decode_a0(a0: bytes, redact_sn: bool = True) -> None:
+def decode_a0(a0: bytes) -> None:
     log.info("  identifier 0x%02x  connector 0x%02x  encoding 0x%02x", a0[0], a0[2], a0[11])
     log.info("  compliance %s", a0[3:11].hex())
     log.info("  bitrate nominal %d00 Mbd", a0[12])
     log.info("  vendor '%s'  PN '%s'  rev '%s'", text(a0[20:36]), text(a0[40:56]), text(a0[56:60]))
     log.info("  OUI %s  wavelength %d nm", a0[37:40].hex(":"), int.from_bytes(a0[60:62], "big"))
     sn = text(a0[68:84])
-    log.info("  SN %s  date '%s'", "<redacted>" if redact_sn else sn, text(a0[84:92]))
+    log.info("  SN %s  date '%s'", sn, text(a0[84:92]))
     dt = a0[92]
     log.info("  diag type 0x%02x: DDM %s, %s calibration, addr-change %s",
              dt, "yes" if dt & 0x40 else "no", "external" if dt & 0x10 else "internal",
@@ -135,7 +135,6 @@ def main() -> None:
     sub.add_parser("probe")
     d = sub.add_parser("dump")
     d.add_argument("--dev", type=int, required=True)
-    d.add_argument("--show-sn", action="store_true", help="log the serial number (private use only)")
     g = sub.add_parser("ddm")
     g.add_argument("--dev", type=int, required=True, help="cage index 0-7 (for file naming)")
     g.add_argument("--intf", type=int, required=True)
@@ -164,7 +163,7 @@ def main() -> None:
         out_dir.mkdir(parents=True, exist_ok=True)
         (out_dir / f"cage{args.dev + 1}-a0.bin").write_bytes(a0)
         log.info("cage %d A0 -> %s", args.dev + 1, out_dir / f"cage{args.dev + 1}-a0.bin")
-        decode_a0(a0, redact_sn=not args.show_sn)
+        decode_a0(a0)
     elif args.op == "ddm":
         init = f"rtk i2c init hw {SCRATCH_DEV} {args.intf} {args.sda} 8 0x{args.chip:x} {args.freq} 0"
         log.info("%s -> %s", init, send(init, 1.0).decode(errors="replace").strip().splitlines()[1:])
