@@ -135,6 +135,18 @@ def cmd_uboot_test(extra: list[str]) -> int:
     return _script("uboot_mainline_test.py", extra)
 
 
+@command("console UART baud ladder (self-restoring; board ends at 115200)",
+         args="[divisor ...]  (default 47 24 12 6 5 4 3 2 1; mainline prompt)", kind="check")
+def cmd_serial_speed(extra: list[str]) -> int:
+    return _script("serial_speed_test.py", extra)
+
+
+@command("run the rtk command list on stock and on our U-Boot, diff (see scripts/rtk_parity.py)",
+         args="capture --side stock|ours | compare | both [--state] [--slow]", kind="check")
+def cmd_rtk_parity(extra: list[str]) -> int:
+    return _script("rtk_parity.py", extra)
+
+
 # ---- builds ----------------------------------------------------------------
 @command("build mainline U-Boot stage 0 (uboot-port/ -> tmp/tftp/uboot-mainline.bin)",
          args="[--clean]", kind="build")

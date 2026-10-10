@@ -1,0 +1,264 @@
+{
+ "_doc": "kind: read (default, safe) | state (changes RAM/register state, needs --state) | slow (long-running) | key (waits for a key; harness sends one) | ours (no stock equivalent: recorded on our side only). phase: pre = before `rtk network on` on stock, post = after (default post). cap = seconds to wait for the prompt (default 2: replies are <1 KB, ~90 ms at 115200). mask = regexes replaced by <X> before comparing (volatile values).",
+ "commands": [
+  {
+   "cmd": "help rtk",
+   "phase": "pre",
+   "cap": 3
+  },
+  {
+   "cmd": "rtk",
+   "phase": "pre"
+  },
+  {
+   "cmd": "rtk bogus",
+   "phase": "pre"
+  },
+  {
+   "cmd": "rtk unit get",
+   "phase": "pre"
+  },
+  {
+   "cmd": "rtk unit set",
+   "phase": "pre"
+  },
+  {
+   "cmd": "rtk unit get; rtk unit set 0; rtk unit get",
+   "phase": "pre"
+  },
+  {
+   "cmd": "rtk show hw_profile_list",
+   "phase": "pre"
+  },
+  {
+   "cmd": "rtk boardid",
+   "phase": "pre"
+  },
+  {
+   "cmd": "rtk boardmodel",
+   "phase": "pre"
+  },
+  {
+   "cmd": "rtk comboport",
+   "phase": "pre"
+  },
+  {
+   "cmd": "rtk comboport copper",
+   "phase": "pre"
+  },
+  {
+   "cmd": "rtk comboport fiber",
+   "phase": "pre"
+  },
+  {
+   "cmd": "rtk comboport bogus",
+   "phase": "pre"
+  },
+  {
+   "cmd": "rtk ext-devInit",
+   "phase": "pre"
+  },
+  {
+   "cmd": "rtk ext-devInit 1",
+   "phase": "pre"
+  },
+  {
+   "cmd": "rtk ext-pinGet",
+   "phase": "pre"
+  },
+  {
+   "cmd": "rtk ext-pinGet 3",
+   "phase": "pre"
+  },
+  {
+   "cmd": "rtk ext-pinSet 3",
+   "phase": "pre"
+  },
+  {
+   "cmd": "rtk ext-pinSet 3 2",
+   "phase": "pre"
+  },
+  {
+   "cmd": "rtk ext-pinSet 3 1",
+   "phase": "pre"
+  },
+  {
+   "cmd": "rtk pinGet"
+  },
+  {
+   "cmd": "rtk pinSet 1"
+  },
+  {
+   "cmd": "rtk pinSet 1 2"
+  },
+  {
+   "cmd": "rtk pinGet 99"
+  },
+  {
+   "cmd": "rtk pinGet 7"
+  },
+  {
+   "cmd": "rtk pinGet 0"
+  },
+  {
+   "cmd": "rtk i2c"
+  },
+  {
+   "cmd": "rtk i2c bogus"
+  },
+  {
+   "cmd": "rtk i2c read 0"
+  },
+  {
+   "cmd": "rtk i2c write 8 1"
+  },
+  {
+   "cmd": "rtk i2c init sw 1 2"
+  },
+  {
+   "cmd": "rtk i2c init hw 1 2"
+  },
+  {
+   "cmd": "rtk i2c read 0 0"
+  },
+  {
+   "cmd": "rtk i2c read 0 2"
+  },
+  {
+   "cmd": "rtk i2c read 7 0"
+  },
+  {
+   "cmd": "rtk i2c read 8 3"
+  },
+  {
+   "cmd": "rtk i2c read 9 1"
+  },
+  {
+   "cmd": "rtk sdsreg"
+  },
+  {
+   "cmd": "rtk sdsreg get 0 2"
+  },
+  {
+   "cmd": "rtk sdsreg bogus 0 2 1 1"
+  },
+  {
+   "cmd": "rtk sdsreg get 0 2 0x1f 2",
+   "mask": [
+    "val: 0x[0-9A-F]{4}"
+   ]
+  },
+  {
+   "cmd": "rtk sdsreg get 0 2 5 0",
+   "mask": [
+    "val: 0x[0-9A-F]{4}"
+   ]
+  },
+  {
+   "cmd": "rtk sdsreg get 0 9 5 0",
+   "mask": [
+    "val: 0x[0-9A-F]{4}"
+   ]
+  },
+  {
+   "cmd": "rtk sdsreg get 0 2 1 30",
+   "mask": [
+    "val: 0x[0-9A-F]{4}"
+   ]
+  },
+  {
+   "cmd": "rtk phyreg get 0 0 0"
+  },
+  {
+   "cmd": "rtk phyreg get 0 0 0 0"
+  },
+  {
+   "cmd": "rtk phyreg dump-top"
+  },
+  {
+   "cmd": "rtk phyreg bogus"
+  },
+  {
+   "cmd": "rtk phymmd get 0 0 4 0xc441"
+  },
+  {
+   "cmd": "rtk phymmd get 0 0"
+  },
+  {
+   "cmd": "rtk macsds set 2"
+  },
+  {
+   "cmd": "rtk macsds set 2 bogus"
+  },
+  {
+   "cmd": "rtk phytestmode"
+  },
+  {
+   "cmd": "rtk 10g 0 bogus"
+  },
+  {
+   "cmd": "rtk ledtest 99 0"
+  },
+  {
+   "cmd": "rtk ledtest 0 9"
+  },
+  {
+   "cmd": "rtk ledtest 0"
+  },
+  {
+   "cmd": "rtk port enable 99; rtk port bogus 0"
+  },
+  {
+   "cmd": "rtk sdsreg set 0 2 0x1f 2 0x35",
+   "kind": "state",
+   "note": "rewrites the value just read"
+  },
+  {
+   "cmd": "rtk port disable 8; md.l 0xbb003468 1; rtk port enable 8; md.l 0xbb003468 1",
+   "kind": "state",
+   "note": "port 8 = cage 2; compares MAC_L2_PORT_CTRL before/after"
+  },
+  {
+   "cmd": "rtk ledtest",
+   "kind": "slow",
+   "cap": 20,
+   "note": "~10 s: all on/off, walking one"
+  },
+  {
+   "cmd": "rtk ledtest 0 0",
+   "kind": "key",
+   "cap": 3,
+   "key_after": "press any to end"
+  },
+  {
+   "cmd": "rtk help-ours",
+   "kind": "ours"
+  },
+  {
+   "cmd": "rtk port",
+   "kind": "ours",
+   "cap": 3
+  },
+  {
+   "cmd": "rtk port status",
+   "kind": "ours",
+   "cap": 3
+  },
+  {
+   "cmd": "rtk mode",
+   "kind": "ours"
+  },
+  {
+   "cmd": "rtk temp",
+   "kind": "ours"
+  },
+  {
+   "cmd": "rtk laser status",
+   "kind": "ours"
+  },
+  {
+   "cmd": "rtk sfp 3 brief",
+   "kind": "ours"
+  }
+ ]
+}

@@ -57,6 +57,14 @@ Not hardware-verified yet (built and inspected only).
 | rtk_i2c / rtk_pin | stock output format (`data 0x..`) |
 | refuse_* | module EEPROM write, GPIO21 low, all lasers on: refused |
 
+Full stock `rtk` parity inventory, registers and parity harness: [RTK-COMMANDS.md](RTK-COMMANDS.md).
+
+## Console speed
+
+- UART = LX 175 MHz / 16 / divisor; every divisor 47..1 (232 k .. 10.94 MBd) passes byte-exact (`./dev.py serial-speed`). Results + host request table: #32.
+- `CFG_SYS_BAUDRATE_TABLE` lists the exact divisor rates so `setenv baudrate` accepts them.
+- Long input lines lose characters (#31): scripts type through `Console.send_checked` (echo-verified, Enter last).
+
 ## `rtk` command (stock-compatible subset, `board/tplink/tl-st1008f/cmd_rtk.c`)
 
 - `rtk i2c read|write <dev> <reg> [data]`: dev 0-7 = cage EEPROM `0x50` (read-only), 8 = laser expander `0x38`. `rtk i2c init …` accepted as a no-op.

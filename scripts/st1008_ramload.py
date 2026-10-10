@@ -53,14 +53,45 @@ class Console:
     def size(self) -> int:
         return CONSOLE.stat().st_size
 
-    def send(self, text: str) -> None:
+    def send(self, text: str, cr: bool = True) -> None:
         s = __import__("socket").socket(__import__("socket").AF_UNIX)
         s.settimeout(5)  # local unix socket; 5 s names a dead daemon
         s.connect(str(SOCK))
-        data = base64.b64encode(text.encode() + b"\r").decode()
+        data = base64.b64encode(text.encode() + (b"\r" if cr else b"")).decode()
         s.sendall((json.dumps({"op": "send", "data": data, "secs": 0.05}) + "\n").encode())
         s.recv(65536)
         s.close()
+
+    def echo_since(self, mark: int) -> str:
+        """Board output after `mark`, minus the daemon's own [TX]/[daemon] annotation lines."""
+        with CONSOLE.open("rb") as fh:
+            fh.seek(mark)
+            raw = fh.read().decode(errors="replace")
+        return re.sub(r"\n\[(?:TX|daemon)[^\n]*\n", "", raw)
+
+    def send_checked(self, text: str, chunk: int = 16, tries: int = 3) -> int:
+        """Type `text` in chunks, wait for each chunk's echo, Enter only on an exact echo.
+        Long lines lose characters on the way in (#31); a lost CR leaves U-Boot waiting.
+        On a bad echo: Ctrl-C (U-Boot drops the line) and retry. Returns the mark before Enter."""
+        for attempt in range(1, tries + 1):
+            mark = self.size()
+            for i in range(0, len(text), chunk):
+                self.send(text[i:i + chunk], cr=False)
+                want = text[:i + chunk]
+                t0 = time.monotonic()
+                # chunk echo at 115200 = 1.4 ms; daemon send pause 50 ms; 0.5 s names a lost char
+                while not self.echo_since(mark).endswith(want[-chunk:]) and time.monotonic() - t0 < 0.5:
+                    time.sleep(0.01)
+            got = self.echo_since(mark)
+            if got == text:
+                enter = self.size()
+                self.send("", cr=True)
+                return enter
+            log(f"  echo mismatch (try {attempt}/{tries}): {len(got)}/{len(text)} chars; Ctrl-C")
+            m = self.size()
+            self.send("\x03", cr=False)
+            self.expect(r"st1008f-mainline # |RTL9300# ", 1, m, "prompt after Ctrl-C")
+        raise SystemExit(f"FAIL: line echo wrong {tries}x: {text[:60]!r}...")
 
     def expect(self, pattern: str, cap: float, mark: int, what: str,
                boot_ok: bool = False) -> tuple[re.Match, str]:

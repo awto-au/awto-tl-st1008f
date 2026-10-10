@@ -196,8 +196,11 @@ class Owner:
             self._ser.flush()
 
     def set_baud(self, baud: int):
+        # termios change on the open port: a close/reopen leaves this PL2303 deaf
         self.baud = baud
-        self._open()  # reopen; daemon + socket stay up
+        with self._lock:
+            self._ser.baudrate = baud
+        self._logfh.write(f"\n[daemon] baud {baud} {time.strftime('%FT%T%z')}\n".encode())
 
     # --- bulk flash dump (runs inside the daemon; keeps hex OUT of the log) --
     def dump_range(self, mem_addr: int, length: int, out_path: str,

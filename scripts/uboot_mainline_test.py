@@ -32,7 +32,24 @@ CHECKS = {
 CHECKS["buttons"] = ("button M1; button M2; button M3",
                      r"button M3\r?\n(on|off)\r?\n(on|off)\r?\n(on|off)\r?\n", 1)
 CHECKS["rtk_i2c"] = ("rtk i2c read 0 0", r"\r?\ndata 0x3\r?\n", 1)  # stock format; SFP id 0x03
-CHECKS["rtk_pin"] = ("rtk pinGet 18", r"\r?\ndata 0x[01]\r?\n", 1)
+CHECKS["rtk_pin"] = ("rtk pinGet 7", r"\r?\npin7:\t[01]\r?\n\r?\n", 1)  # stock format
+# stock-named verbs (docs/RTK-COMMANDS.md); expected text = stock output
+CHECKS["rtk_i2c_nodev"] = ("rtk i2c read 9 1", r"\r?\nFAIL \(61455\)\r?\n", 1)
+CHECKS["rtk_unit"] = ("rtk unit get", r"\r?\nunit: 0\r?\n", 1)
+CHECKS["rtk_boardmodel"] = ("rtk boardmodel", r"\r?\nBoard Model: RTL9303_8XGE\r?\n", 1)
+CHECKS["rtk_boardid"] = ("rtk boardid", r"\r?\nBoard Model ID: <NULL>\r?\n", 1)
+CHECKS["rtk_profiles"] = ("rtk show hw_profile_list",
+                          r"(?s)Available profiles are:.*RTL9303_8XGE \(9300015\)", 1)
+CHECKS["rtk_sdsreg"] = ("rtk sdsreg get 0 2 0x1f 2",
+                        r"Get unit 0 sds 02 page 31 reg 02  val: 0x[0-9A-F]{4} \r?\n", 1)
+CHECKS["rtk_ext"] = ("rtk ext-pinGet 3", r"The pinNum \(3\) is invalid\.", 1)  # no RTL8231
+CHECKS["rtk_usage"] = ("rtk bogus", r"Usage:\r?\nrtk     - Realtek commands\r?\n", 1)
+# new commands (no stock equivalent)
+CHECKS["rtk_mode"] = ("rtk mode", r"mode: pins 17/18/19 = [01]/[01]/[01] -> pattern [123] \(M[123]", 1)
+CHECKS["rtk_temp"] = ("rtk temp", r"temp: \d+ C \(since enable: min \d+, max \d+\)", 1)
+CHECKS["rtk_port"] = ("rtk port", r"(?s)cage 1 \(port 0, sds 2\): .*cage 8 \(port 27, sds 9\): ", 3)
+CHECKS["refuse_boardid"] = ("rtk boardid 5", r"refused: stock does setenv", 1)
+CHECKS["refuse_boardmodel"] = ("rtk boardmodel X", r"refused: stock does setenv", 1)
 # safety rails: module EEPROM write, GPIO21 low (board reset), all lasers on: all refused
 CHECKS["refuse_eeprom"] = ("rtk i2c write 0 0 0", r"refused: module EEPROM", 1)
 CHECKS["refuse_reset"] = ("rtk pinSet 21 0", r"refused: GPIO21 low", 1)

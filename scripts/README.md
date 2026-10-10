@@ -229,3 +229,11 @@ Desk-only; no switch access. Needs `tmp/openwrt` (sparse clone of openwrt, `targ
 - Purpose: build the stage-0 board DTS (`mainline/tplink-tl-st1008f-v2.dts`) and Kconfig fragment (`mainline/st1008f-v2.config`) against `tmp/linux-v7.3`.
 - Run: `scripts/mainline_build_check.py [--dtb-only] [--jobs N]`
 - Output: `tmp/logs/mainline_build_check.log`, build tree `tmp/build-mips`.
+
+- `rtk_parity.py` + `rtk_parity_cmds.json`: run the `rtk` command list on stock and on our U-Boot and diff (`./dev.py rtk-parity`; see docs/RTK-COMMANDS.md). Never sends flash writers.
+
+### serial_speed_test.py
+
+- Purpose: console UART baud ladder at the mainline prompt (#32). One self-restoring command line per divisor (`mw.b` divisor, `md.b` 16 KiB, restore 115200); pass = byte-exact vs a 115200 baseline.
+- Host side: clone PL2303HX runs faster than requested; the script sweeps the requested rate down from the last good factor.
+- Run: `./dev.py serial-speed [divisor ...]`. Log: `tmp/logs/serial_speed_test.log`.
