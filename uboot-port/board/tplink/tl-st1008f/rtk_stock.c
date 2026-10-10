@@ -176,30 +176,37 @@ int rtk_ext(int argc, char *const argv[])
 }
 
 /* No external PHYs: reads return 0, writes are accepted (what stock shows on this board). */
+/* No PHY on this board (8 SFP cages, no copper PHY): phyreg/phymmd keep stock's text, then say so */
+static int no_phy(void)
+{
+	printf("note: no PHY on TL-ST1008F: nothing read or written (value shown is a placeholder)\n");
+	return 1;
+}
+
 int rtk_phyreg(int argc, char *const argv[])
 {
 	const char *v = argv[2];
 
 	if (!strcmp(v, "dump-top"))
-		return 1;
+		return no_phy();
 	if (!strcmp(v, "get") && argc >= 6) {
 		printf("Get Unit %u Port %02d page %02d reg %02d", g_unit, (int)num(argv, 3),
 		       (int)num(argv, 4), (int)num(argv, 5));
 		if (unit_ok())
 			printf("  val: 0x%04X \n", 0);
-		return 1;
+		return no_phy();
 	}
 	if (!strcmp(v, "set") && argc >= 7) {
 		printf("Set Unit %u Port %02d page %02d reg %02d val: 0x%04X", g_unit,
 		       (int)num(argv, 3), (int)num(argv, 4), (int)num(argv, 5), (u16)num(argv, 6));
 		if (unit_ok())
 			printf(" \n");
-		return 1;
+		return no_phy();
 	}
 	if (!strcmp(v, "setbymask") && argc >= 7) {
 		printf("Set Unit %u PortMask %08x page %02d reg %02d val: 0x%04X \n", g_unit,
 		       (u32)num(argv, 3), (int)num(argv, 4), (int)num(argv, 5), (u16)num(argv, 6));
-		return 1;
+		return no_phy();
 	}
 	return rtk_usage();
 }
@@ -209,7 +216,7 @@ int rtk_phymmd(int argc, char *const argv[])
 {
 	bool set = argc > 2 && !strcmp(argv[2], "set");
 
-	if (argc < 6 || (set && argc < 7)) {
+	if (argc < 6 || (set && argc < 8)) {	/* set reads data from argv[7] */
 		printf("phymmd parameter error\n\n");
 		return rtk_usage();
 	}
@@ -223,7 +230,7 @@ int rtk_phymmd(int argc, char *const argv[])
 		       (int)num(argv, 4), (int)num(argv, 5), (int)num(argv, 6));
 	if (unit_ok())
 		printf(set ? " \n" : "  val: 0x%04X \n", 0);
-	return 1;
+	return no_phy();
 }
 
 int rtk_sdsreg(int argc, char *const argv[])

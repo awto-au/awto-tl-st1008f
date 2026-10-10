@@ -6,7 +6,7 @@ Goal: every stock `rtk` subcommand (visible and hidden) in our mainline U-Boot, 
 - Inventory method: `strcmp` chain of the stock dispatcher + its string table, cross-read against the GPL source it was built from [SRC] `rtk-dms1250/system/uboot/cmd/uboot_cmd.c` (reyalo/Realtek). Related: [UBOOT-REFERENCE.md](UBOOT-REFERENCE.md), [UBOOT-FUNCMAP.md](UBOOT-FUNCMAP.md).
 - Source tags: **[SRC]** GPL SDK path:line (`dms1250/` = `sources/rtk-dms1250/`). **[OWRT]** OpenWrt `target/linux/realtek/files-6.18`. **[BIN]** stock `loader.bin` VA, where only the binary shows it. **[LIVE]** seen on this unit's console. **SPEC** inferred, unverified.
 - `help rtk` = stock text verbatim, then a `--- TL-ST1008F additions ---` section (laser, sfp, port, mode, temp, help-ours, hidden stock verbs). The parity check drops that section (`drop:` mask).
-- Parity result 2026-10-10 (`./dev.py rtk-parity both --state --slow`): **62/62 stock forms PASS**, 7 ours-only run. Includes `port disable/enable 8` (MAC_L2_PORT_CTRL `0x30`/`0x33` on both), `sdsreg set`, `ledtest`. Stubs still: `phyreg`/`phymmd` (both read 0 on this PHY-less board, so parity cannot tell; #34).
+- Parity result 2026-10-10 (`./dev.py rtk-parity both --state --slow`): **62/62 stock forms PASS**, 7 ours-only run. Includes `port disable/enable 8` (MAC_L2_PORT_CTRL `0x30`/`0x33` on both), `sdsreg set`, `ledtest`. `phyreg`/`phymmd`: no PHY on this board; stock's text then `note: no PHY on TL-ST1008F: nothing read or written (value shown is a placeholder)` (parity drops the note).
 - Parity test = `./dev.py rtk-parity` ([below](#parity-harness)); the list is `scripts/rtk_parity_cmds.json`.
 
 ## Status counts (40 leaf forms)
@@ -48,10 +48,10 @@ Unit = `rtk unit set` value (default 0); a unit >= 6 prints `\nUnit %u invalid u
 | `i2c write <id> <reg> <d>` | one byte | `OK` / `FAIL (%d)` | no (I2C) | done; module EEPROM ids 0-7 refused | param error form; writes not in list |
 | `ledtest` | all LEDs on 200 ms, off, walking one, restore [SRC] uboot_func.c:1830 ff. | `\n all led on \n`, `\n all led off \n`, `\n walking one \n` | no | done: SW LED regs below; ~10 s | slow: `rtk ledtest` |
 | `ledtest <port> <led>` | one LED on until a key | `\n press any to end.\n`; `The port (%d) is invalid.`; `The led index (%d) is invalid.` | no | done; key wait capped at 30 s | key: `rtk ledtest 0 0`; bad args |
-| `phyreg get\|set <port> <page> <reg> [d]` | PHY page/reg via MIIM [SRC] :652 | `Get Unit %u Port %02d page %02d reg %02d  val: 0x%04X ` | no | done as no-PHY stub: get returns 0, set accepted. SPEC: stock result on a SerDes-only port unverified | `rtk phyreg get 0 0 0 0` |
-| `phyreg setbymask <mask> <page> <reg> <d>` | write every port in mask; hidden | `Set Unit %u PortMask %08x page %02d reg %02d val: 0x%04X ` | no | done (stub, header only) | none |
-| `phyreg dump-top` | stub, returns 1; hidden | none | no | done | `rtk phyreg dump-top` |
-| `phymmd get\|set <ignored> <port> <mmd> <reg> [d]` | clause-45 access | `Get Unit %u Port %02d mmd-address %02d mmd-reg %02d  val: ...` ; set seen [LIVE] `Set Unit 0 Port 00 mmd-address 04 mmd-reg 50241 val: 0x0008 ` | no | done (stub; matches the live set) | `rtk phymmd get 0 0 4 0xc441` |
+| `phyreg get\|set <port> <page> <reg> [d]` | PHY page/reg via MIIM [SRC] :652 | `Get Unit %u Port %02d page %02d reg %02d  val: 0x%04X ` | no | no PHY: stock text (get = `0x0000`, as stock prints here) + `note: no PHY` line; nothing written | `rtk phyreg get 0 0 0 0` |
+| `phyreg setbymask <mask> <page> <reg> <d>` | write every port in mask; hidden | `Set Unit %u PortMask %08x page %02d reg %02d val: 0x%04X ` | no | no PHY: stock text + note | none |
+| `phyreg dump-top` | stub, returns 1; hidden | none | no | done: prints the no-PHY note | `rtk phyreg dump-top` |
+| `phymmd get\|set <ignored> <port> <mmd> <reg> [d]` | clause-45 access | `Get Unit %u Port %02d mmd-address %02d mmd-reg %02d  val: ...` ; set seen [LIVE] `Set Unit 0 Port 00 mmd-address 04 mmd-reg 50241 val: 0x0008 ` | no | no PHY: stock text + note; `set` needs 8 args (data = argv[7]) | `rtk phymmd get 0 0 4 0xc441` |
 | `sdsreg get <ignored> <sds> <page> <reg>` | SerDes read [SRC] :691 | `Get unit %u sds %02d page %02d reg %02d  val: 0x%04X ` [LIVE]; error `    Failed!! 0x%x ` | no | done: indirect access (below) | 4 reads + usage forms |
 | `sdsreg set <ignored> <sds> <page> <reg> <d>` | SerDes write | `Set unit %u sds %02d page %02d reg %02d val: 0x%04X ` [LIVE] | no | done | state: rewrite of the value just read |
 | `macsds set <sds> <mode>` | re-construct SerDes in `<mode>` [SRC] :731; 34 names | `sds=%u mode=%s`, `unit %u sds %u mode %u`; bad mode: `sdsmode error` + 44-row list (10 blank) | no | needs-eth: validation, mode list and first line done; the set itself prints `not yet` | `macsds set 2`, `... bogus` |
@@ -100,11 +100,9 @@ Unit = `rtk unit set` value (default 0); a unit >= 6 prints `\nUnit %u invalid u
 - Never sent: `saveenv savesys setsys upgrade flerase erase protect boota bootm bootp tftpboot reset go`, `sf write|erase|update`, `rtk boardid|boardmodel <arg>`, `rtk init|rtcore-init|network|port-isolation|send`, a real `macsds set`, any `*force`.
 - `--state` adds `sdsreg set` (rewrites the value just read) and `port disable/enable 8`; `--slow` adds the `ledtest` forms.
 - Log `tmp/logs/rtk_parity.log`; captures `tmp/logs/rtk_parity-{stock,ours}.json`.
-- First DIFFs expected (unverified guesses): `phyreg`/`phymmd get` value, `port` register delta, `ledtest` text; stock unit-range/`sds` range error codes.
 
 ## Open
 
-- Stock output for `phyreg`/`phymmd get`, out-of-range `sdsreg`, `comboport`, `phytestmode`, `ext-devInit` not yet captured; harness will show them.
 - Admin-state register for `port enable|disable` is from Linux behaviour, not from the SDK sources (stock path is a driver-table call).
 - LED layout (copper vs fibre fields) for the 8XGE profile.
 - Stage 4 (ethernet + SerDes bring-up) unlocks: `init`, `rtcore-init`, `network`, `port-isolation`, `macsds set`, `10g`, `send`.

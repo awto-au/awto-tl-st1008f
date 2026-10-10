@@ -173,22 +173,40 @@
    ]
   },
   {
-   "cmd": "rtk phyreg get 0 0 0"
+   "cmd": "rtk phyreg get 0 0 0",
+   "mask": [
+    "drop:\\n?note: no PHY on TL-ST1008F[^\\n]*"
+   ]
   },
   {
-   "cmd": "rtk phyreg get 0 0 0 0"
+   "cmd": "rtk phyreg get 0 0 0 0",
+   "mask": [
+    "drop:\\n?note: no PHY on TL-ST1008F[^\\n]*"
+   ]
   },
   {
-   "cmd": "rtk phyreg dump-top"
+   "cmd": "rtk phyreg dump-top",
+   "mask": [
+    "drop:\\n?note: no PHY on TL-ST1008F[^\\n]*"
+   ]
   },
   {
-   "cmd": "rtk phyreg bogus"
+   "cmd": "rtk phyreg bogus",
+   "mask": [
+    "drop:\\n?note: no PHY on TL-ST1008F[^\\n]*"
+   ]
   },
   {
-   "cmd": "rtk phymmd get 0 0 4 0xc441"
+   "cmd": "rtk phymmd get 0 0 4 0xc441",
+   "mask": [
+    "drop:\\n?note: no PHY on TL-ST1008F[^\\n]*"
+   ]
   },
   {
-   "cmd": "rtk phymmd get 0 0"
+   "cmd": "rtk phymmd get 0 0",
+   "mask": [
+    "drop:\\n?note: no PHY on TL-ST1008F[^\\n]*"
+   ]
   },
   {
    "cmd": "rtk macsds set 2"

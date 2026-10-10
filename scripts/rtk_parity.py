@@ -60,7 +60,7 @@ def clean(cmd: str, raw: str) -> str:
     lines = strip_noise(raw).split("\n")
     while lines and not lines[0].strip():
         lines.pop(0)
-    if lines and cmd[:12] in lines[0]:
+    if lines and lines[0].startswith(cmd[:12]):  # the echo; not e.g. "Usage: rtk pinGet ..."
         lines.pop(0)
     while lines and not lines[-1].strip():
         lines.pop()
@@ -150,6 +150,8 @@ def compare() -> int:
     for c in cmds:
         cmd = c["cmd"]
         st, ou = sides["stock"].get(cmd), sides["ours"].get(cmd)
+        # re-clean (idempotent): captures from older harness versions keep the echo line
+        st, ou = (None if x is None else clean(cmd, x) for x in (st, ou))
         if c.get("kind") == "ours":
             verdict = "ONLY-OURS" if ou is not None else "NO-OURS"
         elif st is None or ou is None:
