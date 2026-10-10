@@ -97,28 +97,28 @@ st1008f-mainline #
 ## Implemented / not
 
 - Implemented: CP0 timer, ns16550 console, fixed 256 MiB RAM, env in RAM, `go`/`bootm`/memory commands, ERL cleared at entry; GPIO (`gpio-realtek-otto`), mode switch buttons; RTL9300 I2C master (8 SFP buses, `i2c-rtl9300`); i2c-gpio + TCA9534A lasers; `rtk` command.
-- SPI-NOR read-only (stage 3, built, not hardware-verified; see [SPI-NOR](#spi-nor-stage-3-read-only)).
+- SPI-NOR read-only (stage 3, verified on the board 2026-10-10; see [SPI-NOR](#spi-nor-stage-3-read-only)).
 - Not: DDR/PLL, Ethernet, SerDes, flash env, reset (next: switch-core `+0x0c` write 1 = `syscon-reboot` per Linux DTS), interrupts (polled console only), second RAM bank (#32), second hardware thread.
 - `bootm`: mainline accepts only standard uImage magic `0x27051956`; `scripts/mainline_uimage.py` writes the Realtek `0x93030000` that stock accepts. Needs a `--magic` option before using `bootm` here.
 
 ## SPI-NOR (stage 3, read-only)
 
 - Driver: `uboot-port/drivers/spi/spi-realtek-rtl.c` = DM_SPI port of Linux `spi-realtek-rtl.c` (GPL-2.0, Bert Vermeulen). Node `spi0: spi@1200` (`realtek,rtl8380-spi`, regs SFCR `+0x0`, SFCSR `+0x8`, SFDR `+0xc` = `0xb8001200/08/0c`) + `jedec,spi-nor` child + 7 stock partitions (`read-only`).
-- Flash: Winbond EF4019 = `w25q256` entry, 32 MiB, 1x I/O. Config: `DM_SPI`, `SPI_FLASH`, `SPI_FLASH_WINBOND`, `CMD_SF`, `SPI_FLASH_BAR`, MTD; `SPI_FLASH_UNLOCK_ALL` off; `ENV_IS_NOWHERE` kept.
-- >16 MiB: `SPI_FLASH_BAR` (extended address register C5h/C8h) so the flash stays in 3-byte mode; U-Boot resets the register to 0 after each read. Chosen over B7h (4-byte mode) because a flash left in 4-byte mode would break 3-byte reads through the mmio window.
-- Read-only guard is in the driver (CMD_SF has no Kconfig to drop writes): opcode allowlist RDID, RDSR/2/3, READ, FAST_READ, RDSFDP, RDEAR, WRDI. WREN is held back and only sent when WREAR follows. Program/erase/WRSR opcodes print `refused: no flash writes (opcode 0x..)` and return -EPERM, so `sf write|erase|update` fail without the flash seeing a WREN.
-- mmio window: `claim_bus` sets SFCR RBO|WBO and deasserts CS; `release_bus` writes back the saved SFCR and SFCSR, so `crc32 0xb4000000 ...` works after `sf`. Whether stock needs a different mode is unverified.
-- SPI clock: divider inherited from stock, never written (`set_speed` is a no-op).
+- Flash: Winbond EF4019 = `w25q256` entry, 32 MiB, 1x I/O. Config: `DM_SPI`, `SPI_FLASH`, `SPI_FLASH_WINBOND`, `CMD_SF`, MTD; no `SPI_FLASH_BAR`; `SPI_FLASH_UNLOCK_ALL` off; `ENV_IS_NOWHERE` kept.
+- Address mode: stock leaves the flash in **4-byte mode** (the mmio window spans 32 MiB on it). A 3-byte READ reads `(addr<<8)|0xff`: `sf read` at 0x100 returned flash 0x100ff. U-Boot therefore runs 4-byte (sends EN4B `0xB7`, harmless: already set).
+- Read-only guard is in the driver (CMD_SF has no Kconfig to drop writes): opcode allowlist RDID, RDSR/2/3, READ/FAST_READ (3B and 4B `0x13`/`0x0c`), RDSFDP, RDEAR, WRDI, EN4B. EX4B `0xE9` refused (mmio needs 4-byte mode). WREN held back, only sent before WREAR. Program/erase/WRSR print `refused: no flash writes (opcode 0x..)`, return -EPERM; the flash never sees a WREN for them.
+- mmio window: `claim_bus` sets SFCR RBO|WBO and deasserts CS; `release_bus` restores SFCR/SFCSR. `crc32 0xb4000000 ...` after `sf` matches.
+- SPI clock: divider inherited from stock, never written (`set_speed` is a no-op). SFCR read `0x5fc00244` (field decode: #35).
 
 | Interface | Rated max | Board allows | We run | Why the gap |
 |---|---|---|---|---|
-| SPI clock, FAST_READ 0Bh | 133 MHz (W25Q256JV rev G, 3.0-3.6 V, `sources/README.md`) | not measured | stock divider, value not yet decoded | divider field in SFCR unknown; `sf_read` check logs SFCR; reading it out is an open item (#32) |
+| SPI clock, FAST_READ 0Bh | 133 MHz (W25Q256JV rev G, 3.0-3.6 V, `sources/README.md`) | not measured | stock divider (SFCR `0x5fc00244`, not decoded) | divider field unknown (#35) |
 | SPI clock, READ 03h | 50 MHz | not measured | not used (U-Boot picks 0Bh) | n/a |
 
+- Read throughput (2026-10-10, commit after dda6fff, 1x I/O, stock divider): mmio `crc32` of 32 MiB 16.6 s (~2.0 MB/s); `sf read` 32 MiB 22.6 s (~1.5 MB/s).
 - RDY wait limit 40 us per 32-bit word: assumes SPI clock >= 1 MHz (32 clocks = 32 us) x 1.25; expiry prints limit and elapsed.
-- Checks: `sf_probe`, `sf_read` (first and last 64 KiB: `sf read` crc32 == mmio crc32; last 64 KiB exercises the >16 MiB bank), `refuse_sf_write|erase|update`. Run `./dev.py uboot-test sf_probe sf_read refuse_sf_write refuse_sf_erase refuse_sf_update`.
-- Full-chip mmio: `crc32 0xb4000000 0x2000000` (compare with `stockFullFlashCrc32BeforeAcquisition` `dd984f95` in `docs/stock-flash-layout.json` if it is the same CRC algorithm; unverified).
-- Build: +24 KB over the pre-SPI image (266434 -> 290614 bytes).
+- Checks: `sf_probe`, `sf_read` (first and last 64 KiB: `sf read` crc32 == mmio crc32), `refuse_sf_write|erase|update`. All pass on the board.
+- Full chip 2026-10-10: `sf read` and mmio both CRC32 `671232ac`. Differs from the 2026-10-08 backup (`dd984f95`): `firmware` now holds OpenWrt 25.12.4 (sysupgrade 2026-10-08) and env `ethaddr` changed (#36).
 
 ## Sources for later stages (GPL-2.0, attribute on port)
 

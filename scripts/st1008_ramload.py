@@ -116,7 +116,10 @@ class Console:
 
     def run(self, cmd: str, pattern: str, cap: float, what: str) -> tuple[re.Match, str]:
         mark = self.size()
-        self.send(cmd)
+        if len(cmd) > 60:  # long lines lose chars (#31): a lost digit once sent crc32 to kuseg -> trap
+            self.send_checked(cmd)
+        else:
+            self.send(cmd)
         return self.expect(pattern, cap, mark, what)
 
 

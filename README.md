@@ -53,6 +53,8 @@ bootm 0x84f00000                     # OpenWrt in RAM; unplug other cages first 
 
 Never run `sysupgrade`, `mtd write`/`erase`, `firstboot`, or mount the stock JFFS2 regions read-write.
 
+- Flash state (2026-10-10): `firmware` = OpenWrt 25.12.4 (sysupgrade 2026-10-08), env `ethaddr` changed; loader and JFFS2 regions stock. Stock firmware only in the 2026-10-08 backup (#36).
+
 ## Firmware family
 
 | | TL-ST1008F v2 (this unit) | TL-ST5008F v2 (managed sibling) |

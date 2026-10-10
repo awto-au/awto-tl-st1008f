@@ -40,6 +40,9 @@
 #define OP_RDID		0x9f
 #define OP_WREAR	0xc5
 #define OP_RDEAR	0xc8
+#define OP_EN4B		0xb7	/* volatile mode bit; stock leaves the flash in 4-byte mode */
+#define OP_READ_4B	0x13
+#define OP_FAST_READ_4B	0x0c
 
 /*
  * RDY wait: one 4-byte word = 32 clocks. Assumed lowest SPI clock 1 MHz -> 32 us, x1.25 = 40 us.
@@ -137,6 +140,7 @@ static bool opcode_ok(u8 op)
 	switch (op) {
 	case OP_RDID: case OP_RDSR: case OP_RDSR2: case OP_RDSR3: case OP_READ:
 	case OP_FAST_READ: case OP_RDSFDP: case OP_RDEAR: case OP_WRDI:
+	case OP_EN4B: case OP_READ_4B: case OP_FAST_READ_4B:	/* EX4B 0xe9 stays refused: mmio needs 4B */
 		return true;
 	default:
 		return false;
@@ -154,7 +158,7 @@ static int rtl_spi_claim_bus(struct udevice *dev)
 	p->saved_sfcsr = rd(p, SFCSR);
 	wr(p, SFCR, p->saved_sfcr | SFCR_RBO | SFCR_WBO);
 	wr(p, SFCSR, p->saved_sfcsr | SFCSR_CSB0 | SFCSR_CSB1);
-	p->wren = false;
+	/* p->wren survives: spi-mem claims/releases per op, WREN and WREAR are separate ops */
 	p->deny = false;
 	ret = wait_ready(p);
 	if (ret)
