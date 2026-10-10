@@ -514,7 +514,7 @@ static int do_rtk(struct cmd_tbl *cmdtp, int flag, int argc, char *const argv[])
 	if (is(argv, 1, "phymmd"))
 		return argc > 2 ? rtk_phymmd(argc, argv) : rtk_usage();
 	if (is(argv, 1, "sdsreg"))
-		return argc > 2 ? rtk_sdsreg(argc, argv) : rtk_usage();
+		return rtk_sdsreg(argc, argv);	/* stock: bare `rtk sdsreg` = parameter error + usage */
 	if (is(argv, 1, "macsds"))
 		return rtk_macsds(argc, argv);
 	if (is(argv, 1, "phytestmode")) {

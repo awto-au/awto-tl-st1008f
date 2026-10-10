@@ -114,12 +114,19 @@ def check_boot(boot, allow, show_ok: bool):
     own interactive command output, not boot output."""
     stage, unknown, errors, ok = "uboot", Counter(), Counter(), 0
     echoed: set[str] = set()
+    typed, last_typed = "", ""  # send_checked types in chunks: one [TX] line per chunk, Enter alone
     interactive = False
     for n, raw in boot:
         if raw.startswith("[TX "):
-            m = re.search(r"'(.*)\\\\r'", raw)
+            m = re.search(r"'(.*)'", raw)
             if m:
-                echoed.add(m.group(1).strip())
+                p = m.group(1)
+                if p.endswith("\\\\r"):
+                    typed += p[:-3]
+                    echoed.add(typed.strip())
+                    last_typed, typed = typed, ""
+                else:
+                    typed += p
             continue
         stripped = DAEMON_TS.sub("", raw)
         is_kmsg = bool(KERNEL_TS.match(stripped))
@@ -128,7 +135,8 @@ def check_boot(boot, allow, show_ok: bool):
             interactive = True
         if interactive and stage != "uboot" and not is_kmsg:
             continue
-        if SKIP.match(text) or text.strip() in echoed:
+        t = text.strip()
+        if SKIP.match(text) or t in echoed or (t and (t in typed or t in last_typed)):
             continue
         stage = stage_of(text, stage)
         is_uboot = stage.startswith("uboot")

@@ -207,7 +207,7 @@ int rtk_phyreg(int argc, char *const argv[])
 /* argv[3] is ignored by stock (scripts pass 0); port/addr/reg/data start at argv[4] */
 int rtk_phymmd(int argc, char *const argv[])
 {
-	bool set = !strcmp(argv[2], "set");
+	bool set = argc > 2 && !strcmp(argv[2], "set");
 
 	if (argc < 6 || (set && argc < 7)) {
 		printf("phymmd parameter error\n\n");
@@ -228,7 +228,7 @@ int rtk_phymmd(int argc, char *const argv[])
 
 int rtk_sdsreg(int argc, char *const argv[])
 {
-	bool set = !strcmp(argv[2], "set");
+	bool set = argc > 2 && !strcmp(argv[2], "set");
 	unsigned int sds, page, reg;
 	u16 v;
 	int ret;
