@@ -77,6 +77,12 @@ End-to-end workflow: [../README.md#workflow](../README.md#workflow).
 - Output: `private/stock-runtime-<ts>/runtime.bin`. Log: `tmp/logs/auto_dump_runtime.log`.
 - Notes: on 2026-10-08 every higher rate fell back to 115200. Superseded by the OpenWrt route.
 
+### st1008_ramload.py
+- Purpose: one-shot RAM load: relay off → daemon restart → relay on → catch stock prompt → `rtk network on` → light one cage → TFTP (byte count checked) → `go`/`bootm` → wait for the image's done marker → `boot_log_check`.
+- Run via `./dev.py ramload uboot-mainline|openwrt|mainline-kernel|stock [--cage N] [--no-cycle] [--no-network]`.
+- Log: `tmp/logs/st1008_ramload.log`. Every wait has a console marker + stated cap; a stock banner mid-run = unexpected reset = FAIL.
+- Measured 2026-10-10: power-off → mainline U-Boot prompt 18 s (catch 2.1 s, network on 7.9 s, TFTP 5.1 s incl. one 5 s first-block retransmit).
+
 ### boot_log_check.py
 - Purpose: strict allowlist check of console boots (U-Boot, OpenWrt, mainline, stock). Every line must match a reviewed regex in `boot_log_allowlist.txt`; DENY-word lines (warning/error/failed/timed out/-Exxx/panic/Call Trace/loop signature …) fail unless the entry cites `known #NN`.
 - Run: `scripts/boot_log_check.py [--boot -1 | --all] [--from-line N] [--show-ok]` (default: last boot in `private/serial/st1008-console.log`).

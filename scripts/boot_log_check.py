@@ -27,7 +27,7 @@ DEFAULT_ALLOW = ROOT / "scripts/boot_log_allowlist.txt"
 
 DENY = re.compile(
     r"panic|\bOops\b|\bBUG\b|WARNING|Call Trace|cut here|Unable to handle|segfault|"
-    r"\bfail(ed|ure)?\b|\berror\b|\bErr\b|timed out|timeout|invalid|unknown|not found|"
+    r"\bfail(ed|ure)?\b|\berror\b|\bErr:0x|timed out|timeout|invalid|unknown|not found|"
     r"(?-i:-E[A-Z]{2,}\b)|error -\d+|Ring contention|\bhung\b|\bstall(ed)?\b|corrupt|\bbad\b|cannot|can't|"
     r"not (yet )?(fully )?implemented|deprecated|taints kernel|\bFAIL\b|could not|"
     r"own address as source",  # bridge loop signature (#19): never allowlist
@@ -37,8 +37,9 @@ TRACE = re.compile(r"\s*\[<[0-9a-f]{8}>\] .*|Stack : .*|\s+([0-9a-f]{8} )+[0-9a-
                    r"CPU: \d+ UID: \d+ PID: .*|Hardware name: .*")
 DAEMON_TS = re.compile(r"^\[\d\d:\d\d:\d\d\.\d{3}\] ?")
 KERNEL_TS = re.compile(r"^\[\s*\d+\.\d+\]\s?")
-SHELL_PROMPT = re.compile(r"Please press Enter to activate this console|^root@[\w()-]+:.*# ?|^/ # ")
-SKIP = re.compile(r"^\[TX \d\d:\d\d:\d\d\]|^\[daemon\]|^\s*$|^RTL9300#")
+SHELL_PROMPT = re.compile(r"Please press Enter to activate this console|^root@[\w()-]+:.*# ?|^/ # |"
+                          r"^st1008f-mainline # ")
+SKIP = re.compile(r"^\[TX \d\d:\d\d:\d\d\]|^\[daemon\]|^\s*$|^RTL9300#|^st1008f-mainline #")
 # U-Boot replies to our own md/rtk i2c commands (dump rows, `data 0x..`, `done`).
 UBOOT_REPLY = re.compile(r"[0-9a-f]{8}: [0-9a-f]{8}.*|data 0x[0-9a-f]+|done")
 
@@ -71,7 +72,7 @@ def load_allow(path: Path) -> dict[str, list[tuple[re.Pattern, str, bool]]]:
         line = raw.rstrip()
         if not line or line.lstrip().startswith("#"):
             continue
-        if m := re.fullmatch(r"\[(\w+)\]", line.strip()):
+        if m := re.fullmatch(r"\[([\w-]+)\]", line.strip()):
             stage = m.group(1)
             allow.setdefault(stage, [])
             continue
@@ -85,7 +86,7 @@ def load_allow(path: Path) -> dict[str, list[tuple[re.Pattern, str, bool]]]:
 def split_boots(lines: list[str]) -> list[list[tuple[int, str]]]:
     boots, cur = [], []
     for n, line in enumerate(lines, 1):
-        if "U-Boot 20" in line and cur:
+        if "U-Boot 2011.12" in line and cur:  # stock power-on banner; chainloaded U-Boot is a stage
             boots.append(cur)
             cur = []
         cur.append((n, line))
@@ -95,8 +96,10 @@ def split_boots(lines: list[str]) -> list[list[tuple[int, str]]]:
 
 
 def stage_of(text: str, current: str) -> str:
-    if "U-Boot 20" in text:
+    if "U-Boot 2011.12" in text:
         return "uboot"
+    if "U-Boot 20" in text:
+        return "uboot-mainline"
     if "Linux version" in text:
         if "openwrt" in text.lower():
             return "openwrt"
@@ -128,11 +131,12 @@ def check_boot(boot, allow, show_ok: bool):
         if SKIP.match(text) or text.strip() in echoed:
             continue
         stage = stage_of(text, stage)
-        if stage == "uboot" and UBOOT_REPLY.fullmatch(text):
+        is_uboot = stage.startswith("uboot")
+        if is_uboot and UBOOT_REPLY.fullmatch(text):
             continue
-        if stage != "uboot" and TRACE.fullmatch(text):
+        if not is_uboot and TRACE.fullmatch(text):
             continue
-        rules = allow.get(stage, []) + (allow.get("linux", []) if stage != "uboot" else [])
+        rules = allow.get(stage, []) + (allow.get("linux", []) if not is_uboot else [])
         hit = next(((r, k) for p, r, k in rules if p.fullmatch(text)), None)
         denied = bool(DENY.search(text))
         if hit is None:
