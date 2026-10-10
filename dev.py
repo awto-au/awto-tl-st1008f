@@ -129,6 +129,12 @@ def cmd_storm_watch(extra: list[str]) -> int:
     return _script("storm_watch.py", extra)
 
 
+@command("on-board checks at the mainline U-Boot prompt (timer, bdinfo, dm, drivers)",
+         args="[check ...]  (default: all; run `ramload uboot-mainline` first)", kind="check")
+def cmd_uboot_test(extra: list[str]) -> int:
+    return _script("uboot_mainline_test.py", extra)
+
+
 # ---- builds ----------------------------------------------------------------
 @command("build mainline U-Boot stage 0 (uboot-port/ -> tmp/tftp/uboot-mainline.bin)",
          args="[--clean]", kind="build")
