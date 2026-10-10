@@ -89,6 +89,12 @@ End-to-end workflow: [../README.md#workflow](../README.md#workflow).
 - Output: `private/sfp/<YYYYMMDD-HHMMSS>/cageN-*.bin`. Log: `tmp/logs/st1008_sfp_ddm.log`. SN redacted unless `--show-sn`.
 - Notes: batches `cmd; cmd; …` lines ≤200 chars (U-Boot rejects >256, UART drops input past ~240). DDM uses scratch dev 10 via `rtk i2c init hw 10 0 <cage-1> 8 0x51 0 0` (7-bit addr, intf 0). Read-only.
 
+### mainline_uimage.py
+- Purpose: wrap a mainline `vmlinux` + DTB into a uImage stock U-Boot boots: objcopy → append DTB (`MIPS_RAW_APPENDED_DTB`) → LZMA-alone (real size in header) → legacy header, OpenWrt RTL930x magic `0x93030000`. Load/entry read from the ELF.
+- Run: `scripts/mainline_uimage.py --vmlinux <build>/vmlinux --dtb <build>/arch/mips/boot/dts/realtek/tplink-tl-st1008f-v2.dtb [--out tmp/tftp/mainline.bin]`, then `tftpboot 0x84f00000 mainline.bin; bootm 0x84f00000`.
+- Log: `tmp/logs/mainline_uimage.log`.
+- Notes: 7.3-rc6 stage-0 boots to `VFS: Unable to mount root fs` (no initramfs yet) with the GPIO21 watchdog node disabled; enabled, it resets the board at probe (#16, #18).
+
 ### ubnt_fw_unpack.py
 - Purpose: split a Ubiquiti UBNT firmware `.bin` (e.g. UniFi `US.bcm5334x`) into PART payloads; decompress the uImage; extract embedded xz/gzip/LZMA-alone streams (built-in initramfs cpio).
 - Run: `scripts/ubnt_fw_unpack.py <fw.bin> <out-dir>`; entropy map only: `scripts/ubnt_fw_unpack.py x x --entropy <file> [--block 0x400]`.
