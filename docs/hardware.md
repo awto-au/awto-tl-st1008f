@@ -74,7 +74,13 @@ From the OpenWrt v2 DTS (`SWITCH_PORT_SFP(p,l,s,c,g)` = SoC port, label, SerDes,
 - 3-position mode switch M1/M2/M3 = `gpio-keys` on gpio0 pins 17/18/19 (`BTN_0/1/2`, EV_SW, active-low, 50 ms debounce) per the OpenWrt v2 DTS. Stock behaviour: see "Mode switch (stock firmware)" below.
   - Read with raw `md.l 0xb800330c 1` (DAT), bits 17-19 (bank C bits 1-3). Not `rtk pinGet` before `rtk network on` (hangs the console).
 - GPIO21: DTS external-watchdog toggle pin (1.2 s, always-running). Found static output-high at the U-Boot prompt; board does not reset. Unexplained.
-- USB: on-chip EHCI host, 1 root-hub port (`io mem 0x18021000`, irq 28). No external connector; likely pads/header. U-Boot has no USB commands.
+- USB: RTL9303 has a USB 2.0 host (EHCI `0x18021000`, irq 28, 1 port); **not wired on this board** (issue #5, closed).
+  - Chip: datasheet Rev 1.1-1 sec 6.10 — DM = ball F4, DP = G4, RREF J4 (12 kΩ to GND), AVDDH_USB 3.3 V, AVDDL_USB 1.1 V. Copy: `sources/README.md`.
+  - Board photos (top and bottom): no USB connector or footprint, no D+/D- pads, no VBUS switch, no ESD array. Only headers: J14 UART (`DH GND RX TX`) and 5-pad JTAG on the bottom.
+  - Live: PORTSC1 `0x2000` (PP=0, CCS=0, companion-owned); stock boot logs a root hub with nothing attached.
+  - Firmware: stock initramfs has `ehci-hcd`, `usb-storage`, `usbtmc`, `r8152` (generic SDK kernel config); managed ST5008 rootfs carries a `USB_DEPLOYMENT` feature stub (config include only). No USB use found for this board.
+  - OpenWrt realtek: no `ehci`/`usb` node in `rtl930x.dtsi` or any RTL9303 DTS; the only "usb" strings are the GPIO18 `usb_led` pinmux (reused as I2C SDA/mode switch on other boards).
+  - Not tested: any rework to the BGA balls (F4/G4) — no pads, impractical.
 
 ## Mode switch (stock firmware)
 

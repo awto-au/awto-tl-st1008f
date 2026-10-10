@@ -15,3 +15,4 @@ firmware/hello/*.bin
 uboot/*.o
 uboot/*.elf
 uboot/*.bin
+sources/**/*.pdf

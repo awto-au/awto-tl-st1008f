@@ -79,7 +79,7 @@ Details per script: [scripts/README.md](scripts/README.md).
 - Open:
   - Download the flash over 10G straight from U-Boot (no TFTP send command in stock U-Boot).
   - Shell on the stock firmware: stock `/dev` nodes are regular files and `rc` runs `diag` in the foreground; `rdinit=/bin/sh` panics.
-  - USB host port (on-chip EHCI, 1 port, no connector) — not yet probed.
+  - USB host port (on-chip EHCI) — not wired on this board; see `docs/hardware.md` (issue #5).
   - 3-way mode switch (GPIO 17/18/19): positions not mapped.
   - GPIO21 (DTS watchdog toggle) is static high at the U-Boot prompt and the board does not reset: unexplained.
   - Managed ST5008F v2 firmware RAM-booted on this board: not tried.
