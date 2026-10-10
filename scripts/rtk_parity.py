@@ -2,8 +2,8 @@
 """rtk_parity — run the same `rtk` command list on the stock loader and on our U-Boot, diff the output.
 
 - Command list: scripts/rtk_parity_cmds.json (kinds: read, state, slow, key, ours; see its _doc).
-- Sides are separate boots: `capture --side stock` (at RTL9300#, runs `rtk network on` between the
-  pre and post phases), `capture --side ours` (at st1008f-mainline #), then `compare`.
+- Sides are separate boots: `capture --side stock` (fresh boot at RTL9300#, no network yet; runs
+  `rtk network on` + one-cage laser mask between the pre and post phases), `capture --side ours` (at st1008f-mainline #), then `compare`.
   `both` = stock capture, chainload our U-Boot (st1008_ramload --no-cycle --no-network), ours capture, compare.
 - Table: PASS (same after normalising) | DIFF | ONLY-OURS (no stock command) | NO-STOCK / NO-OURS (not captured).
 - Hard denylist (never sent, on either side): flash writers, upgrades, boot/reset, `*force`, boardid/boardmodel set.
@@ -18,7 +18,7 @@ import time
 from pathlib import Path
 
 sys.path.insert(0, str(Path(__file__).resolve().parent))
-from st1008_ramload import Console, network_on  # noqa: E402
+from st1008_ramload import Console, laser, network_on  # noqa: E402
 
 ROOT = Path(__file__).resolve().parent.parent
 CMDS = ROOT / "scripts/rtk_parity_cmds.json"
@@ -85,12 +85,14 @@ def capture(side: str, with_state: bool, with_slow: bool) -> Path:
     con = Console()
     cmds = json.loads(CMDS.read_text())["commands"]
     res = {}
-    con.run("echo PARITY_START", r"\r?\nPARITY_START" + PROMPTS[side], 1, f"{side} prompt present")
+    # stock has no `echo`; printenv exists on both
+    con.run("printenv baudrate", r"\r?\nbaudrate=\d+" + PROMPTS[side], 1, f"{side} prompt present")
     phases = ["pre", "post"] if side == "stock" else ["any"]
     for phase in phases:
         if side == "stock" and phase == "post":
             log("stock: rtk network on (once per boot)")
             network_on(con)
+            laser(con, 1)  # all lasers come up on: one cage only (cage loop)
         for c in cmds:
             if side == "stock" and c.get("phase", "post") != phase:
                 continue
@@ -103,8 +105,16 @@ def capture(side: str, with_state: bool, with_slow: bool) -> Path:
             if denied(c["cmd"]):
                 log(f"DENIED (flash/boot/force denylist), not sent: {c['cmd']}")
                 continue
-            res[c["cmd"]] = clean(c["cmd"], run_one(con, side, c))
+            raw = run_one(con, side, c)
+            if raw.startswith("<<TIMEOUT"):
+                res[c["cmd"]] = "<<TIMEOUT>>"
+                log(f"{side}: {c['cmd']!r} TIMEOUT: console dead, stopping this side ({raw[:200]})")
+                break
+            res[c["cmd"]] = clean(c["cmd"], raw)
             log(f"{side}: {c['cmd']!r} -> {len(res[c['cmd']])} chars")
+        else:
+            continue
+        break
     out = ROOT / f"tmp/logs/rtk_parity-{side}.json"
     out.write_text(json.dumps(res, indent=1))
     log(f"wrote {out.relative_to(ROOT)}")
@@ -160,8 +170,14 @@ def main() -> int:
             ap.error("capture needs --side")
         capture(a.side, a.state, a.slow)
         return 0
-    capture("stock", a.state, a.slow)
     import subprocess
+    # fresh boot, stock prompt, NO network on: the stock "pre" phase must run before it
+    r = subprocess.run([sys.executable, str(ROOT / "scripts/st1008_ramload.py"), "stock", "--no-network"],
+                       timeout=30)  # relay + daemon restart + banner ~6 s; 30 s names a hang
+    if r.returncode:
+        log(f"stock boot failed rc={r.returncode}")
+        return r.returncode
+    capture("stock", a.state, a.slow)
     r = subprocess.run([sys.executable, str(ROOT / "scripts/st1008_ramload.py"), "uboot-mainline",
                         "--no-cycle", "--no-network"], timeout=90)  # TFTP ~10 s + go; 90 s names a hang
     if r.returncode:

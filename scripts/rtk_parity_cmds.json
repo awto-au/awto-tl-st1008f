@@ -44,15 +44,18 @@
   },
   {
    "cmd": "rtk comboport copper",
-   "phase": "pre"
+   "phase": "post",
+   "note": "stock: hangs the console before `rtk network on` (2026-10-10)"
   },
   {
    "cmd": "rtk comboport fiber",
-   "phase": "pre"
+   "phase": "post",
+   "note": "stock: hangs the console before `rtk network on` (2026-10-10)"
   },
   {
    "cmd": "rtk comboport bogus",
-   "phase": "pre"
+   "phase": "post",
+   "note": "stock: hangs the console before `rtk network on` (2026-10-10)"
   },
   {
    "cmd": "rtk ext-devInit",

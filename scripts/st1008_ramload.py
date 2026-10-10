@@ -204,6 +204,8 @@ def main() -> int:
         to_stock_uboot(con)
     if not a.no_network:
         network_on(con)
+    if a.no_network and a.image == "stock":
+        return 0  # rtk i2c before `rtk network on` hangs the console: no laser mask yet
     laser(con, a.cage)
     if a.image == "stock":
         return 0
