@@ -63,6 +63,11 @@ From the OpenWrt v2 DTS (`SWITCH_PORT_SFP(p,l,s,c,g)` = SoC port, label, SerDes,
 - SFP data I2C = `i2c_mst1`, SDA0-7 = GPIO9-16. SDK formula per SoC port: `scl_pin = 8 + 9*(port/4)`, `sda_pin = port/2`, `interface = 1-(port/4)`, 8-bit reg, random read. EEPROM `0x50`, DOM `0x51`.
   - Verified from stock U-Boot (after `rtk network on`): cage N = `rtk i2c init hw <id> 0 <N-1> 8 <0x50|0x51> 0 0` (7-bit addr, intf 0, sda = N-1). `0xa0` or intf 1 → `FAIL (-1)`.
   - DDM readable from U-Boot: `scripts/st1008_sfp_ddm.py` (issue #11).
+- Per-cage SFP power budget (DTS `maximum-power-milliwatt`, logged as `sfp sfp-pN: Host maximum power`): cages 1/8 = 2.9 W, 2/3/6/7 = 1.5 W, 4/5 = 2.0 W.
+  - Sum = 15.8 W = the vendor's total budget for this 8×SFP+ RTL9303 reference design (XikeStor guidance, OpenWrt commit 0dc0b98295: ≤2.9 W per port, ≤15.8 W total). A split of one budget, not per-cage hardware limits.
+  - Same split in OpenWrt for XikeStor SKS8300/8310, Vimin VM-S100-0800MS, NicGiga S100-0800S-M, SiriVision SR-ST3808F.
+  - Consequence: hot modules (10GBASE-T copper, ~2.5-3 W) belong in cages 1 or 8; Linux `sfp` refuses high-power mode above the cage limit. 10GBASE-SR optics (~1 W) fit anywhere.
+  - TP-Link's own per-cage figure is not documented; supply is 12 V 2 A (24 W) for the whole box.
   - USB EHCI (`0xb8021000`, little-endian regs): readable at the U-Boot prompt without hanging; at reset: halted, CONFIGFLAG 0, PORTSC1 `0x2000` (port power off, no connect, companion-owned). Issue #5.
 - TX-disable: expander @ `0x38` on an `i2c-gpio` bus, SCL GPIO22 / SDA GPIO23 (`delay-us = 2`). Pin N = cage N+1, **active-high**.
   - Part is a TI TCA9534A (svanheule.net); "PCA9534" in these docs = same register map. The `A` variant's base address `0x38` matches.
