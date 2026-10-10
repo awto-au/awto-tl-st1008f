@@ -1,0 +1,236 @@
+// SPDX-License-Identifier: GPL-2.0-or-later OR BSD-2-Clause
+/*
+ * TP-Link TL-ST1008F v2.0 (RTL9303), mainline-bindings-only skeleton.
+ * Derived from OpenWrt's rtl9303_tplink_tl-st1008f-v2.dts (board facts).
+ * No switch ports, CPU port, SerDes/PCS, LEDs or thermal: no upstream driver/binding yet
+ * (see docs/MAINLINE-PORT.md). Target tree: Linux v7.3, arch/mips/boot/dts/realtek/.
+ */
+/dts-v1/;
+
+#include "rtl930x.dtsi"
+
+#include <dt-bindings/gpio/gpio.h>
+#include <dt-bindings/input/input.h>
+
+/ {
+	compatible = "tplink,tl-st1008f-v2", "realtek,rtl9302-soc";
+	model = "TP-Link TL-ST1008F v2.0";
+
+	/* Second 256 MiB bank at 0x20000000 needs the OpenWrt highmem zone remap (300-02). */
+	memory@0 {
+		device_type = "memory";
+		reg = <0x00000000 0x10000000>;
+	};
+
+	chosen {
+		stdout-path = "serial0:115200n8";
+		bootargs = "earlycon";
+	};
+
+	keys {
+		compatible = "gpio-keys";
+
+		key-m1 {
+			label = "M1";
+			gpios = <&gpio0 17 GPIO_ACTIVE_LOW>;
+			debounce-interval = <50>;
+			linux,code = <BTN_0>;
+			linux,input-type = <EV_SW>;
+		};
+
+		key-m2 {
+			label = "M2";
+			gpios = <&gpio0 18 GPIO_ACTIVE_LOW>;
+			debounce-interval = <50>;
+			linux,code = <BTN_1>;
+			linux,input-type = <EV_SW>;
+		};
+
+		key-m3 {
+			label = "M3";
+			gpios = <&gpio0 19 GPIO_ACTIVE_LOW>;
+			debounce-interval = <50>;
+			linux,code = <BTN_2>;
+			linux,input-type = <EV_SW>;
+		};
+	};
+
+	/* TX-disable expander; SCL = GPIO22, SDA = GPIO23. */
+	i2c-expander {
+		compatible = "i2c-gpio";
+		#address-cells = <1>;
+		#size-cells = <0>;
+		i2c-gpio,delay-us = <2>;
+		scl-gpios = <&gpio0 22 (GPIO_ACTIVE_HIGH | GPIO_OPEN_DRAIN)>;
+		sda-gpios = <&gpio0 23 (GPIO_ACTIVE_HIGH | GPIO_OPEN_DRAIN)>;
+
+		gpioexp0: gpio@38 {
+			compatible = "nxp,pca9534";
+			reg = <0x38>;
+			gpio-controller;
+			#gpio-cells = <2>;
+		};
+	};
+
+	/* Cage N+1: MOD-DEF0 = GPIO N (active-low), TX-disable = expander pin N (active-high). */
+	sfp0: sfp-p1 {
+		compatible = "sff,sfp";
+		i2c-bus = <&i2c0_0>;
+		mod-def0-gpios = <&gpio0 0 GPIO_ACTIVE_LOW>;
+		tx-disable-gpios = <&gpioexp0 0 GPIO_ACTIVE_HIGH>;
+		maximum-power-milliwatt = <2900>;
+	};
+
+	sfp1: sfp-p2 {
+		compatible = "sff,sfp";
+		i2c-bus = <&i2c0_1>;
+		mod-def0-gpios = <&gpio0 1 GPIO_ACTIVE_LOW>;
+		tx-disable-gpios = <&gpioexp0 1 GPIO_ACTIVE_HIGH>;
+		maximum-power-milliwatt = <1500>;
+	};
+
+	sfp2: sfp-p3 {
+		compatible = "sff,sfp";
+		i2c-bus = <&i2c0_2>;
+		mod-def0-gpios = <&gpio0 2 GPIO_ACTIVE_LOW>;
+		tx-disable-gpios = <&gpioexp0 2 GPIO_ACTIVE_HIGH>;
+		maximum-power-milliwatt = <1500>;
+	};
+
+	sfp3: sfp-p4 {
+		compatible = "sff,sfp";
+		i2c-bus = <&i2c0_3>;
+		mod-def0-gpios = <&gpio0 3 GPIO_ACTIVE_LOW>;
+		tx-disable-gpios = <&gpioexp0 3 GPIO_ACTIVE_HIGH>;
+		maximum-power-milliwatt = <2000>;
+	};
+
+	sfp4: sfp-p5 {
+		compatible = "sff,sfp";
+		i2c-bus = <&i2c0_4>;
+		mod-def0-gpios = <&gpio0 4 GPIO_ACTIVE_LOW>;
+		tx-disable-gpios = <&gpioexp0 4 GPIO_ACTIVE_HIGH>;
+		maximum-power-milliwatt = <2000>;
+	};
+
+	sfp5: sfp-p6 {
+		compatible = "sff,sfp";
+		i2c-bus = <&i2c0_5>;
+		mod-def0-gpios = <&gpio0 5 GPIO_ACTIVE_LOW>;
+		tx-disable-gpios = <&gpioexp0 5 GPIO_ACTIVE_HIGH>;
+		maximum-power-milliwatt = <1500>;
+	};
+
+	sfp6: sfp-p7 {
+		compatible = "sff,sfp";
+		i2c-bus = <&i2c0_6>;
+		mod-def0-gpios = <&gpio0 6 GPIO_ACTIVE_LOW>;
+		tx-disable-gpios = <&gpioexp0 6 GPIO_ACTIVE_HIGH>;
+		maximum-power-milliwatt = <1500>;
+	};
+
+	sfp7: sfp-p8 {
+		compatible = "sff,sfp";
+		i2c-bus = <&i2c0_7>;
+		mod-def0-gpios = <&gpio0 7 GPIO_ACTIVE_LOW>;
+		tx-disable-gpios = <&gpioexp0 7 GPIO_ACTIVE_HIGH>;
+		maximum-power-milliwatt = <2900>;
+	};
+
+	/* External supervisor kicked by GPIO21 (1.2 s toggle). */
+	watchdog-ext {
+		compatible = "linux,wdt-gpio";
+		gpios = <&gpio0 21 GPIO_ACTIVE_HIGH>;
+		hw_algo = "toggle";
+		hw_margin_ms = <1200>;
+		always-running;
+	};
+};
+
+&uart0 {
+	status = "okay";
+};
+
+&switch0 {
+	compatible = "realtek,rtl9303-switch", "syscon", "simple-mfd";
+};
+
+/* SCL0 = GPIO8, SDA0-7 = GPIO9-16, one SDA per cage. */
+&i2c0 {
+	compatible = "realtek,rtl9303-i2c", "realtek,rtl9301-i2c";
+	realtek,scl = <0>;
+	status = "okay";
+
+	i2c0_0: i2c@0 {
+		reg = <0>;
+	};
+	i2c0_1: i2c@1 {
+		reg = <1>;
+	};
+	i2c0_2: i2c@2 {
+		reg = <2>;
+	};
+	i2c0_3: i2c@3 {
+		reg = <3>;
+	};
+	i2c0_4: i2c@4 {
+		reg = <4>;
+	};
+	i2c0_5: i2c@5 {
+		reg = <5>;
+	};
+	i2c0_6: i2c@6 {
+		reg = <6>;
+	};
+	i2c0_7: i2c@7 {
+		reg = <7>;
+	};
+};
+
+&spi0 {
+	status = "okay";
+
+	flash@0 {
+		compatible = "jedec,spi-nor";
+		reg = <0>;
+		spi-max-frequency = <100000000>;
+
+		partitions {
+			compatible = "fixed-partitions";
+			#address-cells = <1>;
+			#size-cells = <1>;
+
+			partition@0 {
+				label = "u-boot";
+				reg = <0x0 0xe0000>;
+				read-only;
+			};
+
+			partition@e0000 {
+				label = "u-boot-env";
+				reg = <0xe0000 0x10000>;
+			};
+
+			partition@f0000 {
+				label = "u-boot-env2";
+				reg = <0xf0000 0x10000>;
+				read-only;
+			};
+
+			partition@100000 {
+				label = "jffs2-cfg";
+				reg = <0x100000 0x100000>;
+			};
+
+			partition@200000 {
+				label = "jffs2-log";
+				reg = <0x200000 0x100000>;
+			};
+
+			partition@300000 {
+				label = "firmware";
+				reg = <0x300000 0x1d00000>;
+			};
+		};
+	};
+};

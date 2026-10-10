@@ -189,3 +189,22 @@ Kept as used on 2026-10-07/08. New tooling is Python. Run from the repo root wit
 - Precondition: switch booted into STOCK firmware (rc up, eth0 configured); ONE port cabled to `<iface>` (cage-loop hazard).
 - Run: `sudo scripts/st1008_cpu_punt_probe.py <iface> [--target 192.168.1.1] [--ip 192.168.1.2/24] [--listen 5]`
 - Log: `tmp/logs/st1008_cpu_punt_probe.log`.
+
+## Mainline port (issue #16)
+
+Desk-only; no switch access. Needs `tmp/openwrt` (sparse clone of openwrt, `target/linux/realtek` + `target/linux/generic`), `tmp/linux.git` (blobless bare clone of torvalds/linux), `tmp/linux-v7.3` (shallow clone of `v7.3-rc6`) and a `mips64-linux-gnu-` cross gcc. Results: [../docs/MAINLINE-PORT.md](../docs/MAINLINE-PORT.md).
+
+### mainline_inventory.py
+- Purpose: compare OpenWrt `files-6.18` and version-tagged `patches-6.18` against a mainline ref (exists? first release? subject merged?).
+- Run: `scripts/mainline_inventory.py [--ref v7.3-rc6]`
+- Output: markdown tables on stdout and `tmp/logs/mainline_inventory.log`.
+
+### mainline_patch_check.py
+- Purpose: apply OpenWrt's realtek patches (+ generic phylink PCS series) in order onto a scratch copy of the mainline tree (strict, then fuzz 2, then fuzz 3), overlay `files-6.18`, optionally build with `make -k`.
+- Run: `scripts/mainline_patch_check.py [--build]`; `--rebuild` skips patching and reruns the hand fixups + build. Delete `tmp/linux-fp` before a fresh patch run.
+- Output: `tmp/logs/mainline_patch_check.log` (patch table, then make output), build tree `tmp/build-fp`.
+
+### mainline_build_check.py
+- Purpose: build the stage-0 board DTS (`mainline/tplink-tl-st1008f-v2.dts`) and Kconfig fragment (`mainline/st1008f-v2.config`) against `tmp/linux-v7.3`.
+- Run: `scripts/mainline_build_check.py [--dtb-only] [--jobs N]`
+- Output: `tmp/logs/mainline_build_check.log`, build tree `tmp/build-mips`.
