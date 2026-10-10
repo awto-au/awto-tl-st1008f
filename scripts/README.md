@@ -77,6 +77,12 @@ End-to-end workflow: [../README.md#workflow](../README.md#workflow).
 - Output: `private/stock-runtime-<ts>/runtime.bin`. Log: `tmp/logs/auto_dump_runtime.log`.
 - Notes: on 2026-10-08 every higher rate fell back to 115200. Superseded by the OpenWrt route.
 
+### storm_watch.py
+- Purpose: watch a host NIC's rx broadcast+multicast rate (`ethtool -S`) and cut the switch relay (`switch_power.py off`) on a storm. Unicast/iperf ignored.
+- Run: `scripts/storm_watch.py [--nic enp7s0] [--abs-pps 2000] [--duration 900] [--observe --hold 3]`.
+- Log: `tmp/logs/storm_watch.log`.
+- Notes: trip = max(abs, 20× 3 s baseline) for 2 samples (0.5 s). A loop through OpenWrt's default bridge ramps slowly (13k pps at ~+80 s) and hangs the CPU port (`Ring contention`) by ~+250 s.
+
 ### st1008_sfp_ddm.py
 - Purpose: SFP ID EEPROM (`0x50`) dump + SFF-8472 decode, and live DDM (`0x51`: temp/Vcc/bias/TX/RX) from stock U-Boot `rtk i2c`, through the console daemon.
 - Run (after `rtk network on`): `scripts/st1008_sfp_ddm.py probe`; `dump --dev <cage-1>`; `ddm --dev <cage-1> --intf 0 --sda <cage-1>`.
