@@ -61,6 +61,9 @@ From the OpenWrt v2 DTS (`SWITCH_PORT_SFP(p,l,s,c,g)` = SoC port, label, SerDes,
 ## Other GPIO / I2C
 
 - SFP data I2C = `i2c_mst1`, SDA0-7 = GPIO9-16. SDK formula per SoC port: `scl_pin = 8 + 9*(port/4)`, `sda_pin = port/2`, `interface = 1-(port/4)`, 8-bit reg, random read. EEPROM `0x50`, DOM `0x51`.
+  - Verified from stock U-Boot (after `rtk network on`): cage N = `rtk i2c init hw <id> 0 <N-1> 8 <0x50|0x51> 0 0` (7-bit addr, intf 0, sda = N-1). `0xa0` or intf 1 → `FAIL (-1)`.
+  - DDM readable from U-Boot: `scripts/st1008_sfp_ddm.py` (issue #11).
+  - USB EHCI (`0xb8021000`, little-endian regs): readable at the U-Boot prompt without hanging; at reset: halted, CONFIGFLAG 0, PORTSC1 `0x2000` (port power off, no connect, companion-owned). Issue #5.
 - TX-disable: expander @ `0x38` on an `i2c-gpio` bus, SCL GPIO22 / SDA GPIO23 (`delay-us = 2`). Pin N = cage N+1, **active-high**.
   - Part is a TI TCA9534A (svanheule.net); "PCA9534" in these docs = same register map. The `A` variant's base address `0x38` matches.
 - 3-position mode switch M1/M2/M3 = `gpio-keys` on gpio0 pins 17/18/19 (`BTN_0/1/2`, EV_SW, active-low, 50 ms debounce) per the OpenWrt v2 DTS.
