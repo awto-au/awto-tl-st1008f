@@ -1,0 +1,279 @@
+# boot_log_check.py allowlist. Format: `regex  # reason [known #NN]`.
+# Regex is a FULL match on the line after daemon + kernel timestamps are stripped.
+# An entry that matches a DENY word (fail/error/invalid/...) only passes with `known #NN`.
+# Keep patterns tight: no bare `.*` lines. Every entry is a reviewed, explained line.
+# Sections: [uboot], [linux] (shared by openwrt/mainline/stock), [openwrt], [mainline], [stock].
+# Memory/geometry values are pinned per stage: a change must show up as UNKNOWN.
+
+[uboot]
+U-Boot 2011\.12\.\(3\.6\.6\.55087\) \(Jan 19 2022 - 16:34:33\)  # stock loader banner (only version seen)
+Board: RTL9300 CPU:800MHz LX:175MHz DDR:600MHz  # stock board line; clocks pinned
+DRAM:  512 MB  # 512 MB DRAM pinned
+SPI-F: WINBOND/EF4019/MMIO32-2/ModeC 1x32 MB \(plr_flash_info @ 83f922a4\)  # 32 MB Winbond W25Q256 SPI NOR, MMIO mode
+Loading 65536B env\. variables from offset 0xe0000  # u-boot-env partition read
+Net:   Net Initialization Skipped  # network is brought up on demand by `rtk network on`
+No ethernet found\.  # same: no NIC until `rtk network on`
+Hit Esc key to stop autoboot:  [0-9]  # autoboot countdown banner
+\s*0  # tail of the autoboot countdown
+\s*Enable network  # `rtk network on` start
+\s*Please wait for PHY init-time \.\.\.  # `rtk network on` PHY init wait
+\s*(RTK|RTCORE) Driver Module Initialize  # `rtk network on` driver init
+\s*Loader RTNIC Driver Module Initialize  # `rtk network on` NIC driver init
+\s+Chip 9303 \(found\)  # `rtk network on`; chip id RTL9303 pinned
+\s+(Chip Construct|MAC Construct|PHY Construct|Serdes Construct|Misc|SPI Master init|PHY Reset|Turn Off Serdes|Turn On Serdes|Disable PHY Polling|Enable PHY Polling|Mac_Polling_PHY Config)  # `rtk network on` init step trace
+\s+(Chip Construct|GPIO Init|Hardware-profile init|IOAL init)(?: \(unit 0\))?  # `rtk network on` init step trace
+\s+GPIO probe \(unit 0\): \(found\)  # `rtk network on` init step trace
+\s+Hardware-profile probe \(RTL9303_8XGE\)  # `rtk network on`; hardware profile pinned to RTL9303_8XGE
+\s+(I2C device init|I2C init|I2C probe|MAC init|MAC probe|Mgmt_dev init|NIC probe|PHY init|PHY probe|SFP insert init|SMI protocol probe) \(unit 0\)  # `rtk network on` init step trace
+\s+SPI init \(unit 0\) \(type3\)  # `rtk network on` init step trace
+Using rtl9300#0 device  # tftpboot: eth device selected
+TFTP from server \d+\.\d+\.\d+\.\d+; our IP address is \d+\.\d+\.\d+\.\d+  # tftpboot header
+Filename '[A-Za-z0-9._-]+'\.  # tftpboot image name
+Load address: 0x84f00000  # tftpboot load address pinned
+Loading: [*T# ]*  # tftpboot progress (T = retransmit timeout tick)
+\s*#+  # tftpboot progress bar continuation
+Bytes transferred = \d+ \([0-9a-f]+ hex\)  # tftpboot done
+\#\# Checking Image at 84f00000 \.\.\.  # iminfo / bootm image check
+\#\# Booting kernel from Legacy Image at 84f00000 \.\.\.  # bootm
+\s+Legacy image found  # iminfo / bootm
+\s+Image Name:\s+(MIPS OpenWrt Linux-\d+\.\d+\.\d+|mainline ST1008F)  # iminfo image names we build
+\s+Created:\s+20\d\d-\d\d-\d\d\s+\d+:\d\d:\d\d UTC  # iminfo build time
+\s+Image Type:\s+MIPS Linux Kernel Image \(lzma compressed\)  # iminfo; type pinned
+\s+Data Size:\s+\d+ Bytes = [0-9.]+ MB  # iminfo
+\s+Load Address: 80100000  # iminfo; kernel load address pinned
+\s+Entry Point:\s+[0-9a-f]{8}  # iminfo; entry differs per kernel build
+\s+Verifying Checksum \.\.\. OK  # iminfo / bootm CRC pass
+\s*OK  # bootm CRC pass continuation
+\s+Uncompressing Kernel Image \.\.\. OK  # bootm LZMA unpack
+Starting kernel \.\.\.  # bootm handoff
+
+[linux]
+Linux version 6\.\d+\.\d+ \(builder@buildhost\) \(mips-openwrt-linux-musl-gcc \(OpenWrt GCC [0-9.]+ r\d+-[0-9a-f]+\) [0-9.]+, GNU ld \(GNU Binutils\) [0-9.]+\) #0 SMP [A-Z][a-z]{2} [A-Z][a-z]{2} +\d+ \d\d:\d\d:\d\d 20\d\d  # OpenWrt kernel banner
+CPU[01] revision is: 00019555 \(MIPS 34Kc\)  # MIPS 34Kc core pinned
+MIPS: machine is TP-Link TL-ST1008F v2\.0  # DTS model pinned
+earlycon: ns16550a0 (at MMIO |MMIO:)0x18002000 \(options '115200n8'\)  # early console at the SoC UART, 115200 8N1
+printk: legacy bootconsole \[(early0|ns16550a0)\] (enabled|disabled)  # bootconsole hand-over (printed twice by the 16550 console)
+printk: legacy console \[(ttyS0|tty0)\] (enabled|disabled)  # console hand-over
+Detected 1 available secondary CPU\(s\)  # 2 VPEs (MIPS 34K MT)
+Primary instruction cache 32kB, VIPT, 4-way, linesize 32 bytes\.  # 34Kc L1 I-cache pinned
+Primary data cache 32kB, 4-way, PIPT, no aliases, linesize 32 bytes  # 34Kc L1 D-cache pinned
+OF: reserved mem: Reserved memory: No reserved-memory node in the DT  # DTS has no reserved-memory node
+Zone ranges:  # memory map banner
+Movable zone start for each node  # memory map banner
+Early memory node ranges  # memory map banner
+pcpu-alloc: \[0\] 0 \[0\] 1 ?  # 2 CPUs
+pcpu-alloc: s\d+ r\d+ d\d+ u\d+ alloc=\d+\*4096  # percpu geometry
+percpu: Embedded \d+ pages/cpu s\d+ r\d+ d\d+ u\d+  # percpu geometry
+(Dentry cache|Inode-cache|Mount-cache|Mountpoint-cache|TCP established|TCP bind|UDP|UDP-Lite|IP idents|Table-perturb|MPTCP token|tcp_listen_portaddr_hash) hash table entries: \d+ \(order: \d+, \d+ bytes, linear\)  # hash table sizing; scales with RAM
+Writing ErrCtl register=[0-9a-f]{8}  # MIPS ErrCtl cache-error control write (arch init)
+Readback ErrCtl register=[0-9a-f]{8}  # MIPS ErrCtl readback (arch init)
+SLUB: HWalign=32, Order=0-3, MinObjects=0, CPUs=2, Nodes=1  # slab allocator; 2 CPUs pinned
+rcu: Hierarchical S?RCU implementation\.  # RCU init
+rcu: RCU calculated value of scheduler-enlistment delay is \d+ jiffies\.  # RCU init
+rcu: srcu_init: Setting srcu_struct sizes based on contention\.  # RCU init
+rcu: \tMax phase no-delay instances is 1000\.  # RCU init
+NR_IRQS: 256  # IRQ count
+clocksource: realtek_otto_timer: mask: 0xfffffff max_cycles: 0xfffffff, max_idle_ns: 38225208801 ns  # SoC timer clocksource
+clocksource: jiffies: mask: 0xffffffff max_cycles: 0xffffffff, max_idle_ns: \d+ ns  # jiffies clocksource
+clocksource: Switched to clocksource realtek_otto_timer  # SoC timer selected
+sched_clock: 28 bits at 3125kHz, resolution 320ns, wraps every 42949672800ns  # SoC timer 3.125 MHz pinned
+Calibrating delay loop\.\.\. [0-9.]+ BogoMIPS \(lpj=\d+\)  # BogoMIPS (800 MHz CPU)
+pid_max: default: 32768 minimum: 301  # pid limits
+smp: Bringing up secondary CPUs \.\.\.  # SMP bring-up
+smp: Brought up 1 node, 2 CPUs  # 2 CPUs pinned
+Counter synchronization \[CPU#0 -> CPU#1\]: passed  # CP0 counter sync between VPEs
+NET: Registered PF_(INET|INET6|PACKET|NETLINK/PF_ROUTE|UNIX/PF_LOCAL) protocol family  # net core init
+TCP: Hash tables configured \(established \d+ bind \d+\)  # net core init
+In-situ OAM \(IOAM\) with IPv6  # IPv6 init
+Segment Routing with IPv6  # IPv6 init
+workingset: timestamp_bits=\d+ (\(anon: \d+\) )?max_order=\d+ bucket_order=\d+( \(anon: \d+\))?  # workingset init
+brd: module loaded  # ramdisk driver
+Block layer SCSI generic \(bsg\) driver version 0\.4 loaded \(major \d+\)  # block layer init
+i2c_dev: i2c /dev entries driver  # i2c-dev
+pinctrl-single 1b00(0200|c600|cc00)\.pinmux: 32 pins, size 4  # SoC pinmux blocks
+6 fixed-partitions partitions found on MTD device spi0\.0  # SPI NOR partition table: 6 partitions pinned
+Creating 6 MTD partitions on "spi0\.0":  # SPI NOR partition table
+0x000000000000-0x0000000e0000 : "u-boot"  # partition map (stock layout, pinned)
+0x0000000e0000-0x0000000f0000 : "u-boot-env"  # partition map
+0x0000000f0000-0x000000100000 : "u-boot-env2"  # partition map
+0x000000100000-0x000000200000 : "jffs2-cfg"  # partition map
+0x000000200000-0x000000300000 : "jffs2-log"  # partition map
+0x000000300000-0x000002000000 : "firmware"  # partition map
+sfp sfp-p[2367]: Host maximum power 1\.5W  # DTS maximum-power-milliwatt (borrowed vendor figure, see docs/hardware.md)
+sfp sfp-p[45]: Host maximum power 2\.0W  # DTS maximum-power-milliwatt (borrowed vendor figure, see docs/hardware.md)
+sfp sfp-p[18]: Host maximum power 2\.9W  # DTS maximum-power-milliwatt (borrowed vendor figure, see docs/hardware.md)
+sfp sfp-p[1-8]: module FS +SFP-10GSR-85 +rev +sn \S+ +dc \d+  # SFP+ module detected and ID EEPROM read
+sfp sfp-p[1-8]: please wait, module slow to respond  # sfp core retries the ID read; seen on empty cages, see triage
+i2c-gpio i2c(_gpio|-expander): using lines 535 \(SDA\) and 534 \(SCL\)  # bit-banged I2C bus for the PCA9538 expander
+futex hash table entries: 512 (\(16384 bytes on 1 NUMA nodes, total 16 KiB, linear\)\.|\(order: 2, 16384 bytes, linear\))  # futex sizing
+mem auto-init: stack:(off|all\(zero\)), heap alloc:off, heap free:off  # kernel hardening config
+clk: Disabling unused clocks  # late init
+pca953x 8-0038: using no (AI|auto increment)  # PCA9538 expander, no auto-increment
+
+[openwrt]
+CPU frequency from device tree: 800MHz  # CPU clock pinned
+SoC Type: Realtek RTL9303 rev B \(6487\)  # SoC id pinned
+Found SoC ID: 9303: RTL9303, family 9300  # SoC id pinned
+Using appended Device Tree\.  # DTB appended to the uImage
+Kernel command line: earlycon  # command line pinned
+Built 1 zonelists, mobility grouping on\.  Total pages: 131072  # 512 MB
+Memory: 493232K/524288K available \(7788K kernel code, 722K rwdata, 972K rodata, 12848K init, 254K bss, 29880K reserved, 0K cma-reserved, 262144K highmem\)  # 512 MB incl. 256 MB highmem
+\s+Normal   \[mem 0x0000000000000000-0x000000001fffffff\]  # lowmem 512 MB
+\s+HighMem  \[mem 0x0000000020000000-0x000000002fffffff\]  # highmem 256 MB
+\s+node   0: \[mem 0x0000000000000000-0x000000000fffffff\]  # RAM bank 0 (256 MB)
+\s+node   0: \[mem 0x0000000020000000-0x000000002fffffff\]  # RAM bank 1 (256 MB)
+Initmem setup node 0 \[mem 0x0000000000000000-0x000000002fffffff\]  # RAM map
+On node 0, zone HighMem: 65536 pages in unavailable ranges  # RAM hole 256-512 MB
+\tTracing variant of Tasks RCU enabled\.  # RCU config
+RCU Tasks Trace: Setting shift to 1 and lim to 1 rcu_task_cb_adjust=1 rcu_task_cpu_ids=2\.  # RCU init
+Serial: 8250/16550 driver, 16 ports, IRQ sharing enabled  # serial driver
+18002000\.uart: ttyS0 at MMIO 0x18002000 \(irq = 30, base_baud = 10937500\) is a 16550A  # console UART
+squashfs: version 4\.0 \(2009/01/31\) Phillip Lougher  # squashfs init
+jffs2: version 2\.2 \(NAND\) \(SUMMARY\) \(ZLIB\) \(LZMA\) \(RTIME\) \(CMODE_PRIORITY\) \(c\) 2001-2006 Red Hat, Inc\.  # jffs2 init
+2 uimage-fw partitions found on MTD device firmware  # OpenWrt split of the firmware partition
+Creating 2 MTD partitions on "firmware":  # OpenWrt split of the firmware partition
+0x000000000000-0x000000330000 : "kernel"  # firmware split
+0x000000330000-0x000001d00000 : "rootfs"  # firmware split
+1 squashfs-split partitions found on MTD device rootfs  # rootfs_data split
+0x000000570000-0x000001d00000 : "rootfs_data"  # rootfs split
+mtd: setting mtd7 \(rootfs\) as root device  # root device
+bridge: filtering via arp/ip/ip6tables is no longer available by default\. Update your scripts to load br_netfilter if you need this\.  # bridge module notice, br_netfilter unused
+8021q: 802\.1Q VLAN Support v1\.8  # VLAN module
+8021q: adding VLAN 0 to HW filter on device lan[1-8]  # per-port VLAN 0 filter
+thermal_sys: Registered thermal governor 'step_wise'  # thermal core
+random: crng init done  # RNG ready
+Freeing unused kernel image \(initmem\) memory: 12848K  # init memory freed
+This architecture does not have kernel memory protection\.  # MIPS has no strict kernel RWX
+Run /init as init process  # init start
+\s+/init  # init argv
+\s+with arguments:  # init start
+\s+with environment:  # init start
+\s+HOME=/  # init env
+\s+TERM=linux  # init env
+init: - (preinit|watchdog) -  # OpenWrt preinit stage
+init: Console is alive  # OpenWrt preinit
+Press the \[1\], \[2\], \[3\] or \[4\] key and hit \[enter\] to select the debug level  # OpenWrt preinit prompt
+Press the \[f\] key and hit \[enter\] to enter failsafe mode  # OpenWrt preinit prompt
+procd: - (early|init|ubus|watchdog) -  # procd stages
+pinctrl core: initialized pinctrl subsystem  # pinctrl core
+urngd: v1\.0\.2 started\.  # OpenWrt RNG daemon
+kmodloader: (loading|done loading) kernel modules from /etc/modules(-boot)?\.d/\*  # kmodloader
+mdio-rtl-otto 1b000000\.switchcore:mdio-controller: probing RTL9300 family mdio bus  # MDIO driver probe
+realtek-otto-pcs 1b000000\.switchcore:pcs: Realtek PCS driver initialized  # PCS driver probe
+realtek-otto-serdes-mdio 1b000000\.switchcore:mdio-serdes: Realtek SerDes mdio bus initialized, 12 SerDes, 64 pages, 32 registers  # SerDes MDIO bus
+Probing RTL838X eth device pdev: [0-9a-f]+, dev: [0-9a-f]+  # eth driver probe
+Using MAC 0000[0-9a-f]{12}  # driver prints 64-bit MAC: placeholder at probe, random once set (no NVMEM MAC, see triage)
+rtl838x-eth 1b00a300\.ethernet eth0: configuring for fixed/internal link mode  # CPU port phylink
+rtl838x-eth 1b00a300\.ethernet eth0: Link is (Down|Up - 1Gbps/Full - flow control off)  # CPU port link state
+rtl838x-eth 1b00a300\.ethernet eth0: entered (allmulticast|promiscuous) mode  # bridge port setup
+rtl83xx-switch switch@1b000000: configuring for fixed/internal link mode  # CPU port phylink
+rtl83xx-switch switch@1b000000: Link is Up - 10Gbps/Full - flow control off  # CPU port link
+rtl83xx-switch switch@1b000000: led_set0 has 3 LEDs configured  # LED set
+DSA: tree 0 setup  # DSA init
+RESETTING 9300, CPU_PORT 28  # rtl83xx-switch debug print: CPU port 28
+c45_mask: 00000000  # rtl83xx-switch debug print
+LINK state irq: 23  # rtl83xx-switch debug print
+rtl93xx_setup called  # rtl83xx-switch debug print
+rtl930x_dbgfs_init called  # rtl83xx-switch debug print
+In rtl83xx_vlan_setup  # rtl83xx-switch debug print
+In rtl838x_mac_config, mode 1  # rtl83xx-switch debug print
+rtl83xx_enable_phy_polling:\s+f110101  # rtl83xx-switch debug print: PHY polling mask
+rtl83xx-switch switch@1b000000 lan[1-8] \(uninitialized\): switched to inband/(10gbase-r|sgmii) link mode  # per-port link mode
+rtl83xx-switch switch@1b000000 lan[1-8]: configuring for inband/(10gbase-r|sgmii) link mode  # per-port link mode
+rtl83xx-switch switch@1b000000 lan[1-8]: entered (allmulticast|promiscuous) mode  # bridge port setup
+rtl83xx-switch switch@1b000000 lan[1-8]: Link is (Down|Up - 10Gbps/Full - flow control off)  # per-port link state
+switch: port [1-8]\(lan[1-8]\) entered (blocking|disabled|listening|learning|forwarding) state  # bridge STP port state
+switch: topology change detected, propagating  # bridge STP topology change on link up
+rtpcs_930x_setup_serdes: Configuring RTL9300 SERDES [2-9]  # SerDes setup
+rtpcs_930x_sds_config_pll: SDS [2-9] using (LC PLL for 10gbase-r|ring PLL for sgmii)  # SerDes PLL select
+rtpcs_930x_phy_enable_10g_1g (10gbit phy( after)?|1gbit phy( enabled)?|set medium( after)?): [0-9a-f]{8}  # SerDes PHY enable debug print
+rtpcs_930x_sds_set 31  # SerDes debug print
+rtpcs_930x_sds_do_rx_calibration: SDS enabled  # SerDes RX calibration debug print
+rtpcs_930x_sds_do_rx_calibration_2_3: end_1\.2\.3  # SerDes RX calibration debug print
+rtpcs_930x_sds_do_rx_calibration_2_3: fgcal_gray: \d+, fgcal_binary \d+  # SerDes RX calibration debug print
+start_1\.1\.1 initial value for sds [2-9]  # SerDes RX calibration debug print
+start_1\.1\.(2 Load DFE init\. value|3 disable LEQ training,enable DFE clock|4 offset cali setting|5 LEQ and DFE setting)  # SerDes RX calibration debug print
+start_1\.(2\.1 ForegroundOffsetCal_Manual|2\.3 Foreground Calibration|4\.1|4\.2|5\.2)  # SerDes RX calibration debug print
+end_1\.[1-5]\.[1-5]( --)?  # SerDes RX calibration debug print
+Tap0 Sign : [+-]  # SerDes RX calibration debug print
+Vth Maunal = \d+  # SerDes RX calibration debug print (sic)
+tap0 manual = \d+  # SerDes RX calibration debug print
+tap0_coef_bin = \d+  # SerDes RX calibration debug print
+vth_set_bin = \d+  # SerDes RX calibration debug print
+
+[mainline]
+Linux version 7\.\d+\.\d+(-rc\d+)?(-dirty)? \(\w+@\w+\) \(mips64-linux-gnu-gcc \(GCC\) [0-9.]+ \d+ \(Red Hat Cross [0-9.-]+\), GNU ld version [0-9.-]+\.fc\d+\) #\d+ SMP [A-Z][a-z]{2} [A-Z][a-z]{2} +\d+ \d\d:\d\d:\d\d [A-Z]{3,4} 20\d\d  # mainline kernel banner (Fedora cross toolchain)
+Adding initrd info from environment  # MIPS prom: U-Boot env has no initrd (see 'Initrd not found' in triage)
+Kernel command line: earlycon earlycon  # command line pinned
+printk: log buffer data \+ meta data: 131072 \+ 409600 = 540672 bytes  # printk ring sizing
+Built 1 zonelists, mobility grouping on\.  Total pages: 65536  # 256 MB
+Memory: 241508K/262144K available \(11618K kernel code, 676K rwdata, 2144K rodata, 1424K init, 237K bss, 18784K reserved, 0K cma-reserved\)  # 256 MB; mainline DTS maps only 256 MB, see triage
+\s+Normal   \[mem 0x0000000000000000-0x000000000fffffff\]  # lowmem 256 MB
+\s+node   0: \[mem 0x0000000000000000-0x000000000fffffff\]  # RAM bank 0 (256 MB)
+Initmem setup node 0 \[mem 0x0000000000000000-0x000000000fffffff\]  # RAM map
+rcu: \tRCU event tracing is enabled\.  # RCU config
+rcu: \tRCU restricting CPUs from NR_CPUS=16 to nr_cpu_ids=2\.  # RCU config
+rcu: Adjusting geometry for rcu_fanout_leaf=16, nr_cpu_ids=2  # RCU config
+clocksource: MIPS: mask: 0xffffffff max_cycles: 0xffffffff(, max_idle_ns: 4778151116 ns)?  # CP0 counter clocksource
+Console: colour dummy device 80x25  # VT console
+VFS: Finished mounting rootfs on nullfs  # VFS init
+Timer migration: 1 hierarchy levels; 8 children per group; 1 crossnode level  # timer migration
+devtmpfs: initialized  # devtmpfs
+posixtimers hash table entries: 1024 \(order: 1, 8192 bytes, linear\)  # posix timers sizing
+FPU Affinity set after 4248 emulations  # MT FPU affinity (34Kc has no FPU)
+SCSI subsystem initialized  # SCSI core
+libata version 3\.00 loaded\.  # libata core
+usbcore: registered new (interface driver (usbfs|hub|usbhid)|device driver usb)  # USB core
+usbhid: USB HID core driver  # USB HID
+pps_core: LinuxPPS API ver\. 1 registered  # PPS core
+pps_core: Software ver\. 5\.3\.6 - Copyright 2005-2007 Rodolfo Giometti <giometti@linux\.it>  # PPS core
+PTP clock support registered  # PTP core
+RPC: Registered (named UNIX socket|udp|tcp|tcp-with-tls) transport module\.  # sunrpc init
+RPC: Registered tcp NFSv4\.1 backchannel transport module\.  # sunrpc init
+NFS: Registering the id_resolver key type  # NFS init
+Key type (id_resolver|id_legacy|dns_resolver|\.fscrypt|fscrypt-provisioning) registered  # keyring init
+nfs4(flex)?filelayout_init: NFSv4 (Flexfile|File) Layout Driver Registering\.\.\.  # NFSv4 init
+fuse: init \(API version 7\.\d+\)  # FUSE init
+9pnet: Installing 9P2000 support  # 9P init
+io scheduler (mq-deadline|kyber|bfq) registered  # block IO schedulers
+Serial: 8250/16550 driver, 4 ports, IRQ sharing disabled  # serial driver
+18002000\.serial: ttyS0 MMIO:0x18002000 \(irq = 30, base_baud = 10937500\) is a 16550A  # console UART
+printk: console \[ttyS0\] enabled  # console hand-over
+loop: module loaded  # loop driver
+input: keys as /devices/platform/keys/input/input0  # gpio-keys input device registered
+
+# ---- Reviewed DENY lines: tolerated only with a tracking issue (known #NN) ----
+
+[uboot]
+Err:0xf030:FAIL \(0xf030\)  # end of `rtk network on`: phy_enable_set on PHY-less ports; known #28
+
+[linux]
+Initrd not found or empty - disabling initrd  # no external initrd passed; known #28
+
+[openwrt]
+Failed to get CPU clock: -2  # no CPU clk provider, falls back to DT 800 MHz; known #28
+UNKNOWN_MC_PMASK: 000000001fffffff  # driver debug print of a constant port mask; known #28
+gpio_button_hotplug: loading out-of-tree module taints kernel\.  # OpenWrt package module; known #28
+Cannot parse config file '/etc/fw_env\.config': No such file or directory  # no fw_env for RAM boots; known #28
+Failed to find NVMEM device  # no MAC source in the image -> random MAC; known #29
+realtek-otto-pcs 1b000000\.switchcore:pcs: pcs_config\(10gbase-r\) for port (0|8|27) and sds [239] not yet fully implemented  # upstream PCS stub (cages 1/2/8); known #29
+realtek-otto-pcs 1b000000\.switchcore:pcs: pcs_config\(sgmii\) for port (16|20|24|25|26) and sds [4-8] not yet fully implemented  # upstream PCS stub (empty cages 3-7); known #29
+rtpcs_930x_sds_10g_idle WARNING: Waiting for RX idle timed out, SDS [4-8]  # empty cages 3-7, RX never idles; known #29
+sfp sfp-p[456]: failed to read EEPROM: -EIO  # empty cages 4-6 seen as present; known #29
+rtpcs_930x_sds_force_mode: SDS 9 could not reset state machine  # seen once on lan8; known #29
+rtl838x-eth 1b00a300\.ethernet eth0: Ring contention: r: 0, last a38000[0-9a-f]{2}, cur a38000[0-9a-f]{2}  # CPU-port RX ring swamped during the cage-loop storm; known #19
+
+[mainline]
+Failed to request irq 7 \(timer\)  # CP0 timer IRQ mapping; known #16
+(spi-nor spi0\.0|pca953x 8-0038): supply vcc not found, using dummy regulator  # no regulator nodes, fixed rails; known #28
+VFS: Cannot open root device "" or unknown-block\(0,0\): error -19  # stage-0 has no rootfs; known #28
+/dev/root: Can't lookup blockdev  # stage-0 has no rootfs; known #28
+Kernel panic - not syncing: VFS: Unable to mount root fs on unknown-block\(0,0\)  # stage-0 has no rootfs; known #28
+---\[ end Kernel panic - not syncing: VFS: Unable to mount root fs on unknown-block\(0,0\) \]---  # stage-0 has no rootfs; known #28
+Please append a correct "root=" boot option; here are the available partitions:  # rootfs panic listing
+List of all bdev filesystems:  # rootfs panic listing
+\s*(ext2|ext3|ext4|vfat|msdos|fuseblk)  # rootfs panic listing: filesystems built in
+01[0-9a-f]{2} +4096 ram\d+  # rootfs panic listing: brd ramdisks
+1f0[0-5] +\d+ mtdblock[0-5]  # rootfs panic listing: SPI NOR partitions
+\s*\(driver\?\)  # rootfs panic listing
+\*\* replaying previous printk message \*\*  # bootconsole -> ttyS0 hand-over replays the last line

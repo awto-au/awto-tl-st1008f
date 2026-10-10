@@ -16,3 +16,5 @@ uboot/*.o
 uboot/*.elf
 uboot/*.bin
 sources/**/*.pdf
+# Claude Code local settings + agent worktrees
+.claude/

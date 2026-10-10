@@ -77,6 +77,18 @@ End-to-end workflow: [../README.md#workflow](../README.md#workflow).
 - Output: `private/stock-runtime-<ts>/runtime.bin`. Log: `tmp/logs/auto_dump_runtime.log`.
 - Notes: on 2026-10-08 every higher rate fell back to 115200. Superseded by the OpenWrt route.
 
+### boot_log_check.py
+- Purpose: strict allowlist check of console boots (U-Boot, OpenWrt, mainline, stock). Every line must match a reviewed regex in `boot_log_allowlist.txt`; DENY-word lines (warning/error/failed/timed out/-Exxx/panic/Call Trace/loop signature …) fail unless the entry cites `known #NN`.
+- Run: `scripts/boot_log_check.py [--boot -1 | --all] [--from-line N] [--show-ok]` (default: last boot in `private/serial/st1008-console.log`).
+- Exit 0 clean, 1 UNKNOWN lines, 2 ERROR. Log: `tmp/logs/boot_log_check.log`.
+- Notes: after a shell prompt only kernel-timestamped lines are checked (our own command output is skipped); U-Boot replies to `md`/`rtk i2c` skipped; stack-dump lines fold into their WARNING/Oops. Benign DENY lines: #28; OpenWrt driver gaps: #29. `own address as source` (bridge loop) always fails.
+
+### switch_power.py
+- Purpose: power-cycle the switch via its ESPHome relay (REST `switch/relay`).
+- Run: `scripts/switch_power.py cycle|off|on [--gap 1.0]`. Log: `tmp/logs/switch_power.log`.
+- Notes: the state read right after a command can lag (shows the old state); re-read before trusting it. Prefer separate `off` then `on` calls a few seconds apart: back-to-back off/on in the same second left the board half-reset.
+- **After any power cut, restart `switch_console_daemon.py` before power-on**: the PL2303 RX URB stalls (`urb stopped: -32`) and the daemon keeps running deaf.
+
 ### storm_watch.py
 - Purpose: watch a host NIC's rx broadcast+multicast rate (`ethtool -S`) and cut the switch relay (`switch_power.py off`) on a storm. Unicast/iperf ignored.
 - Run: `scripts/storm_watch.py [--nic enp7s0] [--abs-pps 2000] [--duration 900] [--observe --hold 3]`.
