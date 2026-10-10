@@ -2,3 +2,4 @@
 
 obj-y += board.o
 obj-y += cmd_rtk.o
+obj-y += sfp/

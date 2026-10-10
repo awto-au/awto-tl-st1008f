@@ -127,7 +127,7 @@ def sfp_all(con: Console) -> bool:
 
 
 def ddm(con: Console, cage: int) -> dict | None:
-    _, out = con.run(f"rtk sfp {cage}", PROMPT, 1, f"ddm cage {cage}")
+    _, out = con.run(f"rtk sfp {cage} brief", PROMPT, 1, f"ddm cage {cage}")
     m = re.search(r"temp (-?[\d.]+) C, vcc ([\d.]+) V, bias ([\d.]+) mA, tx ([\d.]+) mW, rx ([\d.]+) mW", out)
     return dict(zip(("temp", "vcc", "bias", "tx", "rx"), map(float, m.groups()))) if m else None
 

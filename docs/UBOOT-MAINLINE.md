@@ -61,7 +61,9 @@ Not hardware-verified yet (built and inspected only).
 
 - `rtk i2c read|write <dev> <reg> [data]`: dev 0-7 = cage EEPROM `0x50` (read-only), 8 = laser expander `0x38`. `rtk i2c init …` accepted as a no-op.
 - `rtk pinGet <pin>` (non-claiming read), `rtk pinSet <pin> <0|1> [force]` (GPIO21 low needs `force`).
-- `rtk laser [status|<cage>|none|all force]`, `rtk sfp [cage]` (ID + live DDM), `rtk boardmodel`.
+- - `rtk laser [status|<cage>|none|all force]`, `rtk boardmodel`.
+- `rtk sfp`: all cages, summary only (presence, checksums, compact DDM line). `rtk sfp <cage>`: summary + `--- ethtool decode ---`. `rtk sfp <cage> brief`: summary only. `rtk sfp <cage> raw`: hexdump A0/A2 (128 B each).
+- Decoder: `board/tplink/tl-st1008f/sfp/` = ethtool 7.1 (`6b7b16e`) `sfpid.c`, `sfpdiag.c`, `sff-common.c`, `module-common.c` (GPL-2.0); printf output, no JSON, integer fixed point (no FPU). Rx external-cal polynomial per SFF-8472 (upstream omits r^2..r^4). Host check: `scripts/sfp_decode_host_test.py`.
 - `rtk network on`: not yet (no Ethernet driver; stage 4).
 
 ## Expected console

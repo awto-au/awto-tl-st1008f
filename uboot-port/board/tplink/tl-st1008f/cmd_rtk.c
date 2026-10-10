@@ -11,7 +11,9 @@
 #include <i2c.h>
 #include <asm/gpio.h>
 #include <linux/delay.h>
+#include <display_options.h>
 #include <vsprintf.h>
+#include "sfp/sfp.h"
 
 #define NCAGES		8
 #define EXP_BUS		8	/* i2c alias of the laser expander bus */
@@ -212,23 +214,21 @@ static int sfp_read(struct udevice *dev, u8 reg, u8 *buf, int len, int *mode)
 }
 
 /* Some old Cisco EEPROMs pad unused BINARY fields with ASCII spaces (0x20): GLC-SX-MM has
- * 0x20 in compliance bytes 3-5/7-10, rate byte 12 and options byte 64. Detect (>=4 of the
- * 8 compliance bytes == 0x20) and treat those 0x20 bytes as 0 before decoding. */
+ * 0x20 in bytes 3-5/7-13, OUI 37-39 and options 64-65, plus a stray 0x01 in byte 36.
+ * Detect (>=4 of the 8 compliance bytes == 0x20), treat the 0x20 as 0 and drop byte 36. */
 static bool sfp_space_padded(u8 *id)
 {
+	static const u8 fields[] = { 3, 4, 5, 6, 7, 8, 9, 10, 11, 12, 13, 37, 38, 39, 64, 65 };
 	int i, n = 0;
 
 	for (i = 3; i <= 10; i++)
 		n += id[i] == 0x20;
 	if (n < 4)
 		return false;
-	for (i = 3; i <= 10; i++)
-		if (id[i] == 0x20)
-			id[i] = 0;
-	if (id[12] == 0x20)
-		id[12] = 0;
-	if (id[64] == 0x20)
-		id[64] = 0;
+	for (i = 0; i < ARRAY_SIZE(fields); i++)
+		if (id[fields[i]] == 0x20)
+			id[fields[i]] = 0;
+	id[36] = 0;
 	return true;
 }
 
@@ -287,15 +287,45 @@ static int sfp_present(int cage)
 	return !gpio_get_ops(d.dev)->get_value(d.dev, d.offset);
 }
 
-static int sfp_one(int cage)
+/* Facts the generic decode gets wrong or omits for known module families. */
+static void sfp_notes(const u8 *id)
+{
+	if ((id[6] & 0x08) && id[2] != 0x22)
+		printf("  note  1000BASE-T copper module but connector byte is 0x%02x (not RJ45 0x22)\n",
+		       id[2]);
+}
+
+static void pr_fix(const char *tag, bool neg, u32 v, u32 div, int digits)
+{
+	printf("%s %s%u.%0*u", tag, neg ? "-" : "", v / div, digits, v % div);
+}
+
+/* Compact one-line DDM summary (parsed by scripts/uboot_mainline_test.py). */
+static void sfp_ddm_line(const u8 *a0, const u8 *a2)
+{
+	struct sff_diags sd;
+	s32 t;
+
+	sff8472_diags(a0, a2, &sd);
+	t = sd.sfp_temp[MCURR];
+	printf("  ddm   %s cal: ", sd.calibrated_ext ? "external" : "internal");
+	pr_fix("temp", t < 0, (t < 0 ? -t : t) * 100 / 256, 100, 2);
+	pr_fix(" C, vcc", false, sd.sfp_voltage[MCURR], 10000, 4);
+	pr_fix(" V, bias", false, sd.bias_cur[MCURR] * 2, 1000, 3);
+	pr_fix(" mA, tx", false, sd.tx_power[MCURR], 10000, 4);
+	pr_fix(" mW, rx", false, sd.rx_power[MCURR], 10000, 4);
+	printf(" mW\n");
+}
+
+static int sfp_one(int cage, bool full)
 {
 	struct udevice *a0 = chip(cage - 1, SFP_A0), *a2 = chip(cage - 1, SFP_A2);
 	static const char *const plevel[] = { "1 (1.0 W)", "2 (1.5 W)", "3 (2.0 W)", "3 (2.0 W)" };
 	static const char *const rmode[] = { "", " [50 kHz: module clock-stretches]",
 					     " [byte-wise: module clock-stretches]" };
-	u8 id[96], dm[10];
-	int t, mode, pres = sfp_present(cage);
-	bool cc_base, cc_ext, padded;
+	u8 id[96], dm[128];
+	int mode, pres = sfp_present(cage);
+	bool cc_base, cc_ext, padded, ddm_ok = false;
 
 	if (!a0 || sfp_read(a0, 0, id, sizeof(id), &mode)) {
 		printf("cage %d: no EEPROM answer, MOD-DEF0 %s%s\n", cage,
@@ -326,22 +356,46 @@ static int sfp_one(int cage)
 	/* SFF-8472 byte 64: bit 1 = power level 2 declared, bit 5 = level 3 (Linux sfp.c) */
 	printf("  power level %s declared\n",
 	       plevel[(id[64] & 0x02 ? 1 : 0) | (id[64] & 0x20 ? 2 : 0)]);
+	sfp_notes(id);
 	if (!(id[92] & 0x40)) {
 		printf("  ddm   not implemented (A0 byte 92 = 0x%02x)\n", id[92]);
-		return 0;
+		goto decode;
 	}
-	if (!a2 || sfp_read(a2, 96, dm, sizeof(dm), &mode)) {
+	/* brief + internal calibration needs only the live bytes 96-105; keep the old 10 B read */
+	memset(dm, 0, sizeof(dm));
+	if (!a2 || (full || (id[92] & 0x10) ? sfp_read(a2, 0, dm, sizeof(dm), &mode) :
+						sfp_read(a2, 96, dm + 96, 10, &mode))) {
 		printf("  ddm   declared but A2 (0x51) did not answer\n");
-		return 0;
+		goto decode;
 	}
-	t = (s16)(dm[0] << 8 | dm[1]);		/* 1/256 C, internal calibration (byte 92 bit 5) */
-	printf("  ddm   %s cal: temp %d.%02u C, vcc %u.%04u V, bias %u.%03u mA, tx %u.%04u mW, rx %u.%04u mW\n",
-	       id[92] & 0x10 ? "external" : "internal",
-	       t / 256, (unsigned int)(abs(t) % 256) * 100 / 256,
-	       (dm[2] << 8 | dm[3]) / 10000, (dm[2] << 8 | dm[3]) % 10000,
-	       (dm[4] << 8 | dm[5]) * 2 / 1000, (dm[4] << 8 | dm[5]) * 2 % 1000,
-	       (dm[6] << 8 | dm[7]) / 10000, (dm[6] << 8 | dm[7]) % 10000,
-	       (dm[8] << 8 | dm[9]) / 10000, (dm[8] << 8 | dm[9]) % 10000);
+	ddm_ok = true;
+	sfp_ddm_line(id, dm);
+decode:
+	if (!full)
+		return 0;
+	printf("--- ethtool decode ---\n");
+	sff8079_show_all(id);
+	if (ddm_ok)
+		sff8472_show_all(id, dm);
+	return 0;
+}
+
+/* `rtk sfp <cage> raw`: A0 and A2 low pages as read (128 B each), no decode. */
+static int sfp_raw(int cage)
+{
+	struct udevice *dev;
+	u8 buf[128];
+	int mode, a;
+
+	for (a = SFP_A0; a <= SFP_A2; a++) {
+		dev = chip(cage - 1, a);
+		if (!dev || sfp_read(dev, 0, buf, sizeof(buf), &mode)) {
+			printf("cage %d: 0x%02x no answer\n", cage, a);
+			continue;
+		}
+		printf("cage %d: I2C address 0x%02x\n", cage, a);
+		print_buffer(0, buf, 1, sizeof(buf), 16);
+	}
 	return 0;
 }
 
@@ -349,10 +403,12 @@ static int do_rtk_sfp(int argc, char *const argv[])
 {
 	int c;
 
+	if (argc >= 3 && !strcmp(argv[2], "raw"))
+		return sfp_raw(dectoul(argv[1], NULL));
 	if (argc >= 2)
-		return sfp_one(dectoul(argv[1], NULL));
-	for (c = 1; c <= NCAGES; c++)
-		sfp_one(c);
+		return sfp_one(dectoul(argv[1], NULL), !(argc >= 3 && !strcmp(argv[2], "brief")));
+	for (c = 1; c <= NCAGES; c++)	/* all cages: summary only (the full decode is ~5 KB per cage) */
+		sfp_one(c, false);
 	return 0;
 }
 
@@ -386,5 +442,5 @@ U_BOOT_CMD(rtk, 6, 0, do_rtk, "Realtek board commands (stock-compatible subset)"
 	   "rtk i2c write <dev> <reg> <data>  - expander only (module EEPROM refused)\n"
 	   "rtk pinGet <pin> | rtk pinSet <pin> <0|1> [force]\n"
 	   "rtk laser [status|<cage>|none|all force]  - TX enable, one cage by default\n"
-	   "rtk sfp [cage]               - module ID + live DDM\n"
+	   "rtk sfp [cage [raw|brief]]   - summary (all cages) or summary + ethtool decode; raw = hexdump\n"
 	   "rtk boardmodel | rtk network on (not yet)");

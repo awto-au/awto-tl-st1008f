@@ -165,6 +165,12 @@ End-to-end workflow: [../README.md#workflow](../README.md#workflow).
 - Timeout: 6 s per `make` call (clean build measured 4 s, x1.5); expiry kills make and logs the elapsed time.
 - Resets tracked files in the tree (`git checkout -- .`) before staging; the tree must be a throwaway clone.
 
+### sfp_decode_host_test.py
+
+- Builds the U-Boot SFP decoder (`uboot-port/board/tplink/tl-st1008f/sfp/`) on the host with shim headers.
+- Run: `scripts/sfp_decode_host_test.py dump <a0.bin> [<a2.bin>]` (decode raw EEPROM dumps) or `selftest` (external-cal vectors and dBm vs double math).
+- Log: `tmp/logs/sfp_decode_host_test.log`.
+
 ## Repo maintenance
 
 ### gh_issue_from_draft.py

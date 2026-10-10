@@ -1,0 +1,449 @@
+// SPDX-License-Identifier: GPL-2.0
+/****************************************************************************
+ * Support for Solarflare Solarstorm network controllers and boards
+ * Copyright 2010 Solarflare Communications Inc.
+ *
+ * This program is free software; you can redistribute it and/or modify it
+ * under the terms of the GNU General Public License version 2 as published
+ * by the Free Software Foundation, incorporated herein by reference.
+ *
+ * Ported from ethtool sfpid.c (ethtool 7.1, 6b7b16e): JSON and netlink layers
+ * removed, output via U-Boot printf.
+ ****************************************************************************/
+
+#include "sfp.h"
+
+static void sff8079_show_identifier(const u8 *id)
+{
+	module_show_identifier(id, 0);
+}
+
+static void sff8079_show_ext_identifier(const u8 *id)
+{
+	char description[SFF_MAX_DESC_LEN];
+
+	if (id[1] == 0x00)
+		sprintf(description, "%s",
+			"GBIC not specified / not MOD_DEF compliant");
+	else if (id[1] == 0x04)
+		sprintf(description, "%s",
+			"GBIC/SFP defined by 2-wire interface ID");
+	else if (id[1] <= 0x07)
+		sprintf(description, "%s %u", "GBIC compliant with MOD_DEF",
+			id[1]);
+	else
+		sprintf(description, "%s", "unknown");
+
+	sff_print_any_hex_field("Extended identifier", id[1], description);
+}
+
+static void sff8079_show_connector(const u8 *id)
+{
+	module_show_connector(id, 2);
+}
+
+static void sff8079_show_transceiver(const u8 *id)
+{
+	static const char *pfx = "Transceiver type";
+
+	printf("\t%-41s : 0x%02x 0x%02x 0x%02x " \
+	       "0x%02x 0x%02x 0x%02x 0x%02x 0x%02x 0x%02x\n",
+	       "Transceiver codes", id[3], id[4], id[5], id[6],
+	       id[7], id[8], id[9], id[10], id[36]);
+
+	/* 10G Ethernet Compliance Codes */
+	if (id[3] & (1 << 7))
+		module_print_any_array_string_entry(pfx,
+						    "10G Ethernet: 10G Base-ER [SFF-8472 rev10.4 onwards]");
+	if (id[3] & (1 << 6))
+		module_print_any_array_string_entry(pfx, "10G Ethernet: 10G Base-LRM");
+	if (id[3] & (1 << 5))
+		module_print_any_array_string_entry(pfx, "10G Ethernet: 10G Base-LR");
+	if (id[3] & (1 << 4))
+		module_print_any_array_string_entry(pfx, "10G Ethernet: 10G Base-SR");
+	/* Infiniband Compliance Codes */
+	if (id[3] & (1 << 3))
+		module_print_any_array_string_entry(pfx, "Infiniband: 1X SX");
+	if (id[3] & (1 << 2))
+		module_print_any_array_string_entry(pfx, "Infiniband: 1X LX");
+	if (id[3] & (1 << 1))
+		module_print_any_array_string_entry(pfx, "Infiniband: 1X Copper Active");
+	if (id[3] & (1 << 0))
+		module_print_any_array_string_entry(pfx, "Infiniband: 1X Copper Passive");
+	/* ESCON Compliance Codes */
+	if (id[4] & (1 << 7))
+		module_print_any_array_string_entry(pfx, "ESCON: ESCON MMF, 1310nm LED");
+	if (id[4] & (1 << 6))
+		module_print_any_array_string_entry(pfx, "ESCON: ESCON SMF, 1310nm Laser");
+	/* SONET Compliance Codes */
+	if (id[4] & (1 << 5))
+		module_print_any_array_string_entry(pfx, "SONET: OC-192, short reach");
+	if (id[4] & (1 << 4))
+		module_print_any_array_string_entry(pfx, "SONET: SONET reach specifier bit 1");
+	if (id[4] & (1 << 3))
+		module_print_any_array_string_entry(pfx, "SONET: SONET reach specifier bit 2");
+	if (id[4] & (1 << 2))
+		module_print_any_array_string_entry(pfx, "SONET: OC-48, long reach");
+	if (id[4] & (1 << 1))
+		module_print_any_array_string_entry(pfx, "SONET: OC-48, intermediate reach");
+	if (id[4] & (1 << 0))
+		module_print_any_array_string_entry(pfx, "SONET: OC-48, short reach");
+	if (id[5] & (1 << 6))
+		module_print_any_array_string_entry(pfx, "SONET: OC-12, single mode, long reach");
+	if (id[5] & (1 << 5))
+		module_print_any_array_string_entry(pfx, "SONET: OC-12, single mode, inter. reach");
+	if (id[5] & (1 << 4))
+		module_print_any_array_string_entry(pfx, "SONET: OC-12, short reach");
+	if (id[5] & (1 << 2))
+		module_print_any_array_string_entry(pfx, "SONET: OC-3, single mode, long reach");
+	if (id[5] & (1 << 1))
+		module_print_any_array_string_entry(pfx, "SONET: OC-3, single mode, inter. reach");
+	if (id[5] & (1 << 0))
+		module_print_any_array_string_entry(pfx, "SONET: OC-3, short reach");
+	/* Ethernet Compliance Codes */
+	if (id[6] & (1 << 7))
+		module_print_any_array_string_entry(pfx, "Ethernet: BASE-PX");
+	if (id[6] & (1 << 6))
+		module_print_any_array_string_entry(pfx, "Ethernet: BASE-BX10");
+	if (id[6] & (1 << 5))
+		module_print_any_array_string_entry(pfx, "Ethernet: 100BASE-FX");
+	if (id[6] & (1 << 4))
+		module_print_any_array_string_entry(pfx, "Ethernet: 100BASE-LX/LX10");
+	if (id[6] & (1 << 3))
+		module_print_any_array_string_entry(pfx, "Ethernet: 1000BASE-T");
+	if (id[6] & (1 << 2))
+		module_print_any_array_string_entry(pfx, "Ethernet: 1000BASE-CX");
+	if (id[6] & (1 << 1))
+		module_print_any_array_string_entry(pfx, "Ethernet: 1000BASE-LX");
+	if (id[6] & (1 << 0))
+		module_print_any_array_string_entry(pfx, "Ethernet: 1000BASE-SX");
+	/* Fibre Channel link length */
+	if (id[7] & (1 << 7))
+		module_print_any_array_string_entry(pfx, "FC: very long distance (V)");
+	if (id[7] & (1 << 6))
+		module_print_any_array_string_entry(pfx, "FC: short distance (S)");
+	if (id[7] & (1 << 5))
+		module_print_any_array_string_entry(pfx, "FC: intermediate distance (I)");
+	if (id[7] & (1 << 4))
+		module_print_any_array_string_entry(pfx, "FC: long distance (L)");
+	if (id[7] & (1 << 3))
+		module_print_any_array_string_entry(pfx, "FC: medium distance (M)");
+	/* Fibre Channel transmitter technology */
+	if (id[7] & (1 << 2))
+		module_print_any_array_string_entry(pfx, "FC: Shortwave laser, linear Rx (SA)");
+	if (id[7] & (1 << 1))
+		module_print_any_array_string_entry(pfx, "FC: Longwave laser (LC)");
+	if (id[7] & (1 << 0))
+		module_print_any_array_string_entry(pfx, "FC: Electrical inter-enclosure (EL)");
+	if (id[8] & (1 << 7))
+		module_print_any_array_string_entry(pfx, "FC: Electrical intra-enclosure (EL)");
+	if (id[8] & (1 << 6))
+		module_print_any_array_string_entry(pfx, "FC: Shortwave laser w/o OFC (SN)");
+	if (id[8] & (1 << 5))
+		module_print_any_array_string_entry(pfx, "FC: Shortwave laser with OFC (SL)");
+	if (id[8] & (1 << 4))
+		module_print_any_array_string_entry(pfx, "FC: Longwave laser (LL)");
+	if (id[8] & (1 << 3))
+		module_print_any_array_string_entry(pfx, "Active Cable");
+	if (id[8] & (1 << 2))
+		module_print_any_array_string_entry(pfx, "Passive Cable");
+	if (id[8] & (1 << 1))
+		module_print_any_array_string_entry(pfx, "FC: Copper FC-BaseT");
+	/* Fibre Channel transmission media */
+	if (id[9] & (1 << 7))
+		module_print_any_array_string_entry(pfx, "FC: Twin Axial Pair (TW)");
+	if (id[9] & (1 << 6))
+		module_print_any_array_string_entry(pfx, "FC: Twisted Pair (TP)");
+	if (id[9] & (1 << 5))
+		module_print_any_array_string_entry(pfx, "FC: Miniature Coax (MI)");
+	if (id[9] & (1 << 4))
+		module_print_any_array_string_entry(pfx, "FC: Video Coax (TV)");
+	if (id[9] & (1 << 3))
+		module_print_any_array_string_entry(pfx, "FC: Multimode, 62.5um (M6)");
+	if (id[9] & (1 << 2))
+		module_print_any_array_string_entry(pfx, "FC: Multimode, 50um (M5)");
+	if (id[9] & (1 << 0))
+		module_print_any_array_string_entry(pfx, "FC: Single Mode (SM)");
+	/* Fibre Channel speed */
+	if (id[10] & (1 << 7))
+		module_print_any_array_string_entry(pfx, "FC: 1200 MBytes/sec");
+	if (id[10] & (1 << 6))
+		module_print_any_array_string_entry(pfx, "FC: 800 MBytes/sec");
+	if (id[10] & (1 << 5))
+		module_print_any_array_string_entry(pfx, "FC: 1600 MBytes/sec");
+	if (id[10] & (1 << 4))
+		module_print_any_array_string_entry(pfx, "FC: 400 MBytes/sec");
+	if (id[10] & (1 << 3))
+		module_print_any_array_string_entry(pfx, "FC: 3200 MBytes/sec");
+	if (id[10] & (1 << 2))
+		module_print_any_array_string_entry(pfx, "FC: 200 MBytes/sec");
+	if (id[10] & (1 << 0))
+		module_print_any_array_string_entry(pfx, "FC: 100 MBytes/sec");
+	/* Extended Specification Compliance Codes from SFF-8024 */
+	if (id[36] == 0x1)
+		module_print_any_array_string_entry(pfx,
+						    "Extended: 100G AOC or 25GAUI C2M AOC with worst BER of 5x10^(-5)");
+	if (id[36] == 0x2)
+		module_print_any_array_string_entry(pfx, "Extended: 100G Base-SR4 or 25GBase-SR");
+	if (id[36] == 0x3)
+		module_print_any_array_string_entry(pfx, "Extended: 100G Base-LR4 or 25GBase-LR");
+	if (id[36] == 0x4)
+		module_print_any_array_string_entry(pfx, "Extended: 100G Base-ER4 or 25GBase-ER");
+	if (id[36] == 0x8)
+		module_print_any_array_string_entry(pfx,
+						    "Extended: 100G ACC or 25GAUI C2M ACC with worst BER of 5x10^(-5)");
+	if (id[36] == 0xb)
+		module_print_any_array_string_entry(pfx,
+						    "Extended: 100G Base-CR4 or 25G Base-CR CA-L");
+	if (id[36] == 0xc)
+		module_print_any_array_string_entry(pfx, "Extended: 25G Base-CR CA-S");
+	if (id[36] == 0xd)
+		module_print_any_array_string_entry(pfx, "Extended: 25G Base-CR CA-N");
+	if (id[36] == 0x16)
+		module_print_any_array_string_entry(pfx,
+						    "Extended: 10Gbase-T with SFI electrical interface");
+	if (id[36] == 0x18)
+		module_print_any_array_string_entry(pfx,
+						    "Extended: 100G AOC or 25GAUI C2M AOC with worst BER of 10^(-12)");
+	if (id[36] == 0x19)
+		module_print_any_array_string_entry(pfx,
+						    "Extended: 100G ACC or 25GAUI C2M ACC with worst BER of 10^(-12)");
+	if (id[36] == 0x1a)
+		module_print_any_array_string_entry(pfx,
+						    "Extended: 100GE-DWDM2 (DWDM transceiver using 2 wavelengths on a 1550 nm DWDM grid with a reach up to 80 km)");
+	if (id[36] == 0x1b)
+		module_print_any_array_string_entry(pfx,
+						    "Extended: 100G 1550nm WDM (4 wavelengths)");
+	if (id[36] == 0x1c)
+		module_print_any_array_string_entry(pfx, "Extended: 10Gbase-T Short Reach");
+	if (id[36] == 0x1d)
+		module_print_any_array_string_entry(pfx, "Extended: 5GBASE-T");
+	if (id[36] == 0x1e)
+		module_print_any_array_string_entry(pfx, "Extended: 2.5GBASE-T");
+	if (id[36] == 0x1f)
+		module_print_any_array_string_entry(pfx, "Extended: 40G SWDM4");
+	if (id[36] == 0x20)
+		module_print_any_array_string_entry(pfx, "Extended: 100G SWDM4");
+	if (id[36] == 0x21)
+		module_print_any_array_string_entry(pfx, "Extended: 100G PAM4 BiDi");
+	if (id[36] == 0x22)
+		module_print_any_array_string_entry(pfx,
+						    "Extended: 4WDM-10 MSA (10km version of 100G CWDM4 with same RS(528,514) FEC in host system)");
+	if (id[36] == 0x23)
+		module_print_any_array_string_entry(pfx,
+						    "Extended: 4WDM-20 MSA (20km version of 100GBASE-LR4 with RS(528,514) FEC in host system)");
+	if (id[36] == 0x24)
+		module_print_any_array_string_entry(pfx,
+						    "Extended: 4WDM-40 MSA (40km reach with APD receiver and RS(528,514) FEC in host system)");
+	if (id[36] == 0x25)
+		module_print_any_array_string_entry(pfx,
+						    "Extended: 100GBASE-DR (clause 140), CAUI-4 (no FEC)");
+	if (id[36] == 0x26)
+		module_print_any_array_string_entry(pfx,
+						    "Extended: 100G-FR or 100GBASE-FR1 (clause 140), CAUI-4 (no FEC)");
+	if (id[36] == 0x27)
+		module_print_any_array_string_entry(pfx,
+						    "Extended: 100G-LR or 100GBASE-LR1 (clause 140), CAUI-4 (no FEC)");
+	if (id[36] == 0x30)
+		module_print_any_array_string_entry(pfx,
+						    "Extended: Active Copper Cable with 50GAUI, 100GAUI-2 or 200GAUI-4 C2M. Providing a worst BER of 10-6 or below");
+	if (id[36] == 0x31)
+		module_print_any_array_string_entry(pfx,
+						    "Extended: Active Optical Cable with 50GAUI, 100GAUI-2 or 200GAUI-4 C2M. Providing a worst BER of 10-6 or below");
+	if (id[36] == 0x32)
+		module_print_any_array_string_entry(pfx,
+						    "Extended: Active Copper Cable with 50GAUI, 100GAUI-2 or 200GAUI-4 C2M. Providing a worst BER of 2.6x10-4 for ACC, 10-5 for AUI, or below");
+	if (id[36] == 0x33)
+		module_print_any_array_string_entry(pfx,
+						    "Extended: Active Optical Cable with 50GAUI, 100GAUI-2 or 200GAUI-4 C2M. Providing a worst BER of 2.6x10-4 for ACC, 10-5 for AUI, or below");
+	if (id[36] == 0x40)
+		module_print_any_array_string_entry(pfx,
+						    "Extended: 50GBASE-CR, 100GBASE-CR2, or 200GBASE-CR4");
+	if (id[36] == 0x41)
+		module_print_any_array_string_entry(pfx,
+						    "Extended: 50GBASE-SR, 100GBASE-SR2, or 200GBASE-SR4");
+	if (id[36] == 0x42)
+		module_print_any_array_string_entry(pfx, "Extended: 50GBASE-FR or 200GBASE-DR4");
+	if (id[36] == 0x43)
+		module_print_any_array_string_entry(pfx, "Extended: 200GBASE-FR4");
+	if (id[36] == 0x44)
+		module_print_any_array_string_entry(pfx, "Extended: 200G 1550 nm PSM4");
+	if (id[36] == 0x45)
+		module_print_any_array_string_entry(pfx, "Extended: 50GBASE-LR");
+	if (id[36] == 0x46)
+		module_print_any_array_string_entry(pfx, "Extended: 200GBASE-LR4");
+	if (id[36] == 0x50)
+		module_print_any_array_string_entry(pfx, "Extended: 64GFC EA");
+	if (id[36] == 0x51)
+		module_print_any_array_string_entry(pfx, "Extended: 64GFC SW");
+	if (id[36] == 0x52)
+		module_print_any_array_string_entry(pfx, "Extended: 64GFC LW");
+	if (id[36] == 0x53)
+		module_print_any_array_string_entry(pfx, "Extended: 128GFC EA");
+	if (id[36] == 0x54)
+		module_print_any_array_string_entry(pfx, "Extended: 128GFC SW");
+	if (id[36] == 0x55)
+		module_print_any_array_string_entry(pfx, "Extended: 128GFC LW");
+
+}
+
+static void sff8079_show_encoding(const u8 *id)
+{
+	sff8024_show_encoding(id, 11, ETH_MODULE_SFF_8472);
+}
+
+static void sff8079_show_rate_identifier(const u8 *id)
+{
+	char description[SFF_MAX_DESC_LEN];
+
+	switch (id[13]) {
+	case 0x00:
+		sprintf(description, "%s", "unspecified");
+		break;
+	case 0x01:
+		sprintf(description, "%s", "4/2/1G Rate_Select & AS0/AS1");
+		break;
+	case 0x02:
+		sprintf(description, "%s", "8/4/2G Rx Rate_Select only");
+		break;
+	case 0x03:
+		sprintf(description, "%s",
+			"8/4/2G Independent Rx & Tx Rate_Select");
+		break;
+	case 0x04:
+		sprintf(description, "%s", "8/4/2G Tx Rate_Select only");
+		break;
+	default:
+		sprintf(description, "%s", "reserved or unknown");
+		break;
+	}
+
+	sff_print_any_hex_field("Rate identifier", id[13],
+				description);
+}
+
+static void sff8079_show_wavelength_or_copper_compliance(const u8 *id)
+{
+	char description[SFF_MAX_DESC_LEN];
+
+	if (id[8] & (1 << 2)) {
+		switch (id[60]) {
+		case 0x00:
+			strncpy(description, "unspecified",
+				SFF_MAX_DESC_LEN);
+			break;
+		case 0x01:
+			strncpy(description, "SFF-8431 appendix E",
+				SFF_MAX_DESC_LEN);
+			break;
+		default:
+			strncpy(description, "unknown", SFF_MAX_DESC_LEN);
+			break;
+		}
+		strcat(description, " [SFF-8472 rev10.4 only]");
+		sff_print_any_hex_field("Passive Cu cmplnce.", id[60], description);
+	} else if (id[8] & (1 << 3)) {
+		switch (id[60]) {
+		case 0x00:
+			strncpy(description, "unspecified",
+				SFF_MAX_DESC_LEN);
+			break;
+		case 0x01:
+			strncpy(description, "SFF-8431 appendix E",
+				SFF_MAX_DESC_LEN);
+			break;
+		case 0x04:
+			strncpy(description, "SFF-8431 limiting",
+				SFF_MAX_DESC_LEN);
+			break;
+		default:
+			strncpy(description, "unknown", SFF_MAX_DESC_LEN);
+			break;
+		}
+		strcat(description, " [SFF-8472 rev10.4 only]");
+		sff_print_any_hex_field("Active Cu cmplnce.", id[60], description);
+	} else {
+		module_print_any_uint("Laser wavelength",
+				      (id[60] << 8) | id[61], "nm");
+	}
+}
+
+static void sff8079_show_options(const u8 *id)
+{
+	static const char *pfx = "Option";
+
+	printf("\t%-41s : 0x%02x 0x%02x\n", "Option values", id[64],
+	       id[65]);
+
+	if (id[65] & (1 << 1))
+		module_print_any_array_string_entry(pfx, "RX_LOS implemented");
+	if (id[65] & (1 << 2))
+		module_print_any_array_string_entry(pfx, "RX_LOS implemented, inverted");
+	if (id[65] & (1 << 3))
+		module_print_any_array_string_entry(pfx, "TX_FAULT implemented");
+	if (id[65] & (1 << 4))
+		module_print_any_array_string_entry(pfx, "TX_DISABLE implemented");
+	if (id[65] & (1 << 5))
+		module_print_any_array_string_entry(pfx, "RATE_SELECT implemented");
+	if (id[65] & (1 << 6))
+		module_print_any_array_string_entry(pfx, "Tunable transmitter technology");
+	if (id[65] & (1 << 7))
+		module_print_any_array_string_entry(pfx, "Receiver decision threshold implemented");
+	if (id[64] & (1 << 0))
+		module_print_any_array_string_entry(pfx, "Linear receiver output implemented");
+	if (id[64] & (1 << 1))
+		module_print_any_array_string_entry(pfx, "Power level 2 requirement");
+	if (id[64] & (1 << 2))
+		module_print_any_array_string_entry(pfx, "Cooled transceiver implemented");
+	if (id[64] & (1 << 3))
+		module_print_any_array_string_entry(pfx, "Retimer or CDR implemented");
+	if (id[64] & (1 << 4))
+		module_print_any_array_string_entry(pfx, "Paging implemented");
+	if (id[64] & (1 << 5))
+		module_print_any_array_string_entry(pfx, "Power level 3 requirement");
+
+}
+
+void sff8079_show_all(const u8 *id)
+{
+	sff8079_show_identifier(id);
+	if (((id[0] == 0x02) || (id[0] == 0x03)) && (id[1] == 0x04)) {
+		unsigned int br_nom, br_min, br_max;
+
+		if (id[12] == 0) {
+			br_nom = br_min = br_max = 0;
+		} else if (id[12] == 255) {
+			br_nom = id[66] * 250;
+			br_max = id[67];
+			br_min = id[67];
+		} else {
+			br_nom = id[12] * 100;
+			br_max = id[66];
+			br_min = id[67];
+		}
+		sff8079_show_ext_identifier(id);
+		sff8079_show_connector(id);
+		sff8079_show_transceiver(id);
+		sff8079_show_encoding(id);
+		module_print_any_uint("BR Nominal", br_nom, "MBd");
+		sff8079_show_rate_identifier(id);
+		module_show_value_with_unit(id, 14, "Length (SMF)", 1, "km");
+		module_show_value_with_unit(id, 16, "Length (OM2)", 10, "m");
+		module_show_value_with_unit(id, 17, "Length (OM1)", 10, "m");
+		module_show_value_with_unit(id, 18,
+					    "Length (Copper or Active cable)",
+					    1, "m");
+		module_show_value_with_unit(id, 19, "Length (OM3)", 10, "m");
+		sff8079_show_wavelength_or_copper_compliance(id);
+		module_show_ascii(id, 20, 35, "Vendor name");
+		module_show_oui(id, 37);
+		module_show_ascii(id, 40, 55, "Vendor PN");
+		module_show_ascii(id, 56, 59, "Vendor rev");
+		sff8079_show_options(id);
+		module_print_any_uint("BR margin max", br_max, "%");
+		module_print_any_uint("BR margin min", br_min, "%");
+		module_show_ascii(id, 68, 83, "Vendor SN");
+		module_show_ascii(id, 84, 91, "Date code");
+	}
+}
+
