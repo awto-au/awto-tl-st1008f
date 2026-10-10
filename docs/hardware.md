@@ -77,16 +77,15 @@ Source: static RE of stock `rtk.ko` (TP-Link additions, `TP_CHKPATTERN` thread).
 
 ### Behaviour by position
 
-| Position | Live pins 17/18/19 (1 = high) | Pattern | Stock behaviour |
+| Pattern | Pins 17/18/19 (1 = high) | Intended position (one-hot) | Stock behaviour |
 |---|---|---|---|
-| M1 | 0 / 1 / 1 | 1 | "1G mode": 1G modules up at 1G; 2.5G modules forced down to 1G (`media 2 for auto speed down`); 10G modules unaffected |
-| M2 (middle) | 0 / 0 / 1 | 3 (fall-through) | "2.5G mode": 2.5G modules up at 2.5G; 1G modules left down (`will not set because of unmatched pattern`); 10G unaffected |
-| M3 | 0 / 1 / 0 | 3 (fall-through) | same as M2 |
-| not reachable on this board | 1 / 0 / 1 | 2 | split: SoC ports 0-3 (cages 1-4) as pattern 1, ports 4-7 (cages 5-8) as pattern 3 |
+| 1 | 0 / 1 / 1 | M1 grounds pin 17 | "1G mode": 1G modules up at 1G; 2.5G modules forced down to 1G (`media 2 for auto speed down`); 10G modules unaffected |
+| 2 | 1 / 0 / 1 | M2 grounds pin 18 | split: SoC ports 0-3 (cages 1-4) as pattern 1, ports 4-7 (cages 5-8) as pattern 3 |
+| 3 | anything else | M3 grounds pin 19 | "2.5G mode": 2.5G modules up at 2.5G; 1G modules left down (`will not set because of unmatched pattern`); 10G unaffected |
 
-- Pattern decode (`custom_judge_pattern_mode`, `0x0020c240`): `(p17,p18,p19) == (0,1,1)` -> 1; `== (1,0,1)` -> 2; anything else -> 3.
-- Pin 17 is the discriminating bit for pattern 2 only. It reads low in every position on this board, so pattern 2 never occurs; M2 and M3 are indistinguishable to the firmware.
-- Why pin 17 is always low is not explained by the code (it only reads the level). Board-level cause (strap/pull-down/pinmux) unverified.
+- Pattern decode (`custom_judge_pattern_mode`, `0x0020c240`): `(p17,p18,p19) == (0,1,1)` -> 1; `== (1,0,1)` -> 2; anything else -> 3. The decode is one-hot: each position grounds one pin.
+- Live reads (U-Boot `md.l`, OpenWrt debugfs) show pin 17 low in all three positions: M1 0/1/1, M2 0/0/1, M3 0/1/0. Taken at face value M2 would fall through to pattern 3; that conflicts with the one-hot design, so the pin-17 read is suspect, not the firmware.
+- Open: pin 17's pinmux/pull state in U-Boot and OpenWrt vs what stock Linux sets before reading. Verify by reading pin 17 at M2/M3 after configuring it as a pulled-up GPIO input, or under stock firmware.
 - Global: `check_pattern_thread_func` stores one pattern, `sfpPatternSet` fans it out to the 8 per-port bytes at `0x00396838..3f`. Per-port values differ only in pattern 2.
 - 10G modules (type 5) never consult the pattern. The switch only chooses 1G vs 2.5G for modules that SFP EEPROM-classify as 1G/2.5G.
 
