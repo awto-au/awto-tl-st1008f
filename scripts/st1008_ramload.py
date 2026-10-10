@@ -62,6 +62,15 @@ class Console:
         s.recv(65536)
         s.close()
 
+    def note(self, text: str) -> None:
+        """Daemon log marker; `interactive-begin`/`-end` make boot_log_check skip the section."""
+        s = __import__("socket").socket(__import__("socket").AF_UNIX)
+        s.settimeout(5)  # local unix socket; 5 s names a dead daemon
+        s.connect(str(SOCK))
+        s.sendall((json.dumps({"op": "note", "text": text}) + "\n").encode())
+        s.recv(65536)
+        s.close()
+
     def echo_since(self, mark: int) -> str:
         """Board output after `mark`, minus the daemon's own [TX]/[daemon] annotation lines."""
         with CONSOLE.open("rb") as fh:

@@ -116,7 +116,13 @@ def check_boot(boot, allow, show_ok: bool):
     echoed: set[str] = set()
     typed, last_typed = "", ""  # send_checked types in chunks: one [TX] line per chunk, Enter alone
     interactive = False
+    skipping = False  # between [daemon] note interactive-begin/-end (script command output)
     for n, raw in boot:
+        if raw.startswith("[daemon] note interactive-"):
+            skipping = raw.rstrip().endswith("begin")
+            continue
+        if skipping:
+            continue
         if raw.startswith("[TX "):
             m = re.search(r"'(.*)'", raw)
             if m:

@@ -6,6 +6,7 @@ Goal: every stock `rtk` subcommand (visible and hidden) in our mainline U-Boot, 
 - Inventory method: `strcmp` chain of the stock dispatcher + its string table, cross-read against the GPL source it was built from [SRC] `rtk-dms1250/system/uboot/cmd/uboot_cmd.c` (reyalo/Realtek). Related: [UBOOT-REFERENCE.md](UBOOT-REFERENCE.md), [UBOOT-FUNCMAP.md](UBOOT-FUNCMAP.md).
 - Source tags: **[SRC]** GPL SDK path:line (`dms1250/` = `sources/rtk-dms1250/`). **[OWRT]** OpenWrt `target/linux/realtek/files-6.18`. **[BIN]** stock `loader.bin` VA, where only the binary shows it. **[LIVE]** seen on this unit's console. **SPEC** inferred, unverified.
 - `help rtk` = stock text verbatim, then a `--- TL-ST1008F additions ---` section (laser, sfp, port, mode, temp, help-ours, hidden stock verbs). The parity check drops that section (`drop:` mask).
+- Parity result 2026-10-10 (`./dev.py rtk-parity both --state --slow`): **62/62 stock forms PASS**, 7 ours-only run. Includes `port disable/enable 8` (MAC_L2_PORT_CTRL `0x30`/`0x33` on both), `sdsreg set`, `ledtest`. Stubs still: `phyreg`/`phymmd` (both read 0 on this PHY-less board, so parity cannot tell; #34).
 - Parity test = `./dev.py rtk-parity` ([below](#parity-harness)); the list is `scripts/rtk_parity_cmds.json`.
 
 ## Status counts (40 leaf forms)

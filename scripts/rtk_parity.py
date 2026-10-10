@@ -47,9 +47,17 @@ def denied(cmd: str) -> bool:
     return any(DENY.search(part) for part in cmd.split(";"))
 
 
+def strip_noise(text: str) -> str:
+    """Daemon [TX]/[daemon] lines (chunked typing splits the echo) and md column padding
+    (U-Boot 2011 vs 2026 pad the ASCII column differently)."""
+    text = re.sub(r"\n\[(?:TX|daemon)[^\n]*\n", "", "\n" + text.replace("\r", "")).lstrip("\n")
+    text = re.sub(r"\n?\[(?:TX|daemon)[^\n]*$", "", text).rstrip("\n")
+    return re.sub(r"^([0-9a-f]{8}:(?: [0-9a-f]{2,8})+) {2,}", r"\1 ", text, flags=re.M)
+
+
 def clean(cmd: str, raw: str) -> str:
     """Drop the echoed command line and the trailing prompt; normalise line ends."""
-    lines = raw.replace("\r", "").split("\n")
+    lines = strip_noise(raw).split("\n")
     while lines and not lines[0].strip():
         lines.pop(0)
     if lines and cmd[:12] in lines[0]:
@@ -85,6 +93,7 @@ def capture(side: str, with_state: bool, with_slow: bool) -> Path:
     con = Console()
     cmds = json.loads(CMDS.read_text())["commands"]
     res = {}
+    con.note("interactive-begin")  # deliberate error replies: not boot output
     # stock has no `echo`; printenv exists on both
     con.run("printenv baudrate", r"\r?\nbaudrate=\d+" + PROMPTS[side], 1, f"{side} prompt present")
     phases = ["pre", "post"] if side == "stock" else ["any"]
@@ -115,6 +124,7 @@ def capture(side: str, with_state: bool, with_slow: bool) -> Path:
         else:
             continue
         break
+    con.note("interactive-end")
     out = ROOT / f"tmp/logs/rtk_parity-{side}.json"
     out.write_text(json.dumps(res, indent=1))
     log(f"wrote {out.relative_to(ROOT)}")
@@ -123,6 +133,7 @@ def capture(side: str, with_state: bool, with_slow: bool) -> Path:
 
 def norm(text: str, masks: list[str]) -> str:
     """Mask regexes -> <X>; a mask starting `drop:` is deleted instead (ours-only text)."""
+    text = strip_noise(text)
     for m in masks:
         text = re.sub(m[5:], "", text) if m.startswith("drop:") else re.sub(m, "<X>", text)
     return text

@@ -409,6 +409,8 @@ def serve(owner: Owner):
                                     float(req.get("dur", 0.25)))
                     cap = _capture_after(owner, mark, float(req.get("secs", 2.0)))
                     reply["captured"] = base64.b64encode(cap).decode()
+                elif op == "note":  # log marker for boot_log_check (interactive-begin/-end)
+                    owner._logfh.write(f"\n[daemon] note {req['text']}\n".encode())
                 elif op == "baud":
                     owner.set_baud(int(req["baud"]))
                     reply["baud"] = owner.baud
