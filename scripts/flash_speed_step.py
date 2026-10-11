@@ -24,6 +24,7 @@ SFCR = 0xB8001200
 NOR_MHZ = 153.125
 STOCK_D = 2
 CHIP = 0x2000000
+E220 = 0xBB00E220  # [16:13] NOR source divider: nor = 2450 MHz / (2 x (code + 2))
 
 
 def log(msg: str) -> None:
@@ -54,12 +55,14 @@ def chip_crc(con: Console, d: int) -> str:
 def main() -> int:
     ap = argparse.ArgumentParser(description=__doc__.splitlines()[0])
     ap.add_argument("divs", nargs="*", type=int, default=[1, 0], help="D values to try, in order")
+    ap.add_argument("--nor", nargs="*", type=int, default=[],
+                    help="then NOR source codes e220[16:13] (6 = stock 153 MHz; 3 = 245 MHz)")
     a = ap.parse_args()
     con = Console()
     base = sfcr(con)
-    if (base >> 29) != STOCK_D:
-        log(f"FAIL: SFCR {base:#010x} D={base >> 29}, expected stock D={STOCK_D}; power cycle first")
-        return 1
+    if (base >> 29) != STOCK_D:  # ramload defaults to D=0: baseline at stock /6
+        log(f"SFCR {base:#010x} D={base >> 29}: setting stock D={STOCK_D} for the baseline")
+        set_d(con, base, STOCK_D)
     t = time.monotonic()
     ref = chip_crc(con, STOCK_D)
     log(f"baseline D={STOCK_D} ({NOR_MHZ / 6:.1f} MHz): CRC {ref} in {time.monotonic() - t:.1f}s")
@@ -80,6 +83,29 @@ def main() -> int:
         _, out = con.run("bench", r"bench flash_c [\d.]+ MB/s" + PROMPT, 10, "bench")
         fl = dict(re.findall(r"^bench (flash_\w+) ([\d.]+) MB/s", out, re.M))
         log(f"PASS D={d} ({mhz:.1f} MHz): chip CRC ok in {dt:.1f}s ({CHIP / dt / 1e6:.2f} MB/s); "
+            f"bench flash_uc {fl.get('flash_uc')} flash_c {fl.get('flash_c')} MB/s")
+    d = a.divs[-1] if a.divs else STOCK_D
+    for code in a.nor:
+        nor = 2450 / (2 * (code + 2))
+        mhz = nor / (2 * (d + 1))
+        _, out = con.run(f"md.l {E220:x} 1", r"bb00e220: ([0-9a-f]{8})[^\n]*" + PROMPT, 1, "e220")
+        e220 = int(re.search(r"bb00e220: ([0-9a-f]{8})", out).group(1), 16)
+        new = (e220 & ~(0xF << 13)) | (code << 13)
+        con.run(f"mw.l {E220:x} {new:08x}", PROMPT, 1, f"NOR code {code}")
+        t = time.monotonic()
+        try:
+            got = chip_crc(con, d)
+        except SystemExit as e:
+            log(f"FAIL NOR code {code} ({mhz:.1f} MHz SPI): {str(e)[:160]} (hang? power cycle)")
+            return 1
+        dt = time.monotonic() - t
+        if got != ref:
+            con.run(f"mw.l {E220:x} {e220:08x}", PROMPT, 1, "NOR code restore")
+            log(f"FAIL NOR code {code} ({mhz:.1f} MHz SPI): CRC {got} != {ref}; previous code restored")
+            return 1
+        _, out = con.run("bench", r"bench flash_c [\d.]+ MB/s" + PROMPT, 10, "bench")
+        fl = dict(re.findall(r"^bench (flash_\w+) ([\d.]+) MB/s", out, re.M))
+        log(f"PASS NOR code {code} (nor {nor:.1f} MHz, SPI {mhz:.1f} MHz): chip CRC ok in {dt:.1f}s; "
             f"bench flash_uc {fl.get('flash_uc')} flash_c {fl.get('flash_c')} MB/s")
     return 0
 

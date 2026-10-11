@@ -1,10 +1,11 @@
-# RTL9303 clock tree and overclocking
+# TL-ST1008F clocks and overclocking (RTL9303)
+
+Facts only. Commands, defaults, pass criteria and recovery: [CLOCKS-OPS.md](CLOCKS-OPS.md).
 
 Source tags: **[SRC]** GPL file:line (`dms1250/` = `sources/rtk-dms1250/`, `xgs1210/` = `sources/uboot-xgs1210/` in a clone of `github.com/reyalo/Realtek`; `owrt/` = OpenWrt `target/linux/realtek/`). **[BIN]** stock preloader (SPL) VA (`loader.bin` file `0x0000..0x507f`, XIP at `0x9fc00000`, SRAM copy at `0x9f000000`). **[LIVE]** register dump on this unit, 2026-10-10, mainline U-Boot after stock SPL init. **[DS]** `sources/rtl9303-cg-brief.pdf` (Rev 1.1-1). **SPEC** = inferred, not verified on hardware.
 
-- Read it live: `clocks` (U-Boot, `board/tplink/tl-st1008f/clocks.c`). Host: `scripts/clock_calc.py decode <md.l dump>`.
-- Writes: `clocks set cpu ... force` (procedure (a)) and `clocks set mem <MHz> force` (procedure (b)), both from SRAM; nothing else writes a clock register.
-- Recovery for every experiment: everything is RAM-loaded; a power cycle reruns the stock SPL (CPU 800 / LX 175 / DDR 600). Flash is never written.
+- Clock registers are written only by `clocks set cpu|lx|mem` (`board/tplink/tl-st1008f/clocks.c`); CPU and MEM changes run from SRAM.
+- Power-on state is always the stock SPL's: CPU 800 / LX 175 / DDR 600 / SPI 25.5 MHz.
 
 ## Summary
 
@@ -175,12 +176,7 @@ Source tags: **[SRC]** GPL file:line (`dms1250/` = `sources/rtk-dms1250/`, `xgs1
 - DT consumers to switch from fixed clocks: `cpu@0/1 clocks`, `uart0/1`, `timer@3200` (otto timer), watchdog, `i2c@36c/@388`, `/cpus frequency` (or make 300-02 read the clock).
 - Until then: U-Boot `ft_board_setup` patches the fixed-clock values.
 
-## Defaults (ramload uboot-mainline)
-
-- CPU 1000 MHz (`e208 0x3a8`, /3) + SPI-NOR /2 = 76.6 MHz (SFCR[31:29] = 0), applied after `go`; `--stock-clocks` keeps 800 MHz + /6. LX stays 175 MHz (204 MHz works but no measured gain).
-- uboot-test 40/40 at these defaults (2026-10-11).
-
-## Benchmarks (`./dev.py bench`, 2026-10-11, mainline U-Boot, heatsink off)
+## Benchmarks (U-Boot `bench`, 2026-10-11, mainline U-Boot RAM-loaded, heatsink off)
 
 | Test | 800/175/600 stock | 1000 CPU | + SPI 76.6 MHz | + LX 204 |
 |---|---|---|---|---|
@@ -194,13 +190,12 @@ Source tags: **[SRC]** GPL file:line (`dms1250/` = `sources/rtk-dms1250/`, `xgs1
 | flash_c MB/s | 5.0 | 5.0 | 13.9 (+177 %) | 13.9 |
 
 - DRAM writes are bound by DDR3-1200 itself: only the DDR clock (#39) moves them.
-- SPI ladder: /6 25.5 MHz 16.7 s whole chip, /4 38.3 MHz 11.9 s, /2 76.6 MHz 7.0 s; CRC identical at each. Next: NOR source divider e220[16:13] (122.5 MHz at code 3, rated 133), then dual/quad read.
+- SPI-NOR ladder (whole-chip CRC vs a /6 baseline, 2026-10-11): SFCR /6 25.5 MHz 16.7 s, /4 38.3 MHz 11.9 s, /2 76.6 MHz 7.0 s; then /2 with NOR source e220[16:13] code 5 (87.5 MHz) 6.2 s, code 4 (102.1 MHz) 5.3 s, **code 3 (122.5 MHz) 4.4 s, flash_uc 7.7 / flash_c 22.3 MB/s**; code 2 (153.1 MHz, rated 133) **CRC mismatch**. Flash limit between 122.5 and 153 MHz. Dual/quad read not tried.
 - LX 204.2 MHz (`clocks set lx 4 force`): console, I2C/SFP/DDM, lasers, sf, highmem, timer all pass; no bench test depends on LX.
 
 ## CPU overclock: measured (2026-10-10, mainline U-Boot RAM-loaded, heatsink off, stock core voltage)
 
-- `clocks set cpu <e208> <e210> [relock] force`: stock sequence from SRAM with the lines I-cache locked (`clocks_sram.S`). Relock = `e200` bit 30 (chip `0x93030001`, bit 4 = 0). SRAM/UMSAR window remapped for the call, restored after.
-- `./dev.py cpu-clock <e210> <e208> ...`: ladder; real rate measured from `sleep 5` vs host (CP0 Count = CPU/2).
+- Method: stock sequence from SRAM with the lines I-cache locked (`clocks_sram.S`). Relock = `e200` bit 30 (chip `0x93030001`, bit 4 = 0). SRAM/UMSAR window remapped for the call, restored after. Real rate = decoded x 5 s / host-timed `sleep 5` (CP0 Count = CPU/2).
 - DIVN2 code 1 = /3 confirmed (rates match the formula within the timer's usual -0.3 %).
 
 | CPU MHz | e208 | e210 | result |
@@ -213,7 +208,7 @@ Source tags: **[SRC]** GPL file:line (`dms1250/` = `sources/rtk-dms1250/`, `xgs1
 | 1016.7 / 1033.3 / 1050 | `0x3b8` / `0x3c8` / `0x3d8` | `0x6b439e13` | PASS (timer only) |
 | 1066.7 | `0x3e8` | `0x6b439e13` | **hang** after the PLL write (VCO 3200 = stock's own max at /4, so the CPU, not the PLL) |
 
-- Ceiling ~1050 MHz. Running choice not made yet: needs a long stress (Linux load, hours, temperature) before picking a default; 1000 MHz = 25 % over stock passed the suite.
+- Ceiling ~1050 MHz. 1000 MHz chosen: uboot-test 40/40 and 15 min Linux load (2x md5sum, 0 % idle) with no reboot, 75 C flat (2026-10-11, #38).
 
 ## Change procedures
 
@@ -221,7 +216,7 @@ Source tags: **[SRC]** GPL file:line (`dms1250/` = `sources/rtk-dms1250/`, `xgs1
 
 Stock runs it from SRAM with the routine's I-cache lines locked (`0x9f000240`, range `0x9f0002a0` + 8 KiB), then invalidates the I-cache. No DDR self-refresh: DRAM keeps its own PLL.
 
-1. Read once (decides step 6): `md.l 0xbb000004 1` (model; bit 4 variant, [3:0] rev), `md.l 0xb8000044 1` (SSR), `md.l 0xb8000700 1`, `md.l 0xb80040f8 1`, `md.l 0xb8000388 1`.
+1. Inputs: `0xbb000004` (model; bit 4 variant, [3:0] rev) decides the relock trigger (step 5); this board `0x93030001`.
 2. Copy the routine to SRAM (KSEG0 `0x9f00xxxx`, clear of `0x9f000b70..0x9f000bbc` SPL globals) or lock it in I-cache. Not after `highmem map` (it unmaps SRAM: SRAMSAR cleared) unless re-mapped.
 3. Wait UART TEMT (LSR bit 6) so no byte is in flight.
 4. CP0 Config7 (`$16, 7`) |= `0xc` (34K branch/return prediction off; OpenWrt 839x does the same).
@@ -230,19 +225,8 @@ Stock runs it from SRAM with the routine's I-cache lines locked (`0x9f000240`, r
 7. Poll `0xbb00e200` bit 15 (CPU_PLL_READY) = 1. Stock has no limit. Ours: iteration bound, logged on expiry; lock time not known (SPEC: PLLs lock in tens of us).
 8. SSR bit 2 = 1. Rewrite `0xb8000700`/`0xb80040f8` only if the CPU class changes (not for 500-999 MHz). Spin 10000 iterations (stock). Restore Config7. I-cache invalidate.
 9. Nothing else scales with CPU: UART, I2C, SPI hang off the SW PLL. CP0 timer follows automatically (`get_tbclk`). Linux gets the new rate via `ft_board_setup`.
-10. Verify: `clocks`; `./dev.py uboot-test timer` (sleep 5 vs host clock: measures the real CPU/2 against the decoded value); `highmem test`.
 
-First experiments (exact values; `scripts/clock_calc.py cpu <MHz>`):
-
-| Step | CPU | `0xbb00e208` | `0xbb00e210` | Point |
-|---|---|---|---|---|
-| 0 | 800 | `0x000003e8` | `0x6b439e23` | stock values: proves the sequence |
-| 1 | 775 | `0x000003c8` | `0x6b439e23` | stock table row 15, below stock |
-| 2 | **816.667** | `0x000002f8` | `0x6b439e13` | first overclock: NCODE 47, DIVN2 1 (/3), VCO 2450 = the SW CMU's own live VCO |
-| 3 | 833.333 / 850 / 866.667 / 883.333 / 900 | `0x308` / `0x318` / `0x328` / `0x338` / `0x348` | `0x6b439e13` | +16.7 MHz steps, VCO 2500-2700 |
-
-- DIVN2 code 1 = /3 is the SPL's own arithmetic (`D + 2`), never exercised by stock: SPEC. If `sleep` shows a different rate, the code is not /3.
-- Alternative 825 MHz with DIVN2 2 needs VCO 3300 (above the stock 2400-3200 range).
+- 825 MHz with DIVN2 2 would need VCO 3300 (above the stock 2400-3200 range); /3 steps of 16.7 MHz used instead.
 
 ### LX at runtime [BIN] `0x9f0008a4`
 
@@ -254,7 +238,7 @@ First experiments (exact values; `scripts/clock_calc.py cpu <MHz>`):
 
 ### (b) DDR clock at runtime, DRAM kept — `clocks set mem <MHz> [nosr] force` (#39)
 
-Implemented: `board/tplink/tl-st1008f/ddr_sram.S` (routine), `clocks.c` `mem_set()` (C side), `scripts/mem_clock_step.py` / `./dev.py mem-clock` (verify). Built, **not run on hardware yet**.
+Implemented in `board/tplink/tl-st1008f/ddr_sram.S` (routine) and `clocks.c` `mem_set()` (C side). Not yet run on hardware.
 
 C side, before the routine:
 
@@ -295,14 +279,8 @@ SPEC / unverified:
 - Other DRAM masters: the switch NIC DMA must be idle (no `rtk network on`, no eth command in this boot before the change; SPEC whether stock U-Boot's TFTP leaves it running after `go`).
 - OpenWrt (`clk-rtl838x-sram.S`, `clk-rtl83xx.c:630-640`) does not change MEM at runtime: its MEM `set_rate` is pinned to the startup rate, with a TODO naming DTRs and DLL reset.
 
-Run (main session): `./dev.py ramload uboot-mainline`, then `./dev.py mem-clock 600 650`. 600 first = stock values through the new sequence (proves self-refresh entry/exit and the PLL rewrite without a rate change). Pass per bin = `mem set OK`, `clocks` decodes the bin, crc32 + `md` of 16 MiB copied before the first change unchanged, `highmem test` 0 errors, crc32 unchanged after it. Hang = power cycle. If 600 hangs: retry with `--nosr` once, record which mark was last printed.
 
 - Above 650: CWL 8 → MRS with unknown stock MR0-MR2 (#48).
 - Fallback if the runtime path fails: SRAM-resident program (64 KiB SRAM, stack in SRAM) re-running the full SPL DDR init at 650 (PHY pre-config 650 branch, DCR provisional `0x21320000`, DTRs, ZQ cal, MRS, DLL reset, tap training, DCR `0x21421003`), then memtest; DRAM contents abandoned, power cycle after.
-- Final form: own SPL in flash (flash writes: out of scope).
+- Final form: own SPL (#47 option C).
 - Size: `uboot-mainline.bin` 301,941 -> 307,485 bytes (+5,544; routine 1,124 bytes), 2026-10-11.
-
-### (c) Recovery
-
-- All of the above is RAM-loaded. Power cycle (`./dev.py power off`/`on`, or `./dev.py stock`) reruns the stock SPL: stock clocks and DDR init. Flash is never written.
-- A hung CPU or DRAM after a change is recovered the same way; there is no state to clean up.

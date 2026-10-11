@@ -236,7 +236,8 @@ def openwrt_stp(con: Console) -> None:
 
 
 FAST_CPU_E208 = "0x3a8"  # 1000 MHz with DIVN2 /3: uboot-test 40/40 + 15 min Linux load (#38)
-SFCR, SFCR_D_FAST = 0xB8001200, 0  # SPI /2 = 76.6 MHz, whole-chip CRC verified (#32)
+SFCR, SFCR_D_FAST = 0xB8001200, 0  # SPI = NOR clock / 2
+E220, NOR_CODE_FAST = 0xBB00E220, 3  # NOR 245 MHz -> SPI 122.5 MHz (rated 133); 153 MHz corrupts (#32)
 
 
 def fast_clocks(con: Console, e208: str) -> None:
@@ -248,6 +249,11 @@ def fast_clocks(con: Console, e208: str) -> None:
     v = int(re.search(r"b8001200: ([0-9a-f]{8})", out).group(1), 16)
     con.run(f"mw.l {SFCR:x} {(v & 0x1fffffff) | (SFCR_D_FAST << 29):08x}", r"st1008f-mainline # ", 1,
             "SPI /2")
+    _, out = con.run(f"md.l {E220:x} 1", r"bb00e220: ([0-9a-f]{8})[^\n]*\r?\nst1008f-mainline # ", 1,
+                     "e220")
+    v = int(re.search(r"bb00e220: ([0-9a-f]{8})", out).group(1), 16)
+    con.run(f"mw.l {E220:x} {(v & ~(0xF << 13)) | (NOR_CODE_FAST << 13):08x}", r"st1008f-mainline # ",
+            1, "NOR 245 MHz")
     _, out = con.run("clocks", r"(?s)mem \d+ MHz.*st1008f-mainline # ", 1, "clocks")
     con.note("interactive-end")
     log("  " + ", ".join(re.findall(r"^(?:cpu|spi) [\d.]+ MHz", out, re.M)))
@@ -262,7 +268,7 @@ def main() -> int:
     ap.add_argument("--fast", type=int, nargs="?", const=1, metavar="DIV",
                     help="uboot-mainline: switch console to 10.9375 MBd/DIV after boot (default 1)")
     ap.add_argument("--stock-clocks", action="store_true",
-                    help="uboot-mainline: keep stock CPU 800 MHz + SPI /6 (default: 1 GHz + SPI /2, #38/#32)")
+                    help="uboot-mainline: keep stock CPU 800 MHz + SPI 25.5 MHz (default: 1 GHz + SPI 122.5 MHz)")
     ap.add_argument("--then", choices=["openwrt"],
                     help="uboot-mainline: also TFTP OpenWrt (std magic) to 0x84f00000, bootm it from ours")
     ap.add_argument("--cpu", metavar="E208",
