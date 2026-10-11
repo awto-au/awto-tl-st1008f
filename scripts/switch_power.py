@@ -1,7 +1,8 @@
 #!/usr/bin/env python3
 """switch_power — power-cycle the ST1008F via its ESPHome relay.
 
-Controls the relay at 192.168.25.138 (`switch/relay`; ON = switch powered).
+Controls the relay at 192.168.25.49 (`switch/relay`; ON = switch powered).
+IP from the house LAN IP registry (host `st1008f-1-relay`), DHCP-reserved.
 Local device control on the house LAN (ESPHome REST API) — not web research,
 so a direct POST is used (the playwrong rule targets external pages).
 
@@ -23,7 +24,7 @@ import time
 import urllib.request
 from pathlib import Path
 
-RELAY = "http://192.168.25.138/switch/relay"
+RELAY = "http://192.168.25.49/switch/relay"
 LOG = Path(__file__).resolve().parent.parent / "tmp/logs/switch_power.log"
 
 

@@ -26,7 +26,7 @@ ROOT = Path(__file__).resolve().parent.parent
 LOG = ROOT / "tmp/logs/storm_watch.log"
 SAMPLE_S = 1.0  # 2 samples over the limit = 2 s; a loop here ramps over tens of seconds (#19)
 BASELINE_S = 3.0
-RELAY = "http://192.168.25.138/switch/relay"  # same relay as scripts/switch_power.py
+RELAY = "http://192.168.25.49/switch/relay"  # same relay as scripts/switch_power.py
 
 
 def log(msg: str) -> None:
