@@ -128,6 +128,20 @@ Same boot and topology as above (DDR 600, CPU 1 GHz, HIGHMEM=y). `./dev.py nic-b
 - Final, other paths (1 run each): pktgen TX 1400 / 64 B 49.1 / 64.7 kpps (base 37.7-40.0 / 60.8); rxdrop 137 / 165 kpps (base 133 / 162); CPU-terminated TCP RX / TX 300 / 261 Mbit/s (base 295 / 238).
 - Final: no driver warnings; BQL limits 133400 / 89798 B on tx-0 / tx-1 after the suite; qdisc requeues 30 over the whole suite.
 
+### HIGHMEM and 512 MiB (`300-13`, 2026-10-12, #27)
+
+Same boot and topology as "NIC path" (DDR 600, CPU 1 GHz, UP, `300-12`). `./dev.py nic-bench run`, 3 runs, one boot per row; tags in `tmp/logs/nat_bench.jsonl`.
+
+| Build | TCP P4 Mbit/s | UDP 1400 @600 kpps | @700 kpps | @900 kpps (loss %) | UDP 64 B kpps | ns/pkt UDP 64 B |
+|---|---|---|---|---|---|---|
+| `hm512-base`: HIGHMEM, 512 MiB DTS | 326-333 | 51.1-51.2 | 59.6 | 60.3-60.9 (20-21) | 69.1-70.2 | 13636-13844 |
+| `hm512-fix`: + `300-13` | **365-370** | 48.7-51.1 | 58.2-59.6 | 61.1-62.3 (19-20) | 69.0-69.9 | 13543-13699 |
+| `nohm256`: HIGHMEM off, 256 MiB (reference) | 358-365 | 51.0-51.1 | 59.4-59.6 | 70.0-71.1 (7-8) | 74.3-75.7 | 12629-12656 |
+
+- `300-13` (lowmem fast paths: `dma_sync_phys` without kmap, inline `page_address`): TCP +11 %, at or above the HIGHMEM-off reference.
+- UDP saturated rows keep a 7-12 % gap: the remaining HIGHMEM cost is on the UDP path and not located yet (next: `./dev.py rteth-ftrace --count` on the highmem-only functions under UDP 64 B load).
+- 512 MiB vs 256 MiB with HIGHMEM: same UDP 64 B as the 256 MiB "final" row above (69.5-70.5).
+
 ### Where the NIC time goes (`./dev.py rteth-ftrace`, 1 GHz, NAT + flowtable TCP)
 
 - `function_graph` keeps the mcount hook on every function, so all times are inflated (load drops to 50-90 Mbit/s); use the split.

@@ -6,9 +6,11 @@ Needs: tmp/linux-v7.3 (clone of v7.3-rc6), tmp/openwrt at OWRT_COMMIT, mips big-
 Derived tree state, rebuilt each run (patched files reset via git, copied/created files deleted):
 - OWRT_VERBATIM patches-6.18, OWRT_FILES from files-6.18, then openwrt/patches/*.patch (ours and
   forward-ports, 300-04..). Status of every OpenWrt patch/file: docs/MAINLINE-PORT.md.
-- DTS + dts Makefile line; allnoconfig + mainline/st1008f-v2.config (+ st1008f-v2-smp.config with
-  --smp) + generated initramfs fragment (mainline_initramfs.py); olddefconfig; fail if a fragment
-  option did not survive; build vmlinux + dtb at nice 19, -j8 max.
+- DTS + dts Makefile line; allnoconfig + mainline/st1008f-v2.config (MT SMP, both VPEs: default)
+  (+ st1008f-v2-up.config with --up, + st1008f-v2-nohighmem.config with --no-highmem) + generated
+  initramfs fragment (mainline_initramfs.py); olddefconfig; fail if a fragment option did not
+  survive (a later fragment wins); build vmlinux + dtb at nice 19, -j8 max.
+- Out dir: tmp/build-mips[-nohighmem][-up] (out_dir(); dev.py build-kernel uses the same).
 """
 import argparse
 import os
@@ -95,21 +97,23 @@ def apply_patches(tree):
 
 
 def check_fragments(config: Path, fragments: list[Path]) -> list[str]:
-    """Fragment lines olddefconfig dropped or changed (unmet depends, typos)."""
+    """Fragment lines olddefconfig dropped or changed (unmet depends, typos); a later fragment wins."""
     have = {}
     for ln in config.read_text().splitlines():
         if m := re.fullmatch(r"(CONFIG_\w+)=(.*)", ln):
             have[m.group(1)] = m.group(2)
-    bad = []
+    want = {}
     for frag in fragments:
         for ln in frag.read_text().splitlines():
             if m := re.fullmatch(r"(CONFIG_\w+)=(.*)", ln.strip()):
-                if have.get(m.group(1)) != m.group(2):
-                    bad.append(f"{ln.strip()}  (got {have.get(m.group(1), 'not set')})")
+                want[m.group(1)] = (m.group(2), ln.strip())
             elif m := re.fullmatch(r"# (CONFIG_\w+) is not set", ln.strip()):
-                if m.group(1) in have:
-                    bad.append(f"{ln.strip()}  (got {have[m.group(1)]})")
-    return bad
+                want[m.group(1)] = (None, ln.strip())
+    return [f"{ln}  (got {have.get(k, 'not set')})" for k, (v, ln) in want.items() if have.get(k) != v]
+
+
+def out_dir(no_highmem: bool, up: bool) -> Path:
+    return ROOT / ("tmp/build-mips" + ("-nohighmem" if no_highmem else "") + ("-up" if up else ""))
 
 
 def run(cmd, cwd):
@@ -125,13 +129,16 @@ def run(cmd, cwd):
 def main():
     ap = argparse.ArgumentParser()
     ap.add_argument("--tree", default=str(ROOT / "tmp/linux-v7.3"))
-    ap.add_argument("--out", default=str(ROOT / "tmp/build-mips"))
     ap.add_argument("--cross", default="mips64-linux-gnu-")
     ap.add_argument("--jobs", default="8", help="owner: at most 8, keep host cores free")
     ap.add_argument("--dtb-only", action="store_true")
     ap.add_argument("--apply-only", action="store_true", help="copy + patch the tree, no config/build")
-    ap.add_argument("--smp", action="store_true", help="merge mainline/st1008f-v2-smp.config (MT SMP, VPE1)")
+    ap.add_argument("--out", default=None, help="default: out_dir() from the flags")
+    ap.add_argument("--up", action="store_true", help="merge mainline/st1008f-v2-up.config (one VPE; A/B, #16)")
+    ap.add_argument("--no-highmem", action="store_true",
+                    help="merge mainline/st1008f-v2-nohighmem.config (256 MiB reference, #27)")
     a = ap.parse_args()
+    a.out = a.out or str(out_dir(a.no_highmem, a.up))
     os.nice(19)  # owner: builds yield to interactive host work
     tree, out = Path(a.tree), Path(a.out)
     LOG.parent.mkdir(parents=True, exist_ok=True)
@@ -153,7 +160,8 @@ def main():
     if run(base + ["allnoconfig"], tree):
         sys.exit("allnoconfig failed, see log")
     frags = [ROOT / "mainline/st1008f-v2.config",
-             *([ROOT / "mainline/st1008f-v2-smp.config"] if a.smp else []), mainline_initramfs.build()]
+             *([ROOT / "mainline/st1008f-v2-up.config"] if a.up else []),
+             *([ROOT / "mainline/st1008f-v2-nohighmem.config"] if a.no_highmem else []), mainline_initramfs.build()]
     merge = tree / "scripts/kconfig/merge_config.sh"
     if run([str(merge), "-m", "-O", str(out), str(out / ".config"), *map(str, frags)], tree):
         sys.exit("merge_config failed, see log")

@@ -1,0 +1,109 @@
+Subject: mips/mm: HIGHMEM lowmem fast paths for non-coherent DMA sync and page_address (#27)
+
+HIGHMEM=y costs the CPU-port NIC path per packet although every NIC buffer is lowmem
+(page_pool and slab never use __GFP_HIGHMEM). Measured: docs/NAT.md "HIGHMEM", #27.
+- dma_sync_phys: lowmem range -> one cache op on phys_to_virt(); no pfn_to_page, per-page
+  loop or kmap_atomic/kunmap_atomic (2 out-of-line calls + page_address per sync).
+- page_address: inline the !PageHighMem case (lowmem_page_address); the hash lookup moves to
+  page_address_hashed(). GRO, RX build_skb, skb frag paths call it per packet.
+Upstreamable: both are generic (MIPS non-coherent DMA; any HASHED_PAGE_VIRTUAL arch); not sent.
+---
+--- a/arch/mips/mm/dma-noncoherent.c
++++ b/arch/mips/mm/dma-noncoherent.c
+@@ -7,6 +7,8 @@
+ #include <linux/dma-direct.h>
+ #include <linux/dma-map-ops.h>
+ #include <linux/highmem.h>
++#include <linux/memblock.h>
++#include <linux/pfn.h>
+ 
+ #include <asm/cache.h>
+ #include <asm/cpu-type.h>
+@@ -95,10 +97,21 @@
+ static inline void dma_sync_phys(phys_addr_t paddr, size_t size,
+ 		enum dma_data_direction dir, bool for_device)
+ {
+-	struct page *page = pfn_to_page(paddr >> PAGE_SHIFT);
+-	unsigned long offset = paddr & ~PAGE_MASK;
++	struct page *page;
++	unsigned long offset;
+ 	size_t left = size;
+ 
++	/* Lowmem (every NIC buffer): direct KSEG0 address, no per-page kmap loop. */
++	if (!IS_ENABLED(CONFIG_HIGHMEM) || PFN_DOWN(paddr + size - 1) < max_low_pfn) {
++		if (for_device)
++			dma_sync_virt_for_device(phys_to_virt(paddr), size, dir);
++		else
++			dma_sync_virt_for_cpu(phys_to_virt(paddr), size, dir);
++		return;
++	}
++
++	page = pfn_to_page(paddr >> PAGE_SHIFT);
++	offset = paddr & ~PAGE_MASK;
+ 	do {
+ 		size_t len = left;
+ 		void *addr;
+--- a/include/linux/mm.h
++++ b/include/linux/mm.h
+@@ -3101,7 +3101,7 @@
+ #endif
+ 
+ #if defined(HASHED_PAGE_VIRTUAL)
+-void *page_address(const struct page *page);
++void *page_address_hashed(const struct page *page);
+ void set_page_address(struct page *page, void *virtual);
+ void page_address_init(void);
+ #endif
+@@ -3111,6 +3111,16 @@
+ 	return page_to_virt(page);
+ }
+ 
++#if defined(HASHED_PAGE_VIRTUAL)
++/* Lowmem inline: only highmem pages need the out-of-line hash lookup. */
++static inline void *page_address(const struct page *page)
++{
++	if (!PageHighMem(page))
++		return lowmem_page_address(page);
++	return page_address_hashed(page);
++}
++#endif
++
+ #if !defined(HASHED_PAGE_VIRTUAL) && !defined(WANT_PAGE_VIRTUAL)
+ #define page_address(page) lowmem_page_address(page)
+ #define set_page_address(page, address)  do { } while(0)
+--- a/mm/highmem.c
++++ b/mm/highmem.c
+@@ -746,20 +746,18 @@
+ }
+ 
+ /**
+- * page_address - get the mapped virtual address of a page
++ * page_address_hashed - get the mapped virtual address of a highmem page
+  * @page: &struct page to get the virtual address of
+  *
+- * Returns the page's virtual address.
++ * Returns the page's kmap virtual address, NULL if not mapped. Lowmem pages are
++ * handled inline by page_address().
+  */
+-void *page_address(const struct page *page)
++void *page_address_hashed(const struct page *page)
+ {
+ 	unsigned long flags;
+ 	void *ret;
+ 	struct page_address_slot *pas;
+ 
+-	if (!PageHighMem(page))
+-		return lowmem_page_address(page);
+-
+ 	pas = page_slot(page);
+ 	ret = NULL;
+ 	spin_lock_irqsave(&pas->lock, flags);
+@@ -777,7 +775,7 @@
+ 	spin_unlock_irqrestore(&pas->lock, flags);
+ 	return ret;
+ }
+-EXPORT_SYMBOL(page_address);
++EXPORT_SYMBOL(page_address_hashed);
+ 
+ /**
+  * set_page_address - set a page's virtual address

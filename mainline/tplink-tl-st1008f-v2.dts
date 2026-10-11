@@ -36,10 +36,12 @@
 	compatible = "tplink,tl-st1008f-v2", "realtek,rtl9302-soc";
 	model = "TP-Link TL-ST1008F v2.0";
 
-	/* Second 256 MiB bank at 0x20000000 needs the OpenWrt highmem zone remap (300-02). */
+	/* DRAM 256-512 MiB is reached via OCP zone 3 at bus 0x20000000 (OpenWrt 300-02 remap,
+	 * HIGHMEM); a HIGHMEM=n kernel drops the second range (#27). */
 	memory@0 {
 		device_type = "memory";
-		reg = <0x00000000 0x10000000>;
+		reg = <0x00000000 0x10000000>,
+		      <0x20000000 0x10000000>;
 	};
 
 	chosen {

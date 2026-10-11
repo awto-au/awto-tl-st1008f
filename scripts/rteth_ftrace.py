@@ -7,7 +7,9 @@
   calls, total/avg µs, and µs per eth0 RX packet.
 - Tracer overhead: every traced entry/exit costs time and inflates its callers. Depth 1 = root totals
   with the least overhead; deeper = relative breakdown only.
-- Usage: rteth_ftrace.py [--depth 1] [--roots f,g] [--load "--secs 8 -P 4"]
+- `--count f,g`: function tracer filtered to f,g only (low overhead); calls per eth0 RX packet by
+  (function, caller). Used for the HIGHMEM per-packet calls (#27).
+- Usage: rteth_ftrace.py [--depth 1] [--roots f,g] [--count f,g] [--load "--secs 8 -P 4"]
 - Log: tmp/logs/rteth_ftrace.log; raw trace: tmp/rteth_ftrace/<stamp>-d<depth>.txt
 """
 from __future__ import annotations
@@ -73,13 +75,50 @@ def parse(text: str, roots: list[str]) -> tuple[dict, int]:
     return agg, lines
 
 
+FUNC = re.compile(r"\s(\w[\w.]*) <-(\w[\w.]*)")
+
+
+def count(a) -> int:
+    fns = a.count.split(",")
+    log(f"=== rteth_ftrace count {fns} load '{a.load}'")
+    filt = "".join(f"echo {f} >> set_ftrace_filter && " for f in fns)
+    nat_bench.sw(f"cd {TR} && echo 0 > tracing_on && echo nop > current_tracer && "
+                 f"echo {a.buf_kb} > buffer_size_kb && echo > set_ftrace_filter && {filt}"
+                 f"echo function > current_tracer && echo > trace && echo 1 > tracing_on")
+    s0 = nat_bench.snap()
+    r = subprocess.run([sys.executable, str(ROOT / "scripts/nat_bench.py"), "run", *shlex.split(a.load)],
+                       capture_output=True, text=True, env=dict(os.environ, NAT_BENCH_TAG="ftrace-count"),
+                       timeout=120)  # load run is <= ~30 s
+    nat_bench.sw(f"echo 0 > {TR}/tracing_on")
+    s1 = nat_bench.snap()
+    text = nat_bench.sw(f"cat {TR}/trace", tmo=60)  # a few MB over SSH, < 10 s
+    overrun = nat_bench.sw(f"grep -E 'overrun|dropped' {TR}/per_cpu/cpu0/stats; true")
+    nat_bench.sw(f"cd {TR} && echo nop > current_tracer && echo > set_ftrace_filter && echo 1408 > buffer_size_kb")
+    RAW.mkdir(parents=True, exist_ok=True)
+    raw = RAW / f"{time.strftime('%Y%m%d-%H%M%S')}-count.txt"
+    raw.write_text(text)
+    for ln in r.stdout.splitlines():
+        if "RESULT" in ln:
+            log(f"load: {ln.split('RESULT', 1)[1].strip()}")
+    agg = collections.Counter(m.groups() for m in map(FUNC.search, text.splitlines()) if m)
+    rxp = (s1["eth0"]["rx_packets"] - s0["eth0"]["rx_packets"]) % 2**32
+    log(f"trace {raw.relative_to(ROOT)}: eth0 rx {rxp} pkts in the window; {' '.join(overrun.split())} "
+        "(buffer overrun: per-packet figures are a lower bound)")
+    for (fn, parent), n in agg.most_common(40):
+        log(f"  {fn:32} <- {parent:36} {n:>9} {n / rxp if rxp else 0:>7.3f}/pkt")
+    return 0
+
+
 def main() -> int:
     ap = argparse.ArgumentParser(description=__doc__.splitlines()[0])
     ap.add_argument("--depth", type=int, default=1)
     ap.add_argument("--roots", default="rteth_poll_rx,rteth_start_xmit")
     ap.add_argument("--load", default="--secs 3 -P 4", help="nat_bench.py run arguments")
     ap.add_argument("--buf-kb", type=int, default=16384, help="per-CPU trace buffer (UP: one CPU); overrun -> partial")
+    ap.add_argument("--count", default="", help="function tracer on these functions only: calls per packet")
     a = ap.parse_args()
+    if a.count:
+        return count(a)
     roots = a.roots.split(",")
     log(f"=== rteth_ftrace depth {a.depth} roots {roots} load '{a.load}'")
     filt = "".join(f"echo {r} >> set_graph_function && " for r in roots)  # one name per write

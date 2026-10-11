@@ -1,0 +1,173 @@
+Subject: realtek: rteth (rtl838x_eth) SMP: both-ring RTL930x doorbell, optional TX completion NAPI on another CPU (#60 #16)
+
+- RTL930x doorbell sets both TX_*_FETCH bits: the 300-12 single write put 0 in the other ring's
+  fetch bit, which may cancel that ring's pending kick (from another CPU, or not yet taken by the
+  NIC); an extra fetch of a ring without OWN descriptors is a no-op. Still one lockless writel.
+- tx_cpu module param (/sys/module/rtl838x_eth/parameters/tx_cpu, default -1 = 300-12 inline
+  reclaim): N >= 0 moves TX reclaim + skb free to a per-ring TX NAPI scheduled on CPU N by IPI;
+  RX poll then skips reclaim, a full ring stops the queue for the TX NAPI to wake.
+- Measured: docs/NAT.md "SMP", #60.
+---
+--- a/drivers/net/ethernet/realtek/rtl838x_eth.c
++++ b/drivers/net/ethernet/realtek/rtl838x_eth.c
+@@ -652,6 +652,58 @@
+ 		netif_tx_wake_queue(txq);
+ }
+ 
++/* -1: TX reclaim inline (xmit + RX poll). N: per-ring TX NAPI scheduled on CPU N by IPI. */
++static int tx_cpu = -1;
++module_param(tx_cpu, int, 0644);
++MODULE_PARM_DESC(tx_cpu, "CPU for TX completion NAPI, -1 = inline in xmit/RX poll");
++
++static int rteth_tx_cpu(void)
++{
++	int cpu = READ_ONCE(tx_cpu);
++
++	return cpu >= 0 && cpu_online(cpu) ? cpu : -1;
++}
++
++static void rteth_tx_csd_func(void *info)
++{
++	napi_schedule(info);
++}
++
++static void rteth_tx_napi_kick(struct rteth_ctrl *ctrl, int r, int cpu)
++{
++	smp_mb(); /* send_count update before the SCHED test; pairs with rteth_poll_tx */
++	if (test_bit(NAPI_STATE_SCHED, &ctrl->tx_napi[r].state))
++		return;
++	if (cpu == smp_processor_id())
++		napi_schedule(&ctrl->tx_napi[r]);
++	else
++		smp_call_function_single_async(cpu, &ctrl->tx_csd[r]); /* -EBUSY: already queued */
++}
++
++static int rteth_poll_tx(struct napi_struct *napi, int budget)
++{
++	struct rteth_ctrl *ctrl = netdev_priv(napi->dev);
++	int r = napi - ctrl->tx_napi;
++	struct netdev_queue *txq = netdev_get_tx_queue(ctrl->dev, r);
++	bool pending;
++
++	__netif_tx_lock(txq, smp_processor_id());
++	rteth_reclaim_tx_ring(ctrl, r, budget);
++	pending = ctrl->tx_info[r].send_count != ctrl->tx_info[r].clean_count;
++	__netif_tx_unlock(txq);
++
++	/* no TX-done IRQ: keep polling while the hardware owns frames */
++	if (pending)
++		return budget;
++	/* xmit skips the IPI while SCHED is set: recheck after clearing it */
++	if (napi_complete(napi)) {
++		smp_mb();
++		if (READ_ONCE(ctrl->tx_info[r].send_count) != READ_ONCE(ctrl->tx_info[r].clean_count))
++			napi_schedule(napi);
++	}
++	return 0;
++}
++
+ /* True while a TX queue is stopped with frames still owned by the hardware: there is no
+  * TX-done interrupt, so the RX NAPI poll keeps polling until they drain.
+  */
+@@ -834,6 +886,8 @@
+ {
+ 	for (int i = 0; i < RTETH_RX_RINGS; i++)
+ 		napi_enable(&ctrl->rx_info[i].napi);
++	for (int r = 0; r < RTETH_TX_RINGS; r++)
++		napi_enable(&ctrl->tx_napi[r]);
+ 	ctrl->napi_enabled = true;
+ }
+ 
+@@ -845,6 +899,8 @@
+ 	ctrl->napi_enabled = false;
+ 	for (int i = 0; i < RTETH_RX_RINGS; i++)
+ 		napi_disable(&ctrl->rx_info[i].napi);
++	for (int r = 0; r < RTETH_TX_RINGS; r++)
++		napi_disable(&ctrl->tx_napi[r]);
+ }
+ 
+ static int rteth_open(struct net_device *dev)
+@@ -1158,12 +1214,14 @@
+ }
+ 
+ /*
+- * RTL930x: TX_*_FETCH self-clear and no other bit changes while the queues run (SDK
+- * r9300_nicTxFetch_set: plain field write, no poll), so one MMIO write of the cached value.
++ * RTL930x: TX_*_FETCH self-clear and no other bit changes while the queues run, so one MMIO
++ * write of the cached value. Set both rings' fetch bits: writing 0 to the other ring's bit
++ * (another CPU's pending kick) is not documented as harmless; an extra fetch of a ring with no
++ * OWN descriptor is (SDK r9300_nicTxFetch_set RMW also writes back a pending 1). Lockless, SMP-safe.
+  */
+ static void rteth_930x_tx_kick(struct rteth_ctrl *ctrl, int ring)
+ {
+-	writel_relaxed(ctrl->dma_if_ctrl_val | RTETH_TX_TRIGGER(ctrl, ring),
++	writel_relaxed(ctrl->dma_if_ctrl_val | ctrl->cfg->tx_trigger_mask,
+ 		       ctrl->base + ctrl->cfg->dma_if_ctrl);
+ }
+ 
+@@ -1174,6 +1232,7 @@
+ 	struct rteth_ctrl *ctrl = netdev_priv(dev);
+ 	struct rteth_tx_info *tx_info = &ctrl->tx_info[ring];
+ 	struct sk_buff **packet_skb;
++	int tx_cpu_now = rteth_tx_cpu();
+ 	bool kick, full;
+ 	struct rteth_frag *frag;
+ 	dma_addr_t packet_dma;
+@@ -1232,10 +1291,14 @@
+ 	if (kick) {
+ 		ctrl->cfg->tx_kick(ctrl, ring);
+ 		tx_info->kick_count = tx_info->send_count;
++		if (tx_cpu_now >= 0)
++			rteth_tx_napi_kick(ctrl, ring, tx_cpu_now);
+ 	}
+ 
+-	/* reclaim here, not only at the next poll: else TX gets one ring per RX poll (#60) */
+-	if (full) {
++	if (full && tx_cpu_now >= 0) {
++		netif_tx_stop_queue(txq); /* the TX NAPI reclaims and wakes it */
++	} else if (full) {
++		/* reclaim here, not only at the next poll: else TX gets one ring per RX poll (#60) */
+ 		rteth_reclaim_tx_ring(ctrl, ring, netpoll_tx_running(dev) ? 0 : 1);
+ 		if (tx_info->send_count - tx_info->clean_count == RTETH_TX_RING_SIZE)
+ 			netif_tx_stop_queue(txq);
+@@ -1245,7 +1308,7 @@
+ 	tx_info->bytes += len - ETH_FCS_LEN;
+ 
+ 	/* no TX-done IRQ: let the RX NAPI poll reclaim and wake the stopped queue */
+-	if (netif_xmit_stopped(txq))
++	if (netif_xmit_stopped(txq) && tx_cpu_now < 0)
+ 		napi_schedule(&ctrl->rx_info[ring % RTETH_RX_RINGS].napi);
+ 
+ 	return NETDEV_TX_OK;
+@@ -1419,7 +1482,7 @@
+ 	int work_done, ring = rx_q->id;
+ 	bool tx_pending;
+ 
+-	tx_pending = rteth_reclaim_tx_rings(ctrl, budget);
++	tx_pending = rteth_tx_cpu() < 0 && rteth_reclaim_tx_rings(ctrl, budget);
+ 
+ 	work_done = rteth_hw_receive(ctrl->dev, ring, budget);
+ 	if (tx_pending)
+@@ -1996,6 +2059,10 @@
+ 		ctrl->rx_info[i].ctrl = ctrl;
+ 		netif_napi_add(dev, &ctrl->rx_info[i].napi, rteth_poll_rx);
+ 	}
++	for (int r = 0; r < RTETH_TX_RINGS; r++) {
++		netif_napi_add_tx(dev, &ctrl->tx_napi[r], rteth_poll_tx);
++		INIT_CSD(&ctrl->tx_csd[r], rteth_tx_csd_func, &ctrl->tx_napi[r]);
++	}
+ 
+ 	platform_set_drvdata(pdev, dev);
+ 
+--- a/drivers/net/ethernet/realtek/rtl838x_eth.h
++++ b/drivers/net/ethernet/realtek/rtl838x_eth.h
+@@ -331,6 +331,9 @@
+ 	void __iomem		*base;
+ 	/* DMA_IF_CTRL with the fetch and busy bits clear (RTL930x) */
+ 	u32			dma_if_ctrl_val;
++	/* TX completion NAPI per ring, run on CPU tx_cpu via IPI (module param; #60 experiment) */
++	struct napi_struct	tx_napi[RTETH_TX_RINGS];
++	call_single_data_t	tx_csd[RTETH_TX_RINGS];
+ };
+ 
+ struct rteth_cfg {

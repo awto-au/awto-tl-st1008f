@@ -240,6 +240,13 @@ def cmd_nat_bench(extra: list[str]) -> int:
     return _script("nat_bench.py", extra)
 
 
+@command("fill-verify most of RAM (tmpfs, md5) from the mainline 7.3 initramfs shell; meminfo check (#27)",
+         args="[--passes N] [--min-total-kb K]  (run `ramload uboot-mainline --then mainline-kernel` first)",
+         kind="check")
+def cmd_mem_stress(extra: list[str]) -> int:
+    return _script("mem_stress.py", extra)
+
+
 @command("function_graph timing of rteth RX/TX under nat-bench load, mainline 7.3 initramfs (#65 #67)",
          args="[--depth N] [--roots f,g] [--load \"--secs 3 -P 4\"]  (nat-bench setup + mode first)",
          kind="hardware")
@@ -291,13 +298,16 @@ def cmd_build_uboot(extra: list[str]) -> int:
     return _script("build_uboot_mainline.py", extra)
 
 
-@command("build mainline Linux (stage-0 DTS/config) and wrap it as tmp/tftp/mainline.bin",
-         args="[--dtb-only]", kind="build")
+@command("build mainline Linux (SMP: both VPEs) and wrap it as tmp/tftp/mainline.bin",
+         args="[--dtb-only] [--up] [--no-highmem]  (--up: one VPE, A/B #16; --no-highmem: 256 MiB reference #27)",
+         kind="build")
 def cmd_build_kernel(extra: list[str]) -> int:
     rc = _script("mainline_build_check.py", extra)
     if rc:
         return rc
-    b = TMP / "build-mips"
+    sys.path.insert(0, str(SCRIPTS))
+    from mainline_build_check import out_dir
+    b = out_dir("--no-highmem" in extra, "--up" in extra)
     return _script("mainline_uimage.py", ["--vmlinux", str(b / "vmlinux"), "--dtb",
                    str(b / "arch/mips/boot/dts/realtek/tplink-tl-st1008f-v2.dtb")])
 

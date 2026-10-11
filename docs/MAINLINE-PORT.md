@@ -91,7 +91,7 @@ Classes: UP = already upstream; TRIV = trivial rebase; API = needs API rework (n
 | 1 | Serial boot: platform, irqchip, timer, UART, SPI-NOR, GPIO, I2C, WDT | UP | 6.11..7.3; stage-0 DTS and config build ([section 4](#4-first-step-delivered-stage-0-dts-and-config)) |
 | 2 | Board DTS | TRIV | `mainline/tplink-tl-st1008f-v2.dts`; needs a `tplink,tl-st1008f-v2` entry in `realtek-rtl.yaml` to pass `dtbs_check` (not run: no `dtschema`) |
 | 3 | SFP core, I2C SMBus block quirks, MOD_DEF0/TX-disable GPIOs, PCA9534 | UP | `sfp.c` + 7.1/7.2 I2C patches merged |
-| 4 | RAM above 256 MiB (board has 512 MiB in two banks) | TRIV | `300-02` HIGHMEM zone remap applies strict on 7.3; not upstream. Stage 0 uses 256 MiB only |
+| 4 | RAM above 256 MiB (board has 512 MiB in two banks) | TRIV | `300-02` HIGHMEM zone remap applies strict on 7.3; not upstream. DTS declares both banks (`0x0` + `0x20000000`, 256 MiB each): MemTotal 508264 kB, `./dev.py mem-stress` fill-verify of 432 MiB 0 errors (#27). `300-13`: lowmem fast paths for the HIGHMEM per-packet cost |
 | 5 | Kernel image wrapper for stock U-Boot | unknown | OpenWrt uses uImage magic `0x93030000`; stock U-Boot has no FDT, so DTB must be appended (`MIPS_RAW_APPENDED_DTB`). Wrapper tool not written |
 | 6 | MIPS `mach-rtl-otto` headers + `300-01..03` | TRIV | `300-01` fuzz on Kconfig |
 | 7 | DSA core hooks: `DSA_TAG_PROTO_RTL_OTTO`, `DSA_MAX_PORTS`, trapped flag | API (small) | Tag number 32 to 36; `DSA_MAX_PORTS` 12 to 32; `722` touches `dst_metadata.h`. Out-of-tree only; `700`/`722` are the upstream-hostile part |

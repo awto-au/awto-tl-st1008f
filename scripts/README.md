@@ -296,7 +296,13 @@ Desk-only; no switch access. Needs `tmp/openwrt` (sparse clone of openwrt, `targ
 ### rteth_ftrace.py
 - Purpose: ftrace `function_graph` timing of the CPU-port NIC path (`rteth_poll_rx`, `rteth_start_xmit`) under `nat_bench.py run` load on the mainline initramfs (#65, #67). Per (depth, function): calls, total, avg µs.
 - Run: `./dev.py rteth-ftrace [--depth N] [--roots f,g] [--load "--secs 3 -P 4"]` after `nat-bench setup` + `mode`.
+- `--count f,g`: plain function tracer on f,g only; calls per eth0 RX packet by (function, caller). Not yet run on hardware (#27).
 - Notes: tracer overhead inflates every number (all functions keep the mcount hook); use the split, not the absolute µs. Depth >= 2 overruns the buffer: per-call averages stay valid. Raw: `tmp/rteth_ftrace/`; log `tmp/logs/rteth_ftrace.log`.
+
+### mem_stress.py
+- Purpose: RAM check from the mainline initramfs shell (#27): meminfo (MemTotal floor, HighTotal), tmpfs of MemFree - 48 MiB filled with copies of a 16 MiB urandom seed, md5 of every copy, 2 passes; dmesg Oops/BUG/OOM scan.
+- Run: `./dev.py mem-stress [--passes N] [--min-total-kb K]` at the `st1008f-linux #` prompt (`--min-total-kb 240000` for a `--no-highmem` kernel).
+- Notes: tmpfs pages are highmem-first, so the run covers bank 1 (HighFree ~0 when full). Log `tmp/logs/mem_stress.log`.
 
 ### nic_path_bench.py
 - Purpose: before/after suite for rteth driver changes on the mainline 7.3 kernel (#60, #65).

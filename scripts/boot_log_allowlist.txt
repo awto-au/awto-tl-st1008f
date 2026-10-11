@@ -220,8 +220,8 @@ RTL930x DRAM controller prefetch on \(MCR [0-9a-f]{8}\)  # openwrt/patches/300-0
 highmem kernel with > 256 MB RAM, adapt SoC memory mapping  # OpenWrt 300-02 zone-3 remap
 Realtek RTL9303 rev B \(6487\) SoC with 512 MB  # OpenWrt 300-02 SoC detection
 CPU frequency from PLL: \d+MHz  # openwrt/patches/300-05 (#55)
-Memory: \d+K/\d+K available \(.*\)  # stage-0 DTS maps 256 MiB
-\s*HighMem\s+empty  # stage-0 DTS: no highmem zone yet
+Memory: \d+K/\d+K available \(.*\)  # 512 MiB (HIGHMEM) or 256 MiB (--no-highmem build)
+\s*HighMem\s+empty  # --no-highmem build or 256 MiB DTS
 SLUB: HWalign=32, Order=0-3, MinObjects=0, CPUs=1, Nodes=1  # allocator info
 futex hash table entries: \d+ \(.*\)\.?  # core info
 posixtimers hash table entries: \d+ \(.*\)  # core info
@@ -234,6 +234,13 @@ Memory: 241508K/262144K available \(11618K kernel code, 676K rwdata, 2144K rodat
 \s+Normal   \[mem 0x0000000000000000-0x000000000fffffff\]  # lowmem 256 MB
 \s+node   0: \[mem 0x0000000000000000-0x000000000fffffff\]  # RAM bank 0 (256 MB)
 Initmem setup node 0 \[mem 0x0000000000000000-0x000000000fffffff\]  # RAM map
+Built 1 zonelists, mobility grouping on\.  Total pages: 131072  # 512 MiB (#27)
+\s+Normal   \[mem 0x0000000000000000-0x000000001fffffff\]  # lowmem zone span (bank 0 = 256 MiB)
+\s+HighMem  \[mem 0x0000000020000000-0x000000002fffffff\]  # bank 1 via OCP zone 3 (300-02, #27)
+\s+node   0: \[mem 0x0000000020000000-0x000000002fffffff\]  # RAM bank 1 (256 MiB)
+Initmem setup node 0 \[mem 0x0000000000000000-0x000000002fffffff\]  # RAM map incl. bank 1
+On node 0, zone HighMem: 65536 pages in unavailable ranges  # bus hole 0x10000000-0x1fffffff
+On node 0, zone Normal: 131072 pages in unavailable ranges  # --no-highmem build: bank 1 range dropped, zone spans to 0x2fffffff
 rcu: \tRCU event tracing is enabled\.  # RCU config
 rcu: \tRCU restricting CPUs from NR_CPUS=16 to nr_cpu_ids=2\.  # RCU config
 rcu: Adjusting geometry for rcu_fanout_leaf=16, nr_cpu_ids=2  # RCU config
