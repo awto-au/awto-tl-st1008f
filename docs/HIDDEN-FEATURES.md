@@ -25,6 +25,22 @@ Catalogue of RTL9303 hardware that the datasheet omits, the SDK leaves unused, o
 - **Status:** `rtk spg status|load|start|stop` written, builds, **untested**; parked on branch `parked/spg-wip` (`daa0cc8`), not on `main`. Test: `./dev.py spg-test stage1|stage2|stage3` (read-only → 1000 frames on a dark cage → ≤ 1000 frames out of cage 1 to the host).
 - **Safety in code:** `rtk network on` first; 8 cage ports only; count 1-100000 mandatory; lit cage (laser on, MAC link, copper/DAC, RX light, unreadable) refused unless `allow-lit`, then count ≤ 1000; broadcast/multicast DA refused; plan printed before sending; auto-stop on done or 1.25× expected time; runs > 10 s refused.
 - **Open:** do frames leave the port directly or enter the switch (then our loop guard sends them only to the CPU)? IPG unit (bytes assumed)? does stop reset the counter / done flag?
+- **Registers** ([GPL] `rtk_longan_reg_list.c`; base `0xBB000000`; ports 0-27; strides from SDK `macPpInfo`):
+
+| Register | Offset | Fields |
+|---|---|---|
+| `SPG_GLB_CTRL` | 0x7AB0 | `GRP_TX_CMD[2:1]` start/stop/pause/nop, `SPG_MODE[0]` |
+| `SPG_PORT_TX_GRP_CTRL` | 0x7AB4 | `GRP_TX_PORT[27:0]` port mask |
+| `SPG_GLOBAL_STS` | 0x7AB8 | `TX_DONE_PORT[27:0]` |
+| `SPG_PORT_IPG_CTRL` | 0x328C + 0x40p | `IPG_LEN[19:0]` |
+| `SPG_PORT_PKT_CNT_H/L`, `_DBG_H/L` | 0x67E4 + 0x60p | 64-bit sent counters |
+| `SPG_PORT_STREAM0_CTRL0-4` | 0x67F4 + 0x60p | stream 1 at +0x14 |
+| `SPG_PORT_INDEX_CTRL0` | 0x681C + 0x60p | per-stream packet-buffer index |
+| `SPG_PB_ACCESS_CTRL0-2`, `SPG_GLOBAL_INDEX_CTRL0` | 0xDCF0-0xDCFC | template load into the packet buffer |
+
+  - Stream `CTRL0`: `BAD_CRC_EN`, `STREAM_DA_MOD`, `STREAM_SA_MOD`, `STREAM_LEN_TYPE`, `STREAM_CONTENT_OFFSET`, `STREAM_CONTENT_MOD`; `CTRL1` `STREAM_PKT_CNT`; `CTRL2` `STREAM_LEN_RNG_START[29:16]` / `_END[13:0]`; `CTRL3` DA/SA repeat counts; `CTRL4` `STREAM_REPEAT_CONTENT`.
+  - Template (SDK): stream id = port × 2 + s, packet-buffer page 0x800 + id × 36, 90 B cells, first word = 2 B at byte index 88. `rtk spg load` uses ethertype 0x88b5, length 64-1518, read-back verify.
+  - Reference driver: GPL `system/linux/rtdrv/ext/rtdrv_netfilter_ext_9300.c` (template load, payload patterns) and `src/app/diag_v2/src/ext/diag_ext_9300.c`. RTL9310 lacks SPG.
 
 ### `ROUTER_SMAC_SEL` + 48-bit SMAC (#68)
 - **What:** ECO knob: `DMY_REG1_PKT_ENCAP` 0xCF0C bit 16 + SMAC[47:32], `DMY_REG0_PKT_ENCAP` 0xCE20 SMAC[31:0]; SDK never references it
@@ -73,7 +89,8 @@ Catalogue of RTL9303 hardware that the datasheet omits, the SDK leaves unused, o
 - **Evidence:** [GPL], [8390]
 - **Measured:** autoload at reset (`CTRL_DONE` 1); SW read path returns 0 for all 256 words with `EFUSE_ACCESS_EN` = 0; loaded copies: `CALIB_CTRL_2-4` `033c03f1 81308128 00000188`, `CODE_PROTECT_STATE` 0 [LIVE]
 - **Use:** trim/patch values, unique ID
-- **Risk:** programming is permanent; `ACCESS_EN` meaning unknown
+- **Risk:** programming is permanent; `ACCESS_EN` meaning unknown (read-unlock, program-enable or key)
+- **Decision:** owner 2026-10-12: leave the eFuse unread; `EFUSE_ACCESS_EN` never written (#75)
 
 ### `CHIP_INFO` 0x08 (#62)
 - **What:** extra ID register behind `CHIP_INFO_EN` = 0xA
@@ -120,14 +137,14 @@ Catalogue of RTL9303 hardware that the datasheet omits, the SDK leaves unused, o
 ### OCP / LX bus-timeout monitors (#62)
 - **What:** `TO_CTRL` 0xb8005100, `LB*TCR` 0xb8005200; GIMR `OCPTO`/`LXMTO`/`LXSTO`
 - **Evidence:** [SOC]
-- **Measured:** not probed
+- **Measured:** present, `0x1c000000` / `0x70000000`, enable bit 31 off (hw-probe 2026-10-11, [HARDWARE-INVENTORY.md](HARDWARE-INVENTORY.md#measured-2026-10-11-hw-probe)) [LIVE]
 - **Use:** turn a hung bus access (as above) into an IRQ with the address
 - **Risk:** low
 
 ### GDMA / bus traffic generator (#62)
 - **What:** `LX0/1/2_GDMA_CTRL` 0xb8144000 / 0xb800a000 / 0xb8018000 + BTG regs; not in DS
 - **Evidence:** [SOC]
-- **Measured:** not probed (clock-gated reads may hang)
+- **Measured:** `IP_EN_CTRL` = `0x40000f88`: GDMA0/1 enabled at reset, GDMA2-6 off (`NEW_IP_EN_CTRL` 0); controller regs not read yet (clock-gated reads may hang) [LIVE]
 - **Use:** memcpy/memset offload; DDR stress (#48)
 - **Risk:** DMA writes RAM
 
@@ -141,7 +158,7 @@ Catalogue of RTL9303 hardware that the datasheet omits, the SDK leaves unused, o
 ### Timer TC5 (#62)
 - **What:** sixth timer; DS shows "Timer*5", SDK lists TC0-TC5 0xb8003200
 - **Evidence:** [DS], [SOC]
-- **Measured:** not probed
+- **Measured:** 6 timer sets read back (hw-probe 2026-10-11) [LIVE]
 - **Use:** spare timer
 - **Risk:** low
 
@@ -179,6 +196,20 @@ Catalogue of RTL9303 hardware that the datasheet omits, the SDK leaves unused, o
 - **Measured:** 25/25 KATs pass; AES-128 29 MB/s, 3DES 22, SHA1 45 (clock = LX); [CRYPTO.md](CRYPTO.md)
 - **Use:** AES offload for legacy IPsec suites; hashing is slower than the CPU
 - **Risk:** low
+
+### MAC EEPROM autoload (#76, #77)
+- **What:** reset-time register load from a serial EEPROM (unmanaged-switch mode): `MAC_EEPROM_DOWN_LOAD_CNTRL` 0xC6E4, `_STS` 0xC6E8, `_MAC/SERDES/PHY/GROUP_MAC_POS` 0xC6EC-0xC6F8
+- **Evidence:** [GPL] names only; not in DS, no SDK code
+- **Measured:** `_STS` NOEEPROM 0, EEPROM_COMPL 1, VALID_FAIL 1 (2026-10-12, [BUS-SCAN.md](BUS-SCAN.md)): the engine runs at every reset, something answers (likely the cage-1 SFP EEPROM on the shared SDA), the content is rejected, nothing loaded [LIVE]
+- **Use:** none on a CPU-managed board
+- **Risk:** harmless today; a module EEPROM with a valid signature would be loaded (SPEC)
+
+### I2C / SPI slave register interface (#76, #77)
+- **What:** `MAC_SLV_I2C_CTRL` 0x360-0x368: I2C slave register access, undocumented (DS has SPI slave only)
+- **Evidence:** [GPL]
+- **Measured:** all 0, slave interfaces unused (2026-10-12) [LIVE]
+- **Use:** none (no external CPU)
+- **Risk:** -
 
 ### NAT / IP or L4 rewrite (#68)
 - **What:** hardware NAT or header rewrite fused off or undocumented

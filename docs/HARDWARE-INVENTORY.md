@@ -35,7 +35,7 @@ Abbreviations: Y = yes, N = no, `-` = not applicable. Addresses are KSEG1 (`0xb8
 | Mask ROM | `ROMSAR` `0xb8004080` [SOC]; strap `BOOT_SEL` 1 = ROM boot [DS §6.12]: Y SPEC | boots NOR | - | - | - | - | none |
 | DDR3 controller | Y, 8/16-bit, 1 GiB max [DS §8.3]; `0xb8001000` [SOC] | one x16 4 Gbit die, 512 MiB, 600 MHz [DOC [DRAM.md](DRAM.md)] | Y (SPL init) | Y | Y | DDR clock/timing tools ([CLOCKS.md](CLOCKS.md)) / Y | DRAM prefetch (MCR `ip_ref`/`dp_ref`) off in stock: +26-61 % (#52, #53) |
 | Bus zones / unmapped segments | `UMSAR0-3` `0xb8001300`, OCP DOR/DMAR [SOC] | 2nd 256 MiB needs zone 3 | N | SPEC | Y (`300-02` highmem remap) | `highmem map` / N (#27) | 2nd 256 MiB in mainline (#27) |
-| OCP / LX bus timeout monitors | `TO_CTRL` `0xb8005100`, `LB*TCR` `0xb8005200..` ; GIMR `OCPTO`/`LXMTO`/`LXSTO` [SOC] | - | SPEC | SPEC | N | N | low-medium: a hung bus access becomes an IRQ with the address |
+| OCP / LX bus timeout monitors | `TO_CTRL` `0xb8005100`, `LB*TCR` `0xb8005200..` ; GIMR `OCPTO`/`LXMTO`/`LXSTO` [SOC]; present, enable bit 31 off [LIVE, [Measured](#measured-2026-10-11-hw-probe)] | - | SPEC | SPEC | N | N | low-medium: a hung bus access becomes an IRQ with the address |
 | Speed sensors (ring osc) | `SPD_SENSOR0-8` `0xb8000618` [SOC] | - | N | N | N | N | low: die speed for overclock limits (#38) |
 | IP enable registers | `IP_EN_CTRL` `0xb8000600`, `NEW_IP_EN_CTRL` `0xb800063c` [SOC] | - | - | - | - | read by `hw-probe` | - |
 
@@ -66,12 +66,12 @@ Abbreviations: Y = yes, N = no, `-` = not applicable. Addresses are KSEG1 (`0xb8
 |---|---|---|---|---|---|---|---|
 | Interrupt controller | Y [DS Fig. 1]; per-VPE `GIMR/GISR/IRR0-3` `0xb8003000`/`0xb8003018` [SOC] | - | N (polled) SPEC | Y | `rtl9300-intc` | polled / Y | - |
 | Delayed-interrupt (timer-coalesced) | `TC2-4_DLY_INTR` `0xb8003088` [SOC] SPEC | - | N | SPEC | N | N | low: NIC IRQ coalescing (#60) SPEC |
-| Timers TC0-TC4 (+TC5) | "Timer*5" [DS Fig. 1]; SDK lists TC0-TC5 `0xb8003200` [SOC]: TC5 SPEC | - | N SPEC | `rtcore` "TC probe/init" [LOG] | `realtek_otto_timer` TC0-4 (clocksource) | CP0 / otto timer | - |
+| Timers TC0-TC4 (+TC5) | "Timer*5" [DS Fig. 1]; SDK lists TC0-TC5 `0xb8003200` [SOC]; 6 timer sets read back (TC5 present) [LIVE] | - | N SPEC | `rtcore` "TC probe/init" [LOG] | `realtek_otto_timer` TC0-4 (clocksource) | CP0 / otto timer | - |
 | SoC watchdog | Y [DS Fig. 1]; `WDTCNTRR/WDTINTRR/WDT_CTRL` `0xb8003260`, phase 1 IRQ + phase 2 reset [SOC] | - | not referenced [BIN] | `rtcore` probe + init [LOG]; no enable caller in `rtk.ko` [BIN]; userspace SPEC | `realtek_otto_wdt`, 30 s, reset-mode soc | **N** / `REALTEK_OTTO_WDT` | **high**: hang recovery from power-on through `bootm` (chained boot, #47) |
 | External watchdog / reset line (GPIO21) | GPIO | DTS `linux,wdt-gpio` toggle 1.2 s; low = board reset (#18) | N | `switch_reset()` drives it low on mode change [BIN] | `gpio-wdt` (always-running) | refused low / node disabled (#18) | - |
 | Reset control | `RST_GLB_CTRL_0` `0xbb00000c`: SW_CHIP_RST bit 0, NIC/queue/SerDes/switch resets, CHIP_RST_EN, WD_RST_EN; status `RST_GLB_STS_0-3` (chip / watchdog reset status) [SW]; `RST_OUT` pin [DS §6.11] | - | SPEC | SPEC | switch reset at CPU-port init ("RESETTING 9300") [OWRT log] | `reset` not implemented / `syscon-reboot` `0x0c` value 1 [ML] | **high**: `reset` in our U-Boot; reset-cause readout |
 | Thermal sensor | Y, `0xbb000060-0x70` [SW]; off at power-on [LIVE [hardware.md](hardware.md)] | - | N | N (#13) | `realtek-thermal`, trip 105 °C | `rtk temp` / N | - (used) |
-| eFuse / OTP | `EFUSE_ACCESS_*` `0xbb00c698-0xc6a4`, 8-bit address, 16-bit data, indirect [SW]. Autoloaded at reset (`CTRL_DONE` = 1 at power-up); loaded copies: `MAC_EFUSE_CTRL` `0xc6fc` = `0x0003fffe` (CHIP_MODE 14, read-only), `CALIB_CTRL_2-4` `0xc6ac` = `033c03f1 81308128 00000188`, `CODE_PROTECT_STATE` `0xc7c8` = 0 (no EJTAG-disable / key fuses) [LIVE 2026-10-12, #68] | - | N | N | N | `./dev.py hidden-write-probe efuse` (read sequence only) | low: SW read path returns 0 for all 256 words with `EFUSE_ACCESS_EN` = 0; enable value unknown (#68) |
+| eFuse / OTP | `EFUSE_ACCESS_*` `0xbb00c698-0xc6a4`, 8-bit address, 16-bit data, indirect [SW]. Autoloaded at reset (`CTRL_DONE` = 1 at power-up); loaded copies: `MAC_EFUSE_CTRL` `0xc6fc` = `0x0003fffe` (CHIP_MODE 14, read-only), `CALIB_CTRL_2-4` `0xc6ac` = `033c03f1 81308128 00000188`, `CODE_PROTECT_STATE` `0xc7c8` = 0 (no EJTAG-disable / key fuses) [LIVE 2026-10-12, #68] | - | N | N | N | `./dev.py hidden-write-probe efuse` (read sequence only) | low: SW read path returns 0 for all 256 words with `EFUSE_ACCESS_EN` = 0; enable value unknown (#68); left unread by owner decision (#75) |
 | Crypto engine | Y [DS Fig. 1 "Crypto Engine"; strap `EN_DECRYPT` = flash decrypt, §6.12]; `IPSEC_*` `0xb800c000`, `IP_EN_CTRL` bit 10, GIMR `SECURITY_IE` bit 22 [SOC]. RTL865xC-class engine: AES-128/192/256 ECB/CBC/CTR, DES, 3DES, MD5, SHA1, HMAC; 25/25 KATs pass, AES-128 29 MB/s, clock = LX [LIVE 2026-10-12, [CRYPTO.md](CRYPTO.md)] | flash is plaintext; strap default 0 [DS] | N | N | N | `rtk crypto probe/test/bench` / N | low: AES ~235 Mbit/s offload; hashing slower than the CPU; no GCM/ChaCha/SHA-2 |
 | GDMA / bus traffic generator | `LX0/1/2_GDMA_CTRL` `0xb8144000`/`0xb800a000`/`0xb8018000` + BTG regs [SOC]; enables `IP_EN_CTRL` 8/9, `NEW_IP_EN_CTRL` 6-10 (GDMA0-6; regs for 3 only); GIMR `BTG_IE` bit 12. Not in DS: SPEC | - | N | N | N | N | low-medium: memcpy/memset/checksum offload in U-Boot; bus load generator for DDR tests SPEC |
 | Pinmux | `0xbb000200/204/3a0`, `0xbb00c600`, `0xbb00cc00` [OWRT] | - | Y | Y | Y | read-only (`reg-diff`) | - |
@@ -108,3 +108,20 @@ Abbreviations: Y = yes, N = no, `-` = not applicable. Addresses are KSEG1 (`0xb8
 - `scripts/hw_probe.py` reads one or more ID/ctrl words of every block with a known address above; gated blocks (GDMA, crypto, SPI-NAND/ECC) only when their enable bit is set, or with `--gated`.
 - Not read (side effects or need a write first): UART RBR/IIR/LSR/MSR, SPI `SFDR`, `GISR`, switch `ISR_GLB`, NIC `DMA_IF_INTR_STS`, MIB counters, MAC link status, SerDes indirect regs. PCIe/SATA controllers: no balls, address unknown.
 - CP0 Config words: not readable with `md`; values above from the `bench` command output (console log).
+
+## Measured 2026-10-11 (hw-probe)
+
+`./dev.py hw-probe --label first` at our U-Boot (from flash), 2026-10-11T23:24+11:00: all 62 safe probes completed, no hang (#62).
+
+- `IP_EN_CTRL` `0xb8000600` = `0x40000f88`: USBPHY0, VOIPACC, IPSEC, **GDMA1, GDMA0**, PCIE0, P1USBHOST enabled at reset. PCIe/VoIP/USB bits = Otto-superset defaults (no balls / not wired). `NEW_IP_EN_CTRL` `0xb800063c` = 0 (GDMA2-6 off).
+- GDMA0/1 enabled at reset; gated GDMA reads (`--gated`) not yet run.
+- Present: OCP and LX bus-timeout monitors (`0x1c000000` / `0x70000000`, enable bit 31 off), 6 timer sets (TC5; the datasheet says 5), UART1 (LCR `03`, unused), EHCI (PORTSC1 `0x2000`, nothing attached), thermal meter, OAM dying-gasp ctrl, EEE.
+- SoC watchdog `WDT_CTRL` = 0 (off) in our U-Boot.
+- Reset-cause words at `0xbb00000c` (`RST_GLB_CTRL_0`, `RST_GLB_STS_0-2`): `00005000 0 0 0000000c`.
+- Crypto engine: present and working, `EN_IPSEC` 1; power-up IPSSDAR `9fc0ffb0`, IPSDDAR `9fc0ffe0`, IPSCSR 0, IPSCTR `000010d2` ([CRYPTO.md](CRYPTO.md)).
+- eFuse: not read further; owner decision 2026-10-12 leaves it unread (#75, [DECISIONS.md](DECISIONS.md)); the autoloaded copies above carry the useful content.
+
+## GDMA function codes
+
+- `CTRL[27:24]` (SDK `rtk_soc/test/gdma/asicregs.h`): 0 memcpy, 1 checksum, 2 sequential TCAM, 3 memset, 9 XOR, 10 memcmp, 11 byte swap, 12 pattern match; 8 source / 8 destination block pointers (scatter/gather).
+- SDK uses it only in test commands (`mgdma_test`, `mconcur_test`); stock and OpenWrt never touch it. Linux gain small: the network stack does not use async memcpy.
