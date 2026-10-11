@@ -22,6 +22,7 @@ Facts and results: [NAT.md](NAT.md). Everything runs through `./dev.py nat-bench
   - The host NIC runs MTU 9000. Jumbo frames land in lan1 `ParserErrors`/`rx_MacDiscards` and TCP stalls silently.
   - With a shared MAC and link-local address, v6 ND towards natwan failed.
 - fw4 gets rules tagged `nattest`: forward accept for the test SVIs, and input accept for ICMPv6 ND and for the local iperf3 server. `teardown` reloads fw4.
+  - Without the ND accept, fw4's input policy drop eats the ND replies on new SVIs: the neighbour stays `INCOMPLETE`.
 - The `rxdrop` flood runs at up to ~9 Gbit/s unicast towards the switch MAC across the house switch. Keep `--secs` short.
 
 ## Commands
@@ -69,6 +70,15 @@ Facts and results: [NAT.md](NAT.md). Everything runs through `./dev.py nat-bench
 - `lx204`: the Linux console is unreadable. STP is checked over SSH instead; if `stp_state` is not 1, lan* go down and the relay goes off.
 - Ends in flash OpenWrt booted this way. Normal power-up: `./dev.py uboot-chain-env boot`.
 - Rows carry `"tag": <variant>` (env `NAT_BENCH_TAG`).
+
+## NIC driver bench and trace (mainline 7.3, #60)
+
+- Commands: [MAINLINE-NET-OPS.md](MAINLINE-NET-OPS.md) (`nic-bench boot|run|table`, `rteth-ftrace`).
+- `rteth-ftrace` (`function_graph`) limits:
+  - Every kernel function keeps its mcount hook: load drops from ~320 to 50-90 Mbit/s; absolute µs are inflated (depth-1 roots sum ~45 µs/pkt vs 25 µs untraced). Use the split, not the numbers.
+  - Keep `funcgraph-irqs` on: off, NAPI polls run from IRQ exit are missed (only ~35 % of xmit calls seen).
+  - Depth >= 2 overruns a 16 MiB buffer in 3 s; per-call averages stay valid.
+- `perf` sampling: no perf binary; kernel prints `mips/34K PMU enabled, 2 32-bit counters ... irq 7` and `Failed to request irq 7 (timer)` (shared with the CP0 timer), so sampling is unchecked (#67).
 
 ## Reading results
 

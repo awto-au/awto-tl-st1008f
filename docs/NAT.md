@@ -150,6 +150,20 @@ Same boot and topology as "NIC path" (DDR 600, CPU 1 GHz, UP, `300-12`). `./dev.
 - TX reclaim per packet: `dev_kfree_skb_any` 11.8 + `dma_unmap` 5.6 µs (`300-11`) -> `rteth_reclaim_tx_ring` 8.2 µs including `napi_consume_skb` and unmap.
 - Remaining split per RX packet, `300-12`, depth 2 (µs, inflated): `dma_map_page_attrs` 4.3 (TX writeback; under it `kmap_local` + `r4k_dma_cache_wback_inv`), TX reclaim 4.2, `gro_receive_skb` 3.3, `page_pool_alloc_frag` 1.4, `napi_build_skb` 1.3, `__dma_sync_single_for_cpu` 1.1 (a no-op on the 34Kc: `cpu_needs_post_dma_flush` false), `is_vmalloc_addr` 1.0, `decode_tag` 0.9, `create_tx_header` 0.8, `tx_kick` 0.8, `eth_type_trans` 0.8, `page_address` 0.7 (HIGHMEM), `enable_rx_irq` 0.7.
 - `rteth_poll_rx` self time: ring + uncached descriptor reads (about 8 single loads per frame). Cached descriptors would need per-line invalidation of a ring shared with the NIC (false sharing on the 4-byte ring entries): not done.
+- `300-11` RX split per frame (before `300-12`, inflated): `dma_map_page_attrs` 10.6, `gro_receive_skb` 6.4, `page_pool_alloc_frag` 2.9, `napi_build_skb` 2.6, `__dma_sync_single_for_cpu` 2.2, `decode_tag` 1.8 µs. xmit_more batching rarely fires on forwarded traffic (58 % of packets kicked).
+- None of the remaining `300-12` items is a driver-owned cost of 2 µs or more once tracer overhead is removed.
+
+### Driver facts and open points (`rtl838x_eth`, #60)
+
+- `NETIF_F_RXCSUM` rests on `RX_CHK_CRC_EN` = L2 CRC check only. The driver sets `CHECKSUM_UNNECESSARY` whenever `L2_ERR` = 0, so L4 checksums of locally terminated TCP/UDP are never verified.
+- RX CPU tag: `L2_ERR_PKT`, `L3_ERR_PKT`, no L4-OK bit. TX CPU tag: no checksum or TSO bit. No interrupt-coalescing register (only per-ring RX_DONE / RX_RUNOUT masks); registers: [DATASHEET-AUDIT.md](DATASHEET-AUDIT.md) "CPU NIC / DMA interface".
+- Threaded NAPI: not tested.
+- `300-12` doorbell writes `cached | this ring's fetch bit`, i.e. 0 into the other ring's `TX_FETCH`. SDK `r9300_nicTxFetch_set` is an RMW (writes back a pending 1). Whether a written 0 cancels a pending fetch is undocumented: a risk on SMP and on UP with both rings active.
+- `300-14` (SMP-safe doorbell): every kick writes both fetch bits (an extra fetch of a ring with no OWN descriptor is a no-op); still one lockless `writel`.
+- `300-14` module parameter `tx_cpu` (`/sys/module/rtl838x_eth/parameters/tx_cpu`, runtime): −1 (default) = `300-12` inline reclaim; N = per-ring TX NAPI on CPU N via `smp_call_function_single_async`, RX poll skips reclaim, a full ring stops the queue for the TX NAPI. TX completion on VPE1: not measured. Idea: freeing is cache-miss heavy (~110 ns stalls), which 34Kc MT can overlap with VPE0's RX/NAT, unlike RPS; but VPE1 shares the pipeline and takes issue slots from VPE0.
+- SMP race review of `300-11`/`300-12` (code reading): reclaim always under the txq lock (xmit holds it; RX poll takes `__netif_tx_lock`); BQL `completed_queue` and wake under the same lock; `napi_consume_skb(budget=1)` in xmit runs BH-disabled (OK); TX stats `unsigned long` (no tearing); RX stats under `rx_lock`. Only the doorbell needed a change.
+- Generic `300-12` parts (reclaim, ring 128, kick batch) apply to RTL838x/839x/931x: build-tested only.
+- SMP measurements (UP vs SMP, eth0 on CPU0 / CPU1): [MAINLINE-PORT.md](MAINLINE-PORT.md) section 9.
 
 ## Clock sensitivity (2026-10-11, `./dev.py nat-clock-variants`)
 
@@ -203,6 +217,38 @@ Same boot and topology as "NIC path" (DDR 600, CPU 1 GHz, UP, `300-12`). `./dev.
 - Consequence: every NAT packet crosses the CPU twice (RX + TX). PIE can only keep non-NAT traffic away from the CPU: route it in hardware, drop junk in the ACL.
 - FWD_ALE + `L3_ACT` re-injection (#63) skips only the egress stack. driver RX + TX (about 26-34 µs) remains, so the hybrid design cannot reach 2.5G either.
 
+## Hybrid NAT: CPU rewrite + ASIC forward (#63)
+
+Idea (owner research chat 2026-10-09..11): PIE matches the flow, the CPU rewrites IP/port (RFC 1624 incremental checksum), the ASIC routes the re-injected frame.
+
+- Pieces: PIE 5-tuple match (have); header substitution (none in the ASIC, #58, #68); checksum fix after substitution (none); L3 next hop + MAC rewrite + TTL (have, DS §7.14). DNAT needs the route lookup on the translated address or a PIE next-hop override.
+- Parser fields: `LONGAN_HSB_SIP/DIP/SPORT/DPORT`, `IP_PROTOCOL`, `TCP_FLAG`, `IPV4_CHKSUM_OK`. HSB/HSA = header state before/after the pipeline (diagnostic snapshots, not a rewrite engine).
+- ACL `fwd_cpu_fmt` (`LONGAN_VACL_FWD_CPU_PKT_FMT`, IACL analogue): ORIGINAL 0 / MODIFIED 1 / NOP 2 = copy to CPU before or after the hardware modification. Same choice globally in `DMA_IF_PKT_CTRL` 0xCE00 `FWD/TRAP_PKT_FMT`.
+- `ACL_ACTION_FWD_LOOPBACK` = IACL forwarding action 7 (internal loopback; which stages a looped frame re-enters: unknown).
+- NIC DMA: ring entry (`OWN_HW` bit 0, `WRAP` bit 1) points to a packet descriptor (`struct rteth_frag`: buffer, size, `more`, offset, len, `cpu_tag[10]`).
+- TX CPU-tag forwarding modes: FWD_ALE 0, PHYSICAL 1, LOGICAL 2, TRUNK 3, ONE_HOP 4, LOGICAL_ONE_HOP 5. The driver uses FWD_PHYSICAL with `L3_ACT` = 0.
+- `L3_ACT` = 1 (SDK `nic_common.h:267`): "take effect of L3 routing and multicast replication" for CPU-TX frames. Whether FWD_ALE + `L3_ACT` runs a full L3 lookup: untested.
+- Not present: TX IPv4/L4 checksum generation, TSO, L4 checksum validate (#68: HSA `CTX_*` fields mirror the TX CPU tag, no checksum field).
+- Prior art elsewhere: NVIDIA Spectrum-2/3 (mlxsw ACL `pedit` IP/port rewrite in the ASIC), ConnectX-5 (tc flower + pedit + csum + ct), Realtek RTL8198 (gateway SoC hardware NAT; RTL8196C none). No RTL9303 implementation found.
+- Gateway SoCs (RTL8198C/8197F) carry NAT in the next-hop table (`IPIndex` -> ext/int IP table); Longan `L3_NEXTHOP` has only `DMAC_IDX` + `L3_EGR_INTF_IDX`.
+- Managed sisters (TL-ST5008F, SX3008F): no NAT advertised; VLAN translation is not IP rewrite.
+- GRO/GSO help per-skb cost on bulk TCP; NAT never merges independent packets into bigger frames.
+- Experiments still open (low value until the driver is faster): FWD_PHYSICAL vs FWD_ALE + `L3_ACT` (does an L3 route apply?); inject bad IPv4/TCP checksums (repaired?); ACL trap with `fwd_cpu_fmt` = MODIFIED; whether FWD_ALE lets the CPU skip bridge/DSA tagging.
+
+## Strategy (#65, owner 2026-10-11)
+
+- ISP: NBN HFC, ~2000/100 Mbit/s profile, 2.5GbE handoff.
+- Ranked:
+  1. IPv6-first: DHCPv6-PD on the WAN, RA per LAN VLAN, v6 routed in the ASIC (`2000::/3` workaround or `300-17` `l3_default_v6`; downstream needs `l3_onlink`, #59).
+  2. IPv4 NAT on the CPU with the software flowtable (fw4 `flow_offloading=1`: 3-4x over no flowtable). IPoE preferred over PPPoE (PPPoE adds per-packet work; not measured).
+  3. NIC driver work in the 7.3 port (#60: `300-11`..`300-14`), profiled first.
+  4. Everything else off the CPU: inter-VLAN routing in the ASIC (#59), ACL drop of unwanted WAN ingress, PIE `UNICAST_ROUTING` for policy routing, NAT and control traffic (ARP/STP/ND) on different CPU queues (`QM_RSN2CPUQID` / PIE CPU-QID).
+  5. CPU-port SPD_SEL 10G/2.5G A/B once the CPU path nears 1 Gbit/s.
+- Not pursued: RPS onto VPE1 (measured worse on 6.18); hybrid re-injection as a route to 2.5G.
+- 2 Gbit/s IPv4 today: NAT on another box (house router or an x86/ARM router with 2.5G/10G) with this switch routing in the ASIC and IPv6 native; or accept ~350 Mbit/s IPv4 NAT here.
+- Open owner inputs: native IPv6 + DHCPv6-PD from the RSP; IPv4 by IPoE or PPPoE; where IPv4 NAT lives.
+- Kernel NAT path (conntrack, nf_nat, flowtable, GRO) review, trace and tunables: not done yet (#71).
+
 ## IPv6 fast path (how most traffic avoids NAT)
 
 - Clients prefer IPv6 when they hold a global address: RFC 6724 source/destination selection plus Happy Eyeballs (RFC 8305).
@@ -218,6 +264,8 @@ Same boot and topology as "NIC path" (DDR 600, CPU 1 GHz, UP, `300-12`). `./dev.
 - #59 offload gaps.
 - #60 NIC driver.
 - #63 hybrid NAT.
+- #66 ASIC-routed traffic bypasses nftables ([ROUTING-OFFLOAD.md](ROUTING-OFFLOAD.md)).
+- #71 kernel NAT path review.
 - #68 no hidden/disabled rewrite hardware in the die ([HIDDEN-FEATURES.md](HIDDEN-FEATURES.md)).
 - #22 all-port test.
 - [ROUTING-OFFLOAD.md](ROUTING-OFFLOAD.md).
