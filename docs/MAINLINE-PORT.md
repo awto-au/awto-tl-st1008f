@@ -328,3 +328,44 @@ Method: `scripts/openwrt_patch_status.py` (series order; reverse-apply = upstrea
 | `hack-6.18` mtune 24kc | `308` | not needed |
 
 The rest of `generic/` (backports, other vendors' PHY/DSA/Ethernet, MediaTek PPE, bridge BPDU knob `710`) is not referenced by the realtek files above.
+
+## 9. SMP: interrupt routing, throughput, latency (#73, #60, #16)
+
+Measured 2026-10-12, mainline 7.3-rc6, `ramload uboot-mainline --then mainline-kernel` (CPU 1 GHz), one 10G SR in cage 1 (lan1), nic-bench = NAT + flowtable, one run each (`./dev.py nic-bench`).
+
+### Boot hang (fixed in the board DTS, 264e6ee)
+- Mainline `rtl930x.dtsi`: 1-cell intc, every source on output 0 = CPU IP2.
+- `vsmp_init_secondary()` (non-GIC) unmasks only IP0/1/6/7 on VPE1: CPU1's otto timer never ticks; boot hangs at the first CPU1-bound sleep (console hand-over `synchronize_srcu`, after `bootconsole [early0] disabled`). Independent of preempt mode and CPU clock.
+- Board DTS: 2-cell intc, parents IP2-6, outputs as OpenWrt `rtl930x.dtsi` (timers on output 4 = IP6, UART 1, switch 2, NIC 3). IP7 (CP0 timer/perf) not claimed.
+- Same DTS for OpenWrt-on-7.3 (the 7.3 OpenWrt build uses it).
+
+### IRQ affinity (`300-18`, `./dev.py irq-check`)
+- Before 300-18: default `smp_affinity` 3 -> effective 3; GIMR enabled on both VPEs, but VPE1 has IP2-5 masked, so only CPU0 takes eth0/UART/switch IRQs. ERR count unchanged under load (2).
+- Before 300-18: `smp_affinity` 2 for eth0 -> NIC dead (IRQ never taken, ping 0/3); restoring 3 recovers.
+- 300-18: effective affinity = one online CPU; a cpuhp STARTING hook sets the intc parent IM bits on each secondary. eth0 on CPU1 works (47k IRQs on CPU1 during a run).
+
+### Throughput (one run each)
+
+| Build | tcp-P4 Mbit/s | udp1400-900 kpps | udp64 kpps |
+|---|---|---|---|
+| UP | 346 | 60.5 | 66.9 |
+| SMP, eth0 CPU0 | 322-325 | 55.8-57.6 | 64.4-64.9 |
+| SMP + 300-18, eth0 CPU1 | 334 | 59.3 | 67.9 |
+
+- One NAPI context: the softirq runs on the CPU that takes eth0; the other VPE idles (CPU1 busy 0.1-0.6 % with eth0 on CPU0).
+- eth0 on CPU1 recovers the SMP loss: CPU0 also carries the UART, timers' housekeeping and RCU.
+
+### Latency (`build-kernel --latency`: timerlat + irqsoff tracers)
+timerlat per CPU, 10 s idle / 12 s under nic-bench tcp-P4. irqsoff = max IRQs-off section in a separate window of the same length; with the function tracer active it is an upper bound.
+
+| Build / state | CPU | IRQ min/avg/max us | thread min/avg/max us | irqsoff max us |
+|---|---|---|---|---|
+| UP idle | 0 | 6.1 / 8.6 / 25.6 | 32.6 / 35.3 / 315 | 181 |
+| UP load | 0 | 4.5 / 19.3 / 4571 | 32.6 / 1162 / 7934 | 321 |
+| SMP idle | 0 / 1 | 7.4 / 17.5 / 95 ; 9.3 / 17.0 / 43 | 42 / 64 / 519 ; 55 / 76 / 244 | 446 |
+| SMP load, eth0 CPU0 | 0 / 1 | 10.6 / 39.1 / 5929 ; 12.5 / 42.9 / 111 | 56 / 1628 / 9728 ; 58 / 138 / 562 | 935 |
+| SMP load, eth0 CPU1 | 0 / 1 | 5.4 / 39.0 / 106 ; 9.6 / 40.5 / 5920 | 47 / 133 / 327 ; 56 / 1631 / 9408 | 584 |
+
+- The CPU running the NIC softirq sees ms-scale timer IRQ and thread latency under load (NAPI/softirq); the other VPE stays at ~0.1 ms IRQ / ~0.5 ms thread max.
+- SMP idle IRQ latency is about 2x UP (two VPEs share one pipeline).
+- irqsoff worst: `__schedule`->`finish_task_switch` (rcu_sched, idle) and `_raw_spin_lock_irqsave` in ksoftirqd (load).
