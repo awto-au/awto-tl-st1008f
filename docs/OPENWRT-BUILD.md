@@ -10,7 +10,7 @@ Operations: [OPENWRT-BUILD-OPS.md](OPENWRT-BUILD-OPS.md). Script: `scripts/build
 | Commit | `e5ec5e199f13` (2026-10-11T22:45:51+02:00, "realtek: l3: rtl839x: do not invent a next-hop L2 entry") |
 | Target | `realtek/rtl930x`, device `tplink_tl-st1008f-v2` only |
 | Toolchain | OpenWrt-built, GCC 14.4.0 + musl 1.2.6 (`mips_24kc`) |
-| Kernel (step 1) | OpenWrt 6.18.55 + our backports |
+| Kernel | step 1: OpenWrt 6.18.55 + our backports; step 2: our 7.3-rc6 port (testing kernel) |
 | Packages | target defaults + `ip-full ip-bridge tcpdump-mini kmod-pktgen` (nat-bench switch side, [NAT-OPS.md](NAT-OPS.md): a RAM boot cannot `apk add` kmods matching a local kernel). No feeds. |
 | Config | seed in `SEED` (build_openwrt.py) + `make defconfig`; `CONFIG_AUTOREMOVE=y` |
 | Host prereqs added 2026-10-12 | `perl-IPC-Cmd`, `perl-Time-Piece` (dnf) |
@@ -62,6 +62,49 @@ Disk:
 - Peak before pruning: build_dir/host 1.7 GB + build_dir/toolchain 3.8 GB + kernel/target 1.7 GB + staging 0.6 GB + dl 0.43 GB.
 - `prune()` deletes `build_dir/host` and `build_dir/toolchain-*` once their install stamps exist (stamps live in `staging_dir`).
 - After step 1: tree 4.9 GB.
+
+## Step 2: our 7.3 port as OpenWrt testing kernel
+
+`--kernel 7.3`: OpenWrt's `KERNEL_TESTING_PATCHVER` mechanism, same OpenWrt main tree and userspace.
+
+| Piece | Source |
+|---|---|
+| `generic/kernel-7.3` | `LINUX_VERSION-7.3 = -rc6`, hash `skip` |
+| `dl/linux-7.3-rc6.tar.gz` | `git archive v7.3-rc6` of `tmp/linux-v7.3` (OpenWrt would fetch git.kernel.org); 269,765,341 B |
+| `realtek/Makefile` | `KERNEL_TESTING_PATCHVER:=7.3`; `.config` `CONFIG_TESTING_KERNEL=y` |
+| `realtek/patches-7.3` | `OWRT_VERBATIM` (300-01..03, 309, 330, 331, 712, 714, 718, 722) from `tmp/openwrt` @ `53ec2d0` + every `openwrt/patches/*.patch` (300-04..17 at build time) |
+| `realtek/files-7.3` | `OWRT_FILES` from `tmp/openwrt` `files-6.18` @ `53ec2d0` (not main: the port's 300-09..12/16/17 are against it) |
+| `generic/pending-7.3` | 700, 701 (nft flowtable) |
+| `generic/hack-7.3` | 910 + 911 (`broadcast_uevent`, needed by `gpio-button-hotplug`), 940 (non-empty `modules.builtin`, needed by kmod packaging) |
+| `rtl930x/config-7.3` | `openwrt/kernel-7.3/config-7.3` (below) |
+| DTS | `mainline/tplink-tl-st1008f-v2.dts`, include → `realtek/rtl930x.dtsi` (mainline dtsi, 1-cell interrupts; OpenWrt's dtsi in the same dir would shadow it) |
+| `include/image.mk` | `-Wno-graph_child_address` dropped: 7.3 dtc has no such check (FATAL ERROR) |
+
+- Inputs `OWRT_COMMIT`, `OWRT_VERBATIM`, `OWRT_FILES` are imported from `scripts/mainline_build_check.py`: the OpenWrt-7.3 kernel and `./dev.py build-kernel` stay the same port.
+- `config-7.3` (`--regen-config`): OpenWrt generic + rtl930x `config-6.18` merged (`scripts/kconfig.pl`) + `PORT73` port symbols → `olddefconfig` in the prepared 7.3 tree; symbols olddefconfig dropped for unmet deps keep their 6.18 line (`NF_TABLES_IPV4=y` is only reachable once the kmod override sets `NF_TABLES=m`). Fails if a `PORT73` symbol does not survive. 8,762 lines.
+- Kconfig notes from the 7.3 configure: `BOOTPARAM_HUNG_TASK_PANIC`/`BOOTPARAM_SOFTLOCKUP_PANIC` value `n` invalid (now int), `NETFILTER_NETLINK` value `m` invalid (bool); harmless.
+- Switching `--kernel` rebuilds the toolchain's kernel headers (prepare 217 s) and every kmod.
+
+Generic OpenWrt patches on 7.3 (dry-run in series on the prepared 7.3 tree, 2026-10-12; not applied unless listed above):
+
+| Dir | upstream | applies | fails |
+|---|---|---|---|
+| `backport-6.18` | 75 | 12 | 89 |
+| `pending-6.18` | 10 (incl. 700/701, already in) | 165 | 36 (737-01..05: our 300-08; 400 mtdsplit; 710 bridge BPDU knob; mxl862xx, mtk) |
+| `hack-6.18` | 1 | 52 | 12 (200, 251, 259, 260, 402, 651, 770, 901, 902, 904, 905, 970) |
+
+- `pending-6.18/400-mtd-mtdsplit-support` fails on 7.3: the flash (sysupgrade) image needs the `firmware` split (`openwrt,uimage`); the RAM-boot initramfs does not. Forward-port needed before the 7.3 default boot ([DEFAULT-BOOT.md](DEFAULT-BOOT.md)).
+
+Build result 2026-10-12:
+
+| Output | Size (B) |
+|---|---|
+| `tmp/tftp/openwrt-ours-initramfs.bin` (magic `0x93030000`) + `-std.bin` | 6,021,101 |
+| `...-squashfs-sysupgrade.bin` (upstream layout, no mtdsplit on 7.3: not for flash) | 6,291,756 |
+
+- Manifest: `kernel 7.3_rc6~c9690f69...`; same package set as step 1.
+- Strings in `vmlinux-initramfs`: prefetch, PLL, `cur pattern = `, `dirmap: 0x`, rteth. DTB: mode-switch, `realtek,rtl9301-eth`, dirmap.
+- Times: prepare (incl. toolchain headers) 217 s; `--kernel-only` 111 s. Tree 5.3 GB; 12.5 GB free after.
 
 ## Image names
 

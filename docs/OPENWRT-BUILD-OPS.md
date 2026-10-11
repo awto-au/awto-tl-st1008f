@@ -44,3 +44,15 @@ Then NAT throughput against the stock-OpenWrt baseline (243-248 Mbit/s TCP, [NAT
 ./dev.py nat-bench run --secs 20 -P 4
 ./dev.py nat-bench teardown
 ```
+
+## Board test (step 2 image, OpenWrt on our 7.3)
+
+```
+./dev.py ramload uboot-mainline --then openwrt-ours --cage 1      # ours: clocks fast, bootm std copy
+./dev.py ramload openwrt-ours --cage 1                            # stock U-Boot bootm (CPU 800 MHz)
+./dev.py check-log
+```
+
+- Same expected lines as step 1, plus the 7.3 port's (MAINLINE-NET-OPS.md): rtl83xx DSA probe, `lanN` from the mainline DTS labels, eth0 MAC from env `ethaddr`.
+- `default-boot test` ([DEFAULT-BOOT-OPS.md](DEFAULT-BOOT-OPS.md)) uses this image name.
+- Then the same `nat-bench` set as step 1; compare against step 1 and the stock baseline.

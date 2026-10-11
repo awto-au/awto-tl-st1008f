@@ -65,11 +65,13 @@ TREE_PATCH = BACKPORT / "openwrt-tree.patch"
 # --- step 2: 7.3 testing kernel = our mainline port, same inputs as scripts/mainline_build_check.py
 LINUX73 = ROOT / "tmp/linux-v7.3"
 TAG73, VER73 = "v7.3-rc6", "7.3-rc6"
-OWRT_PIN = ROOT / "tmp/openwrt/target/linux/realtek"  # read-only; mainline_build_check.OWRT_COMMIT
 sys.path.insert(0, str(ROOT / "scripts"))
-from mainline_build_check import OWRT_COMMIT, OWRT_FILES, OWRT_VERBATIM  # noqa: E402
+# read-only inputs, shared with the 7.3 port build so both stay the same set
+from mainline_build_check import OWRT as OWRT_PIN, OWRT_COMMIT, OWRT_FILES, OWRT_FILES_DIR, OWRT_VERBATIM  # noqa: E402
 
 PENDING73 = ["700", "701"]  # generic pending-6.18 nft flowtable patches; apply on 7.3 (MAINLINE-PORT §8)
+# generic hack-6.18 patches OpenWrt packages need on 7.3 (all apply as-is; status of the rest: docs/OPENWRT-BUILD.md)
+HACK73 = ["910", "911", "940"]  # uevent + broadcast_uevent (gpio-button-hotplug); 940: non-empty modules.builtin (kmod packaging)
 CONFIG73 = K73 / "config-7.3"
 # Port symbols config-7.3 must keep (drivers the 7.3 port boots with; mainline/st1008f-v2.config)
 PORT73 = """CONFIG_HIGHMEM=y
@@ -225,7 +227,7 @@ def clone(update: bool) -> None:
 
 def reset_overlay() -> None:
     """Tracked target/linux back to git; untracked files we add there deleted (no other untracked content)."""
-    git("checkout", "--", "target/linux")
+    git("checkout", "--", "target/linux", "include/image.mk")
     git("clean", "-fdq", "--", "target/linux")
 
 
@@ -276,21 +278,25 @@ def overlay_73() -> None:
         shutil.copy2(p, pdir)
     fdir = TREE / RT / "files-7.3"
     for rel in OWRT_FILES:
-        src, dst = OWRT_PIN / "files-6.18" / rel, fdir / rel
+        src, dst = OWRT_FILES_DIR / rel, fdir / rel
         dst.parent.mkdir(parents=True, exist_ok=True)
         (shutil.copytree if src.is_dir() else shutil.copy2)(src, dst)
-    gdir = TREE / GEN / "pending-7.3"
-    gdir.mkdir()
-    for n in PENDING73:
-        shutil.copy2(next((TREE / GEN / "pending-6.18").glob(f"{n}-*.patch")), gdir)
+    for kind, names in (("pending", PENDING73), ("hack", HACK73)):
+        gdir = TREE / GEN / f"{kind}-7.3"
+        gdir.mkdir()
+        for n in names:
+            shutil.copy2(next((TREE / GEN / f"{kind}-6.18").glob(f"{n}-*.patch")), gdir)
     if CONFIG73.exists():
         shutil.copy2(CONFIG73, TREE / RT / "rtl930x/config-7.3")
+    # 7.3 dtc dropped the graph_child_address check: `-Wno-graph_child_address` is a FATAL ERROR there
+    im = TREE / "include/image.mk"
+    im.write_text(im.read_text().replace("  -Wno-graph_child_address \\\n", ""))
     # mainline DTS: 1-cell interrupts + mainline rtl930x.dtsi (OpenWrt's dtsi in the same dir would shadow it)
     dts = (ROOT / "mainline/tplink-tl-st1008f-v2.dts").read_text()
     (TREE / DTS_FILE).write_text(dts.replace('#include "rtl930x.dtsi"', '#include "realtek/rtl930x.dtsi"'))
     tarball_73()
     log(f"overlay: 7.3 testing kernel: {len(list(pdir.iterdir()))} patches, files-7.3 ({len(OWRT_FILES)} paths), "
-        f"pending-7.3 {PENDING73}, config-7.3 {'from ' + str(CONFIG73.relative_to(ROOT)) if CONFIG73.exists() else 'MISSING'}")
+        f"pending-7.3 {PENDING73}, hack-7.3 {HACK73}, config-7.3 {'from ' + str(CONFIG73.relative_to(ROOT)) if CONFIG73.exists() else 'MISSING'}")
 
 
 def overlay(kernel: str, none: bool) -> None:
@@ -333,7 +339,9 @@ def regen_config_73(jobs: str) -> int:
     (out / ".config").write_text(merged + PORT73)
     cc = sorted((TREE / "staging_dir").glob("toolchain-*/bin/*-openwrt-linux-musl-gcc"))
     cross = str(cc[-1])[:-3] if cc else ""
-    rc = run(["make", "-C", ldir, f"O={out}", "ARCH=mips", f"CROSS_COMPILE={cross}", "olddefconfig"], 300)
+    # in-tree (OpenWrt builds there, O= is refused); KCONFIG_CONFIG keeps the tree's own .config untouched
+    rc = run(["env", f"STAGING_DIR={TREE / 'staging_dir'}", "make", "-C", ldir, "ARCH=mips",
+              f"CROSS_COMPILE={cross}", f"KCONFIG_CONFIG={out / '.config'}", "olddefconfig"], 60)  # ~5 s
     if rc:
         return rc
     got = dict(re.findall(r"^(CONFIG_\w+)=(.*)$", (out / ".config").read_text(), re.M))
@@ -344,6 +352,11 @@ def regen_config_73(jobs: str) -> int:
     keep = [ln for ln in (out / ".config").read_text().splitlines()
             if ln.startswith(("CONFIG_", "# CONFIG_")) and not re.match(
                 r"#? ?CONFIG_(CC_|GCC_|CLANG_|LD_|AS_|RUSTC_|PAHOLE_|TOOLS_SUPPORT|INITRAMFS_|LLD_)", ln)]
+    # symbols olddefconfig dropped for unmet deps that kmod overrides enable later (NF_TABLES=m ->
+    # NF_TABLES_IPV4=y): keep OpenWrt's 6.18 line, as OpenWrt's raw config files do
+    sym = re.compile(r"^(?:# )?(CONFIG_\w+)[= ]")
+    have = {m[1] for ln in keep if (m := sym.match(ln))}
+    keep += [ln for ln in merged.splitlines() if (m := sym.match(ln)) and m[1] not in have]
     CONFIG73.parent.mkdir(parents=True, exist_ok=True)
     CONFIG73.write_text("\n".join(sorted(set(keep), key=lambda s: s.lstrip("# "))) + "\n")
     shutil.copy2(CONFIG73, TREE / RT / "rtl930x/config-7.3")
