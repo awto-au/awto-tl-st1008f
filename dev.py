@@ -220,6 +220,12 @@ def cmd_spi_linux(extra: list[str]) -> int:
     return _script("spi_linux_ladder.py", extra)
 
 
+@command("live M1/M2/M3 switch position from the running OpenWrt over SSH, printed on change (#8)",
+         args="[--ip A.B.C.D]", kind="check")
+def cmd_mode_watch(extra: list[str]) -> int:
+    return _script("mode_watch.py", extra)
+
+
 @command("dump pinmux/GPIO/I2C registers at the live prompt, or diff two dumps (#51)",
          args="capture <label> | compare <a> <b>", kind="check")
 def cmd_reg_diff(extra: list[str]) -> int:

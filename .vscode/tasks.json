@@ -8,8 +8,41 @@
       "command": "tail -n 200 -F ${workspaceFolder}/private/serial/st1008-console.log",
       "isBackground": true,
       "problemMatcher": [],
-      "runOptions": { "runOn": "folderOpen" },
-      "presentation": { "reveal": "always", "panel": "dedicated", "focus": false, "clear": true }
+      "runOptions": {
+        "runOn": "folderOpen"
+      },
+      "presentation": {
+        "reveal": "always",
+        "panel": "dedicated",
+        "focus": false,
+        "clear": true
+      }
+    },
+    {
+      "label": "ST1008 ssh",
+      "detail": "Shell on the switch's running OpenWrt (root@192.168.25.48)",
+      "type": "shell",
+      "command": "ssh root@192.168.25.48",
+      "problemMatcher": [],
+      "presentation": {
+        "reveal": "always",
+        "panel": "dedicated",
+        "focus": true
+      }
+    },
+    {
+      "label": "ST1008 mode watch",
+      "detail": "Live M1/M2/M3 switch position; prints on every change",
+      "type": "shell",
+      "command": "${workspaceFolder}/dev.py mode-watch",
+      "isBackground": true,
+      "problemMatcher": [],
+      "presentation": {
+        "reveal": "always",
+        "panel": "dedicated",
+        "focus": true,
+        "clear": true
+      }
     }
   ]
 }
