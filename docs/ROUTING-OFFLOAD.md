@@ -10,6 +10,18 @@ OpenWrt SNAPSHOT (kernel 6.18), `rtl83xx-switch` DSA driver, `l3.c` offload.
 - Capacity: 512 prefix rows (shared v4/v6; v6 = 3 rows), up to 1536 host routes.
 - RTL838x/839x limited; RTL931x unsupported (FIB/neigh events ignored).
 
+## Hardware NAT / IP rewrite: none (#58)
+
+- Routing rewrites SMAC, DMAC, VID, TTL, IPv4 header checksum only (datasheet §7.14). No IP address or L4 port rewrite.
+- `L3_NEXTHOP` = DMAC idx + egress intf idx; `L3_EGR_INTF` = VID, SMAC idx, MTU idx, TTL/ICMP-redirect controls (GPL SDK `rtk_longan_table_struct.h`). ACL/PIE edits: VLAN, 1p, DSCP/TOS, IP reserved flag (datasheet §7.13.1, SDK `include/rtk/acl.h`). No NAT symbol in the SDK.
+- OpenWrt `tc.c` rejects `FLOW_ACTION_MANGLE`; no HW flowtable binding.
+- NAT stays on the CPU path (`rtl838x_eth`, 1G CPU port, #60). Fast path = route without NAT (static route on the upstream router; IPv6).
+
+## Offload gaps (#59)
+
+- On-link destinations: neighbours are not installed as host routes, so directly-connected inter-VLAN routing traps (6K-entry host table unused for this).
+- Default route: rejected by `otto_l3_fib_check_v4()` (`!info->dst`, which also rejects `0.0.0.0/1`). Workaround to test: 8 routes `1/8 2/7 4/6 8/5 16/4 32/3 64/2 128/1` via the gateway.
+
 ## Verification surfaces
 
 - ASIC route table: `cat /sys/kernel/debug/realtek_otto_l3/routes` — ACTION `trap` vs `fwd`, `chk,dec` = HW checksum + TTL-decrement, HIT counter. Reset: `echo 1 > …/clear_route_hits`.
