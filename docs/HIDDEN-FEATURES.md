@@ -1,6 +1,6 @@
 # Hidden / undocumented hardware in the RTL9303 (Longan)
 
-Catalogue of RTL9303 hardware that the datasheet omits, the SDK leaves unused, or the board does not enable. Issue #68 (catalogue, probes, experiments). Related: #62 ([HARDWARE-INVENTORY.md](HARDWARE-INVENTORY.md)), #70 (SPG), #74 ([SDK-LEFTOVERS.md](SDK-LEFTOVERS.md)), #75 (eFuse enable decision).
+Catalogue of RTL9303 hardware that the datasheet omits, the SDK leaves unused, or the board does not enable. Issue #68 (catalogue, probes, experiments). Related: #62 ([HARDWARE-INVENTORY.md](HARDWARE-INVENTORY.md)), #70 (SPG), #74 ([SDK-LEFTOVERS.md](SDK-LEFTOVERS.md)), #75 (eFuse enable decision), #76 ([SDK-FEATURE-MAP.md](SDK-FEATURE-MAP.md): API and feature-group map).
 
 ## Sources
 
