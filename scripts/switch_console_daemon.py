@@ -42,6 +42,9 @@ from pathlib import Path
 
 import serial  # pyserial
 
+sys.path.insert(0, str(Path(__file__).resolve().parent))
+import flash_guard  # noqa: E402  (#81: no console line may write stock LOADER)
+
 RUNTIME = Path(os.environ.get("XDG_RUNTIME_DIR", "/run/user/%d" % os.getuid()))
 SOCK_PATH = RUNTIME / "tio-st1008.daemon.sock"
 PID_PATH = RUNTIME / "tio-st1008.daemon.pid"
@@ -75,6 +78,7 @@ class Owner:
         self._rx_tail = b""                 # rolling RX tail for banner match
         self._last_catch = 0.0              # debounce repeated banner hits
         self._dumping = False               # reader pauses during a bulk dump
+        self._typed = b""                   # unfinished input line for flash_guard (#81)
         self._open()
         self._reader = threading.Thread(target=self._read_loop, daemon=True)
         self._reader.start()
@@ -171,7 +175,24 @@ class Owner:
         """Write a visible TX marker to the log so a tail shows both sides."""
         self._logfh.write(f"\n[TX {time.strftime('%T')}] {label}\n".encode())
 
+    def _guard(self, raw: bytes):
+        """#81: check each line completed by `raw` (chunked typing included) before it goes out.
+        Refused: Ctrl-C drops the typed line on the board; FlashGuardError -> client error."""
+        lines = (self._typed + raw).split(b"\x03")[-1].replace(b"\n", b"\r").split(b"\r")
+        try:
+            for ln in lines[:-1]:
+                flash_guard.check_cmd(ln.decode("utf-8", "replace"))
+        except flash_guard.FlashGuardError as e:
+            self._typed = b""
+            self._mark_tx(f"<refused> {e}")
+            with self._lock:
+                self._ser.write(b"\x03")
+                self._ser.flush()
+            raise
+        self._typed = lines[-1][-1024:]
+
     def send(self, raw: bytes):
+        self._guard(raw)
         # Log what we inject (printable form) so the tail shows input + output.
         shown = raw.decode("utf-8", "replace").replace("\r", "\\r").replace("\n", "\\n")
         self._mark_tx(repr(shown))
@@ -388,6 +409,7 @@ def serve(owner: Owner):
                 elif op == "policy":
                     # Set what the daemon does when it auto-catches the autoboot
                     # banner: "hold", "boota", or any U-Boot command line.
+                    flash_guard.check_cmd(str(req.get("policy", "hold")))
                     owner.autoboot_policy = str(req.get("policy", "hold"))
                     reply["policy"] = owner.autoboot_policy
                 elif op == "clear_prompt":

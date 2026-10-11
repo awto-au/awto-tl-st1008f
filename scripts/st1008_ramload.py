@@ -21,6 +21,9 @@ import sys
 import time
 from pathlib import Path
 
+sys.path.insert(0, str(Path(__file__).resolve().parent))
+import flash_guard  # noqa: E402  (#81)
+
 ROOT = Path(__file__).resolve().parent.parent
 LOG = ROOT / "tmp/logs/st1008_ramload.log"
 CONSOLE = ROOT / "private/serial/st1008-console.log"
@@ -72,6 +75,8 @@ class Console:
         return CONSOLE.stat().st_size
 
     def send(self, text: str, cr: bool = True) -> None:
+        if cr:
+            flash_guard.check_cmd(text)  # #81; the daemon re-checks whole lines (chunked typing)
         s = __import__("socket").socket(__import__("socket").AF_UNIX)
         s.settimeout(5)  # local unix socket; 5 s names a dead daemon
         s.connect(str(SOCK))
@@ -100,6 +105,7 @@ class Console:
         """Type `text` in chunks, wait for each chunk's echo, Enter only on an exact echo.
         Long lines lose characters on the way in (#31); a lost CR leaves U-Boot waiting.
         On a bad echo: Ctrl-C (U-Boot drops the line) and retry. Returns the mark before Enter."""
+        flash_guard.check_cmd(text)  # #81
         for attempt in range(1, tries + 1):
             mark = self.size()
             for i in range(0, len(text), chunk):

@@ -86,6 +86,8 @@ CHECKS["refuse_sf_write"] = (f"sf probe 0; mw.b 0x{SF_RAM2:x} 0x5a 0x100; sf wri
                              r"refused: no flash writes", 1)
 CHECKS["refuse_sf_erase"] = ("sf erase 0x1ff0000 0x1000", r"refused: no flash writes", 1)
 CHECKS["refuse_sf_update"] = (f"sf update 0x{SF_RAM2:x} 0x1ff0000 0x100", r"refused: no flash writes", 1)
+# #81 driver gate (0x0-0xFFFFF); 0xff000 = env2, outside the host gate (scripts/flash_guard.py, 0x0-0xDFFFF)
+CHECKS["refuse_sf_stock"] = ("sf erase 0xff000 0x1000", r"refused \(#81\): 0xff000 is in stock LOADER\+env", 1)
 I2C_CTRL1 = 0xBB00036C  # SFP I2C master CTRL1 (DTS i2c@36c): FAIL = bit 1, TRIG/BUSY = bit 0
 FDT_COPY = 0x86200000  # scratch copy of the control DTB for fdt_clocks (clear of SF_RAM/SF_RAM2)
 # 88E1111 (GLC-T) PHY ID: OUI 0x005043 -> ID1 0x0141, ID2 0x0cc0 | rev (Linux marvell.c MARVELL_PHY_ID_88E1111)
