@@ -134,9 +134,9 @@ class Console:
                 raise SystemExit(f"TIMEOUT {cap}s waiting for {what} /{pattern}/; last: {tail}")
             time.sleep(0.05)
 
-    def run(self, cmd: str, pattern: str, cap: float, what: str) -> tuple[re.Match, str]:
+    def run(self, cmd: str, pattern: str, cap: float, what: str, checked: bool = False) -> tuple[re.Match, str]:
         mark = self.size()
-        if len(cmd) > 60:  # long lines lose chars (#31): a lost digit once sent crc32 to kuseg -> trap
+        if checked or len(cmd) > 60:  # long lines lose chars (#31): a lost digit once sent crc32 to kuseg -> trap
             self.send_checked(cmd)
         else:
             self.send(cmd)
@@ -227,7 +227,8 @@ def openwrt_stp(con: Console) -> None:
     laser lit, no STP (#19). A loop ramps slowly (~13k pps at +80 s), so this is in time."""
     con.run("", OW_PROMPT, 3, "OpenWrt shell")  # 'Please press Enter'; prompt within ~1 s
     # kernel lines (SerDes calibration) interleave with replies and broke the check 2026-10-10
-    con.run("dmesg -n 1", OW_PROMPT, 1, "console loglevel 1")
+    # checked: right after the login banner the first char was dropped ('mesg: not found', 2026-10-11)
+    con.run("dmesg -n 1", OW_PROMPT, 1, "console loglevel 1", checked=True)
     # bridge appears when netifd runs (~27 s uptime; shell is up at ~14 s): wait ON the board,
     # set STP within 1 s of it existing. Cap 30 s = 13 s expected x ~2 for a slow netifd.
     con.run("B=/sys/class/net/switch/bridge", OW_PROMPT, 1, "bridge path")
@@ -246,6 +247,18 @@ def openwrt_stp(con: Console) -> None:
 FAST_CPU_E208 = "0x3a8"  # 1000 MHz with DIVN2 /3: uboot-test 40/40 + 15 min Linux load (#38)
 SFCR, SFCR_D_FAST = 0xB8001200, 0  # SPI = NOR clock / 2
 E220, NOR_CODE_FAST = 0xBB00E220, 3  # NOR 245 MHz -> SPI 122.5 MHz (rated 133); 153 MHz corrupts (#32)
+
+
+def set_spi(con: Console, d: int, code: int) -> None:
+    """SFCR[31:29] = D (SPI = NOR / 2(D+1)), e220[16:13] = NOR code (NOR = 2450 / 2(code+2) MHz)."""
+    p = r"st1008f-mainline # "
+    _, out = con.run(f"md.l {SFCR:x} 1", r"b8001200: ([0-9a-f]{8})[^\n]*\r?\n" + p, 1, "SFCR")
+    v = int(re.search(r"b8001200: ([0-9a-f]{8})", out).group(1), 16)
+    con.run(f"mw.l {SFCR:x} {(v & 0x1fffffff) | (d << 29):08x}", p, 1, f"SFCR D={d}")
+    _, out = con.run(f"md.l {E220:x} 1", r"bb00e220: ([0-9a-f]{8})[^\n]*\r?\n" + p, 1, "e220")
+    v = int(re.search(r"bb00e220: ([0-9a-f]{8})", out).group(1), 16)
+    con.run(f"mw.l {E220:x} {(v & ~(0xF << 13)) | (code << 13):08x}", p, 1, f"NOR code {code}")
+    log(f"  spi {2450 / (2 * (code + 2)) / (2 * (d + 1)):.1f} MHz (D={d}, NOR code {code})")
 
 
 def fast_clocks(con: Console, e208: str, spi: bool = True) -> None:
@@ -288,6 +301,8 @@ def main() -> int:
                          "ours must autoboot flash OpenWrt")
     ap.add_argument("--stock-clocks", action="store_true",
                     help="uboot-mainline: keep stock CPU 800 MHz + SPI 25.5 MHz (default: 1 GHz + SPI 122.5 MHz)")
+    ap.add_argument("--spi", metavar="D:CODE",
+                    help="with --then: SPI before bootm, SFCR D (0 = /2) and NOR code e220[16:13] (6 = stock)")
     ap.add_argument("--then", choices=["openwrt"],
                     help="uboot-mainline: also TFTP OpenWrt (std magic) to 0x84f00000, bootm it from ours")
     ap.add_argument("--cpu", metavar="E208",
@@ -338,6 +353,9 @@ def main() -> int:
     if a.image == "uboot-mainline" and not a.stock_clocks:
         # fast SPI only when Linux will not run: under Linux it corrupted squashfs reads (#50)
         fast_clocks(con, a.cpu or FAST_CPU_E208, spi=not (a.then or a.chain_test))
+    if a.then == "openwrt" and a.spi:
+        d, code = (int(x) for x in a.spi.split(":"))
+        set_spi(con, d, code)
     if a.then == "openwrt":
         ow = IMAGES["openwrt"]
         con.run(f"bootm 0x{ow[1]:08x}", ow[3], ow[4], "OpenWrt via mainline bootm")

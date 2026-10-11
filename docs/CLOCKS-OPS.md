@@ -5,7 +5,7 @@ How to run and verify clock changes. Facts (registers, formulas, measured result
 ## Defaults
 
 - `clocks fast` (our U-Boot) = CPU 1000 MHz (`e208 0x3a8`, /3) + DRAM controller prefetch (MCR bits 23/22, #52). Runs on every power-up (chain, #47) and in `./dev.py ramload uboot-mainline`.
-- `ramload` also sets SPI 122.5 MHz (SFCR /2, NOR code 3) in U-Boot-only sessions; never before Linux (#50). `--stock-clocks` keeps 800 MHz / 25.5 MHz.
+- `ramload` also sets SPI 122.5 MHz (SFCR /2, NOR code 3) in U-Boot-only sessions; `clocks fast` / `--spi 0:4` = 102.1 MHz, the Linux-safe max (#50). Ladder: `./dev.py spi-linux [D:CODE ...]` (first = baseline). `--stock-clocks` keeps 800 MHz / 25.5 MHz.
 - LX stays 175 MHz (204 MHz works, no measured gain). DDR stays 600 MHz until `mem-clock` passes.
 - Applies only to our RAM-loaded U-Boot; stock U-Boot and unattended boots run stock clocks (#47).
 

@@ -201,6 +201,12 @@ def cmd_rootfs_hash(extra: list[str]) -> int:
     return _script("openwrt_rootfs_hash.py", extra)
 
 
+@command("fastest SPI-NOR clock Linux reads correctly: RAM OpenWrt reads firmware via SPI per step (#50)",
+         args="[D:CODE ...]  (first = baseline; default 2:6 1:6 0:6 0:5 0:4 0:3)", kind="hardware")
+def cmd_spi_linux(extra: list[str]) -> int:
+    return _script("spi_linux_ladder.py", extra)
+
+
 @command("run the rtk command list on stock and on our U-Boot, diff (see scripts/rtk_parity.py)",
          args="capture --side stock|ours | compare | both [--state] [--slow]", kind="check")
 def cmd_rtk_parity(extra: list[str]) -> int:
