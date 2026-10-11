@@ -5,7 +5,7 @@ Facts only. Source: `scripts/sdk_leftovers_scan.py` over the GPL SDK trees (rtk-
 | Item | Where | What it is | Use on this board | Risk |
 |---|---|---|---|---|
 | ASIC drop-reason counters | `0xBB00B5B8 + 4*n`, 85 × 16 bit; names: `hal_getDbgCntr`, `src/hal/mac/mac_debug.c` (82 named reasons) | per-reason drop counts: route lookup miss, TTL, MTU, L2 hash full, egress queue, … | explain L3 traps / drops (#59, #65); unused by OpenWrt | read-only (check clear-on-read before polling) |
-| SerDes test tools | `src/dal/longan/dal_longan_sds.c` | eye monitor (page 0x2E), PRBS9/PRBS31 generator/checker, TX eye params, loopback, symbol/block error counters | link quality on cages (#25, #48-style margins); OpenWrt has only error counters | test modes disrupt the link while active |
+| SerDes test tools | `src/dal/longan/dal_longan_sds.c` | eye monitor (page 0x2E), PRBS9/PRBS31 generator/checker, TX eye params, loopback, symbol/block error counters | ported to our U-Boot as `rtk sds` ([SDS-TOOLS.md](SDS-TOOLS.md)); OpenWrt has only error counters | test modes disrupt the link while active |
 | Packet-buffer auto-recover | `src/dal/longan/dal_longan_waFunc.c` | HW error flags + SW queue-reset workaround; compiled into stock `rtk.ko` | OpenWrt lacks it: candidate robustness fix | writes; port only with the SDK's exact sequence |
 | Thermal comparators | thermal meter regs | high/low threshold interrupts, max/min temperature latch; SDK unused | over-temperature handling (#13) | low |
 | U-Boot test commands (compiled out of stock) | `board/Realtek/rtl9300/board_cmd.c` | DRAM, GDMA, flash, concurrency, frequency-step tests | port to our U-Boot (DRAM/GDMA tests: #48, #62) | DRAM/flash tests can write; keep flash tests read-only |

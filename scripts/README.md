@@ -194,6 +194,12 @@ End-to-end workflow: [../README.md#workflow](../README.md#workflow).
 - `boot`: owner sets the switch first; power-cycle with the saved chain. M1 -> flash OpenWrt (STP set); M2/M3 -> our prompt, `boot_mode=Mx`.
 - Timeout: 180 s per owner move (request is relayed through chat). Log: `tmp/logs/mode_switch_map.log`.
 
+### sds_tools_test.py
+
+- `rtk sds` hardware tests (#74), at our prompt after `ramload uboot-mainline`: `./dev.py sds-tools-test [all | status guards prbs ctrlc txeye eye] [--label L]`, or `run "<cmd>"`.
+- Does `rtk network on` (if not yet) + `rtk laser 1`. Dark 10G cages: 2, 6, 8. Pass rules and results: [../docs/SDS-TOOLS.md](../docs/SDS-TOOLS.md).
+- Caps: network on 12 s, status 2 s, PRBS 3 s per 1 s run, eye 15 s + 1 s per frame. Output `tmp/sds_tools/<label>.json` + eye maps; log `tmp/logs/sds_tools_test.log`.
+
 ### hw_probe.py
 
 - Read-only presence probes of the RTL9303 blocks in [../docs/HARDWARE-INVENTORY.md](../docs/HARDWARE-INVENTORY.md) (#62): `md.l` of ID/ctrl registers only.

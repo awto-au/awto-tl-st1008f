@@ -90,9 +90,45 @@ Unit = `rtk unit set` value (default 0); a unit >= 6 prints `\nUnit %u invalid u
 | `rtk mode` | M1/M2/M3 position: `mode: pins 17/18/19 = a/b/c -> pattern N (Mx, ...)` (stock decode), then `boot policy: Mx <name> (pins 18/19; #46)`. Measured one-hot: M1 0/1/1, M2 1/0/1, M3 1/1/0 (hardware.md) | `rtk_mode` |
 | `rtk temp` | enables the thermal meter if off (RMW), waits for a valid sample (cap 100 ms, no measured settling time yet), prints deg C and min/max since enable | `rtk_temp` |
 | `rtk led ...` | 24 port LEDs as a 3x8 matrix, snake, boot indicator, error latch ([below](#port-leds)) | `rtk_led` |
+| `rtk sds ...` | SerDes test tools: status, error counters, PRBS, loopback, RX/TX eye ([below](#serdes-test-tools-rtk-sds-74)) | `sds_tools_test.py` |
 | `rtk help-ours` | lists the above | none |
 
 `help rtk` text is the stock text (typos included); extras are only in `rtk help-ours`.
+
+## SerDes test tools (`rtk sds`, #74)
+
+- Stock has no equivalent (its SDK `diag` CLI has `serdes ...` under Linux only): syntax is ours. Registers, sequences, measurements: [SDS-TOOLS.md](SDS-TOOLS.md).
+- All forms need `rtk network on` first. Target `<cage>` = 1-8; `s<N>` = SerDes N (2-9) for `status`/`errcnt`.
+- Test: `./dev.py sds-tools-test [all | status guards prbs ctrlc txeye eye]` at our prompt; `run "<cmd>"` for one command.
+
+### `rtk sds status [<cage>|s<sds>|all]`
+- One line per cage: mode, CMU ready, RX idle/signal (debug-out 0x35), 10GR PCS link + latched-low bit (4/1.2) or 1G link words (1/29, 1/30), MAC link, loopback, PRBS pattern.
+- Read-only except the debug-out select (0x1f/2), which every reader rewrites.
+
+### `rtk sds errcnt [<cage>|all] [clear]`
+- 10GR: `blk_err`, `ber`, latched `blk_lock`/`hi_ber` from 5/1 (clear on read: each call shows the count since the last).
+- 1000BX/SGMII: 24-bit `sym_err` (1/3[15:8], 1/2); not clear on read; `clear` writes 0.
+
+### `rtk sds prbs <cage> 9|31|mismatch [ms] [near] [force] [v]`
+- Generator + checker in the 10GR PCS; default 1000 ms (max 600000); counter read every 100 ms, summed; `v` prints each sample.
+- `near`: near-end loopback for the run only. `mismatch`: PRBS31 out, PRBS9 checked = checker self-test (must saturate).
+- Output: `prbs31 cage N near-loopback: E errors in T ms (M Mbit), n/k samples nonzero, s saturated, pre-start 0x....`.
+- Restores 5/0xa, 6/0, 6/0xe, 6/0xf on exit and on Ctrl-C. Refused on a live link without `force`, and outside 10GR.
+- `rtk sds prbs <cage> off`: pattern off (SDK disable, reset values for 6/0xe and 6/0xf).
+
+### `rtk sds loopback <cage> near|off [force]`
+- `near`: AFE TX->RX (6/1.2) + digital (0/0.4), FSM + RX reset; stays on until `off`, which restores the saved bits. Brings the cage's PCS and MAC link up.
+- `far`: refused (no remote-loopback control in the SDK or stock `rtk.ko`).
+
+### `rtk sds eye <cage> [frames] [raw] [nosettle]`
+- RX eye monitor, 64 PI phases x 64 Vref steps x frames (1-16; 1 frame 0.36 s, 16 frames 5.6 s). Link stays up.
+- Prints a 64 x 64 ASCII map (2 rows per line; ` ` clean, `.` <= 1 mismatch/frame, `+` <= 4, `#` more), then `height H/128 rows (at x X), width W/64 PI steps (SDK rows 64+-10), centre width C`.
+- `raw`: the 16-bit words of frame 0 instead of the map. `nosettle`: no settle read after each PI step (shows the stale row 0).
+- RX idle: prints `RX idle (no signal): map below is not an eye`.
+
+### `rtk sds txeye <cage> [<pre> <main> <post> | restore]`
+- Reads pre/main/post emphasis, their enables and impedance from the mode's page (0x2f 10GR, 0x25 1G, 0x29 2.5G).
+- Set: 5-bit values; enable = value != 0; first set saves the old registers, `restore` writes them back.
 
 ## Parity harness
 

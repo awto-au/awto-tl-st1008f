@@ -157,10 +157,10 @@ Catalogue of RTL9303 hardware that the datasheet omits, the SDK leaves unused, o
 
 ### SerDes test tools (#74)
 - **What:** eye monitor, PRBS9/31, TX eye params, loopback, error counters (`dal_longan_sds.c`)
-- **Evidence:** [GPL]
-- **Measured:** not probed
+- **Evidence:** [GPL], [HW] 2026-10-12
+- **Measured:** ported as `rtk sds` ([SDS-TOOLS.md](SDS-TOOLS.md)); PRBS31 near loopback 0 errors / 10.3 Gbit on cages 2/6/8; cage 1 eye centre width 17/64 PI steps (~0.55 UI)
 - **Use:** cage link quality (#25)
-- **Risk:** disrupts the link while active
+- **Risk:** PRBS/loopback disrupt the link (refused on a live link without `force`); eye monitor does not
 
 ### Packet-buffer auto-recover (#74)
 - **What:** HW error flags + SW queue reset (`dal_longan_waFunc.c`), in stock `rtk.ko`, not in OpenWrt
