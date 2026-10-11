@@ -23,6 +23,7 @@ How to run and verify clock changes. Facts (registers, formulas, measured result
 | SPI-NOR | `./dev.py flash-speed [D ...] [--nor CODE ...]` | whole-chip CRC = the /6 baseline at every step; mismatch restores the previous setting |
 | LX | `clocks set lx <code> force` | console answers; `./dev.py uboot-test sfp_all ddm laser rtk_port sf_read highmem timer` |
 | DDR | `./dev.py ramload uboot-mainline --from-flash --stock-clocks`, then `./dev.py mem-clock 600 650 --nosr` (600 first = stock values through the new sequence; self-refresh mode hangs) | `mem set OK`; `clocks` decodes the bin; crc32 + `md` of 16 MiB copied before the change unchanged; `highmem test` 0 errors |
+| DDR above 650 | `./dev.py ramload uboot-mainline --from-flash` (CPU 1000: 800 MHz MEM must stay below CPU), then `./dev.py mem-clock 650 675 700 725 750 775 800 --nosr` | as DDR, plus mark `R` after `P` on the 650 → 675 step (MRS) and `ddr3 dram: CL 11 CWL 8` in `clocks` |
 | Linux reads under a setting | boot flash OpenWrt the stock way (`./dev.py flash-openwrt-watch --minutes 0`), `./dev.py rootfs-hash stock`; then boot with the setting, `./dev.py rootfs-hash <label> --against stock` | same hash, 0 SQUASHFS errors |
 | Whole board | `./dev.py uboot-test` | all pass |
 | Throughput | `./dev.py bench run <label>`, `./dev.py bench compare` | table in CLOCKS.md |
@@ -30,6 +31,7 @@ How to run and verify clock changes. Facts (registers, formulas, measured result
 - DDR: record the UART marks (`M S P X D` then `C`/`F`), `MPMR0 in SR` (expect 2 in bits 29:28) and `exit` (0), DMCR polls left, routine time. If 600 hangs: retry once with `--nosr`, note the last mark.
 - DDR: no `rtk network on` / Ethernet traffic in the same boot before the change (switch DMA must be idle): load ours with `--from-flash`. That boot has no SerDes config and cage 8 reads empty (#51), so `rtk_port` / `sfp_a0` checks fail there.
 - DDR 650 is not a default yet: one pass so far; needs a soak (Linux load) first.
+- DDR above 650: `--from-flash` runs the U-Boot stored in flash; it must be a build with the 675-800 bins (older builds answer `no bin`). A canary failure reverts to the previous bin, MRS included; a hang = power cycle.
 
 ## Recovery
 

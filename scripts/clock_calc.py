@@ -5,6 +5,8 @@
 - `cpu-table` / `mem-table`: the stock preloader tables (loader.bin file 0x4a20/0x4a34, 0x4930..0x49e4).
 - `cpu MHZ`: PLL settings for a CPU target, VCO kept inside the range stock uses (2400-3200 MHz).
 - `dtr MHZ`: DTR0/1/2 for a MEM clock from the stock DTR bins + tRFC rule.
+- `ddr-bin MHZ...`: bins above 650 (675..800): PLL, DTR0-2, MR0/MR2 (datasheet + SDK formulas; prints C rows).
+- `mr DTR0`: MR0-MR3 DMCR words the stock SPL derives from a DTR0 value.
 Formulas and sources: docs/CLOCKS.md. Log: tmp/logs/clock_calc.log.
 """
 
@@ -126,6 +128,67 @@ def dtr(mhz: int, die_mbit: int) -> None:
     log("dtr " + dtr_text(d0, d1, d2, mhz))
 
 
+# DDR3 bins above 650 MHz (tCK 1.25..<1.5 ns = DDR3-1600 range): Zentel A3T4GF40BBF-HP datasheet
+# DSA3T4GF340BBFF rev 06 (sources/README.md): p.15 speed bins (1866 column), p.17 AC at 1333/1600.
+HI_PS = {"tRCD": 13910, "tRP": 13910, "tRAS": 34000, "tWR": 15000, "tRTP": 7500, "tWTR": 7500,
+         "tRRD": 7500, "tFAW": 40000}
+HI_CL, HI_CWL, HI_REFI_NS = 11, 8, 3900   # p.15 CL 11 / CWL 8 for 1.25 <= tCK < 1.5; tREFI 2x rate as stock
+HI_PLL = (0x0000007F, 0x400001EF, 0x26A33860)  # MPCR0-2: SDK 600 row reused (SPEC, no row above 600)
+# Stock SPL _DTR_DDR3_MRS_setting [BIN 0x9fc01120]: MR codes from DTR0 CAS_PHY 3:0, tWR 27:24, CWL 23:20
+SPL_CAS = {4: 0x10, 5: 0x20, 6: 0x30, 7: 0x40, 8: 0x50, 9: 0x60, 10: 0x70}
+SPL_WR = {4: 0x200, 5: 0x400, 6: 0x600, 7: 0x800, 8: 0xA00, 9: 0xA00, 11: 0xC00}
+SPL_CWL = {4: 0x00, 5: 0x08, 6: 0x10, 7: 0x18}
+MR0_BASE, MR1, MR2_BASE, MR3 = 0x00101000, 0x00110004, 0x00120000, 0x00130000
+
+
+def ck(ps: int, mhz: int, floor: int = 1) -> int:
+    """SDK NS2CK2 (round up), in ps; floor = the nCK minimum (max(4nCK, x ns) parameters)."""
+    return max(floor, -(-ps * mhz // 1_000_000))
+
+
+def mrs(d0: int) -> tuple[int, int]:
+    """DMCR words for MR0 and MR2 as the stock SPL derives them from DTR0 (no DLL reset bit)."""
+    cas, wr, cwl = f(d0, 3, 0), f(d0, 27, 24), f(d0, 23, 20)
+    if cas not in SPL_CAS or wr not in SPL_WR or cwl not in SPL_CWL:
+        raise ValueError(f"DTR0 {d0:08x}: CAS_PHY {cas} / tWR {wr} / CWL {cwl} outside the SPL MR table")
+    return MR0_BASE | SPL_CAS[cas] | SPL_WR[wr], MR2_BASE | SPL_CWL[cwl]
+
+
+def hi_bin(mhz: int, die_mbit: int) -> tuple[tuple[int, ...], int, int, int]:
+    if mhz % 25 or not 675 <= mhz <= 800:
+        raise ValueError("bins above 650: 675..800 in 25 MHz steps (tCK >= 1.25 ns, CL 11 / CWL 8)")
+    c = {k: ck(v, mhz, 4 if k in ("tRTP", "tWTR", "tRRD") else 1) for k, v in HI_PS.items()}
+    wr = c["tWR"]
+    wr_f = ((wr + 1) >> 1 << 1) - 1 if wr > 8 else wr - 1   # SDK: WR > 8 rounds up to even
+    trefi_ck = HI_REFI_NS * mhz // 1000                       # SDK max_trefi_ns: largest fac <= 16
+    unit = next(u for u in range(7) if trefi_ck >> (u + 5) <= 16)
+    fac = trefi_ck >> (unit + 5)
+    d0 = (HI_CL << 28 | wr_f << 24 | (HI_CWL - 1) << 20 | (c["tRTP"] - 1) << 16 | (c["tWTR"] - 1) << 12
+          | (fac - 1) << 8 | unit << 4 | (HI_CL - 1))
+    lim = {"tRP": 32, "tRCD": 32, "tRRD": 32, "tFAW": 32, "tRAS": 64, "tRTP": 16, "tWTR": 16}
+    for k, m in lim.items():
+        if c[k] > m:
+            raise ValueError(f"{mhz} MHz: {k} {c[k]} clk does not fit its DTR field (max {m})")
+    d1 = (c["tRP"] - 1) << 24 | (c["tRCD"] - 1) << 16 | (c["tRRD"] - 1) << 8 | (c["tFAW"] - 1)
+    rfc = mhz * TRFC_NS[die_mbit] // 1000 + 5                 # SPL tRFC rule (CLOCKS.md)
+    if rfc > 255:
+        raise ValueError(f"{mhz} MHz: tRFC field {rfc} > 255")
+    d2 = rfc << 20 | (c["tRAS"] - 1) << 12
+    pll = HI_PLL + ((2 * mhz // 25 - 2) << 24 | 0x000F0000,)
+    return pll, d0, d1, d2
+
+
+def ddr_bin(mhzs: list[int], die_mbit: int) -> None:
+    for mhz in mhzs:
+        pll, d0, d1, d2 = hi_bin(mhz, die_mbit)
+        m0, m2 = mrs(d0)
+        log(f"{mhz} MHz: MPCR3 {pll[3]:08x} DTR0 {d0:08x} DTR1 {d1:08x} DTR2 {d2:08x} (tRFC field for "
+            f"{die_mbit} Mbit) MR0 {m0:08x} (+0x100 DLL reset) MR2 {m2:08x}")
+        log("  " + dtr_text(d0, d1, d2, mhz))
+        log(f"  C: {{ {mhz}, {{ 0x{pll[0]:08x}, 0x{pll[1]:08x}, 0x{pll[2]:08x}, 0x{pll[3]:08x} }}, "
+            f"0x{d0:08x}, 0x{d1:08x}, 0x{d2 & 0xfffff:08x} }},")
+
+
 def main() -> int:
     ap = argparse.ArgumentParser()
     sp = ap.add_subparsers(dest="cmd", required=True)
@@ -139,6 +202,11 @@ def main() -> int:
     d = sp.add_parser("dtr")
     d.add_argument("mhz", type=int)
     d.add_argument("--die-mbit", type=int, default=4096, choices=sorted(TRFC_NS))
+    b = sp.add_parser("ddr-bin")
+    b.add_argument("mhz", type=int, nargs="+")
+    b.add_argument("--die-mbit", type=int, default=4096, choices=sorted(TRFC_NS))
+    m = sp.add_parser("mr")
+    m.add_argument("dtr0", type=lambda s: int(s, 16))
     a = ap.parse_args()
     log(f"=== clock_calc {' '.join(sys.argv[1:])} ===")
     if a.cmd == "decode":
@@ -149,6 +217,11 @@ def main() -> int:
         mem_table()
     elif a.cmd == "cpu":
         cpu(a.mhz, a.e208, a.e210)
+    elif a.cmd == "ddr-bin":
+        ddr_bin(a.mhz, a.die_mbit)
+    elif a.cmd == "mr":
+        m0, m2 = mrs(a.dtr0)
+        log(f"DTR0 {a.dtr0:08x}: MR0 {m0:08x} MR1 {MR1:08x} MR2 {m2:08x} MR3 {MR3:08x} (DMCR words, SPL rule)")
     else:
         dtr(a.mhz, a.die_mbit)
     return 0

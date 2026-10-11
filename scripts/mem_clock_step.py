@@ -4,6 +4,7 @@
 - Before: copy 16 MiB to uncached 0xa2000000, `crc32` + `md` it (contents reference).
 - Per MHz in the ladder: `clocks set mem <MHz> [nosr] force`, then `clocks` must decode that MEM rate,
   `crc32` + `md` of the 16 MiB must match (contents survived), `highmem test` (256 MiB) must pass.
+- Bins 675..800 issue MRS (MR2, MR0 + DLL reset) in the routine; `--nosr` only (C refuses otherwise).
 - Ladder stops at the first fail. A hang = power cycle (`./dev.py ramload uboot-mainline`); no flash writes.
 - Log: tmp/logs/mem_clock_step.log.
 """
@@ -54,13 +55,13 @@ def step(con: Console, mhz: int, nosr: bool, ref_crc: str, ref_md: list[str]) ->
     _, out = con.run(cmd, r"clocks: mem set (OK|FAIL)[^\r\n]*" + PROMPT, CAP_SET, f"mem set {mhz}")
     for line in re.findall(r"clocks: (?:routine|canary|mem now|mem set)[^\r\n]*", out):
         log(f"  {line}")
-    marks = re.search(r"\n(M[SPXDCF]*)\r?\n", out)  # written by the SRAM routine itself
+    marks = re.search(r"\n(M[SPRXDCF]*)\r?\n", out)  # written by the SRAM routine itself (R = MRS done)
     log(f"  routine UART marks: {marks.group(1) if marks else '(none)'}")
     ok = "mem set OK" in out
     _, out = con.run("clocks", r"(?s)mem pll:[^\r\n]*" + PROMPT, CAP_CMD, "clocks")
     m = re.search(r"\nmem ([\d.]+) MHz", out)
     dec = float(m.group(1)) if m else 0.0
-    log(f"  clocks: mem {dec} MHz; " + " | ".join(re.findall(r"(?:ddr3 clk|ddr3 ctl|mem pll):[^\r\n]*", out)))
+    log(f"  clocks: mem {dec} MHz; " + " | ".join(re.findall(r"(?:ddr3 clk|ddr3 dram|ddr3 ctl|mem pll):[^\r\n]*", out)))
     ok &= abs(dec - mhz) < 0.5
     c = crc(con)
     words = md(con)
@@ -79,7 +80,9 @@ def step(con: Console, mhz: int, nosr: bool, ref_crc: str, ref_md: list[str]) ->
 
 def main() -> int:
     ap = argparse.ArgumentParser(description=__doc__.splitlines()[0])
-    ap.add_argument("mhz", type=int, nargs="+", help="stock bins, e.g. 600 650 (600 = re-apply stock: proves the sequence)")
+    ap.add_argument("mhz", type=int, nargs="+",
+                    help="bins in order, e.g. 600 650 675 700 ... 800 (600 = re-apply stock: proves the sequence; "
+                         "675+ = CL 11 / CWL 8 via MRS, needs --nosr and CPU above the target)")
     ap.add_argument("--nosr", action="store_true", help="refresh-off method instead of self-refresh")
     a = ap.parse_args()
     con = Console()
@@ -87,7 +90,7 @@ def main() -> int:
     try:
         con.run("echo PROMPT_OK", r"\r?\nPROMPT_OK" + PROMPT, CAP_CMD, "prompt present")
         _, out = con.run("clocks", r"(?s)mem pll:[^\r\n]*" + PROMPT, CAP_CMD, "clocks before")
-        log("  before: " + " | ".join(re.findall(r"(?:mem [\d.]+ MHz|ddr3 clk|ddr3 ctl|ddr3 phy|mem pll)[^\r\n]*", out)))
+        log("  before: " + " | ".join(re.findall(r"(?:mem [\d.]+ MHz|ddr3 clk|ddr3 dram|ddr3 ctl|ddr3 phy|mem pll)[^\r\n]*", out)))
         con.run(f"cp.l 0x{SRC:08x} 0x{REF:08x} 0x{REF_LEN // 4:x}", PROMPT, CAP_16M, "copy 16 MiB reference")
         ref_crc, ref_md = crc(con), md(con)
         log(f"  reference crc32 {ref_crc}")

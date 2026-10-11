@@ -2,7 +2,8 @@
 /*
  * MEM (DDR3) clock change, copied to SRAM and I-cache locked by `clocks set mem` (docs/CLOCKS.md (b)).
  * Position independent, no stack, no cached access: I/O via KSEG1, state in the SRAM block (ddr_sram.h).
- * a0 = KSEG1 address of the block. v0 = status (DST_*). UART marks: M S P X D then C (canary ok) or F.
+ * a0 = KSEG1 address of the block. v0 = status (DST_*). UART marks: M S P [R] X D then C (canary ok)
+ * or F; R = MRS block done (DSF_MRS sets only).
  */
 #include <asm/regdef.h>
 #include "ddr_sram.h"
@@ -162,7 +163,36 @@ change:
 	li	a1, 'P'
 	bal	putc
 	 nop
-	lw	t0, DP_METHOD(s0)
+	lw	t0, DS_FLAGS(s6)	/* CL/CWL/WR change (C allows it with method 1 only) */
+	andi	t0, t0, DSF_MRS
+	beqz	t0, 7f
+	 nop
+	bal	dtr_update		/* DTRs + latch; DMCR still holds MR3 0, refresh-off bit kept */
+	 nop
+	bnez	v0, fail_mrs
+	 nop
+	lw	a2, DS_MR2(s6)		/* SDK order: MR2 (CWL), then MR0 (CL, WR) with DLL reset */
+	bal	mrs
+	 nop
+	bnez	v0, fail_mrs
+	 nop
+	lw	a2, DS_MR0(s6)
+	bal	mrs
+	 ori	a2, a2, 0x100		/* MR0 A8 = DLL reset */
+	bnez	v0, fail_mrs
+	 nop
+	lw	a1, DS_DLLK_US(s6)	/* tDLLK before the first read (canary) */
+	bal	delay
+	 nop
+	lui	a2, 0x0013		/* MR_MODE_EN | MR3 0 last, as the stock SPL leaves DMCR: later */
+	bal	mrs			/* DMCR rewrites (DTR latch, refresh toggle) re-issue only MR3 0 */
+	 nop
+	bnez	v0, fail_mrs
+	 nop
+	li	a1, 'R'
+	bal	putc
+	 nop
+7:	lw	t0, DP_METHOD(s0)
 	bnez	t0, 4f
 	 nop
 	lw	t0, 0x40(s2)		/* PM_MODE = 0: exit; DRAM DLL resets itself on SR exit (JEDEC) */
@@ -197,7 +227,7 @@ change:
 	bal	putc
 	 nop
 	lw	t0, DS_FLAGS(s6)
-	andi	t0, t0, DSF_DTR_FIRST
+	andi	t0, t0, DSF_DTR_FIRST | DSF_MRS	/* DTRs already written */
 	bnez	t0, 6f
 	 nop
 	bal	dtr_update		/* faster timings: only once the clock is down */
@@ -221,6 +251,21 @@ fail_ref:
 fail_post:
 	jr	t9
 	 li	v0, DST_DTR_POST
+fail_mrs:
+	jr	t9
+	 li	v0, DST_MRS
+
+/* MRS: DMCR MR_MODE_EN 20 / MR_MODE 17:16 / MR_DATA 13:0 = a2, other bits (refresh-off 24) kept.
+ * Busy poll >= 1 uncached read (>= 50 ns) covers tMRD 4 clk / tMOD 12 clk (18 ns at 650 MHz) */
+mrs:
+	lw	t0, 0x1c(s2)
+	li	t1, 0xffecc000		/* ~0x00133fff */
+	and	t0, t0, t1
+	or	t0, t0, a2
+	sw	t0, 0x1c(s2)
+	sync
+	b	dmcr_idle
+	 nop
 
 /* DTR0-2 from s6, latched by rewriting DMCR (SDK memctl.c), then wait not busy */
 dtr_update:

@@ -174,7 +174,7 @@ End-to-end workflow: [../README.md#workflow](../README.md#workflow).
 ### clock_calc.py
 
 - Host-only RTL930x clock calculator; formulas and tables: [../docs/CLOCKS.md](../docs/CLOCKS.md).
-- Run: `scripts/clock_calc.py decode <md.l dump>` (same decode as U-Boot `clocks`), `cpu-table`, `mem-table`, `cpu <MHz>` (`0xbb00e208/e210` values, VCO kept in 2400-3200 MHz), `dtr <MHz> [--die-mbit 4096]` (DTR0-2 from the stock bins).
+- Run: `scripts/clock_calc.py decode <md.l dump>` (same decode as U-Boot `clocks`), `cpu-table`, `mem-table`, `cpu <MHz>` (`0xbb00e208/e210` values, VCO kept in 2400-3200 MHz), `dtr <MHz> [--die-mbit 4096]` (DTR0-2 from the stock bins), `ddr-bin <MHz>...` (675-800: PLL, DTR0-2, MR0/MR2 from the DRAM datasheet + SDK formulas; prints the C rows), `mr <DTR0 hex>` (MR words the stock SPL derives).
 - Log: `tmp/logs/clock_calc.log`.
 
 ## Repo maintenance
@@ -252,7 +252,7 @@ Desk-only; no switch access. Needs `tmp/openwrt` (sparse clone of openwrt, `targ
 ### mem_clock_step.py
 
 - Purpose: DDR3 clock ladder at the mainline prompt (#39): `clocks set mem <MHz> force` per bin (self-refresh, MEM PLL, DTRs from SRAM), then `clocks` decode, `crc32` + `md` of a 16 MiB region copied before the first change (contents kept), `highmem test` (256 MiB). Stops at the first fail or hang.
-- Run: `./dev.py mem-clock 600 650 [--nosr]` (600 first = stock values through the new sequence). Log: `tmp/logs/mem_clock_step.log`.
+- Run: `./dev.py mem-clock 600 650 [--nosr]` (600 first = stock values through the new sequence); above 650: `./dev.py mem-clock 650 675 700 725 750 775 800 --nosr` (MRS bins, CPU 1000 first). Log: `tmp/logs/mem_clock_step.log`.
 
 ### uimage_std_magic.py
 

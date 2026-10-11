@@ -5,8 +5,8 @@ Facts only. How to run the measurements: [CLOCKS-OPS.md](CLOCKS-OPS.md). Registe
 ## Part and configuration
 
 - One DDR3 die, x16, 4 Gbit = 512 MiB (DCR `21421003`: 8 banks, 15 row + 10 col bits).
-- Part (board photo, 2026-10-11): **Zentel A3T4GF40BBF-HP**, DDR3-1866 (933 MHz, CL13), 256M x16, 96-ball FBGA. OpenWrt's TL-ST1008F v2 commit names a Samsung K4B4G1646E-BYMA: other boards or wrong.
-- Run by the stock SPL at 600 MHz (DDR3-1200): CL 10, CWL 7, tRCD/tRP 15 ns, tRAS 38.3 ns, tRFC 270 ns, tREFI 3.84 µs (2x refresh, the >85 °C rate).
+- Part (board photo, 2026-10-11): **Zentel A3T4GF40BBF-HP**, DDR3-1866 (933 MHz, CL13), 256M x16, 96-ball FBGA. OpenWrt's TL-ST1008F v2 commit names a Samsung K4B4G1646E-BYMA: other boards or wrong. Datasheet: `sources/README.md`.
+- Run by the stock SPL at 600 MHz (DDR3-1200): DRAM CL 9 (controller CL 10), CWL 7, WR 10, tRCD/tRP 15 ns, tRAS 38.3 ns, tRFC 270 ns, tREFI 3.84 µs (2x refresh, the >85 °C rate). MR0-MR3: CLOCKS.md register map.
 - Only the CPU uses DRAM for its own work. Switching uses the on-chip packet buffer; DRAM speed does not change forwarding.
 
 ## Theory (from the live timings)
@@ -48,6 +48,6 @@ Facts only. How to run the measurements: [CLOCKS-OPS.md](CLOCKS-OPS.md). Registe
 |---|---|---|
 | Linux `memcpy` uses `pref` (CPU_MIPS32_R2 selects CPU_HAS_PREFETCH; 16 PREF sites in `arch/mips/lib/memcpy.S`); Linux `memset` has none (write-allocate path, helped by MCR prefetch); userspace libc copies: not checked | `memset` up to the `pref 30` figure | kernel `memset.S` change (upstream) |
 | tREFI 3.84 → 7.8 µs (normal-temperature refresh) | ≈ 3.5 % of DRAM time; ≈ 0 in practice (access is latency-bound, bus mostly idle) | **decided: keep stock.** DDR3 has no readable temperature (only DDR4/LPDDR do); the SoC sensor peaked at 75 °C under load, heatsink off |
-| Tighter timings for the DDR3-1866 part at 600-650 MHz (CL, tRCD, tRP) | a few ns of the 30-45 ns DRAM part only | needs MRS for CL (#48) |
+| Tighter timings for a DDR3-1866 part at 600-650 MHz (CL, tRCD, tRP) | a few ns of the 30-45 ns DRAM part only | MRS path exists (675+ bins); no 600/650 tight bin defined |
 | Unexplained MCR bits: `ocp0_frq_slower` 9 = 1, `ocp0/1_rbf_f_dis` 5/6 = 1, `sync_ocp0_dram` 0 = 0 | possibly the 65-80 ns bus/controller overhead | unknown semantics (#52) |
-| DDR above 650 MHz (chip rated 933) | ≤ a few % | MRS for CL/CWL/WR (#48), in progress |
+| DDR above 650 MHz | ≤ a few % (600 → 650 moved every test ≤ 4 %) | 675-800 implemented (CL 11 / CWL 8 via MRS), untested; PHY taps and PLL loop settings SPEC (#48, #49) |
