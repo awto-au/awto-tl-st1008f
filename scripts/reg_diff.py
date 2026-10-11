@@ -30,7 +30,7 @@ RANGES = [
     (0xBB00036C, 8, "I2C MST1 0x36c, MST2 0x378, GLB 0x384"),
     (0xBB0003A0, 4, "pinmux 3a0 (spi0, spi cs0 = GPIO7, cs1 = GPIO6)"),
     (0xBB00C600, 4, "pinmux c600 (gpio mdio)"),
-    (0xBB00CC00, 4, "pinmux cc00 (sys led, led stack)"),
+    (0xBB00CC00, 4, "LED GLB 0xcc00, PORT_NUM 0xcc04/08, SET3_1 0xcc0c"),
     (0xB8003300, 7, "GPIO 0x3300: dir/data/int (otto-gpio)"),
     (0xB8003338, 2, "GPIO 0x3338: int status"),
 ]
@@ -42,6 +42,12 @@ SERDES_RANGES = [
     (0xBB00CA1C, 29, "MAC_FORCE_MODE_CTRL ports 0-28"),
     (0xBB00CA90, 1, "SMI_POLL_CTRL 0xca90"),
     (0xBB00CB10, 4, "MAC link / speed status 0xcb10-0xcb1c"),
+    # LED block written by stock mac_led_config (#9); 0xcc00-0xcc0c are in RANGES
+    (0xBB00CC10, 7, "LED SET3_0..SET0_0 0xcc10-0xcc28"),
+    (0xBB00CC2C, 4, "LED COPR/FIB_SET_SEL 0xcc2c-0xcc38"),
+    (0xBB00CC3C, 4, "LED COPR/FIB/COMBO mask 0xcc3c-44, SW_LED_LOAD 0xcc48"),
+    (0xBB00CC4C, 4, "LED_PORT_SW_EN 0xcc4c-0xcc58"),
+    (0xBB00CC5C, 28, "LED_PORT_SW_CTRL ports 0-27 0xcc5c-0xccc8"),
 ]
 # 8 SerDes x 25 pages x ~170 chars = 34 KB at 115200 (11.5 KB/s) = 3 s; x1.25 + echo -> 5 s
 SDSDUMP_CAP = 5
@@ -58,7 +64,7 @@ def log(msg: str) -> None:
 def capture(label: str, serdes: bool) -> int:
     con, out = Console(), {}
     for start, words, name in RANGES + (SERDES_RANGES if serdes else []):
-        # <= 16 words = 4 lines of md output: < 30 ms at 115200; 1 s names a hang
+        # <= 29 words = 8 lines of md output (~550 chars): < 60 ms at 115200; 1 s names a hang
         _, txt = con.run(f"md.l {start:x} {words:x}", PROMPT, 1, name)
         for m in re.finditer(r"([0-9a-f]{8}):((?: [0-9a-f]{8})+)", txt):
             base = int(m.group(1), 16)

@@ -425,6 +425,61 @@ static void phy_enable(int port, bool on)
 	}
 }
 
+/* ---- port LEDs: stock mac_led_config 0x83f6f768 (SDK rtl9300_led_config + SW-control tail) ---- */
+
+#define LED_GLB		0xcc00			/* [26:25] stack, [22] active, [3:2] pwr-on blink, [1:0] mode */
+#define LED_NUM(p)	(0xcc04 + ((p) >> 4) * 4)	/* 2 bits/port: LEDs per port - 1 */
+#define LED_SET(s, i)	(0xcc28 - (s) * 8 - ((i) >> 1) * 4)	/* SETs_0 = LED1:LED0, SETs_1 = LED3:LED2 */
+#define LED_COPR_SEL(p)	(0xcc2c + ((p) >> 4) * 4)	/* 2 bits/port: copper LED set */
+#define LED_FIB_SEL(p)	(0xcc34 + ((p) >> 4) * 4)
+#define LED_COPR_MASK	0xcc3c
+#define LED_FIB_MASK	0xcc40
+#define LED_COMBO_MASK	0xcc44
+#define LED_SW_LOAD	0xcc48
+#define LED_SW_EN(p)	(0xcc4c + ((p) >> 3) * 4)	/* 4 bits/port */
+#define LED_SW_CTRL(p)	(0xcc5c + (p) * 4)		/* fibre LED0-3 modes [23:12] */
+
+/* Values: stock RTL9303_8XGE profile (scripts/stock_led_profile.py): 3 LEDs, set 0 copper + fibre,
+ * single set, serial, led_active 0 -> GLB[22] = 1. Fields: stock reg table 0x83fa9ad8 idx 0x16-0x27. */
+static void led_config(void)
+{
+	static const u16 set0[4] = { 0xa01, 0xa08, 0xba0, 0xffff };	/* LED3 = HWP_LED_END, masked */
+	int c, p, s, i, sh;
+
+	sw_rmw(LED_GLB, GENMASK(26, 25), 0);		/* f6f52c: stack sync off (no cascade) */
+	sw_w(LED_COPR_MASK, 0);				/* f6ee1c */
+	sw_w(LED_FIB_MASK, 0);
+	sw_w(LED_COMBO_MASK, 0);
+	for (c = 0; c < NCAGES; c++) {			/* f6ee70: 3 LEDs -> 2 */
+		p = rtk_cage_port[c];
+		sh = (p & 15) * 2;
+		sw_rmw(LED_NUM(p), 3U << sh, 2U << sh);
+	}
+	for (c = 0; c < NCAGES; c++) {			/* f6f080: masks + set select */
+		p = rtk_cage_port[c];
+		sh = (p & 15) * 2;
+		sw_rmw(LED_COPR_MASK, BIT(p), BIT(p));
+		sw_rmw(LED_FIB_MASK, BIT(p), BIT(p));
+		sw_rmw(LED_COMBO_MASK, BIT(p), BIT(p));
+		sw_rmw(LED_COPR_SEL(p), 3U << sh, 0);
+		sw_rmw(LED_FIB_SEL(p), 3U << sh, 0);
+	}
+	for (s = 0; s < 4; s++)				/* f6f2b4: sets 1-3 unused = 0 */
+		for (i = 0; i < 4; i++)
+			sw_rmw(LED_SET(s, i), 0xffffU << (i & 1) * 16,
+			       (u32)(s ? 0 : set0[i]) << (i & 1) * 16);
+	sw_rmw(LED_GLB, BIT(22), BIT(22));		/* f6ef9c: active, no pwr-on blink, serial */
+	sw_rmw(LED_GLB, GENMASK(3, 2), 0);
+	sw_rmw(LED_GLB, GENMASK(1, 0), 1);
+	for (c = 0; c < NCAGES; c++) {			/* f6f57c: SW control, fibre modes 0, load */
+		p = rtk_cage_port[c];
+		sh = (p & 7) * 4;
+		sw_rmw(LED_SW_CTRL(p), GENMASK(23, 12), 0);
+		sw_rmw(LED_SW_EN(p), 0xfU << sh, 0xfU << sh);
+		sw_rmw(LED_SW_LOAD, BIT(0), BIT(0));
+	}
+}
+
 /* ---- chip construct (dal_longan_construct table, stock 0x83fa3718) ---- */
 
 static void construct(void)
@@ -449,8 +504,10 @@ static void construct(void)
 		printf("%s\n", rtcore[i]);
 		if (!strcmp(rtcore[i], "  NIC probe (unit 0)"))
 			sw_w(MAC_FORCE(CPU_PORT), CPU_FORCE);
-		if (!strcmp(rtcore[i], "  MAC init (unit 0)"))
+		if (!strcmp(rtcore[i], "  MAC init (unit 0)")) {	/* stock mac_driver_init order */
+			led_config();
 			sw_rmw(SMI_MAC_TYPE, SMI_MAC_TYPE_M, 0);
+		}
 	}
 	printf("    Disable PHY Polling\n");
 	sw_rmw(SMI_POLL_CTRL, 0x0fffffff, 0);

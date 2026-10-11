@@ -75,7 +75,7 @@ Unit = `rtk unit set` value (default 0); a unit >= 6 prints `\nUnit %u invalid u
 - LED software control (`ledtest`) [SRC] `dms1250/system/include/private/drv/swcore/swcore_rtl9300.h:3127-3138`, sequence `system/uboot/cmd/uboot_func.c` (`rtk_swled_init/out/uninit`):
   - `LED_PORT_SW_EN_CTRL` `0xCC4C + (port>>3)*4`, 4 bits per port (`(port&7)*4`); 7 = software controlled.
   - `LED_PORT_SW_CTRL` `0xCC5C + port*4`: 3 bits per LED, copper LEDs [11:0], fibre LEDs [23:12]; 7 = on (`LEDON`).
-  - Ours writes both copper and fibre fields (stock selects by LED layout; layout for this board not known), saves and restores both registers, 300 ms after each pattern as stock.
+  - Ours writes both copper and fibre fields, saves and restores both registers, 300 ms after each pattern as stock. Profile layout: copper and fibre both LED set 0, single set; stock `network on` drives the fibre fields (below).
 - Port admin: `MAC_L2_PORT_CTRL(p)` `0x3268 + p*0x40` ([UBOOT-REFERENCE.md](UBOOT-REFERENCE.md) §4; [OWRT] dsa.c link up/down). SDK port numbers: cage 1-8 = 0, 8, 16, 20, 24, 25, 26, 27; CPU 28. Cage N = SerDes N+1.
 - Thermal (`rtk temp`) [OWRT] `drivers/thermal/realtek-thermal.c:35-47,136-165`, recipe [hardware.md](hardware.md#thermal): `CTRL_1 0x64` [31:16] = `0x0800`, `CTRL_2 0x68` bit 16 = 1 (RMW), `RESULT_0 0x6c` bit 24 valid, [23:16] deg C, `RESULT_1 0x70` max [14:8] / min [6:0].
 - Mode switch (`rtk mode`): `gpio0 DATA 0xB800330C` bits 17-19 (active low), decode per [hardware.md](hardware.md#mode-switch-stock-firmware): (0,1,1) -> 1, (1,0,1) -> 2, else 3.
@@ -106,7 +106,6 @@ Unit = `rtk unit set` value (default 0); a unit >= 6 prints `\nUnit %u invalid u
 ## Open
 
 - Admin-state register for `port enable|disable` is from Linux behaviour, not from the SDK sources (stock path is a driver-table call).
-- LED layout (copper vs fibre fields) for the 8XGE profile.
 - Ethernet stage unlocks: `init`, `rtcore-init`, `send`.
 
 ## Stage 4: network on, 10g, macsds, port-isolation
@@ -114,7 +113,16 @@ Unit = `rtk unit set` value (default 0); a unit >= 6 prints `\nUnit %u invalid u
 Code `rtk_net.c` (media choice `rtk_sfpmode.c`). Sources: stock loader [BIN] (`tmp/re/board-bringup.md` §9, `private/ghidra/stock-loader-named.c`) for the order and the construct writes; SDK [SRC] for the rest.
 
 - `network on` = stock `inferred_network_on` 0x83f199c4:
-  - at the banner's `NIC probe` line: CPU port `MAC_FORCE_MODE_CTRL(28)` = `0x217` (stock value, forced link up 1G); at `MAC init`: `SMI_MAC_TYPE_CTRL 0xca04` = 0 for ports 0/8/16/20/24-27 (`_rtl9300_smiMacType_init`: XGE on SerDes = link from SerDes, not an SMI PHY). Without it ports 0/8/16/20 read PCS up, MAC down (`LINK_MEDIA_STS 0xcb14` 0x0f000000 vs stock 0x0f110101). LED config (`rtl9300_led_config`) not ported.
+  - at the banner's `NIC probe` line: CPU port `MAC_FORCE_MODE_CTRL(28)` = `0x217` (stock value, forced link up 1G); at `MAC init`: `SMI_MAC_TYPE_CTRL 0xca04` = 0 for ports 0/8/16/20/24-27 (`_rtl9300_smiMacType_init`: XGE on SerDes = link from SerDes, not an SMI PHY). Without it ports 0/8/16/20 read PCS up, MAC down (`LINK_MEDIA_STS 0xcb14` 0x0f000000 vs stock 0x0f110101). LED config runs first at `MAC init`, before `0xca04` (stock `mac_driver_init` 0x83f6e618 order).
+  - LED config = stock `mac_led_config` 0x83f6f768 (SDK `rtl9300_led_config` + a SW-control tail); values from the stock `RTL9303_8XGE` profile (`scripts/stock_led_profile.py`); field layout from the stock reg table 0x83fa9ad8 (idx 0x16-0x27). Cage ports 0/8/16/20/24-27 only, CPU port untouched:
+    - `LED_GLB 0xcc00` [26:25] stack = 0; `0xcc3c/40/44` (copper/fibre/combo mask) = 0.
+    - `LED_PORT_NUM 0xcc04/08` = 2 (3 LEDs per port).
+    - masks `0xcc3c/40/44` port bits = 1 (-> `0x0f110101`); copper/fibre set select `0xcc2c/0xcc34` = 0 (set 0).
+    - LED sets: `0xcc28` = `0x0a080a01` (set 0 LED1:LED0), `0xcc24` = `0xffff0ba0` (LED3 = profile end marker `0xffffffff`, masked to 16 bits), `0xcc0c-0xcc20` (sets 1-3) = 0.
+    - `0xcc00` [22] active = 1 (profile `led_active` 0), [3:2] power-on blink = 0, [1:0] mode = 1 (serial).
+    - per port: `LED_PORT_SW_CTRL 0xcc5c+4p` [23:12] (fibre LED0-3 modes) = 0, `LED_PORT_SW_EN 0xcc4c` 4-bit field = `0xf` (LEDs under software control), `SW_LED_LOAD 0xcc48` bit 0 = 1.
+    - Stock measured before the port (2026-10-11): `0xcc00` stock `01452651` / ours `01052658`; `0xcc0c` stock `00000000` / ours `0a400a80`.
+  - Not ported from `mac_led_config`: its tail `mac_park_tx_disable` (stock i2c dev 8 = TX-disable PCA9534 `0x38`: reg 3 = `0xff`, reg 1 = `0xff`, all lasers off).
   - once per boot, "Chip Construct" steps (stock table 0x83fa3718) with stock step names: SMI poll mask `0xca90[27:0]` = 0; polarity normal (page 6 reg 2 bits 13/14, page 0 reg 0 bits 8/9); MAC `SDS_MODE_SEL` = `0x1f` all 12; construct lists (`rtk_sds_tables.h`, list `a`, even 120 / odd 106 rows, sds 3 pages 0-3 -> physical 10); WDIG reg 0xb bit 1; `sds_mode_10gr_set` 0x83f90f74 per SerDes 2-9 (LC 10.3125G, ring 1.25G, CMU toggle until 3 ready reads, 10GR FSM/block-lock check); private poll mask 0; poll mask `0x0f110101`; page 0 reg 4 bit 2 (`fiberNwayForceLink`).
   - per cage: `phy_9300_enable_set` (page 2/4 BMCR power-up) -> media set with the current media, then the cage media (stock: `fiber10g` always).
   - CPU port: `Err:0xf030:FAIL (0xf030)` (stock text, no PHY driver), then 2 s settle.

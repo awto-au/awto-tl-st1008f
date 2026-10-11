@@ -254,6 +254,10 @@ Desk-only; no switch access. Needs `tmp/openwrt` (sparse clone of openwrt, `targ
 - Purpose: extract the stock 10GBASE-R SerDes construct lists (even/odd SerDes) from `private/stock-loader-20261007/loader.bin` into `uboot-port/board/tplink/tl-st1008f/rtk_sds_tables.h`; fails if a list length differs (120 / 106).
 - Run: `python3 scripts/sds_tables_gen.py`. Log: `tmp/logs/sds_tables_gen.log`.
 
+### stock_led_profile.py
+- Purpose: dump the LED part of a hw profile compiled into the stock loader (profile list `0x83f9348c`): per-port LED set / layout, `led_if_sel`, `led_active`, `led_definition_set[4][5]`. Source of the `led_config()` values in `rtk_net.c` (#9).
+- Run: `python3 scripts/stock_led_profile.py private/stock-loader-20261007/loader.bin [PROFILE]` (default `RTL9303_8XGE`). Log: `tmp/logs/stock_led_profile.log`.
+
 ### serial_speed_test.py
 
 - Purpose: console UART baud ladder at the mainline prompt (#32). One self-restoring command line per divisor (`mw.b` divisor, `md.b` 16 KiB, restore 115200); pass = byte-exact vs a 115200 baseline.
