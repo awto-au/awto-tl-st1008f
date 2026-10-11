@@ -19,7 +19,7 @@ SCRATCH = f"{ROOT}/tmp/ghidra-scratch"
 FULL = f"{PROJ}/stock-loader-full.c"
 NAMED = f"{PROJ}/stock-loader-named.c"
 LOG = f"{ROOT}/tmp/logs/loader_names.log"
-HEAD = "/home/dan/.local/bin/analyzeHeadless"
+HEAD = os.environ.get("GHIDRA_HEADLESS") or shutil.which("analyzeHeadless") or "analyzeHeadless"
 TEXT_LO = 0x83f00000
 
 ROW = re.compile(r"^\|\s*(0x[0-9a-fA-F]{8})\s*\|\s*([A-Za-z_][\w]*)\s*\|\s*([CIS])\s*\|(.*)\|\s*$")
