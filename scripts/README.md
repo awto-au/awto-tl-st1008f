@@ -345,6 +345,18 @@ Desk-only; no switch access. Needs `tmp/openwrt` (sparse clone of openwrt, `targ
 - Purpose: regenerate the diff body of a patch on existing files (e.g. `300-12` on `rtl838x_eth.[ch]`) from the edited `tmp/linux-v7.3`; keeps the patch header.
 - Run: copy the files as the earlier patches leave them to an orig dir first, then `python3 scripts/patch_from_tree.py openwrt/patches/<patch> --orig-dir <dir> <tree paths>`. Log: `tmp/logs/patch_from_tree.log`.
 
+### upstream_rtl83xx_fetch.py
+- Purpose: fetch a directory of a GitHub repo at a ref through `gh api` (no clone): default OpenWrt `files-6.18/drivers/net/dsa/rtl83xx` at `main`, or e.g. the GPL SDK `dal_longan_l3.c` (`--repo reyalo/Realtek --dir sources/rtk-xgs1210/src/dal/longan --match l3 --name sdk-longan`) (#59).
+- Output: `tmp/upstream/<name>-<sha10>/`. Log: `tmp/logs/upstream_rtl83xx_fetch.log`.
+
+### l3_hash6_check.py
+- Purpose: host-only check of the `300-17` IPv6 host-table hash (`otto_l3_930x_hash6()`) against the SDK `_dal_longan_l3_hostHash0/1_ret()` formulas, transcribed row by row (#59).
+- Run: `python3 scripts/l3_hash6_check.py`; exit 1 on any mismatch. Log: `tmp/logs/l3_hash6_check.log`.
+
+### l3_upstream_diff.py
+- Purpose: OpenWrt-relative diff of the `l3.c`/`l3.h` change (`tmp/l3work/a` = upstream as fetched, `b` = edited) + `checkpatch.pl --strict` on it, for the upstream PR draft (#59).
+- Output: `tmp/upstream-pr/l3-upstream.diff`. Log: `tmp/logs/l3_upstream_diff.log`.
+
 ### patch_refresh.py
 - Purpose: rewrite the new-file hunks of an `openwrt/patches/*.patch` from the patched tree (`tmp/linux-v7.3`) after editing a file the patch creates (e.g. the 300-06 mode-switch driver).
 - Run: `python3 scripts/patch_refresh.py openwrt/patches/<patch> [--tree DIR]`. Log: `tmp/logs/patch_refresh.log`.

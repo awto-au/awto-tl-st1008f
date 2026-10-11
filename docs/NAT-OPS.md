@@ -39,6 +39,8 @@ Facts and results: [NAT.md](NAT.md). Everything runs through `./dev.py nat-bench
 ./dev.py nat-bench teardown
 ```
 
+- L3 offload knobs and default-route topology (`offload`, `dflt-setup`, `routes`, `run --dst`): [ROUTING-OFFLOAD-OPS.md](ROUTING-OFFLOAD-OPS.md).
+
 - `mode` replaces the `inet nattest` table:
   - `nat` = masquerade.
   - `-ft` = flowtable `ft` on `lan1` plus `flow add` for tcp/udp in the forward hook.

@@ -65,7 +65,7 @@ Conditions:
 | `2000::/3 via <gw>` (default-route workaround), 60 s | **9079** | 0 % (eth0 7 pps) |
 | On-link host to host (no gateway) | 58.5 | trapped: VPE0 99.7 % |
 
-- `::/0` is not offloaded: it shows as `trap` in `realtek_otto_l3/routes`, same as IPv4 (#59).
+- `::/0` is not offloaded: it shows as `trap` in `realtek_otto_l3/routes`, same as IPv4 (#59). `300-17` `l3_default` offloads both (mainline port, not yet measured).
 - `2000::/3` covers all global unicast and is offloaded (`fwd`, `chk,dec`).
 - Offloaded routes depend on the gateway's neighbour entry. With a STALE neighbour the route reads `trap`; once the neighbour is REACHABLE again it reads `fwd`. No flapping was seen over 60 s at 9 Gbit/s.
 
@@ -201,7 +201,7 @@ Same boot and topology as "NIC path" (DDR 600, CPU 1 GHz, UP, `300-12`). `./dev.
 - The box needs: a DHCPv6-PD prefix from the ISP on the WAN, RA (plus optional DHCPv6) per LAN VLAN, and the v6 routes offloaded.
 - Offload requirements, both from #59:
   - Upstream: `::/0` is not offloaded, so install `2000::/3 via <ISP gw>` (verified here).
-  - Downstream: LAN clients are on-link, so the trap path applies (58.5 Mbit/s here) until on-link neighbours get host routes (#59, fix 1). This is the blocker for v6 at line rate in a real topology.
+  - Downstream: LAN clients are on-link, so the trap path applies (58.5 Mbit/s here) without on-link neighbour host routes. This is the blocker for v6 at line rate in a real topology; `300-17` `l3_onlink` adds them (mainline 7.3 port, not yet measured: [ROUTING-OFFLOAD.md](ROUTING-OFFLOAD.md), #59).
 - Major content (video, CDNs, big clouds) is mostly v6-capable. What fraction of the household's traffic is v6: not measured.
 
 ## Related

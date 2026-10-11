@@ -19,6 +19,9 @@ Usage (via ./dev.py nat-bench ...):
   pktgen [--count N --size B]       TX-only driver cost (in-kernel pktgen, kmod-pktgen)
   rxdrop [--secs N --size B]        RX-only driver cost (host UDP flood, dropped at lan1 ingress)
   v6-setup | v6-run [--onlink] [--dst A]   IPv6 routed through the ASIC (gateway-routed far /64s)
+  offload [--onlink 0|1] [--default 0|1]   l3.c module parameters (300-17, #59); prints the tables
+  dflt-setup                         switch default routes (v4+v6) via natwan + far /128 and /32 on natwan
+  routes                             realtek_otto_l3 routes + nexthops (test rows only)
   status | teardown
 Log: tmp/logs/nat_bench.log (one JSON line per run: tmp/logs/nat_bench.jsonl)
 """
@@ -44,6 +47,10 @@ LAN_VID, WAN_VID = 991, 992    # test-only VIDs, tagged on lan1 only
 SW_LAN, SW_WAN = "10.99.1.1", "10.99.2.1"
 H_LAN, H_WAN = "10.99.1.2", "10.99.2.2"
 NS_LAN, NS_WAN = "natlan", "natwan"
+L3_PARAMS = "/sys/module/rtl_otto_dsa/parameters"   # l3_onlink, l3_default (300-17, #59)
+L3_DBG = "/sys/kernel/debug/realtek_otto_l3"
+# Reached only through the switch's default route (dflt-setup): TEST-NET-2, documentation v6
+FAR4, FAR6 = "198.51.100.5", "2001:db8:22::5"
 CPU_HZ = 1_000_000_000
 TAG = os.environ.get("NAT_BENCH_TAG", "")  # set by scripts/nat_clock_variants.py: variant name per row         # `clocks fast` (docs/CLOCKS-OPS.md); one 34Kc pipeline shared by 2 VPEs
 
@@ -164,6 +171,8 @@ def teardown() -> int:
     log("teardown: nattest table, fw4 reload, SVIs, bridge VLANs, host netns")
     sw("nft delete table inet nattest 2>/dev/null; nft delete table netdev rxdrop 2>/dev/null; "
        "killall iperf3 2>/dev/null; ip -6 route del 2000::/3 2>/dev/null; "
+       f"ip route del default via {H_WAN} 2>/dev/null; ip -6 route del default via {V6[WAN_VID][1]} 2>/dev/null; "
+       f"for p in l3_onlink l3_default; do echo 0 > {L3_PARAMS}/$p 2>/dev/null; done; "
        + ("echo 0 > /proc/sys/net/ipv4/ip_forward; echo rem_device_all > /proc/net/pktgen/kpktgend_0 2>/dev/null; "
           if mainline() else "rmmod pktgen 2>/dev/null; /etc/init.d/firewall reload; ")
        + f"ip link del {svi(LAN_VID)}; ip link del {svi(WAN_VID)}; "
@@ -299,13 +308,71 @@ def run(args, local: bool) -> int:
         r = subprocess.run(cli, capture_output=True, text=True, timeout=tmo)
         res = json.loads(r.stdout)
     else:
-        res = iperf(NS_WAN, H_WAN, NS_LAN, args.secs, args.P, args.reverse, args.udp, args.len)
+        sw(f"echo 1 > {L3_DBG}/clear_route_hits 2>/dev/null; true")
+        res = iperf(NS_WAN, args.dst or H_WAN, NS_LAN, args.secs, args.P, args.reverse, args.udp, args.len)
     b = snap()
     if "error" in res:
         log(f"iperf3 error: {res['error']}")
         return 1
     summarize(label, res, a, b, args.udp)
+    if not local:
+        routes()
     return 0
+
+
+# ---- l3.c offload knobs (300-17, #59) ---------------------------------------
+# l3.c applies a parameter change at its next poll, one DELAY_PROBE_TIME (5 s default) apart.
+# Wait 1.25x that, polling once a second, for the tables to show it; expiry logs and returns 1.
+L3_POLL_S = 5
+L3_SETTLE_S = L3_POLL_S * 1.25
+
+
+def routes() -> str:
+    out = sw(f"grep -E 'TABLE|10\\.99|198\\.51|fd99|2001:db8|/0 ' {L3_DBG}/routes; "
+             f"echo; head -1 {L3_DBG}/nexthops; grep -v NH_ID {L3_DBG}/nexthops | head -40; "
+             f"echo; grep . {L3_PARAMS}/l3_* 2>/dev/null; true", check=False)
+    log(out.strip())
+    return out
+
+
+def offload(onlink: int | None, default: int | None) -> int:
+    want = {k: v for k, v in (("l3_onlink", onlink), ("l3_default", default)) if v is not None}
+    if not sw(f"ls {L3_PARAMS}/l3_onlink 2>/dev/null; true").strip():
+        log(f"{L3_PARAMS}/l3_onlink missing: kernel without 300-17")
+        return 1
+    sw("; ".join(f"echo {v} > {L3_PARAMS}/{k}" for k, v in want.items()) or "true")
+    host(["ip", "netns", "exec", NS_LAN, "ping", "-c", "1", "-W", "1", H_WAN], check=False)  # wakes ARP
+    t0 = time.time()
+    while True:
+        out = routes()
+        rows = out.splitlines()
+        onl = [ln for ln in rows if f" {H_WAN}/32 " in ln]
+        dfl = [ln for ln in rows if " 0.0.0.0/0 " in ln and " fwd " in ln]
+        ok = True
+        if "l3_onlink" in want:  # the natwan host's own /32 host entry forwards, or is gone
+            ok &= bool(onl) and " fwd " in onl[0] if want["l3_onlink"] else not onl
+        if "l3_default" in want and sw("ip route show default; true").strip():  # needs dflt-setup
+            ok &= bool(dfl) == bool(want["l3_default"])
+        if ok or time.time() - t0 > L3_SETTLE_S:
+            break
+        time.sleep(1)  # one table dump per second while waiting for the l3.c poll
+    log(f"offload {want}: {'applied' if ok else f'NOT seen after {time.time() - t0:.1f}s (limit {L3_SETTLE_S}s)'}")
+    return 0 if ok else 1
+
+
+def dflt_setup() -> int:
+    """Switch default routes via natwan; natwan holds FAR4/FAR6, outside every switch prefix."""
+    sw(f"ip route replace default via {H_WAN} dev {svi(WAN_VID)}; "
+       f"ip -6 route replace default via {V6[WAN_VID][1]} dev {svi(WAN_VID)}")
+    sub = f"{HOST_NIC}.{WAN_VID}"
+    host(["ip", "-n", NS_WAN, "addr", "replace", f"{FAR4}/32", "dev", sub])
+    host(["ip", "-n", NS_WAN, "-6", "addr", "replace", f"{FAR6}/128", "dev", sub, "nodad"])
+    host(["ip", "-n", NS_WAN, "route", "replace", "10.99.1.0/24", "via", SW_WAN])
+    r = subprocess.run(["sudo", "-n", "ip", "netns", "exec", NS_LAN, "ping", "-c", "2", "-W", "1", FAR4],
+                       capture_output=True, text=True, timeout=10)  # 2 pings x 1 s wait + margin
+    log(f"ping {NS_LAN} -> {FAR4} (switch default route): {'OK' if r.returncode == 0 else 'FAIL'}")
+    routes()
+    return 0 if r.returncode == 0 else 1
 
 
 def pktgen(count: int, size: int) -> int:
@@ -436,6 +503,12 @@ def main() -> int:
         r.add_argument("--udp", type=int, default=None, help="UDP target Mbit/s")
         r.add_argument("--len", type=int, default=1460, help="UDP payload bytes")
         r.add_argument("--label", default=None)
+        r.add_argument("--dst", default=None, help=f"natwan address to reach (e.g. {FAR4} after dflt-setup)")
+    o = sub.add_parser("offload")
+    o.add_argument("--onlink", type=int, choices=[0, 1], default=None)
+    o.add_argument("--default", type=int, choices=[0, 1], default=None)
+    sub.add_parser("dflt-setup")
+    sub.add_parser("routes")
     g = sub.add_parser("pktgen")
     g.add_argument("--count", type=int, default=100000)
     g.add_argument("--size", type=int, default=1400)
@@ -472,6 +545,13 @@ def main() -> int:
         return v6_setup()
     if a.cmd == "v6-run":
         return v6_run(a.secs, a.P, a.onlink, a.dst)
+    if a.cmd == "offload":
+        return offload(a.onlink, a.default)
+    if a.cmd == "dflt-setup":
+        return dflt_setup()
+    if a.cmd == "routes":
+        routes()
+        return 0
     if a.cmd == "status":
         return status()
     return teardown()

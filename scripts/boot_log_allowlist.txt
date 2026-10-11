@@ -312,9 +312,13 @@ rtl83xx-switch 1b000000\.switch lan[1-8]: (Link is Up - (10Gbps|1Gbps|2\.5Gbps)/
 rtl83xx-switch 1b000000\.switch lan[1-8]: (configuring for|switched to) inband/(10gbase-r|1000base-x|2500base-x|sgmii) link mode  # phylink (#16)
 rtl83xx-switch 1b000000\.switch: (Link is Up - 1Gbps/Full - flow control off|configuring for fixed/internal link mode)  # CPU port of the DSA switch (#16)
 rtl83xx-switch 1b000000\.switch: led_set0 has 3 LEDs configured  # DTS led_set (#16)
-rtl83xx-switch 1b000000\.switch: (add|delete) IPv4 route [0-9./]+ \(VLAN \d+, MAC 16:b0:46:e9:0d:c0\)  # l3.c route offload log (#16)
-rtl83xx-switch 1b000000\.switch: route allocated for gw 0\.0\.0\.0  # l3.c on-link route (#16)
-rtl83xx-switch 1b000000\.switch: skip loopback/broadcast addresses and default routes  # l3.c (#16)
+rtl83xx-switch 1b000000\.switch: (add|delete) IPv4 route [0-9./]+ (via [0-9.]+ )?\(VLAN \d+, MAC 16:b0:46:e9:0d:c0\)  # l3.c route offload log (#16); gateway routes in the #59 test plan
+rtl83xx-switch 1b000000\.switch: route allocated for gw [0-9.]+  # l3.c on-link route (#16), gateway routes (#59)
+rtl83xx-switch 1b000000\.switch: (resolved mac: [0-9a-f]{16}|need to wait|found a route with id \d+, nh-id \d+)  # l3.c gateway resolve, ROUTING-OFFLOAD-OPS test plan (#59)
+rtl83xx-switch 1b000000\.switch: no (port|valid neighbour) for \S+, routing \S+ in software  # l3.c next hop not (yet) on a port / neighbour gone, test plan (#59)
+rtl83xx-switch 1b000000\.switch: default route \S+ traps to the CPU  # 300-17 l3_default off or a route without entry (#59)
+rtl83xx-switch 1b000000\.switch: IPv[46] forwarding offload (suspended|resumed) by the policy rules  # l3.c ip rule, test plan step 4e (#59)
+rtl83xx-switch 1b000000\.switch: skip loopback/broadcast addresses( and default routes)?  # l3.c (#16); 300-17 dropped "and default routes" (#59)
 
 # ---- Reviewed DENY lines: tolerated only with a tracking issue (known #NN) ----
 
