@@ -15,32 +15,174 @@ Catalogue of RTL9303 hardware that the datasheet omits, the SDK leaves unused, o
 
 ## Catalogue
 
-| Item | What it is | Evidence | Measured value / behaviour | Possible use | Risk | Issue |
-|---|---|---|---|---|---|---|
-| Smart Packet Generator (SPG) | per-port line-rate traffic generator, `SPG_*` regs, `SMART_PACKET_GENERATOR` feature (Longan only) | GPL diag driver; absent from DS | `SPG_GLB_CTRL/TX_GRP_CTRL/GLOBAL_STS` 0x7AB0 = 0 (idle) [LIVE] | port/link stress test without a host; cage-loop test traffic | transmits frames: storm risk on the house LAN | #70 |
-| `ROUTER_SMAC_SEL` + 48-bit SMAC | ECO knob: `DMY_REG1_PKT_ENCAP` 0xCF0C bit 16 + SMAC[47:32], `DMY_REG0_PKT_ENCAP` 0xCE20 SMAC[31:0]; SDK never references it | [GPL] field names | live flops: 0xCE20 r/w 32 bits, 0xCF0C r/w mask `0x0001ffff`; reset 0 [LIVE] | override router source MAC on routed frames (untested) | low (volatile) | #68 |
-| `DMY_REG0_EGRESS_CTRL` 0x7918 | ECO knobs `STRIC_WFQ_JUMBO`[17], `SPD_UP_REFILL`[16], `AMP_FACTOR`[15:0] | [GPL] | reset `0x00030200` (both flags 1, AMP_FACTOR 0x200); dummy bits [31:18] r/w [LIVE] | egress shaper tuning (jumbo WFQ, token refill) | changes scheduling | #68 |
-| `DMY_REG0_CHIP_MISC` 0x78 | `CFG_VOL_PRB_SEL`[4:2] (voltage probe select), `DSS_SEL`[1:0] (die speed sensor select) | [GPL] | reset `0x1c` (VOL_PRB_SEL 7, DSS_SEL 0); dummy [31:5] r/w; named fields not written [LIVE] | on-die voltage / speed observation (#38 overclock margins) | analog test mux: unknown | #68 |
-| `DMY_REG0_CHIP_MISC_R` 0x230 "SS-501" | ECO enable written by SDK `dal_longan_construct.c` = `0xfffffff` | [GPL] | 0 after reset; `0x0fffffff` after stock `rtk network on` [LIVE] | already applied by stock; check OpenWrt/mainline do it too | none (SDK default) | #68 |
-| Other `DMY_REG*` | 90 dummy registers across all blocks | [GPL] | 72/80 tested fully r/w flops, all 0 at reset; HSA/HSM dummies 0xB578, 0xB90C-0xB918 read-only 0; 0xA370 bits 30:5 r/w (+ `FORCE_ALL_PORT_SECOND_EGR_DROP`[31], `SFLOW`[4:0]); PLL/AFE dummies 0xE234/0xE288/0xE294 not written [LIVE] | unknown ECO knobs; none has a documented effect | writes may enable unknown ECO logic | #68 |
-| CHIP_MODE / bonding | SKU select (RTL9301/9302x/9303 port + SerDes configuration) | `BONDING_REDEFINE_REG` 0x7C, `MAC_EFUSE_CTRL` 0xC6FC, `BOND_DBG` 0x228 [GPL]; SDK picks SKU from `MODEL_NAME_INFO` only | CHIP_MODE 14, BONDING_DEFINE_EN 1; writes of 15 and 0 to both regs ignored, whole-window diff 0 words: read-only reset-time copy [LIVE] | none: no software SKU change | - | #68 |
-| eFuse / OTP | 256 x 16-bit, indirect `EFUSE_ACCESS_*` 0xC698-0xC6A4; SDK never reads it; RTL8390 stores SerDes (reg, value) patches in its eFuse | [GPL], [8390] | autoload at reset (`CTRL_DONE` 1); SW read path returns 0 for all 256 words with `EFUSE_ACCESS_EN` = 0; loaded copies: `CALIB_CTRL_2-4` `033c03f1 81308128 00000188`, `CODE_PROTECT_STATE` 0 [LIVE] | trim/patch values, unique ID | programming is permanent; `ACCESS_EN` meaning unknown | #62, #75 |
-| `CHIP_INFO` 0x08 | extra ID register behind `CHIP_INFO_EN` = 0xA | [GPL] | `0x100a6487`: RL_VID 1, MCID 0, RL_ID 0x6487 [LIVE] | rev/variant identification | none | #62 |
-| Unused table codes | free codes on the indirect table controllers: L2 3, CTRL_0 9-15, L3 6-7, HSB/HSA 1 | no BIST memory for them [GPL] | no RAM behind any: L2 3 and L3 6/7 complete with data untouched; CTRL_0 9-15 and HSB 1 never complete (controller locked until power cycle); HSA path unusable even for code 0 [LIVE] | none | a stuck controller blocks VLAN/ACL/meter access until power cycle | #68 |
-| Register gaps (unnamed decode) | 44 holes >= 16 words in the 64 KiB switch window outside per-port blocks | [GPL] scan | every word of 43 holes reads 0; 0xE300-0xE91C was a scan miss (SET1 queue arrays); whole window readable, no hang; outside it (0xBB010000, 0xBB100000, 0xBB800000) the bus hangs [LIVE] | none found | reads safe in-window; out-of-window reads hang the CPU | #68 |
-| Stock-only registers 0x98 / 0xD0 | link-fault mask / status, written by stock `LinkFaultMonIsrThread`, no SDK name | [BIN] | both 0 [LIVE] | link-fault interrupt | low | #68 |
-| ALE loopback re-entry | `ACL_LB_ACT`, `LB_TTL`, `LB_PKT`, `TEST_MODE_ALE_LOOPBACK_CTRL` 0x7AAC: recirculate a frame through the pipeline | [GPL] | 0 [LIVE] | two-pass lookups (#63) | loop if misconfigured | #63 |
-| HSB/HSA/HSM snapshots | parser output, modifier input and mid-pipeline state of the last frame, readable | [GPL] | hold the last LAN frame after `rtk network on` [LIVE] | per-frame pipeline debugging | none (read-only) | #68 |
-| OCP / LX bus-timeout monitors | `TO_CTRL` 0xb8005100, `LB*TCR` 0xb8005200; GIMR `OCPTO`/`LXMTO`/`LXSTO` | [SOC] | not probed | turn a hung bus access (as above) into an IRQ with the address | low | #62 |
-| GDMA / bus traffic generator | `LX0/1/2_GDMA_CTRL` 0xb8144000 / 0xb800a000 / 0xb8018000 + BTG regs; not in DS | [SOC] | not probed (clock-gated reads may hang) | memcpy/memset offload; DDR stress (#48) | DMA writes RAM | #62 |
-| Speed sensors (ring osc) | `SPD_SENSOR0-8` 0xb8000618 | [SOC] | not probed | die speed for overclock limits (#38) | low | #62 |
-| Timer TC5 | sixth timer; DS shows "Timer*5", SDK lists TC0-TC5 0xb8003200 | [DS], [SOC] | not probed | spare timer | low | #62 |
-| Thermal comparators + max/min latch | high/low threshold interrupts, temperature latch; SDK unused | [GPL] | sensor 0x60-0x70 used; comparators not probed | over-temperature IRQ (#13) | low | #74 |
-| ASIC drop-reason counters | `0xBB00B5B8 + 4*n`, 85 x 16 bit, 82 named in `mac_debug.c` | [GPL] | not probed | explain L3 traps/drops (#59, #65) | read-only (check clear-on-read) | #74 |
-| SerDes test tools | eye monitor, PRBS9/31, TX eye params, loopback, error counters (`dal_longan_sds.c`) | [GPL] | not probed | cage link quality (#25) | disrupts the link while active | #74 |
-| Packet-buffer auto-recover | HW error flags + SW queue reset (`dal_longan_waFunc.c`), in stock `rtk.ko`, not in OpenWrt | [GPL], [BIN] | not probed | robustness fix for OpenWrt/mainline | writes: use the SDK sequence | #74 |
-| Crypto engine | `IPSEC_*` 0xb800c000 (legacy DES/3DES/AES, MD5/SHA1 SPEC) | [DS], [SOC] | see inventory | flash decrypt / legacy ciphers | low | #62 |
-| NAT / IP or L4 rewrite | hardware NAT or header rewrite fused off or undocumented | see [below](#nat--ip-rewrite-hardware-none) | none exists | - | - | #68 |
+### Smart Packet Generator (SPG) (#70)
+- **What:** per-port line-rate traffic generator, `SPG_*` regs, `SMART_PACKET_GENERATOR` feature (Longan only)
+- **Evidence:** GPL diag driver; absent from DS
+- **Measured:** `SPG_GLB_CTRL/TX_GRP_CTRL/GLOBAL_STS` 0x7AB0 = 0 (idle) [LIVE]
+- **Use:** port/link stress test without a host; cage-loop test traffic
+- **Risk:** transmits frames: storm risk on the house LAN
+
+### `ROUTER_SMAC_SEL` + 48-bit SMAC (#68)
+- **What:** ECO knob: `DMY_REG1_PKT_ENCAP` 0xCF0C bit 16 + SMAC[47:32], `DMY_REG0_PKT_ENCAP` 0xCE20 SMAC[31:0]; SDK never references it
+- **Evidence:** [GPL] field names
+- **Measured:** live flops: 0xCE20 r/w 32 bits, 0xCF0C r/w mask `0x0001ffff`; reset 0 [LIVE]
+- **Use:** override router source MAC on routed frames (untested)
+- **Risk:** low (volatile)
+
+### `DMY_REG0_EGRESS_CTRL` 0x7918 (#68)
+- **What:** ECO knobs `STRIC_WFQ_JUMBO`[17], `SPD_UP_REFILL`[16], `AMP_FACTOR`[15:0]
+- **Evidence:** [GPL]
+- **Measured:** reset `0x00030200` (both flags 1, AMP_FACTOR 0x200); dummy bits [31:18] r/w [LIVE]
+- **Use:** egress shaper tuning (jumbo WFQ, token refill)
+- **Risk:** changes scheduling
+
+### `DMY_REG0_CHIP_MISC` 0x78 (#68)
+- **What:** `CFG_VOL_PRB_SEL`[4:2] (voltage probe select), `DSS_SEL`[1:0] (die speed sensor select)
+- **Evidence:** [GPL]
+- **Measured:** reset `0x1c` (VOL_PRB_SEL 7, DSS_SEL 0); dummy [31:5] r/w; named fields not written [LIVE]
+- **Use:** on-die voltage / speed observation (#38 overclock margins)
+- **Risk:** analog test mux: unknown
+
+### `DMY_REG0_CHIP_MISC_R` 0x230 "SS-501" (#68)
+- **What:** ECO enable written by SDK `dal_longan_construct.c` = `0xfffffff`
+- **Evidence:** [GPL]
+- **Measured:** 0 after reset; `0x0fffffff` after stock `rtk network on` [LIVE]
+- **Use:** already applied by stock; check OpenWrt/mainline do it too
+- **Risk:** none (SDK default)
+
+### Other `DMY_REG*` (#68)
+- **What:** 90 dummy registers across all blocks
+- **Evidence:** [GPL]
+- **Measured:** 72/80 tested fully r/w flops, all 0 at reset; HSA/HSM dummies 0xB578, 0xB90C-0xB918 read-only 0; 0xA370 bits 30:5 r/w (+ `FORCE_ALL_PORT_SECOND_EGR_DROP`[31], `SFLOW`[4:0]); PLL/AFE dummies 0xE234/0xE288/0xE294 not written [LIVE]
+- **Use:** unknown ECO knobs; none has a documented effect
+- **Risk:** writes may enable unknown ECO logic
+
+### CHIP_MODE / bonding (#68)
+- **What:** SKU select (RTL9301/9302x/9303 port + SerDes configuration)
+- **Evidence:** `BONDING_REDEFINE_REG` 0x7C, `MAC_EFUSE_CTRL` 0xC6FC, `BOND_DBG` 0x228 [GPL]; SDK picks SKU from `MODEL_NAME_INFO` only
+- **Measured:** CHIP_MODE 14, BONDING_DEFINE_EN 1; writes of 15 and 0 to both regs ignored, whole-window diff 0 words: read-only reset-time copy [LIVE]
+- **Use:** none: no software SKU change
+- **Risk:** -
+
+### eFuse / OTP (#62, #75)
+- **What:** 256 x 16-bit, indirect `EFUSE_ACCESS_*` 0xC698-0xC6A4; SDK never reads it; RTL8390 stores SerDes (reg, value) patches in its eFuse
+- **Evidence:** [GPL], [8390]
+- **Measured:** autoload at reset (`CTRL_DONE` 1); SW read path returns 0 for all 256 words with `EFUSE_ACCESS_EN` = 0; loaded copies: `CALIB_CTRL_2-4` `033c03f1 81308128 00000188`, `CODE_PROTECT_STATE` 0 [LIVE]
+- **Use:** trim/patch values, unique ID
+- **Risk:** programming is permanent; `ACCESS_EN` meaning unknown
+
+### `CHIP_INFO` 0x08 (#62)
+- **What:** extra ID register behind `CHIP_INFO_EN` = 0xA
+- **Evidence:** [GPL]
+- **Measured:** `0x100a6487`: RL_VID 1, MCID 0, RL_ID 0x6487 [LIVE]
+- **Use:** rev/variant identification
+- **Risk:** none
+
+### Unused table codes (#68)
+- **What:** free codes on the indirect table controllers: L2 3, CTRL_0 9-15, L3 6-7, HSB/HSA 1
+- **Evidence:** no BIST memory for them [GPL]
+- **Measured:** no RAM behind any: L2 3 and L3 6/7 complete with data untouched; CTRL_0 9-15 and HSB 1 never complete (controller locked until power cycle); HSA path unusable even for code 0 [LIVE]
+- **Use:** none
+- **Risk:** a stuck controller blocks VLAN/ACL/meter access until power cycle
+
+### Register gaps (unnamed decode) (#68)
+- **What:** 44 holes >= 16 words in the 64 KiB switch window outside per-port blocks
+- **Evidence:** [GPL] scan
+- **Measured:** every word of 43 holes reads 0; 0xE300-0xE91C was a scan miss (SET1 queue arrays); whole window readable, no hang; outside it (0xBB010000, 0xBB100000, 0xBB800000) the bus hangs [LIVE]
+- **Use:** none found
+- **Risk:** reads safe in-window; out-of-window reads hang the CPU
+
+### Stock-only registers 0x98 / 0xD0 (#68)
+- **What:** link-fault mask / status, written by stock `LinkFaultMonIsrThread`, no SDK name
+- **Evidence:** [BIN]
+- **Measured:** both 0 [LIVE]
+- **Use:** link-fault interrupt
+- **Risk:** low
+
+### ALE loopback re-entry (#63)
+- **What:** `ACL_LB_ACT`, `LB_TTL`, `LB_PKT`, `TEST_MODE_ALE_LOOPBACK_CTRL` 0x7AAC: recirculate a frame through the pipeline
+- **Evidence:** [GPL]
+- **Measured:** 0 [LIVE]
+- **Use:** two-pass lookups (#63)
+- **Risk:** loop if misconfigured
+
+### HSB/HSA/HSM snapshots (#68)
+- **What:** parser output, modifier input and mid-pipeline state of the last frame, readable
+- **Evidence:** [GPL]
+- **Measured:** hold the last LAN frame after `rtk network on` [LIVE]
+- **Use:** per-frame pipeline debugging
+- **Risk:** none (read-only)
+
+### OCP / LX bus-timeout monitors (#62)
+- **What:** `TO_CTRL` 0xb8005100, `LB*TCR` 0xb8005200; GIMR `OCPTO`/`LXMTO`/`LXSTO`
+- **Evidence:** [SOC]
+- **Measured:** not probed
+- **Use:** turn a hung bus access (as above) into an IRQ with the address
+- **Risk:** low
+
+### GDMA / bus traffic generator (#62)
+- **What:** `LX0/1/2_GDMA_CTRL` 0xb8144000 / 0xb800a000 / 0xb8018000 + BTG regs; not in DS
+- **Evidence:** [SOC]
+- **Measured:** not probed (clock-gated reads may hang)
+- **Use:** memcpy/memset offload; DDR stress (#48)
+- **Risk:** DMA writes RAM
+
+### Speed sensors (ring osc) (#62)
+- **What:** `SPD_SENSOR0-8` 0xb8000618
+- **Evidence:** [SOC]
+- **Measured:** not probed
+- **Use:** die speed for overclock limits (#38)
+- **Risk:** low
+
+### Timer TC5 (#62)
+- **What:** sixth timer; DS shows "Timer*5", SDK lists TC0-TC5 0xb8003200
+- **Evidence:** [DS], [SOC]
+- **Measured:** not probed
+- **Use:** spare timer
+- **Risk:** low
+
+### Thermal comparators + max/min latch (#74)
+- **What:** high/low threshold interrupts, temperature latch; SDK unused
+- **Evidence:** [GPL]
+- **Measured:** sensor 0x60-0x70 used; comparators not probed
+- **Use:** over-temperature IRQ (#13)
+- **Risk:** low
+
+### ASIC drop-reason counters (#74)
+- **What:** `0xBB00B5B8 + 4*n`, 85 x 16 bit, 82 named in `mac_debug.c`
+- **Evidence:** [GPL]
+- **Measured:** not probed
+- **Use:** explain L3 traps/drops (#59, #65)
+- **Risk:** read-only (check clear-on-read)
+
+### SerDes test tools (#74)
+- **What:** eye monitor, PRBS9/31, TX eye params, loopback, error counters (`dal_longan_sds.c`)
+- **Evidence:** [GPL]
+- **Measured:** not probed
+- **Use:** cage link quality (#25)
+- **Risk:** disrupts the link while active
+
+### Packet-buffer auto-recover (#74)
+- **What:** HW error flags + SW queue reset (`dal_longan_waFunc.c`), in stock `rtk.ko`, not in OpenWrt
+- **Evidence:** [GPL], [BIN]
+- **Measured:** not probed
+- **Use:** robustness fix for OpenWrt/mainline
+- **Risk:** writes: use the SDK sequence
+
+### Crypto engine (#62)
+- **What:** `IPSEC_*` 0xb800c000 (legacy DES/3DES/AES, MD5/SHA1 SPEC)
+- **Evidence:** [DS], [SOC]
+- **Measured:** see inventory
+- **Use:** flash decrypt / legacy ciphers
+- **Risk:** low
+
+### NAT / IP or L4 rewrite (#68)
+- **What:** hardware NAT or header rewrite fused off or undocumented
+- **Evidence:** see [below](#nat--ip-rewrite-hardware-none)
+- **Measured:** none exists
+- **Use:** -
+- **Risk:** -
+
 
 ## NAT / IP rewrite hardware: none
 
