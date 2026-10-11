@@ -268,9 +268,36 @@ Format per block: vendor settings (UI page → fields; CLI; backend), ASIC, ours
 
 - This China build has **no Omada code** (no `omada`, no ports 29810-29814, no `adopt` strings). It speaks TP-Link's China cloud ("商云", `n-deventry-smb.tplinkcloud.com.cn`).
 - Shape: device-initiated TLS (wolfSSL/CyaSSL) to an entry server (`sefPort` 60443), redirected to a device server (`defaultPort` 50443); heartbeat 105 s; JSON TDCP methods passed through (`passthroughHandleMethod`) to the same handlers the web UI uses; optional private cloud server (`cloud-server` CLI, `ipc_cloudServerPrivatePortSet`). Relay client for remote web/CLI (`cloud_relayClient`, `remote_relay`); `nms_report` pushes events and stats. Config `data/cloud_brd_conf`; CA `tp-link-root-CA.pem`, `tums_ca.cer`.
-- Omada (international SG/SX series) is a different protocol: see #21 (adoption = device self-describes; feasible as an open agent).
+- Omada (international SG/SX series) is a different protocol: see [Omada adoption](#omada-adoption-controller-side-21) (#21; adoption = device self-describes; feasible as an open agent).
 - Ours: none.
 - Gap: Omada device agent per #21. L. TDCP JSON names here can seed the capability model only loosely; Omada uses its own message classes.
+
+#### Omada adoption, controller side (#21)
+
+Static analysis of Omada SDN Controller v5.15.24.19 (Docker image `mbentley/omada-controller:5.15-amd64`; the OC200 runs the same Java controller). Not tested against a device.
+
+- **Switches and APs self-describe; no per-model allow-list.** The device's adopt response carries its port/capability model and the controller renders from it. Gateways are model-gated ("CompoundModel not match template model").
+- Message classes `com.tplink.smb.omada.device.manage.message`, by category `osw` (switch) / `osg` (gateway) / `eap` (AP).
+- Switch adopt response `BaseOswAdoptRespBody` (sent by the device):
+  - `OswDevCap devCap`: `portNum, giNum, feNum, teNum, sfpNum, comboNum, poePortNum, lagNum, vlan, dot1x, maxMirrorGroup, maxStackGroups, sfpCap…`;
+  - `OswPortCap` / `OswPortCapEntry` (per-port type + `speedDuplexList`), `OswPoeCap`, `OswLagCap`, `OswSfpCap`;
+  - DTOs use Jackson `additionalProperties`: unknown fields tolerated.
+- Adopt service chosen by coarse `deviceType` (ap/switch/gateway/olt), not model (`AdoptManageService`). The device-reported caps become the managed device's capability model.
+- Model DB `manager-core-5.15.24.19.jar:json/buildindata/initDeviceModelTemplateData.json`: 157 models (18 AP, 32 gateway, 107 switch); each `adopt_resp` is a reference copy of that device's self-description (e.g. SG2008 4.20: `portNum 8, giNum 8, sfpNum 0, poePortNum 0, vlan 4094, lagNum 8`). Refreshed daily from TP-Link cloud (`update_device_model_info`, cron `0 20 1 * * ?`). Used for icons (`deviceicon/<Model-Version>.png`), gateway validation, defaults. Vendor data: not committed.
+- `modelIdList.json` (`encryptedHwId`/`encryptedOemId`) feeds firmware matching (`CloudDeviceUpgradeService`), not adoption.
+- Other rejects: legacy EAP drop-list (`incompatibleEaps.json`), user MAC allow/deny, site/switch-type mismatch, cluster/discovery state.
+- Feature pages gated by the reported `components_v2` (feature → version map); an unknown switch with sane components gets base switching config.
+- Unknown model string: adopts and renders ports; blank icon and fewer feature pages until its template syncs from cloud. A close real model (SG2008, or an SX3008F-class for 10G) + its component map avoids that.
+
+Wire format:
+
+- Discovery: broadcast UDP 29810, 4-byte big-endian length + JSON; MAC in the header, IP in `body.deviceInfo`; the device takes the controller address from the UDP reply source. Corroborated by `github.com/chrstnwhlrt/omada-discovery-proxy`.
+- Management/adoption: TCP 29814 + HTTPS 8043.
+- Adopt response: `deviceInfo{model, modelVer, hwVer, hwId, oemId, sn, ip, fwVer}` + `devCap` + `portCap` + `poeCap` + `lagCap` + component-version map + `controllerSetting`.
+- Open: the 8043 handshake and message signing (controller strings: "osg unsupport signature components"). Next step = LAN capture of a real adoption (owner's OC200 + Omada switches).
+- TP-Link 8-port switch GPL tarball: not downloadable from the research environment; the device agent is likely absent from GPL anyway.
+
+Agent build order: 8043 handshake/signing → model string + component map → config translation (port profiles / VLANs → DSA + uci) as one OpenWrt package.
 
 ### Stacking
 
