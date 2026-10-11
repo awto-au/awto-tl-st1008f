@@ -1,0 +1,14 @@
+{
+  "name": "run-task",
+  "displayName": "Run task by name",
+  "description": "Runs a workspace task (tasks.json) by its label, from a command or a URI: <scheme>://awto.run-task/run?name=<label>. Only tasks the open workspace defines.",
+  "publisher": "awto",
+  "version": "0.1.0",
+  "license": "MIT",
+  "engines": { "vscode": "^1.80.0" },
+  "main": "./extension.js",
+  "activationEvents": ["onUri"],
+  "contributes": {
+    "commands": [{ "command": "runTask.byName", "title": "Run task by name" }]
+  }
+}
