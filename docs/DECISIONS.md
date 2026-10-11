@@ -34,6 +34,11 @@ Index of owner decisions, newest first. One line each: date (AEDT), decision, li
 - Park all work in issues for a later restart; index #72.
 - SMP (both VPEs) is the default 7.3 build; `--up` for A/B. #16.
 - Add an issue to review, trace and perf-test the Linux NAT path. #71.
+- Stock U-Boot only chain-loads ours; every flow must work as if stock never ran (no dependency on stock `rtk network on`); `ramload` flows move to our U-Boot's network. [DEFAULT-BOOT.md](DEFAULT-BOOT.md#power-up-chain), #80, #81.
+- Stock `bootdelay` stays 1 (`bootdelay=0` dropped: lockout risk for a 1 s saving). #81.
+- Layered write gates for the stock U-Boot area (driver, DTS read-only, `flash_guard.py`; W25Q256 block-protect last). [DEFAULT-BOOT.md](DEFAULT-BOOT.md#stock-u-boot-area-protection-81), #81.
+- Feature-rich U-Boot: CPU-port Ethernet, web failsafe, netconsole/wget/fastboot, unmanaged-switch mode; no SSH, no router in U-Boot. [UBOOT-MAINLINE.md](UBOOT-MAINLINE.md#feature-scope-80-owner-2026-10-12), #80.
+- U-Boot drivers reuse Linux/OpenWrt code via shared OS-independent cores (`shared/`), U-Boot side = DM glue only. [UBOOT-MAINLINE.md](UBOOT-MAINLINE.md#driver-reuse-audit-83), #83.
 
 ## 2026-10-11
 
