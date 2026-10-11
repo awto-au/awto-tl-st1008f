@@ -249,6 +249,11 @@ Desk-only; no switch access. Needs `tmp/openwrt` (sparse clone of openwrt, `targ
 - Purpose: CPU PLL ladder at the mainline prompt (#38): `clocks set cpu` per value, then `sleep 5` vs host clock = real CPU rate (CP0 Count = CPU/2). Stops at the first fail or hang.
 - Run: `./dev.py cpu-clock <e210> <e208> [e208 ...]` (values: `scripts/clock_calc.py cpu <MHz>`). Log: `tmp/logs/cpu_clock_step.log`.
 
+### mem_clock_step.py
+
+- Purpose: DDR3 clock ladder at the mainline prompt (#39): `clocks set mem <MHz> force` per bin (self-refresh, MEM PLL, DTRs from SRAM), then `clocks` decode, `crc32` + `md` of a 16 MiB region copied before the first change (contents kept), `highmem test` (256 MiB). Stops at the first fail or hang.
+- Run: `./dev.py mem-clock 600 650 [--nosr]` (600 first = stock values through the new sequence). Log: `tmp/logs/mem_clock_step.log`.
+
 ### uimage_std_magic.py
 
 - Purpose: copy an OpenWrt Realtek-magic (`0x93030000`) uImage with the standard magic `0x27051956` for mainline `bootm`; header CRC recomputed, payload untouched.

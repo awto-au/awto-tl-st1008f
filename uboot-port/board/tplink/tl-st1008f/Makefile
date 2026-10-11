@@ -7,5 +7,5 @@ obj-y += rtk_stock.o
 obj-y += rtk_sds.o
 obj-y += rtk_ours.o
 obj-y += highmem.o
-obj-y += clocks.o clocks_sram.o
+obj-y += clocks.o clocks_sram.o ddr_sram.o
 obj-y += bench.o
