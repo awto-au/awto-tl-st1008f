@@ -13,12 +13,12 @@ Design and facts: [DEFAULT-BOOT.md](DEFAULT-BOOT.md). Issue #73. Steps 4, 6, 8, 
 | # | Command | Pass |
 |---|---|---|
 | 1 | `./dev.py default-boot test` | ramload CLEAN; STP 1, forward_delay 200, lan .48/.254, `recovery` in `/proc/mtd`, `devmem` reads, `uname` 7.3, dropbear |
-| 2 | 24 h soak of the RAM-booted test image (#54 settings) | storm-watch silent; no SG2008P `OSW_DET_LOOP`; `logread` clean |
+| 2 | Short run of the RAM-booted test image: boot, traffic via `nat-bench`, storm-watch on (no long soak: owner 2026-10-12) | storm-watch silent; no SG2008P `OSW_DET_LOOP`; `logread` clean |
 | 3 | `./dev.py ramload openwrt` then `scripts/st1008_mtd_backup.py --host 192.168.25.48` | fresh `private/mtd-backup-<ts>/` (the 2026-10-08 one holds stock firmware, not OpenWrt 25.12.4) |
 | 4 | `./dev.py build-uboot`; `./dev.py uboot-chain-install --overwrite` (flash, approval) | power-up log: `Boot:  legacy (no image in recovery slot ...)`, flash OpenWrt as before |
 | 5 | At our prompt (`ramload uboot-mainline`): `bootsel`, then `bootsel clear; bootsel wdt 2000`; at the caught stock prompt `md.l 0xae000000 3` | board resets ~2.3 s after (6 x 383 ms); record reads `5b007ec0 00000000 ffffffff` = DRAM kept through reset + preloader + stock (else: reset-cause design) |
 | 6 | `./dev.py default-boot test`, then `./dev.py default-boot install primary --i-have-owner-approval` | sysupgrade → reboot → `Boot:  legacy` → primary 7.3; shell checks pass |
-| 7 | 24 h soak of flash primary; 3 relay power cycles (`./dev.py power off/on`) | each boot: STP on, `.48` reachable, check-log clean |
+| 7 | Flash primary: 3 relay power cycles (`./dev.py power off/on`) | each boot: STP on, `.48` reachable, check-log clean |
 | 8 | `./dev.py default-boot install recovery --i-have-owner-approval` | read-back md5 matches |
 | 9 | Fallback tests (below) | as listed |
 
