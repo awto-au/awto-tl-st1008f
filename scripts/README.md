@@ -79,8 +79,9 @@ End-to-end workflow: [../README.md#workflow](../README.md#workflow).
 
 ### st1008_ramload.py
 - Purpose: one-shot RAM load: relay off → daemon restart → relay on → catch stock prompt → `rtk network on` → light one cage → TFTP (byte count checked) → `go`/`bootm` → wait for the image's done marker → `boot_log_check`.
-- Run via `./dev.py ramload uboot-mainline|openwrt|mainline-kernel|stock [--cage N] [--no-cycle] [--no-network]`.
-- `ramload uboot-mainline --then openwrt|mainline-kernel`: ours runs `clocks fast` (CPU 1 GHz, SPI stock), then `bootm` of the std-magic copy of that image.
+- Run via `./dev.py ramload uboot-mainline|openwrt|openwrt-ours|openwrt-ours-6.18|mainline-kernel|stock [--cage N] [--no-cycle] [--no-network]`.
+- `openwrt-ours` (7.3 kernel) / `openwrt-ours-6.18`: local builds from `build_openwrt.py`; bridge STP enforced as for `openwrt`.
+- `ramload uboot-mainline --then openwrt|openwrt-ours[-6.18]|mainline-kernel`: ours runs `clocks fast` (CPU 1 GHz, SPI stock), then `bootm` of the std-magic copy of that image.
 - Log: `tmp/logs/st1008_ramload.log`. Every wait has a console marker + stated cap; a stock banner mid-run = unexpected reset = FAIL.
 - Measured 2026-10-10: power-off → mainline U-Boot prompt 18 s (catch 2.1 s, network on 7.9 s, TFTP 5.1 s incl. one 5 s first-block retransmit).
 
@@ -256,6 +257,12 @@ End-to-end workflow: [../README.md#workflow](../README.md#workflow).
 - Host-only RTL930x clock calculator; formulas and tables: [../docs/CLOCKS.md](../docs/CLOCKS.md).
 - Run: `scripts/clock_calc.py decode <md.l dump>` (same decode as U-Boot `clocks`), `cpu-table`, `mem-table`, `cpu <MHz>` (`0xbb00e208/e210` values, VCO kept in 2400-3200 MHz), `dtr <MHz> [--die-mbit 4096]` (DTR0-2 from the stock bins), `ddr-bin <MHz>...` (675-800: PLL, DTR0-2, MR0/MR2 from the DRAM datasheet + SDK formulas; prints the C rows), `mr <DTR0 hex>` (MR words the stock SPL derives).
 - Log: `tmp/logs/clock_calc.log`.
+
+### build_openwrt.py
+- Purpose: local OpenWrt main buildroot (`tmp/openwrt-build`, realtek/rtl930x, TL-ST1008F v2 only) with our kernel work: `--kernel 6.18` = OpenWrt kernel + backports (`openwrt/backport-6.18/`), `--kernel 7.3` = our mainline port as OpenWrt testing kernel (`openwrt/kernel-7.3/`) (#73).
+- Run via `./dev.py build-openwrt [--kernel 6.18|7.3] [--kernel-only] [--jobs N] [--update] [--no-overlay] [--prepare-only]`.
+- Output: `tmp/tftp/openwrt-ours[-6.18]-initramfs.bin` (Realtek magic) + `-std.bin`. Log: `tmp/logs/build_openwrt.log`, make output `tmp/logs/build_openwrt-make.log`.
+- Notes: nice 19 / ionice idle, -j8; aborts below 4 GB free (before each phase + every 30 s in make) with a #73 comment. Docs: [../docs/OPENWRT-BUILD.md](../docs/OPENWRT-BUILD.md).
 
 ## Repo maintenance
 

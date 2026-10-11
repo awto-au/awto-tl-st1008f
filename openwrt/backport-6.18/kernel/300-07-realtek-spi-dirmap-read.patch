@@ -1,0 +1,274 @@
+From: Dan <dan@awto.au>
+Subject: [PATCH] spi: realtek-rtl: spi-mem dirmap reads through the flash window
+
+The controller maps the flash read-only at a memory window; the
+bootloader programs its read mode in SFCR2 (RTL930x stock: 0xBB Dual
+I/O, 4-byte address). Reads through the driver are PIO, 1 bit, one
+SFCSR write + RDY poll + SFDR read per 4 bytes.
+
+- Optional second reg "dirmap" = the window. Present -> spi-mem
+  dirmap_create/dirmap_read; writes, erase and other ops stay on PIO.
+- dirmap_create accepts 1-1-1 read templates with 4-byte addresses that
+  fit the window, then self-checks: 64 B by PIO == 64 B via the window,
+  at offset 0 and at half the length. Mismatch -> -EOPNOTSUPP, spi-mem
+  falls back to exec_op (PIO).
+- dirmap_read: CS0/CS1 high, then memcpy from the window. Cached mapping
+  by default, invalidated per read so PIO program/erase cannot leave
+  stale lines.
+- Module parameter dirmap (0644, read per call): 0 = PIO, 1 = uncached
+  window, 2 = cached window (default). For A/B checks at runtime.
+- New PIO helper waits on RDY with a bounded timeout (logs limit and
+  elapsed).
+
+--- a/Documentation/devicetree/bindings/spi/realtek,rtl-spi.yaml
++++ b/Documentation/devicetree/bindings/spi/realtek,rtl-spi.yaml
+@@ -23,7 +23,16 @@
+       - realtek,rtl8393-spi
+ 
+   reg:
+-    maxItems: 1
++    minItems: 1
++    items:
++      - description: controller registers
++      - description: memory-mapped flash read window (spi-mem dirmap)
++
++  reg-names:
++    minItems: 1
++    items:
++      - const: regs
++      - const: dirmap
+ 
+ required:
+   - compatible
+--- a/drivers/spi/spi-realtek-rtl.c
++++ b/drivers/spi/spi-realtek-rtl.c
+@@ -1,19 +1,35 @@
+ // SPDX-License-Identifier: GPL-2.0-only
+ 
++#include <linux/io.h>
++#include <linux/ktime.h>
+ #include <linux/module.h>
+ #include <linux/platform_device.h>
+ #include <linux/mod_devicetable.h>
+ #include <linux/spi/spi.h>
++#include <linux/spi/spi-mem.h>
++#include <linux/unaligned.h>
+ 
+ struct rtspi {
+ 	void __iomem *base;
++	struct device *dev;
++	void __iomem *win_uc;	/* memory-mapped read window ("dirmap" reg), uncached */
++	void *win_wb;		/* same window, cached */
++	resource_size_t win_size;
+ };
+ 
++/* Flash reads through spi-mem dirmap; read on every call, so it can be flipped at runtime */
++static int dirmap = 2;
++module_param(dirmap, int, 0644);
++MODULE_PARM_DESC(dirmap, "flash reads: 0 = PIO, 1 = mmio window uncached, 2 = mmio window cached");
++
+ /* SPI Flash Configuration Register */
+ #define RTL_SPI_SFCR			0x00
+ #define RTL_SPI_SFCR_RBO		BIT(28)
+ #define RTL_SPI_SFCR_WBO		BIT(27)
+ 
++/* SPI Flash Configuration Register 2: mmio window read mode, set by the bootloader */
++#define RTL_SPI_SFCR2			0x04
++
+ /* SPI Flash Control and Status Register */
+ #define RTL_SPI_SFCSR			0x08
+ #define RTL_SPI_SFCSR_CSB0		BIT(31)
+@@ -143,6 +159,161 @@
+ 	return 0;
+ }
+ 
++/*
++ * RDY wait per word: 32 SCK at the slowest divider (NOR 153 MHz / 16 = 9.6 MHz, 3.3 us) x1.25
++ * = 4.2 us, rounded to 5. Expiry logs limit + elapsed and fails the read with -ETIMEDOUT.
++ */
++#define RTL_SPI_RDY_TIMEOUT_NS		(5 * NSEC_PER_USEC)
++
++static int rtspi_wait(struct rtspi *rtspi)
++{
++	u64 t0 = ktime_get_ns(), dt;
++
++	while (!(__raw_readl(REG(RTL_SPI_SFCSR)) & RTL_SPI_SFCSR_RDY)) {
++		dt = ktime_get_ns() - t0;
++		if (dt > RTL_SPI_RDY_TIMEOUT_NS) {
++			if (__raw_readl(REG(RTL_SPI_SFCSR)) & RTL_SPI_SFCSR_RDY)
++				return 0;	/* preempted by an IRQ, not a stuck controller */
++			dev_err_ratelimited(rtspi->dev, "RDY timeout: limit %llu ns, elapsed %llu ns\n",
++					    (u64)RTL_SPI_RDY_TIMEOUT_NS, dt);
++			return -ETIMEDOUT;
++		}
++		cpu_relax();
++	}
++	return 0;
++}
++
++static void rtspi_cs(struct rtspi *rtspi, bool assert)
++{
++	u32 v = __raw_readl(REG(RTL_SPI_SFCSR)) | RTL_SPI_SFCSR_CSB1;
++
++	__raw_writel(assert ? v & ~RTL_SPI_SFCSR_CSB0 : v | RTL_SPI_SFCSR_CSB0, REG(RTL_SPI_SFCSR));
++}
++
++/* One read op by PIO (1-1-1), for the dirmap self-check and dirmap=0 */
++static int rtspi_pio_read(struct rtspi *rtspi, const struct spi_mem_op *op, u32 addr,
++			  u8 *buf, size_t len)
++{
++	u8 hdr[1 + 4 + 4];
++	int n = 0, i, ret;
++
++	hdr[n++] = op->cmd.opcode;
++	for (i = op->addr.nbytes - 1; i >= 0; i--)
++		hdr[n++] = addr >> (8 * i);
++	for (i = 0; i < op->dummy.nbytes; i++)
++		hdr[n++] = 0xff;
++
++	ret = rtspi_wait(rtspi);
++	if (ret)
++		return ret;
++	rtspi_cs(rtspi, true);
++	for (i = 0; i < n && !ret; i++) {
++		ret = rtspi_wait(rtspi);
++		if (!ret) {
++			set_size(rtspi, 1);
++			__raw_writel((u32)hdr[i] << 24, REG(RTL_SPI_SFDR));
++		}
++	}
++	while (len && !ret) {
++		ret = rtspi_wait(rtspi);
++		if (ret)
++			break;
++		if (len >= 4) {
++			set_size(rtspi, 4);
++			put_unaligned_be32(__raw_readl(REG(RTL_SPI_SFDR)), buf);
++			buf += 4;
++			len -= 4;
++		} else {
++			set_size(rtspi, 1);
++			*buf++ = __raw_readl(REG(RTL_SPI_SFDR)) >> 24;
++			len--;
++		}
++	}
++	if (!ret)
++		ret = rtspi_wait(rtspi);
++	rtspi_cs(rtspi, false);
++	return ret;
++}
++
++/* The window reads in the bootloader's SFCR2 mode; PIO must be idle with CS0/CS1 high */
++static int rtspi_mmio_read(struct rtspi *rtspi, u32 addr, void *buf, size_t len, bool cached)
++{
++	int ret = rtspi_wait(rtspi);
++
++	if (ret)
++		return ret;
++	rtspi_cs(rtspi, false);
++	if (cached) {
++		/* flash may have changed under the cache (PIO program/erase): drop stale lines */
++		dma_cache_inv((unsigned long)rtspi->win_wb + addr, len);
++		memcpy(buf, rtspi->win_wb + addr, len);
++	} else {
++		memcpy_fromio(buf, rtspi->win_uc + addr, len);
++	}
++	return 0;
++}
++
++static int rtspi_dirmap_create(struct spi_mem_dirmap_desc *desc)
++{
++	struct rtspi *rtspi = spi_controller_get_devdata(desc->mem->spi->controller);
++	const struct spi_mem_op *op = &desc->info.op_tmpl;
++	u64 offs[] = { 0, desc->info.length / 2 };
++	u8 pio[64], mmio[64];
++	int i, ret;
++
++	/* the window and rtspi_cs() are CS0 only (040 added a second CS) */
++	if (!rtspi->win_uc || op->data.dir != SPI_MEM_DATA_IN ||
++	    spi_get_chipselect(desc->mem->spi, 0) != 0)
++		return -EOPNOTSUPP;
++	/* the window sends 4 address bytes (SFCR2 bit 9): only valid if the op does too */
++	if (op->cmd.nbytes != 1 || op->addr.nbytes != 4 || op->dummy.nbytes > 4 ||
++	    op->cmd.buswidth != 1 || op->addr.buswidth != 1 || op->data.buswidth != 1 ||
++	    (op->dummy.nbytes && op->dummy.buswidth != 1) || op->cmd.dtr || op->addr.dtr ||
++	    op->dummy.dtr || op->data.dtr)
++		return -EOPNOTSUPP;
++	if (desc->info.offset + desc->info.length > rtspi->win_size)
++		return -EOPNOTSUPP;
++
++	/* self-check: window == PIO at the start and in the upper half (4-byte addressing) */
++	for (i = 0; i < ARRAY_SIZE(offs); i++) {
++		u32 a = desc->info.offset + offs[i];
++
++		ret = rtspi_pio_read(rtspi, op, a, pio, sizeof(pio));
++		if (!ret)
++			ret = rtspi_mmio_read(rtspi, a, mmio, sizeof(mmio), false);
++		if (ret)
++			return ret;
++		if (memcmp(pio, mmio, sizeof(pio))) {
++			dev_warn(rtspi->dev, "dirmap: window != PIO at 0x%x (SFCR2 0x%08x), using PIO\n",
++				 a, __raw_readl(REG(RTL_SPI_SFCR2)));
++			return -EOPNOTSUPP;
++		}
++	}
++	dev_info(rtspi->dev, "dirmap: 0x%llx+0x%llx via window, SFCR2 0x%08x, op 0x%02x, mode %d\n",
++		 desc->info.offset, desc->info.length, __raw_readl(REG(RTL_SPI_SFCR2)),
++		 op->cmd.opcode, READ_ONCE(dirmap));
++	return 0;
++}
++
++static ssize_t rtspi_dirmap_read(struct spi_mem_dirmap_desc *desc, u64 offs, size_t len,
++				 void *buf)
++{
++	struct rtspi *rtspi = spi_controller_get_devdata(desc->mem->spi->controller);
++	u32 addr = desc->info.offset + offs;
++	int mode = READ_ONCE(dirmap), ret;
++
++	if (mode <= 0)
++		ret = rtspi_pio_read(rtspi, &desc->info.op_tmpl, addr, buf, len);
++	else
++		ret = rtspi_mmio_read(rtspi, addr, buf, len, mode >= 2 && rtspi->win_wb);
++	return ret ?: len;
++}
++
++static const struct spi_controller_mem_ops rtspi_mem_ops = {
++	.dirmap_create = rtspi_dirmap_create,
++	.dirmap_read = rtspi_dirmap_read,
++};
++
+ static void init_hw(struct rtspi *rtspi)
+ {
+ 	u32 value;
+@@ -162,6 +333,7 @@
+ {
+ 	struct spi_controller *ctrl;
+ 	struct rtspi *rtspi;
++	struct resource *res;
+ 	int err;
+ 
+ 	ctrl = devm_spi_alloc_host(&pdev->dev, sizeof(*rtspi));
+@@ -178,6 +350,23 @@
+ 		return -ENOMEM;
+ 	}
+ 
++	rtspi->dev = &pdev->dev;
++
++	/* optional flash read window: spi-mem dirmap reads; writes/erase stay on PIO */
++	res = platform_get_resource_byname(pdev, IORESOURCE_MEM, "dirmap");
++	if (res) {
++		rtspi->win_uc = devm_ioremap_resource(&pdev->dev, res);
++		if (IS_ERR(rtspi->win_uc))
++			return PTR_ERR(rtspi->win_uc);
++		rtspi->win_size = resource_size(res);
++		rtspi->win_wb = devm_memremap(&pdev->dev, res->start, rtspi->win_size, MEMREMAP_WB);
++		if (IS_ERR(rtspi->win_wb)) {
++			dev_warn(&pdev->dev, "dirmap: no cached mapping, uncached only\n");
++			rtspi->win_wb = NULL;
++		}
++		ctrl->mem_ops = &rtspi_mem_ops;
++	}
++
+ 	init_hw(rtspi);
+ 
+ 	ctrl->dev.of_node = pdev->dev.of_node;

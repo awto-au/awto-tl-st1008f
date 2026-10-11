@@ -5,7 +5,8 @@
   wait for the daemon's autoboot catch → `rtk network on` (waits for its end marker) → light one
   cage → TFTP (verifies byte count) → `go`/`bootm` → capture until a done marker → boot_log_check.
 - Every wait expects a console marker with a stated cap; expiry logs what was waited for.
-- Images: `uboot-mainline` (go 0x81000000), `openwrt` (bootm 0x84f00000), `mainline-kernel` (bootm;
+- Images: `uboot-mainline` (go 0x81000000), `openwrt` / `openwrt-ours[-6.18]` (bootm 0x84f00000, bridge STP
+  forced on), `mainline-kernel` (bootm;
   done = initramfs BusyBox prompt `st1008f-linux # `, scripts/mainline_initramfs.py).
 - Log: tmp/logs/st1008_ramload.log. Read-only on flash: no saveenv/sf/upgrade ever sent.
 """
@@ -45,6 +46,11 @@ IMAGES = {
     # mainline kernel reached its VFS panic <3 s (pre-initramfs). Each cap ≈ 1.25x measured + margin.
     "uboot-mainline": ("uboot-mainline.bin", 0x81000000, "go", r"st1008f-mainline #", 5),
     "openwrt": ("openwrt-initramfs.bin", 0x84f00000, "bootm", r"Please press Enter to activate", 40),
+    # local OpenWrt main builds (scripts/build_openwrt.py, #73): ours = 7.3 kernel, -6.18 = OpenWrt kernel
+    # + backports. Same STP enforcement as `openwrt`.
+    "openwrt-ours": ("openwrt-ours-initramfs.bin", 0x84f00000, "bootm", r"Please press Enter to activate", 40),
+    "openwrt-ours-6.18": ("openwrt-ours-6.18-initramfs.bin", 0x84f00000, "bootm",
+                          r"Please press Enter to activate", 40),
     "mainline-kernel": ("mainline.bin", 0x84f00000, "bootm",
                         r"st1008f-linux # ", 10),
 }
@@ -312,7 +318,7 @@ def main() -> int:
                     help="uboot-mainline: keep stock CPU 800 MHz + SPI 25.5 MHz (default: 1 GHz + SPI 122.5 MHz)")
     ap.add_argument("--spi", metavar="D:CODE",
                     help="with --then: SPI before bootm, SFCR D (0 = /2) and NOR code e220[16:13] (6 = stock)")
-    ap.add_argument("--then", choices=["openwrt", "mainline-kernel"],
+    ap.add_argument("--then", choices=["openwrt", "openwrt-ours", "openwrt-ours-6.18", "mainline-kernel"],
                     help="uboot-mainline: also TFTP that image (std magic) to 0x84f00000, bootm it from ours "
                          "(after `clocks fast`)")
     ap.add_argument("--cpu", metavar="E208",
@@ -355,7 +361,7 @@ def main() -> int:
         openwrt_stp(con)
         return 0
     con.run(f"{start} 0x{addr:08x}", done, cap, f"{a.image} running")
-    if a.image == "openwrt":
+    if a.image.startswith("openwrt"):
         openwrt_stp(con)
     r = subprocess.run([sys.executable, str(ROOT / "scripts/boot_log_check.py"), "--boot", "-1"],
                        capture_output=True, text=True, timeout=30)  # local file scan, <2 s
@@ -370,7 +376,7 @@ def main() -> int:
     if a.then:
         ow = IMAGES[a.then]
         con.run(f"bootm 0x{ow[1]:08x}", ow[3], ow[4], f"{a.then} via mainline bootm")
-        if a.then == "openwrt":
+        if a.then.startswith("openwrt"):
             openwrt_stp(con)
         r = subprocess.run([sys.executable, str(ROOT / "scripts/boot_log_check.py"), "--boot", "-1"],
                            capture_output=True, text=True, timeout=30)  # local file scan, <2 s
