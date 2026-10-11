@@ -293,8 +293,10 @@ sit: IPv6, IPv4 and MPLS over IPv4 tunneling driver  # IPv6 core (#16)
 thermal_sys: Registered thermal governor 'step_wise'  # thermal core (#16)
 pktgen: Packet Generator for packet performance testing\. Version: 2\.75  # NET_PKTGEN for nat-bench pktgen (#65)
 Kernel command line: earlycon  # DTS bootargs
-Performance counters: mips/34K PMU enabled, 2 32-bit counters available to each CPU, irq 7  # 34K PMU (#67)
-RCU Tasks Rude: Setting shift to 0 and lim to 1 rcu_task_cb_adjust=1 rcu_task_cpu_ids=1\.  # RCU tasks (ftrace) init
+Performance counters: mips/34K PMU enabled, [12] 32-bit counters available to each CPU, irq 7  # 34K PMU (#67); SMP: 1 per VPE
+RCU Tasks Rude: Setting shift to [01] and lim to 1 rcu_task_cb_adjust=1 rcu_task_cpu_ids=[12]\.  # RCU tasks (ftrace) init; UP / SMP
+\s+Rude variant of Tasks RCU enabled\.  # RCU tasks (ftrace), SMP build
+\s+Tracing variant of Tasks RCU enabled\.  # RCU tasks (ftrace), SMP build
 ftrace: allocat(ing \d+ entries|ed \d+ pages with \d+ groups)( in \d+ pages)?  # ftrace init (#67)
 printk: console \[ttyS0\] disabled  # earlycon -> ttyS0 hand-over
 process '/bin/busybox' started with executable stack  # BusyBox 1.31 binary (sources/busybox) has PT_GNU_STACK RWX
