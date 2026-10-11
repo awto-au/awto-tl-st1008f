@@ -402,6 +402,28 @@ timerlat per CPU, 10 s idle / 12 s under nic-bench tcp-P4. irqsoff = max IRQs-of
 - SMP idle IRQ latency is about 2x UP (two VPEs share one pipeline).
 - irqsoff worst: `__schedule`->`finish_task_switch` (rcu_sched, idle) and `_raw_spin_lock_irqsave` in ksoftirqd (load).
 
+## 10. Build settings vs the CPU (#27)
+
+CPU = MIPS 34Kc, 1 core / 2 VPEs. CP0 values: [HARDWARE-INVENTORY.md](HARDWARE-INVENTORY.md), [CLOCKS.md](CLOCKS.md).
+
+| Setting | OpenWrt 6.18 | Ours (7.3) |
+|---|---|---|
+| Userspace tune | `CPU_TYPE:=24kc` | OpenWrt packages (`mips_24kc`) |
+| Kernel tune | `-march=mips32r2 -mtune=24kc` | `32r2` arch |
+| `NR_CPUS` | 2 | 2 (SMP default) |
+| RAM | 512 MiB, HIGHMEM | 512 MiB, HIGHMEM + `300-13` |
+| L2 probe | `MIPS_CPU_SCACHE=y` | not selected |
+
+- No L2 (Config2 `0x80000000`): OpenWrt's `MIPS_CPU_SCACHE` probe finds nothing; not selecting it costs nothing.
+- Caches and prediction already optimal: Config `0x80248483` K0 = 3 (cacheable non-coherent, write-back, write-allocate), MM = 2 (write merging); Config7 `0x80090400` = WII, AR (D-cache alias removed in HW), IAR (I-cache alias removed); RPS / BP bits clear = branch and return prediction on.
+- DSP ASE rev 1 only (Config3 DSPP = 1, DSP2P = 0): `-mdsp` possible, `-mdspr2` not.
+- No FPU (Config1 FP = 0): soft-float userspace is right.
+- Kernel tune: OpenWrt's generic Makefile forces `-mtune=24kc` for every MIPS32r2; `308-tune-switch-4kec.patch` retunes RTL838x only. A same-shape patch could set `-mtune=34kc` for RTL930x; gain expected small, not measured.
+- Userspace `CPU_TYPE:=34kc` rebuild: not measured.
+- HIGHMEM cost and `300-13` fix: [NAT.md](NAT.md) "HIGHMEM and 512 MiB". Decision: keep HIGHMEM (512 MiB) ([DECISIONS.md](DECISIONS.md)).
+- 512 MiB verified 2026-10-12: MemTotal 508264 kB (HighTotal 262144, LowTotal 246120); `./dev.py mem-stress` (tmpfs of MemFree − 48 MiB, 26 copies of a 16 MiB urandom seed = 432 MiB, HighFree → 784 kB, md5 every copy, 2 passes) 0 bad, no Oops/OOM, on 2 boots; `--no-highmem` kernel MemTotal 245976 kB.
+- `page_pool` allocations are `GFP_ATOMIC` (no `__GFP_HIGHMEM`) and slab is lowmem: every NIC buffer is lowmem, no driver change needed.
+
 ### Parked 300-14 (both-ring doorbell + TX NAPI) on SMP, 2026-10-12
 Same conditions as above, 300-18, eth0 on CPU1, one run each. 300-14 stays parked: it lowers throughput.
 
