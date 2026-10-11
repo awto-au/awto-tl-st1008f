@@ -175,7 +175,7 @@ Code `rtk_net.c` (media choice `rtk_sfpmode.c`). Sources: stock loader [BIN] (`t
 
 ### Stock switch init: what `rtk network on` writes (#80)
 
-Source: SDK `dal_construct.c`, `dal_longan_mapper.c`, `rtk/init.c` (bootloader build), matched to the stock banner steps. Static only.
+Source: SDK `dal_construct.c`, `dal_longan_mapper.c`, `rtk/init.c` (bootloader build; read 2026-10-12 in the rtk-dms1250 drop, SDK 3.8; stock runs 3.6.6), matched to the stock banner steps. Static only: no on-board result yet (reg-diff + per-row verdict pending).
 
 - `Chip Construct` = `dal_longan_construct_default_init`: SMI poll select, auto-recover triggers, egress rate/burst, QoS CPU-queue map, flow-control thresholds (8XG column), IPMC/L3 exception actions, ACL lookup, trunk, VLAN CPU-port ingress filter + PVID format, L2 learning/notify, PPPoE parse, chip/watchdog reset enables.
 - `Mgmt_dev init` = `dal_longan_init` built with `__BOOTLOADER__`: `sds_init` (RAM only), `phy_init`, `flowctrl_init` (no writes), `port_init`, `l2_init`, `eee_init`, `trunk_init` (no writes), `stack_init`. Writes: CPU port id; port isolation all-to-all; unknown-UC and broadcast flood masks = cage ports + CPU; EEE off; stack defaults.
