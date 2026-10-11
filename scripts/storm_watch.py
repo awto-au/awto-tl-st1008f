@@ -1,7 +1,9 @@
 #!/usr/bin/env python3
 """storm_watch — detect a broadcast storm on a host NIC and cut the switch's power relay.
 
-- Samples `ethtool -S <nic>` rx_multicast_packets + rx_broadcast_packets every 0.5 s.
+- Started automatically by ./dev.py (`--guard`, singleton) for every hardware command; exits 10 min
+  after the last dev.py. Agents never start it by hand.
+- Samples rx_multicast_packets + rx_broadcast_packets every 1 s via the ethtool ioctl (no subprocess).
 - Baseline = mean rate over the first 3 s (switch must not be storming yet).
 - Trip: rate > max(--abs-pps, 20 x baseline) on 2 consecutive samples → kill: console takes every
   lan* port down, then relay off retried until it confirms. Unicast (iperf) is ignored.
@@ -10,7 +12,11 @@
 """
 
 import argparse
-import subprocess
+import array
+import fcntl
+import os
+import socket
+import struct
 import urllib.request
 import sys
 import time
@@ -18,7 +24,7 @@ from pathlib import Path
 
 ROOT = Path(__file__).resolve().parent.parent
 LOG = ROOT / "tmp/logs/storm_watch.log"
-SAMPLE_S = 0.5  # detection latency ≈ 2 samples = 1 s
+SAMPLE_S = 1.0  # 2 samples over the limit = 2 s; a loop here ramps over tens of seconds (#19)
 BASELINE_S = 3.0
 RELAY = "http://192.168.25.138/switch/relay"  # same relay as scripts/switch_power.py
 
@@ -31,15 +37,34 @@ def log(msg: str) -> None:
         fh.write(line + "\n")
 
 
-def bcast_mcast(nic: str) -> int:
-    out = subprocess.run(["ethtool", "-S", nic], capture_output=True, text=True,
-                         timeout=2).stdout  # ethtool is local + instant; 2 s names a hang
-    tot = 0
-    for line in out.splitlines():
-        k, _, v = line.strip().partition(":")
-        if k in ("rx_multicast_packets", "rx_broadcast_packets"):
-            tot += int(v)
-    return tot
+class NicStats:
+    """rx bcast+mcast via the ETHTOOL_GSTATS ioctl (no subprocess); sysfs 'multicast' omits
+    broadcast on mlx4_en, so it can't see a broadcast storm."""
+
+    GSSET_INFO, GSTRINGS, GSTATS, SS_STATS, SIOCETHTOOL = 0x37, 0x1B, 0x1D, 1, 0x8946
+    WANT = ("rx_multicast_packets", "rx_broadcast_packets")
+
+    def __init__(self, nic: str):
+        self.nic, self.sock = nic.encode(), socket.socket(socket.AF_INET, socket.SOCK_DGRAM)
+        info = bytearray(struct.pack("IIQI", self.GSSET_INFO, 0, 1 << self.SS_STATS, 0))
+        self._ioctl(info)
+        self.n = struct.unpack_from("I", info, 16)[0]
+        names = bytearray(struct.pack("III", self.GSTRINGS, self.SS_STATS, self.n) + bytes(32 * self.n))
+        self._ioctl(names)
+        keys = [names[12 + 32 * i:44 + 32 * i].split(b"\0")[0].decode() for i in range(self.n)]
+        self.idx = [keys.index(k) for k in self.WANT]
+
+    def _ioctl(self, buf: bytearray) -> None:
+        ptr = array.array("B", buf)
+        ifr = struct.pack("16sP", self.nic, ptr.buffer_info()[0])
+        fcntl.ioctl(self.sock.fileno(), self.SIOCETHTOOL, ifr)
+        buf[:] = ptr.tobytes()
+
+    def read(self) -> int:
+        buf = bytearray(struct.pack("II", self.GSTATS, self.n) + bytes(8 * self.n))
+        self._ioctl(buf)
+        vals = struct.unpack_from(f"{self.n}Q", buf, 8)
+        return sum(vals[i] for i in self.idx)
 
 
 KILL_PORTS = "for p in /sys/class/net/lan*; do ip link set ${p##*/} down; done"
@@ -71,6 +96,22 @@ def kill() -> bool:
     return False
 
 
+GUARD_LOCK = ROOT / "tmp/storm_guard.lock"
+GUARD_IDLE_S = 600  # keep watching 10 min after the last dev.py exits (board may still forward)
+
+
+def devpy_running() -> bool:
+    """Any ./dev.py process alive? /proc scan, cheap at the 10 s guard check rate."""
+    for pid in os.listdir("/proc"):
+        if pid.isdigit():
+            try:
+                if b"dev.py" in Path(f"/proc/{pid}/cmdline").read_bytes():
+                    return True
+            except OSError:
+                continue
+    return False
+
+
 def main() -> int:
     ap = argparse.ArgumentParser(description=__doc__.splitlines()[0])
     ap.add_argument("--nic", default="enp7s0")
@@ -80,25 +121,44 @@ def main() -> int:
     ap.add_argument("--duration", type=float, default=900, help="watch window, seconds")
     ap.add_argument("--observe", action="store_true", help="measure the storm before cutting")
     ap.add_argument("--hold", type=float, default=3.0, help="--observe: seconds of storm before cut")
+    ap.add_argument("--guard", action="store_true",
+                    help="singleton started by dev.py; runs until 10 min after the last dev.py exits")
     a = ap.parse_args()
 
-    log(f"=== start nic={a.nic} abs={a.abs_pps} duration={a.duration}s observe={a.observe}")
+    if a.guard:  # one guard at a time: hold an exclusive lock for our lifetime
+        GUARD_LOCK.parent.mkdir(parents=True, exist_ok=True)
+        lock = GUARD_LOCK.open("w")
+        try:
+            fcntl.flock(lock, fcntl.LOCK_EX | fcntl.LOCK_NB)
+        except BlockingIOError:
+            return 0
+    stats = NicStats(a.nic)
+    log(f"=== start nic={a.nic} abs={a.abs_pps} {'guard' if a.guard else f'duration={a.duration}s'} "
+        f"observe={a.observe}")
     t0 = time.monotonic()
-    prev, prev_t = bcast_mcast(a.nic), t0
+    prev, prev_t = stats.read(), t0
     rates: list[float] = []
     while time.monotonic() - t0 < BASELINE_S:
         time.sleep(SAMPLE_S)
-        cur, now = bcast_mcast(a.nic), time.monotonic()
+        cur, now = stats.read(), time.monotonic()
         rates.append((cur - prev) / (now - prev_t))
         prev, prev_t = cur, now
     base = sum(rates) / len(rates)
     limit = max(a.abs_pps, 20 * base)
     log(f"baseline {base:.0f} pps -> trip at {limit:.0f} pps; ARMED")
 
-    over, storm_start, peak = 0, None, 0.0
-    while time.monotonic() - t0 < a.duration:
+    over, storm_start, peak, pps = 0, None, 0.0, 0.0
+    last_busy, next_check = time.monotonic(), 0.0
+    while a.guard or time.monotonic() - t0 < a.duration:
         time.sleep(SAMPLE_S)
-        cur, now = bcast_mcast(a.nic), time.monotonic()
+        if a.guard and time.monotonic() >= next_check:
+            next_check = time.monotonic() + 10
+            if devpy_running():
+                last_busy = time.monotonic()
+            elif time.monotonic() - last_busy > GUARD_IDLE_S:
+                log(f"=== guard idle {GUARD_IDLE_S}s after last dev.py, no storm (last {pps:.0f} pps)")
+                return 0
+        cur, now = stats.read(), time.monotonic()
         pps = (cur - prev) / (now - prev_t)
         prev, prev_t = cur, now
         over = over + 1 if pps > limit else 0

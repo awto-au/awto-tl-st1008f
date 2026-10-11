@@ -79,7 +79,7 @@ def _script(rel: str, extra: list[str], sudo: bool = False) -> int:
 
 # ---- hardware: power, console, RAM loads ---------------------------------
 @command("RAM-load and run an image from stock U-Boot, then check the boot log",
-         args="uboot-mainline|openwrt|mainline-kernel|stock [--cage N] [--no-cycle] [--no-network]",
+         args="uboot-mainline|openwrt|openwrt-ours|openwrt-ours-6.18|mainline-kernel|stock [--cage N] [--no-cycle] [--no-network]",
          kind="hardware")
 def cmd_ramload(extra: list[str]) -> int:
     return _script("st1008_ramload.py", extra)
@@ -328,6 +328,13 @@ def cmd_build_kernel(extra: list[str]) -> int:
                    str(b / "arch/mips/boot/dts/realtek/tplink-tl-st1008f-v2.dtb")])
 
 
+@command("local OpenWrt main buildroot (rtl930x, TL-ST1008F v2): 6.18 + backports or our 7.3 port -> tmp/tftp/openwrt-ours*.bin (#73)",
+         args="[--kernel 6.18|7.3] [--kernel-only] [--jobs N] [--update] [--no-overlay]  (docs/OPENWRT-BUILD.md)",
+         kind="build")
+def cmd_build_openwrt(extra: list[str]) -> int:
+    return _script("build_openwrt.py", extra)
+
+
 # ---- checks ----------------------------------------------------------------
 @command("strict allowlist check of the console boot log", args="[--boot -1|--all] [--from-line N]",
          kind="check")
@@ -393,7 +400,16 @@ def main(argv: list[str] | None = None) -> int:
     if any(a in ("-h", "--help") for a in extra):  # never run a command when asked for help
         print(f"./dev.py {name}{' ' + meta['args'] if meta['args'] else ''}\n\n{meta['summary']}")
         return 0
+    if meta["kind"] == "hardware" and name != "storm-watch":
+        _storm_guard()
     return meta["fn"](extra)
+
+
+def _storm_guard() -> None:
+    """Loop guard (#19, 2026-10-10 storm): one detached storm_watch --guard; no-op if running."""
+    subprocess.Popen([sys.executable, str(SCRIPTS / "storm_watch.py"), "--guard"], cwd=REPO,
+                     stdout=subprocess.DEVNULL, stderr=(LOGS / "storm_watch.log").open("a"),
+                     start_new_session=True)
 
 
 if __name__ == "__main__":
