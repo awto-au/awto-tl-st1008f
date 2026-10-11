@@ -246,6 +246,12 @@ def cmd_reg_diff(extra: list[str]) -> int:
     return _script("reg_diff.py", extra)
 
 
+@command("read-only presence probes of every RTL9303 block at the U-Boot prompt (#62, docs/HARDWARE-INVENTORY.md)",
+         args="[--label L] [--gated]  (--gated also reads IP blocks whose enable bit is 0: may hang)", kind="check")
+def cmd_hw_probe(extra: list[str]) -> int:
+    return _script("hw_probe.py", extra)
+
+
 @command("run the rtk command list on stock and on our U-Boot, diff (see scripts/rtk_parity.py)",
          args="capture --side stock|ours | compare | both [--state] [--slow]", kind="check")
 def cmd_rtk_parity(extra: list[str]) -> int:

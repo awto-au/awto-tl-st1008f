@@ -172,6 +172,15 @@ End-to-end workflow: [../README.md#workflow](../README.md#workflow).
 - `boot`: owner sets the switch first; power-cycle with the saved chain. M1 -> flash OpenWrt (STP set); M2/M3 -> our prompt, `boot_mode=Mx`.
 - Timeout: 180 s per owner move (request is relayed through chat). Log: `tmp/logs/mode_switch_map.log`.
 
+### hw_probe.py
+
+- Read-only presence probes of the RTL9303 blocks in [../docs/HARDWARE-INVENTORY.md](../docs/HARDWARE-INVENTORY.md) (#62): `md.l` of ID/ctrl registers only.
+- Run: `./dev.py hw-probe [--label L] [--gated]` at our prompt (stock `RTL9300#` also works). Order: SoC core, switch core, then gated IP blocks (GDMA, crypto, SPI-NAND/ECC) only if their enable bit is set, or all with `--gated` (a read of a clock-gated block may hang: SPEC).
+- SRAM data at `0xbf000000` read only while `CPU_SRAM_SEG0` holds the stock window (`0x1f000001`; `highmem map` clears it).
+- Skipped: UART RBR/IIR/LSR/MSR, SPI SFDR (read side effects), status/W1C, MIB counters, latched link bits; list printed at the end.
+- Timeout: 1 s per `md.l` (≤ 24 words ≈ 40 ms at 115200); a timeout or exception banner stops the run (console state unknown; recover with `./dev.py stock`).
+- Output: Markdown table, `tmp/hw_probe-<label>.json` (saved per probe). Log: `tmp/logs/hw_probe.log`.
+
 ### sfp_decode_host_test.py
 
 - Builds the U-Boot SFP decoder (`uboot-port/board/tplink/tl-st1008f/sfp/`) on the host with shim headers.
