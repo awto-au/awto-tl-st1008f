@@ -164,6 +164,25 @@ End-to-end workflow: [../README.md#workflow](../README.md#workflow).
 - Purpose: RTL9300 (longan) register offsets and field layouts from the GPL SDK tables (`rtk_longan_reg_list.c`, `rtk_longan_regField_list.c`). Also decodes a read value into fields. Feeds `docs/DATASHEET-AUDIT.md`.
 - Run: `scripts/sdk_regdump.py '<name regex>' [--decode NAME=0xVALUE] [--fetch]`. The first run fetches the tables with `gh api` into `tmp/datasheet-audit/sdk/longan/`. Log: `tmp/logs/sdk_regdump.log`.
 
+### tplink_ow_unpack.py
+- Purpose: unpack a TP-Link `OW`-magic web asset bundle (`usrImage/data/webImage.z`, LZMA-alone wrapped). Format in the docstring and `docs/MANAGED-FEATURES.md`.
+- Run: `python3 -I scripts/tplink_ow_unpack.py <webImage.z|webImage.decoded> private/china/st5008f-v2-extracted/web [--list]`
+- Output: files under `<out>/rc_filesys/doc/` + `manifest.json`. Log: `tmp/logs/tplink_ow_unpack.log`.
+
+### tplink_webui_inventory.py
+- Purpose: menu → page → fields/columns → TDCP API → backend handler for the vendor Vue UI (#79).
+- Run: `python3 -I scripts/tplink_webui_inventory.py <web> <rootfs/usrImage> --out <inventory dir>`
+- Output: `webui.json`, `webui.md` (keep under `private/`). Log: `tmp/logs/tplink_webui_inventory.log`.
+
+### tplink_cli_tree.py
+- Purpose: full `cli_server` command tree (modes, params, enum choices, handler symbols, `imi_cli_*` name, backend daemon that registers it) (#79). Needs pyelftools.
+- Run: `python3 -I scripts/tplink_cli_tree.py <usrImage/app/sbin/cli_server> --out <inventory dir>`
+- Output: `cli-tree.json`, `cli-tree.txt`, `cli-groups.json`. Log: `tmp/logs/tplink_cli_tree.log`.
+
+### tplink_feature_areas.py
+- Purpose: roll `webui.json` + `cli-tree.json` up into feature areas (page/field/table/CLI counts) for `docs/MANAGED-FEATURES.md`.
+- Run: `python3 -I scripts/tplink_feature_areas.py --inv <inventory dir>`. Output `areas.json`. Log: `tmp/logs/tplink_feature_areas.log`.
+
 ### ghidra/DumpBytes.java
 - Purpose: print the memory-block map and raw bytes at given addresses of a loaded program (reads initialised `.data`/`.rodata` tables the decompiler shows only as `DAT_`).
 - Run: `analyzeHeadless private/ghidra <proj> -process <bin> -noanalysis -readOnly -postScript DumpBytes.java <out.txt> <addr>:<nbytes> ...`

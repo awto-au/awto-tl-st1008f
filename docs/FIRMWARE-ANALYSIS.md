@@ -140,7 +140,7 @@ No public TL-ST1008F firmware exists on its official download pages. Related off
 | SX v2 | `/`, login module, `./data/login.json` | frontend assets; `auto_login.html` exists |
 | ST5008F v2 | `/web/login`, `/stok=<token>/ds` | httpd strings, Vue frontend |
 
-- Web assets: custom `OW`-magic bundle (ST5008 784 files, SX v2 836).
+- Web assets: custom `OW`-magic bundle (ST5008 784 files, SX v2 836, ST5008F v2 269). Format + full feature inventory: [MANAGED-FEATURES.md](MANAGED-FEATURES.md) (#79).
 - `auto_login` asset name and `cli_consoleLogin` symbol are not authentication bypasses. ST5008F `access_telnet_directly=0` is a setting, not a listener measurement.
 - The stock ST1008F image contains none of `httpd`, `cli_server`, `core`.
 
