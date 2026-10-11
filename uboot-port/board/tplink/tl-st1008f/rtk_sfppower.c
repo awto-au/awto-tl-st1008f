@@ -12,7 +12,7 @@
 #include "rtk.h"
 
 #define BOARD_INPUT_MW	24000	/* PSU 12 V 2 A */
-#define SFP_BUDGET_MW	16000	/* 24 W input - est. 6-8 W board draw (unmeasured, #30) */
+#define SFP_BUDGET_MW	15000	/* (24 W input - 6 W measured board) x ~0.85 regulator, as declared module W (#30) */
 
 /* Copper modules cannot declare > 2.0 W; FS datasheet maxima (sources/README.md). */
 #define CU_1G_MW	1200	/* SFP-GE-T: 350 mA x 3.47 V */

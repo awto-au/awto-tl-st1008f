@@ -52,8 +52,8 @@ SFP power budget (warn only, never blocks a module):
 - Per insert: declared power from ID EEPROM byte 64 (level 1/2/3 =
   1.0/1.5/2.0 W); copper modules raised to a datasheet table (1000BASE-T
   1.2 W, 2.5GBASE-T 2.0 W, 5G/10GBASE-T 3.0 W); unreadable = 1.0 W.
-- Total of all cages vs power_budget_mw (default 16000 = 24 W input
-  minus estimated board draw): dev_warn once when it goes over, info when
+- Total of all cages vs power_budget_mw (default 15000 = (24 W input - 6 W measured
+  board draw) x 0.85 regulator, in declared module W): dev_warn once when it goes over, info when
   back under, info on every change of the total.
 - sysfs (device): power_total_mw, power_cage_mw (8 values),
   power_budget_mw (rw); module param power_budget_mw.
@@ -164,7 +164,7 @@ index 000000000..131e3e101
 +#define ST_CU_10G_MW		3000	/* FS SFP-10G-T-30: 3.0 W max (also 5GBASE-T) */
 +
 +/* 24 W input - est. 6-8 W board draw (unmeasured) */
-+static unsigned int power_budget_mw = 16000;
++static unsigned int power_budget_mw = 15000;
 +module_param(power_budget_mw, uint, 0644);
 +MODULE_PARM_DESC(power_budget_mw, "SFP declared-power budget in mW (warn only)");
 +

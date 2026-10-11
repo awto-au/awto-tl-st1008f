@@ -16,6 +16,8 @@ Narrative & dead ends: see [HISTORY.md](HISTORY.md). Evidence paths under `priva
 - Partition map: [stock-flash-layout.json](stock-flash-layout.json); `flshow` output: [../artifacts/uboot-flshow.txt](../artifacts/uboot-flshow.txt).
 - Board photos: [photos/README.md](photos/README.md).
 
+- **Current (owner, 2026-10-12): only one 10G SR left fitted, for management; the other modules are removed.** The table below is the 2026-10-10 full set (module inventory).
+
 ### Fitted SFP modules (2026-10-10, all 8 cages; our U-Boot `rtk sfp`)
 
 | Cage | Module | Serial | Media |
@@ -100,7 +102,8 @@ From the OpenWrt v2 DTS (`SWITCH_PORT_SFP(p,l,s,c,g)` = SoC port, label, SerDes,
   - Replaced OpenWrt's borrowed split (cages 1/8 = 2.9 W, 2/3/6/7 = 1.5 W, 4/5 = 2.0 W): a level-3 (2.0 W) module stayed in level 1 in cages 2/3/6/7, so behaviour depended on the cage.
   - Split origin: XikeStor's "≤ 2.9 W per port, ≤ 15.8 W total" for *their* SKS8300-8X (OpenWrt commit 0dc0b98295), copied unchanged across RTL9303 8×SFP+ DTS files. Nothing from TP-Link.
 - **Board budget check instead (warn only, never blocks or disables a module).**
-  - Budget default **16.0 W** = 24 W input (PSU 12 V 2 A) − board draw (SoC/DRAM/regulators, est. 6-8 W, unmeasured). Same as 8 × 2.0 W.
+  - Budget default **15.0 W** (declared module power) = (24 W input (PSU 12 V 2 A) − 6 W board draw) × ~0.85 3.3 V regulator.
+  - Measured by owner 2026-10-12 at the 12 V input: no SFPs fitted ≈ 0.5 A (≈ 6 W); each SFP with laser disabled adds ≈ 0.1 A (≈ 1.2 W input ≈ 1.0 W at the module).
   - Unknown: 3.3 V SFP rail(s) and regulator rating on this PCB; real board draw. Set the budget from an input-power measurement (idle, then per module) when one exists. #30.
 - **Counted power per module** (same rules in U-Boot and Linux):
   - A0 byte 64: bit 5 → level 3 = 2.0 W; else bit 1 → level 2 = 1.5 W; else level 1 = 1.0 W. Linux `sfp.c` also gates these on byte 94 (SFF-8472 rev ≥ 10.2 / 11.4) and needs DDM (byte 92 bit 6) to switch levels; the count ignores those gates (a module may draw its declared level regardless).
@@ -117,11 +120,11 @@ From the OpenWrt v2 DTS (`SWITCH_PORT_SFP(p,l,s,c,g)` = SoC port, label, SerDes,
   - GLC-T declares level 1 and has connector byte `0x07` (not RJ45), so it is counted 1.2 W via byte 6.
 - **U-Boot** (`rtk_sfppower.c`):
   - `rtk sfp power`: per cage counted W + source, then total vs budget.
-  - `rtk network on` and `rtk port` print `rtk: SFP power X.X W declared by N modules, budget 16.0 W (env sfp_budget_mw)`.
-  - Over budget: `rtk: WARNING: SFP declared total X.X W > budget 16.0 W (board input 24 W) (#30)` (fails `check-log` until reviewed).
-  - Budget: env `sfp_budget_mw` (mW, default 16000).
+  - `rtk network on` and `rtk port` print `rtk: SFP power X.X W declared by N modules, budget 15.0 W (env sfp_budget_mw)`.
+  - Over budget: `rtk: WARNING: SFP declared total X.X W > budget 15.0 W (board input 24 W) (#30)` (fails `check-log` until reviewed).
+  - Budget: env `sfp_budget_mw` (mW, default 15000).
 - **Linux** (mode-switch driver, `openwrt/patches/300-06`; in our 7.3 kernel and the OpenWrt build):
-  - Recomputed on every insert/remove (500 ms poll). Info line on every change of the total; `dev_warn` once on going over (`SFP declared total X.X W > budget 16.0 W (board input 24 W)`), info when back under.
+  - Recomputed on every insert/remove (500 ms poll). Info line on every change of the total; `dev_warn` once on going over (`SFP declared total X.X W > budget 15.0 W (board input 24 W)`), info when back under.
   - sysfs on the `mode-switch` platform device: `power_total_mw`, `power_cage_mw` (8 values, cage 1 first, 0 = empty), `power_budget_mw` (rw, re-checks at once).
   - Module param `power_budget_mw` (built-in: `tplink_st1008f_mode.power_budget_mw=` on the kernel command line).
   - debugfs `st1008f-mode-switch/state`: total + per-port `power_mw` and source.
