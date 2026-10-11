@@ -42,6 +42,23 @@ Wiring and measurements: [docs/hardware.md](docs/hardware.md).
 - Also: LED snake/error/panic patterns, mode-switch driver, SerDes test tools, crypto engine (#62), automatic storm guard.
 - Full lists: [docs/NAT.md](docs/NAT.md), [docs/CLOCKS.md](docs/CLOCKS.md), [docs/MAINLINE-PORT.md](docs/MAINLINE-PORT.md), [docs/DECISIONS.md](docs/DECISIONS.md).
 
+## Speed and performance: where we are (2026-10-12)
+
+| Area | Stock / OpenWrt | Now | State |
+|---|---|---|---|
+| CPU | 800 MHz | 1 GHz | default, every power-up |
+| DRAM | DDR3 600, prefetch off | DDR3 650, prefetch on | default; 675+ fails the memory bench |
+| IPv4 NAT, TCP | 248 Mbit/s (OpenWrt 6.18) | 365-370 Mbit/s | NIC path + HIGHMEM fixes |
+| IPv4 NAT, UDP 1400 B | ~445 Mbit/s | ~750 Mbit/s | no collapse under overload |
+| IPv6 routing | CPU | 9.08 Gbit/s in the ASIC, 0 % CPU | needs on-link offload for real LANs (#59) |
+| Second CPU (VPE) | not used | on, NIC IRQ on CPU1 | no packet gain; keeps CPU0 free (#73) |
+| SPI flash reads | stock 25.5 MHz | stock | faster clock corrupts Linux reads; fast read path fails self-check (#61) |
+
+- **Ceiling:** IPv4 NAT on this CPU tops out near 1 Gbit/s. 2.5 Gbit/s NAT is not reachable; there is no NAT hardware in the chip ([docs/NAT.md](docs/NAT.md)).
+- **Interrupt latency:** idle worst case 26 µs on one CPU, 43-95 µs with two; the CPU running the NIC reaches ms-scale under load ([docs/MAINLINE-PORT.md](docs/MAINLINE-PORT.md) §9).
+- **Next:** on-link / default-route L3 offload tests (#59), fast flash reads (#61), NAT path review (#71), CPU-port 10G setting once the CPU path nears 1 Gbit/s.
+- Details: [docs/NAT.md](docs/NAT.md), [docs/CLOCKS.md](docs/CLOCKS.md), [docs/ROUTING-OFFLOAD.md](docs/ROUTING-OFFLOAD.md).
+
 ## Compared with TP-Link's managed firmware (TL-ST5008F v2, same chip)
 
 | | Managed ST5008F v2 1.2.0 | Ours |
@@ -136,7 +153,8 @@ Details per script: [scripts/README.md](scripts/README.md).
   - Our U-Boot chain-loaded on every power-up at 1 GHz / DDR 650 (#47); `rtk network on` without stock (#51).
   - Linux 7.3 with OpenWrt drivers: traffic, NAT, NIC path fixes, 512 MiB, mode-switch driver (#16, #60, #64).
   - Mode switch mapped (#8); bus scan: no undocumented devices (#77); hidden hardware catalogued (#68).
-- Open: default boot install (#73), ACL firewall for ASIC-routed traffic (#66), L3 offload board tests (#59), SMP test (#60), NAT path review (#71). Index: #72.
+  - SMP: both CPUs boot (interrupt routing fixed), NIC interrupt on one CPU (#73).
+- Open: default boot install (#73), ACL firewall for ASIC-routed traffic (#66), L3 offload board tests (#59), fast flash reads (#61), NAT path review (#71), U-Boot network without stock (#80). Index: #72.
 - USB host (EHCI) is on-chip but not wired (#5). GPIO21 watchdog behaviour unexplained (#18).
 - Managed ST5008F v2 firmware RAM-booted on this board: not tried (#6).
 
