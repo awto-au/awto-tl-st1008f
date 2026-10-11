@@ -109,6 +109,19 @@ futex hash table entries: 512 (\(16384 bytes on 1 NUMA nodes, total 16 KiB, line
 mem auto-init: stack:(off|all\(zero\)), heap alloc:off, heap free:off  # kernel hardening config
 clk: Disabling unused clocks  # late init
 pca953x 8-0038: using no (AI|auto increment)  # PCA9538 expander, no auto-increment
+tplink-st1008f-mode mode-switch: cur pattern = [123]  # mode switch first latch (vendor string, 300-06, #64)
+tplink-st1008f-mode mode-switch: pins 17/18/19 = [01]/[01]/[01], position \(pins 18/19\) (M[123]|invalid)  # mode switch raw pins + U-Boot decode
+tplink-st1008f-mode mode-switch: pattern changed [123] -> [123], pins 17/18/19 = [01]/[01]/[01], position \(pins 18/19\) (M[123]|invalid): re-applying, no switch reset  # owner moved the switch; no GPIO21 reset
+tplink-st1008f-mode mode-switch: port [0-7]: (10G|2\.5G|1G) fiber insert  # vendor EEPROM class
+tplink-st1008f-mode mode-switch: port [0-7]: copper insert, length \d+  # vendor EEPROM class (DAC)
+tplink-st1008f-mode mode-switch: port [0-7]: it is also an eletronic port fiber  # vendor SFP-T detection (vendor spelling)
+tplink-st1008f-mode mode-switch: port [0-7] media [2-9]( for auto speed down)?  # vendor per-port media decision
+tplink-st1008f-mode mode-switch: port [0-7] will not set because of unmatched pattern  # 1G module in a 2.5G pattern: port held down
+tplink-st1008f-mode mode-switch: port [0-7] outsert  # module removed
+tplink-st1008f-mode mode-switch: port [0-7]: linux \S+ set (2500base-x, autoneg off|1000base-x, autoneg on|1000base-x, autoneg off \(in-band AN refused\))  # speed applied via ethtool
+tplink-st1008f-mode mode-switch: port [0-7]: linux \S+ (untouched|admin down|2500base-x, autoneg off|1000base-x, autoneg on|module PHY: phylib keeps its own speed) \(0\)  # per-port outcome, no change needed
+tplink-st1008f-mode mode-switch: port [0-7]: linux - no netdev on this cage \(-19\)  # mainline: no DSA ports, decision only
+tplink-st1008f-mode mode-switch: port [0-7]: \S+ up again \(0\)  # port we held down is back up
 
 [openwrt]
 CPU frequency from device tree: 800MHz  # CPU clock pinned

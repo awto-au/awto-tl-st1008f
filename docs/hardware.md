@@ -71,7 +71,7 @@ From the OpenWrt v2 DTS (`SWITCH_PORT_SFP(p,l,s,c,g)` = SoC port, label, SerDes,
   - USB EHCI (`0xb8021000`, little-endian regs): readable at the U-Boot prompt without hanging; at reset: halted, CONFIGFLAG 0, PORTSC1 `0x2000` (port power off, no connect, companion-owned). Issue #5.
 - TX-disable: expander @ `0x38` on an `i2c-gpio` bus, SCL GPIO22 / SDA GPIO23 (`delay-us = 2`). Pin N = cage N+1, **active-high**.
   - Part is a TI TCA9534A (svanheule.net); "PCA9534" in these docs = same register map. The `A` variant's base address `0x38` matches.
-- 3-position mode switch M1/M2/M3 = `gpio-keys` on gpio0 pins 17/18/19 (`BTN_0/1/2`, EV_SW, active-low, 50 ms debounce) per the OpenWrt v2 DTS. Stock behaviour: see "Mode switch (stock firmware)" below.
+- 3-position mode switch M1/M2/M3 on gpio0 pins 17/18/19. OpenWrt v2 DTS: `gpio-keys` (`BTN_0/1/2`, EV_SW, active-low, 50 ms debounce); our mainline DTS: the mode-switch driver ("Linux driver (#64)" below). Stock behaviour: see "Mode switch (stock firmware)" below.
   - Read with raw `md.l 0xb800330c 1` (DAT), bits 17-19 (bank C bits 1-3). Not `rtk pinGet` before `rtk network on` (hangs the console).
 - GPIO21: DTS external-watchdog toggle pin (1.2 s, always-running). Found static output-high at the U-Boot prompt; board does not reset. Unexplained.
 - USB: RTL9303 has a USB 2.0 host (EHCI `0x18021000`, irq 28, 1 port); **not wired on this board** (issue #5, closed).
@@ -142,6 +142,15 @@ Source: static RE of stock `rtk.ko` (TP-Link additions, `TP_CHKPATTERN` thread).
 - RAM-loaded (no marker): prompt at every position, `boot_mode` still set.
 - Live check: `rtk mode` (stock pattern + `boot policy:` line). Mapping/verify: `./dev.py mode-map live | boot --expect Mx`.
 - The switch must sit at M1 for unattended power-up to reach OpenWrt.
+
+### Linux driver (#64)
+
+- `openwrt/patches/300-06-realtek-rtl930x-tplink-mode-switch.patch`: platform driver `tplink,st1008f-mode-switch` (`CONFIG_TPLINK_ST1008F_MODE_SWITCH`), port of the stock flow above; vendor decode incl. pin 17, not the 18/19 boot-policy decode.
+- DT node `mode-switch` (mainline DTS): `gpios` = pins 17/18/19 `GPIO_ACTIVE_HIGH` (raw, like stock), `port@N { sfp = <&sfpN>; }`. Replaces the gpio-keys M1/M2/M3 node (same pins, one owner).
+- Per-port action via `set_link_ksettings` on the netdev whose `sfp_bus` is the cage's: media 2 = 1000BASE-X AN on, media 3 = 2500BASE-X AN off, unmatched = admin down; 10G/DAC/unknown untouched; modules with a PHY untouched.
+- Pattern change: logs `pattern changed`, re-reads every module under the new pattern. No GPIO21 write.
+- Presence = I2C probe of EEPROM 0x50 (not MOD-DEF0, #29); removal after 2 failed probes.
+- State: `/sys/kernel/debug/st1008f-mode-switch/state`. Mainline (no DSA ports): decisions only, `no netdev on this cage`.
 
 ## Thermal
 

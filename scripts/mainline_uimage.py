@@ -48,6 +48,7 @@ def main() -> None:
 
     load, entry = elf_load_entry(a.vmlinux, a.cross)
     raw = a.out.with_suffix(".raw")
+    a.out.parent.mkdir(parents=True, exist_ok=True)  # fresh checkout: no tmp/tftp yet
     subprocess.run([f"{a.cross}objcopy", "-O", "binary", "-R", ".reginfo", "-R", ".notes",
                     "-R", ".note", "-R", ".comment", "-R", ".mdebug", "-R", ".note.gnu.build-id",
                     "-S", str(a.vmlinux), str(raw)], check=True)
@@ -66,7 +67,6 @@ def main() -> None:
                                 entry, dcrc, IH_OS_LINUX, IH_ARCH_MIPS, IH_TYPE_KERNEL,
                                 IH_COMP_LZMA, name))
     hdr[4:8] = struct.pack(">I", zlib.crc32(hdr) & 0xFFFFFFFF)
-    a.out.parent.mkdir(parents=True, exist_ok=True)
     a.out.write_bytes(bytes(hdr) + bytes(comp))
     raw.unlink()
     log(f"{a.out}: kernel {len(body)} B + dtb {len(dtb)} B -> lzma {len(comp)} B; "

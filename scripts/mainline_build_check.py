@@ -4,7 +4,8 @@
 Needs: tmp/linux-v7.3 (shallow clone of v7.3-rc6), a mips big-endian cross gcc
 (default prefix mips64-linux-gnu-, -mabi=32 multilib). Log: tmp/logs/mainline_build_check.log
 Steps: OpenWrt realtek board patches (300-01..03 + mach-rtl-otto headers) and ours
-(openwrt/patches/*.patch, e.g. 300-04 DRAM prefetch, #53), each skipped if already applied;
+(openwrt/patches/*.patch, e.g. 300-04 DRAM prefetch, #53), applied fresh each run (patched files reset
+via git, patch-created files deleted);
 install DTS + dts Makefile line, 32r2_defconfig + fragment, build vmlinux and the dtb.
 """
 import argparse
@@ -25,10 +26,15 @@ HDR = "arch/mips/include/asm/mach-rtl-otto"
 
 def apply_patches(tree):
     """Derived state: reset every file the series touches to git, then apply it all fresh."""
-    touched = set()
+    touched, created = set(), set()
     for p in PATCHES:
-        touched |= {ln[6:].split("\t")[0].strip() for ln in p.read_text().splitlines()
-                    if ln.startswith("+++ b/")}
+        lines = p.read_text().splitlines()
+        for prev, ln in zip(lines, lines[1:]):
+            if ln.startswith("+++ b/"):
+                (created if prev.startswith("--- /dev/null") else touched).add(
+                    ln[6:].split("\t")[0].strip())
+    for f in created:  # new files: not in git, delete so the patch re-creates them
+        (tree / f).unlink(missing_ok=True)
     if run(["git", "checkout", "--", *sorted(touched)], tree):
         sys.exit("git checkout of the patched files failed, see log")
     for f in tree.glob("arch/mips/**/*.rej"):
