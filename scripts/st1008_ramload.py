@@ -280,6 +280,9 @@ def main() -> int:
     ap.add_argument("--no-cycle", action="store_true", help="already at the stock RTL9300# prompt")
     ap.add_argument("--fast", type=int, nargs="?", const=1, metavar="DIV",
                     help="uboot-mainline: switch console to 10.9375 MBd/DIV after boot (default 1)")
+    ap.add_argument("--from-flash", action="store_true",
+                    help="uboot-mainline: copy ours from flash jffs2-log instead of TFTP; no `rtk network on` "
+                         "(switch DMA idle, lasers dark; needed for mem-clock, #39)")
     ap.add_argument("--chain-test", action="store_true",
                     help="uboot-mainline: write the chainload marker before go (as stock bootcmd will, #47): "
                          "ours must autoboot flash OpenWrt")
@@ -297,6 +300,15 @@ def main() -> int:
     con = Console()
     if not a.no_cycle:
         to_stock_uboot(con)
+    if a.from_flash:
+        if a.image != "uboot-mainline":
+            raise SystemExit("--from-flash is for uboot-mainline only")
+        # copy 512 KiB from the cached flash window at stock SPI (~5 MB/s) ~0.1 s; banner < 1 s
+        con.run("cp.b 0x94200000 0x81000000 0x80000; go 0x81000000", IMAGES[a.image][3], 3,
+                "uboot-mainline from flash (no network)")
+        if not a.stock_clocks:
+            fast_clocks(con, a.cpu or FAST_CPU_E208)
+        return 0
     if not a.no_network:
         network_on(con)
     if a.no_network and a.image == "stock":

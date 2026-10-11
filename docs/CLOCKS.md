@@ -189,7 +189,8 @@ Source tags: **[SRC]** GPL file:line (`dms1250/` = `sources/rtk-dms1250/`, `xgs1
 | flash_uc MB/s | 2.0 | 2.0 | 4.8 (+138 %) | 4.8 |
 | flash_c MB/s | 5.0 | 5.0 | 13.9 (+177 %) | 13.9 |
 
-- DRAM writes are bound by DDR3-1200 itself: only the DDR clock (#39) moves them.
+- mem_write 237 MB/s does not move with CPU (800 → 1000) or DDR (600 → 650): the ceiling is in the CPU write path / OCP / controller, not the DRAM.
+- DDR 650 (2026-10-11, CPU 1000, `--nosr`): mem_read 342.7 (+2 % vs DDR 600), mem_read_uc 63.0 (+4 %), mem_write 237.0, memcpy 162.4.
 - SPI-NOR ladder (whole-chip CRC vs a /6 baseline, 2026-10-11): SFCR /6 25.5 MHz 16.7 s, /4 38.3 MHz 11.9 s, /2 76.6 MHz 7.0 s; then /2 with NOR source e220[16:13] code 5 (87.5 MHz) 6.2 s, code 4 (102.1 MHz) 5.3 s, **code 3 (122.5 MHz) 4.4 s, flash_uc 7.7 / flash_c 22.3 MB/s**; code 2 (153.1 MHz, rated 133) **CRC mismatch**. Flash limit between 122.5 and 153 MHz. Dual/quad read not tried.
 - LX 204.2 MHz (`clocks set lx 4 force`): console, I2C/SFP/DDM, lasers, sf, highmem, timer all pass; no bench test depends on LX.
 
@@ -238,7 +239,16 @@ Stock runs it from SRAM with the routine's I-cache lines locked (`0x9f000240`, r
 
 ### (b) DDR clock at runtime, DRAM kept — `clocks set mem <MHz> [nosr] force` (#39)
 
-Implemented in `board/tplink/tl-st1008f/ddr_sram.S` (routine) and `clocks.c` `mem_set()` (C side). Not yet run on hardware.
+Implemented in `board/tplink/tl-st1008f/ddr_sram.S` (routine) and `clocks.c` `mem_set()` (C side).
+
+Measured 2026-10-11 (our U-Boot from flash, no `rtk network on`):
+
+| Method | 600 | 650 |
+|---|---|---|
+| self-refresh (MPMR0 PM_MODE = 2) | **hang** after mark `D`: DRAM dead on SR exit | not tried |
+| `nosr` (DMCR refresh off for the 1.8 ms routine) | PASS | **PASS**: 16 MiB CRC kept, highmem 256 MiB 0 errors |
+
+- PM_MODE = 2 is not a usable self-refresh entry on this controller. `nosr` changes the clock with DRAM idle but not in SR (no DLL reset; outside JEDEC); passed every check so far.
 
 C side, before the routine:
 
