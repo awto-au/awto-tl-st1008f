@@ -133,3 +133,5 @@ One line per result; detail in the linked docs/issues. Owner decisions: [DECISIO
 - LED snake + latched error/fallback/panic patterns (`300-16`); watchdog (`300-15`).
 - Default-boot plan: OpenWrt on 7.3 + 6.18 recovery, 22 + 7 MiB, local OpenWrt build (#73). Standing flash-write approval except stock U-Boot area.
 - Doc audit of the whole session: [DECISIONS.md](DECISIONS.md) created; gaps filled (hardware.md modules + network identity, NAT ceiling, SPG status, scripts README).
+- Local OpenWrt builds: main + 6.18 + backports (step 1), OpenWrt userspace on our 7.3 (step 2); 7.3 flash image blocked by `mtdsplit` (#73, [OPENWRT-BUILD.md](OPENWRT-BUILD.md)).
+- First SMP boots hung (mainline and OpenWrt-on-7.3): mainline dtsi routes every IRQ to IP2, VPE1 never ticks. Board DTS 2-cell intc fixes it; `300-18` single-CPU affinity lets eth0 run on CPU1; UP still fastest on throughput by a few % ([MAINLINE-PORT.md](MAINLINE-PORT.md) section 9, #73).
