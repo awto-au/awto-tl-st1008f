@@ -1,6 +1,6 @@
 /* SPDX-License-Identifier: GPL-2.0-only */
 /*
- * RTL930x CPU-port NIC core, shared verbatim by U-Boot (rtl930x_eth.c) and Linux (rtl838x_eth.c, 300-18).
+ * RTL930x CPU-port NIC core, shared verbatim by U-Boot (rtl930x_eth.c) and Linux (rtl838x_eth.c, 300-19).
  * Edit only shared/rtl930x-nic/ in awto-tl-st1008f; build scripts copy it (docs/UBOOT-MAINLINE.md#ethernet-80).
  * Includer defines first: rtl930x_nic_rd(ctx, off), rtl930x_nic_wr(ctx, off, v), rtl930x_nic_msleep(ms),
  * rtl930x_nic_udelay(us). Offsets are from the switch block (0xbb000000). Sources: OpenWrt rtl838x_eth.c

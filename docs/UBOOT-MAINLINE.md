@@ -190,7 +190,7 @@ Implementation: [RTK-COMMANDS.md](RTK-COMMANDS.md#stage-4-network-on-10g-macsds-
 ## Ethernet (#80)
 
 - Driver: `board/tplink/tl-st1008f/rtl930x_eth.c`, DM_ETH, node `ethernet@df00` (`realtek,rtl9301-eth`). Polled, no IRQ. Built, not yet run on the board.
-- Shared core (#83): `shared/rtl930x-nic/rtl930x_nic.h` = registers, descriptor + CPU-tag layout, NIC reset, HOL ring size/counter, reason map, ring base, max length, enable/stop, doorbell value. Same file in Linux (`300-18`).
+- Shared core (#83): `shared/rtl930x-nic/rtl930x_nic.h` = registers, descriptor + CPU-tag layout, NIC reset, HOL ring size/counter, reason map, ring base, max length, enable/stop, doorbell value. Same file in Linux (`300-19`).
   - Boundary: core = hardware facts and register sequences; U-Boot glue = DM_ETH, rings in KSEG1, cache ops, polling, loop guard, `ethport`; Linux glue = page_pool, NAPI, BQL, DSA.
   - Platform shim: the includer defines `rtl930x_nic_rd/wr(ctx, off)` (U-Boot `sw_r/sw_w`, Linux regmap), `rtl930x_nic_msleep`, `rtl930x_nic_udelay`.
   - Sync rule: edit only `shared/`; `build_uboot_mainline.py` (`SHARED`), `mainline_build_check.py` and `build_openwrt.py` (`SHARED_FILES`) copy it. Linux `static_assert`s tie `RTETH_930X_*`, ring bits and `rteth_frag` to the core.

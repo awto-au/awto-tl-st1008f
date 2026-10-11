@@ -210,9 +210,9 @@ Built with `./dev.py build-kernel` (GCC 16.2); booted 2026-10-12 with IP traffic
 | `300-13` | MIPS HIGHMEM lowmem fast paths (#27) |
 | `300-15` | `realtek_otto_wdt`: a watchdog armed by U-Boot stays on at probe (`WDOG_HW_RUNNING`), for the default boot ([DEFAULT-BOOT.md](DEFAULT-BOOT.md), #73) |
 | `300-16` | port LED patterns: `panic_blink`, sysfs error latch, boot-pattern release (`CONFIG_TPLINK_ST1008F_LEDS`, #9; [RTK-COMMANDS.md](RTK-COMMANDS.md#port-leds)) |
-| `300-18` | rteth RTL930x paths on the NIC core shared with U-Boot (`shared/rtl930x-nic/rtl930x_nic.h`, copied in by the build; #83) |
 | `300-17` | `l3.c`: on-link neighbour host entries (v4+v6) + default-route offload, opt-in module parameters `l3_onlink` / `l3_default_v4` / `l3_default_v6` ([ROUTING-OFFLOAD.md](ROUTING-OFFLOAD.md), #59) |
 | `300-18` | irqchip `realtek-rtl`: one effective target CPU per IRQ + parent IM bits opened on secondary VPEs (cpuhp STARTING hook) ([section 9](#irq-affinity-300-18-devpy-irq-check), #73) |
+| `300-19` | rteth RTL930x paths on the NIC core shared with U-Boot (`shared/rtl930x-nic/rtl930x_nic.h`, copied in by the build; #83) |
 
 - Not applied: `300-14` (SMP doorbell + TX NAPI) is parked in `openwrt/patches-parked/` ([measured](#parked-300-14-both-ring-doorbell--tx-napi-on-smp-2026-10-12)).
 
@@ -252,9 +252,9 @@ Built with `./dev.py build-kernel` (GCC 16.2); booted 2026-10-12 with IP traffic
 - `ethernet` gets `nvmem-cells = <&macaddr_uboot 0>` from a `u-boot,env` nvmem layout on `u-boot-env`: eth0 = env `ethaddr` (`16:b0:46:e9:0d:c0`, same as the flash OpenWrt bridge). Stock `rtk network on` leaves the switch MAC registers at `00:e0:4c:00:00:00`.
 - Not carried: OpenWrt `gpio-keys` (replaced by the mode switch, 300-06); `#thermal-sensor-cells` on SFP nodes + `sfp-thermal` zone (provider not in 7.3 or the ported set); GPIO21 watchdog stays disabled.
 
-### CPU-port NIC (`300-11`, `300-12`, `300-18`)
+### CPU-port NIC (`300-11`, `300-12`, `300-19`)
 
-- RTL930x register facts, descriptor/CPU-tag layout, NIC reset, HOL ring size/counter, max length, enable, doorbell value: shared core `shared/rtl930x-nic/rtl930x_nic.h` (`300-18`), same file as U-Boot ([UBOOT-MAINLINE.md](UBOOT-MAINLINE.md#ethernet-80)). NIC reset self-clear limit 62.5 ms (was 1 s).
+- RTL930x register facts, descriptor/CPU-tag layout, NIC reset, HOL ring size/counter, max length, enable, doorbell value: shared core `shared/rtl930x-nic/rtl930x_nic.h` (`300-19`), same file as U-Boot ([UBOOT-MAINLINE.md](UBOOT-MAINLINE.md#ethernet-80)). NIC reset self-clear limit 62.5 ms (was 1 s).
 
 - RX unchanged (NAPI, page_pool, 2 rings x 128).
 - TX ring 128 slots (16 upstream, SDK 32): holds two RX polls of forwarded frames; with 32 the 1G CPU port drained one ring per poll and forwarding collapsed under overload (#60).
@@ -374,7 +374,7 @@ Method: `scripts/openwrt_patch_status.py` (series order; reverse-apply = upstrea
 | `arch/mips/include/asm/mach-rtl-otto/*` | ported | verbatim |
 | `drivers/clk/realtek/*`, `include/dt-bindings/clock/rtl83xx-clk.h` | dropped | see `318` |
 | `drivers/net/dsa/rtl83xx/*` (incl. `l3.c` v4+v6 routing offload, `l2`, `tc`, `pie`, `qos`, `lag`, `mirror`, `stp`, `vlan`, `debugfs`) | ported | verbatim + `300-10` |
-| `drivers/net/ethernet/realtek/rtl838x_eth.[ch]` | ported | verbatim + `300-11` + `300-12` + `300-18` (+ shared `rtl930x_nic.h`) |
+| `drivers/net/ethernet/realtek/rtl838x_eth.[ch]` | ported | verbatim + `300-11` + `300-12` + `300-19` (+ shared `rtl930x_nic.h`) |
 | `drivers/net/ethernet/realtek/rtl960x_gmac.[ch]` | dropped | other SoC |
 | `drivers/net/mdio/mdio-realtek-otto.c`, `mdio-realtek-otto-serdes.c` | ported | verbatim |
 | `drivers/net/mdio/mdio-realtek-otto-rtl960x.c` | dropped | other SoC |
