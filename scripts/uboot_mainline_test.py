@@ -279,9 +279,10 @@ def sf_read(con: Console) -> bool:
 
 def i2c_scan(con: Console) -> bool:
     """#33: `i2c probe` (full scan) on cage 1's bus lists 0x50 and 0x51; after a NACK (0x0a)
-    0x50 still answers (FAIL not sticky). CTRL1 after the NACK is logged for the FAIL-bit question."""
+    0x50 still answers (FAIL not sticky). CTRL1 after the NACK is logged: the driver writes FAIL = 0
+    after a NACK, so bit 1 still set = W1C (or read-only) FAIL bit."""
     try:
-        # scan: 112 addresses x ~0.5 ms NACK at 100 kHz + DM bind; 1 s names a hang (busy cap 3.2 ms each)
+        # scan: 112 addresses x (~0.5 ms NACK + 0.1 ms bus idle) at 100 kHz + DM bind; 1 s names a hang
         _, scan = con.run("i2c dev 0; i2c probe", PROMPT, 1, "i2c scan bus 0")
         con.run("i2c probe 0x0a", PROMPT, 1, "probe NACK")
         _, ctrl = con.run(f"md.l 0x{I2C_CTRL1:08x} 1", PROMPT, 1, "CTRL1 after NACK")
@@ -313,7 +314,7 @@ def sfp_phy(con: Console) -> bool:
     ok = True
     for cage in cages:
         try:
-            # 5 regs x 2 one-byte reads, ~1 ms each at 100 kHz
+            # 6-7 regs x 2 one-byte reads, ~0.5 ms each at 100 kHz, <= 5 ms with retries: < 70 ms
             _, out = con.run(f"rtk sfp {cage} phy", PROMPT, 1, f"phy cage {cage}")
         except SystemExit as e:
             log(f"FAIL sfp_phy cage {cage}: {e}")
@@ -321,7 +322,15 @@ def sfp_phy(con: Console) -> bool:
         regs = dict(re.findall(r"reg (0x[0-9a-f]{2}) = (0x[0-9a-f]{4})", out))
         good = regs.get("0x02") == f"0x{PHY_ID1:04x}" and re.fullmatch(PHY_ID2_RX, regs.get("0x03", "")) is not None
         ok &= good
-        log(f"{'PASS' if good else 'FAIL'} sfp_phy cage {cage}: {regs}")
+        notes = re.findall(r"phy (ID1 read as 0x4101|\d+ byte retries)", out)
+        log(f"{'PASS' if good else 'FAIL'} sfp_phy cage {cage}: {regs}" + (f" ({'; '.join(notes)})" if notes else ""))
+        if not good:  # raw data for the next attempt: repeated ID1 reads + the 2-byte block read
+            for cmd in (f"rtk sfp {cage} phy 2", f"rtk sfp {cage} phy 2", f"i2c dev {cage - 1}; i2c md 0x56 2 2"):
+                try:
+                    _, diag = con.run(cmd, PROMPT, 1, f"diag {cmd}")  # each < 30 ms
+                except SystemExit as e:
+                    diag = f"\n{e}"
+                log(f"  diag {cmd}: " + " | ".join(l.strip() for l in diag.splitlines()[1:] if l.strip()))
     return ok
 
 

@@ -32,6 +32,7 @@ struct rtl9300_i2c_priv {	/* parent: one master */
 	void __iomem *mst;
 	void __iomem *glb;
 	int cur_sda;
+	ulong end_us;		/* timer_get_us() when the last transfer finished */
 	struct clk lx;
 };
 
@@ -78,17 +79,25 @@ static int xfer_one(struct udevice *bus, u8 addr, u8 reg, u8 *buf, int len, bool
 	/* fits 32 bits: 2500 kHz x LX kHz (<= 204167) < 2^32 */
 	scl =scl_khz[c->freq_sel] * (u32)(clk_get_rate(&p->lx) / 1000) / SCL_REF_LX_KHZ;
 	cap_us = (len + 4) * 9 * 1250 / max(scl, 1U) + 500;
-	rmw(p->mst + CTRL1, BIT(0), BIT(0));				/* TRIG */
+	/* Bus idle >= 10 SCL periods between transfers (#33: back-to-back after a NACK failed;
+	 * Linux's 26-100 us busy-poll sleep leaves a similar gap). Bounded: <= 200 us at 50 kHz. */
+	while (timer_get_us() - p->end_us < 10000 / max(scl, 1U))
+		;
+	rmw(p->mst + CTRL1, BIT(1) | BIT(0), BIT(0));			/* FAIL = 0, TRIG */
 	t0 = timer_get_us();
 	while (__raw_readl(p->mst + CTRL1) & BIT(0)) {
 		if (timer_get_us() - t0 > cap_us) {
 			log_err("rtl9300-i2c: SDA%u addr 0x%02x reg 0x%02x busy > %lu us (%lu us)\n",
 				c->sda, addr, reg, cap_us, timer_get_us() - t0);
+			p->end_us = timer_get_us();
 			return -ETIMEDOUT;
 		}
 	}
-	if (__raw_readl(p->mst + CTRL1) & BIT(1))			/* FAIL = no ACK */
+	p->end_us = timer_get_us();
+	if (__raw_readl(p->mst + CTRL1) & BIT(1)) {			/* FAIL = no ACK */
+		rmw(p->mst + CTRL1, BIT(1), 0);	/* R/W: cleared; W1C: next rmw write-back */
 		return -EREMOTEIO;
+	}
 	if (!wr) {
 		for (i = 0; i < 4; i++)
 			w[i] = __raw_readl(p->mst + DATA0 + 4 * i);
@@ -199,6 +208,7 @@ static int rtl9300_i2c_probe(struct udevice *dev)
 		return -EINVAL;
 	p->glb = (void __iomem *)(((ulong)p->mst & ~0xffffUL) + GLB_CTRL);
 	p->cur_sda = -1;
+	p->end_us = timer_get_us();
 	ret = clk_get_by_index(dev, 0, &p->lx);		/* LX: scales SCL and the busy wait */
 	if (ret) {
 		log_err("rtl9300-i2c: no LX clock (%d)\n", ret);

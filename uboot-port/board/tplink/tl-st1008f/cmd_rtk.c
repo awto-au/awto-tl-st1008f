@@ -452,23 +452,49 @@ static int sfp_raw(int cage)
 	return 0;
 }
 
+/* One PHY byte: up to 5 tries 1 ms apart (module busy after a NACK, as sfp_read; bounded 5 ms) */
+static int phy_byte(struct udevice *dev, int r, u8 *b, int *retries)
+{
+	int tries;
+
+	for (tries = 0; dm_i2c_read(dev, r, b, 1); tries++) {
+		if (tries == 4)
+			return -EIO;
+		mdelay(1);
+		(*retries)++;
+	}
+	return 0;
+}
+
 /* Copper module PHY (88E1111 at 0x56): 16-bit regs as two 1-byte reads of the same reg, MSB
- * then LSB (Linux mdio-i2c SMBus path). A 2-byte block read gets the LSB as 0xff (#33). */
+ * then LSB (Linux mdio-i2c SMBus path); a 2-byte block read gets the LSB as 0xff (#33).
+ * ID1 read back as 0x4101 = PHY byte pointer off by one: one extra byte read re-aligns it. */
 static int sfp_phy(int cage, int only)
 {
 	static const u8 regs[] = { 0x00, 0x01, 0x02, 0x03, 0x11 };	/* BMCR BMSR ID1 ID2 PSSR */
 	struct udevice *dev = rtk_chip(cage - 1, SFP_PHY);
-	int i, r, n = only >= 0 ? 1 : ARRAY_SIZE(regs);
+	int i, r, n = only >= 0 ? 1 : ARRAY_SIZE(regs), retries = 0;
 	u8 hi, lo;
 
+	if (!dev || phy_byte(dev, 2, &hi, &retries) || phy_byte(dev, 2, &lo, &retries)) {
+		printf("cage %d: phy 0x%02x: no answer\n", cage, SFP_PHY);
+		return CMD_RET_FAILURE;
+	}
+	if (hi == 0x41 && lo == 0x01) {
+		printf("cage %d: phy ID1 read as 0x4101: byte order realigned\n", cage);
+		if (phy_byte(dev, 2, &hi, &retries))
+			return CMD_RET_FAILURE;
+	}
 	for (i = 0; i < n; i++) {
 		r = only >= 0 ? only : regs[i];
-		if (!dev || dm_i2c_read(dev, r, &hi, 1) || dm_i2c_read(dev, r, &lo, 1)) {
+		if (phy_byte(dev, r, &hi, &retries) || phy_byte(dev, r, &lo, &retries)) {
 			printf("cage %d: phy 0x%02x reg 0x%02x: no answer\n", cage, SFP_PHY, r);
 			return CMD_RET_FAILURE;
 		}
 		printf("cage %d: phy 0x%02x reg 0x%02x = 0x%04x\n", cage, SFP_PHY, r, hi << 8 | lo);
 	}
+	if (retries)
+		printf("cage %d: phy %d byte retries\n", cage, retries);
 	return 0;
 }
 
