@@ -15,7 +15,7 @@ Goal: every stock `rtk` subcommand (visible and hidden) in our mainline U-Boot, 
 |---|---|---|
 | done (existed, now aligned to stock text) | 6 | `i2c init sw`, `i2c init hw`, `i2c read`, `i2c write`, `pinGet`, `pinSet` |
 | implemented now | 22 | `unit get/set`, `port enable/disable`, `show hw_profile_list`, `comboport copper/fiber`, `ext-devInit/pinGet/pinSet`, `ledtest` (2 forms), `phyreg get/set/setbymask/dump-top`, `phymmd get/set`, `sdsreg get/set`, `boardid` get, `boardmodel` get |
-| stage 4 (SerDes/MAC), untested on hardware | 6 | `network on/off`, `port-isolation on/off`, `macsds set`, `10g` ([below](#stage-4-network-on-10g-macsds-port-isolation)) |
+| stage 4 (SerDes/MAC), hardware-verified 2026-10-11 (#51) | 6 | `network on/off`, `port-isolation on/off`, `macsds set`, `10g` ([below](#stage-4-network-on-10g-macsds-port-isolation)) |
 | needs the Ethernet stage | 3 | `init`, `rtcore-init`, `send` |
 | refused | 3 | `boardid <id>`, `boardmodel <str>` (flash writers), `phytestmode` (needs a PHY; none fitted) |
 
@@ -71,13 +71,15 @@ Unit = `rtk unit set` value (default 0); a unit >= 6 prints `\nUnit %u invalid u
   - Read: write CMD, poll BUSY clear, read DATA. Write: write DATA, then CMD.
   - Poll cap 1 ms (10 us x 100); OpenWrt polls every 30 us. Expiry prints SerDes/page/reg. No measurement of the real latency yet.
   - Range: sds 0-11, page 0-63, reg 0-31; outside -> `Failed!! 0xf00c` (code SPEC).
-- SerDes mode field (used by `rtk port`) [OWRT] `pcs-rtl-otto.c:75-80,1905-1916`: 5-bit fields in `0x194`, `0x2a0`, `0x2a4`, `0x198`; `0x1a` = 10GBASE-R, `0x1f` = off.
+- SerDes mode (used by `rtk port`, #42):
+  - MAC-side [OWRT] `pcs-rtl-otto.c:75-80,1905-1916`: 5-bit fields in `0x194`, `0x2a0`, `0x2a4`, `0x198`; `0x1a` = 10GBASE-R, `0x1f` = off. Drives only XSGMII/USXGMII/QSGMII.
+  - SGMII / 100BX / 1000BX / 2500BX / 10GBASE-R are forced inside the SerDes: page `0x1f` (WDIG) reg 9, `FRC_SDS_MD_ON` bit 6, mode bits 11:7 ([OWRT] `rtpcs_93xx_sds_set_ip_mode`); the MAC field then reads `0x1f`. `rtk_sds_mode()` returns the forced value when `FRC_SDS_MD_ON` is set: all 8 cages `0x1a` after stock `rtk network on` (2026-10-11).
 - LED software control (`ledtest`) [SRC] `dms1250/system/include/private/drv/swcore/swcore_rtl9300.h:3127-3138`, sequence `system/uboot/cmd/uboot_func.c` (`rtk_swled_init/out/uninit`):
   - `LED_PORT_SW_EN_CTRL` `0xCC4C + (port>>3)*4`, 4 bits per port (`(port&7)*4`); 7 = software controlled.
   - `LED_PORT_SW_CTRL` `0xCC5C + port*4`: 3 bits per LED, copper LEDs [11:0], fibre LEDs [23:12]; 7 = on (`LEDON`).
   - Ours writes both copper and fibre fields, saves and restores both registers, 300 ms after each pattern as stock. Profile layout: copper and fibre both LED set 0, single set; stock `network on` drives the fibre fields (below).
 - Port admin: `MAC_L2_PORT_CTRL(p)` `0x3268 + p*0x40` ([UBOOT-REFERENCE.md](UBOOT-REFERENCE.md) §4; [OWRT] dsa.c link up/down). SDK port numbers: cage 1-8 = 0, 8, 16, 20, 24, 25, 26, 27; CPU 28. Cage N = SerDes N+1.
-- Thermal (`rtk temp`) [OWRT] `drivers/thermal/realtek-thermal.c:35-47,136-165`, recipe [hardware.md](hardware.md#thermal): `CTRL_1 0x64` [31:16] = `0x0800`, `CTRL_2 0x68` bit 16 = 1 (RMW), `RESULT_0 0x6c` bit 24 valid, [23:16] deg C, `RESULT_1 0x70` max [14:8] / min [6:0].
+- Thermal (`rtk temp`) [OWRT] `drivers/thermal/realtek-thermal.c:35-47,136-165`, recipe [hardware.md](hardware.md#thermal): `CTRL_1 0x64` [31:16] = `0x0800`, `CTRL_2 0x68` bit 16 = 1 (RMW), `RESULT_0 0x6c` bit 24 valid, [23:16] printed as deg C (Realtek SDK converts 1.29 × raw − 10: unsettled, [hardware.md](hardware.md#thermal), #13), `RESULT_1 0x70` max [14:8] / min [6:0].
 - Mode switch (`rtk mode`): `gpio0 DATA 0xB800330C` bits 17-19 (active low), decode per [hardware.md](hardware.md#mode-switch-stock-firmware): (0,1,1) -> 1, (1,0,1) -> 2, else 3.
 
 ## Our extra commands (no stock equivalent)
@@ -86,7 +88,7 @@ Unit = `rtk unit set` value (default 0); a unit >= 6 prints `\nUnit %u invalid u
 |---|---|---|
 | `rtk laser [status\|<cage>\|none\|all force]` | TX-disable expander `0x38`; one cage by default (cage loop #19) | `uboot_mainline_test.py laser` |
 | `rtk sfp [cage [raw\|brief]]` | module EEPROM/DDM decode ([UBOOT-MAINLINE.md](UBOOT-MAINLINE.md)) | `sfp_all`, `ddm` |
-| `rtk sfp power` | counted power per cage (declared level, copper table), total vs budget (env `sfp_budget_mw`, default 16000); WARNING line when over. Also printed by `rtk network on` and `rtk port` ([hardware.md](hardware.md#sfp-power), #30) | none (needs hardware) |
+| `rtk sfp power` | counted power per cage (declared level, copper table), total vs budget (env `sfp_budget_mw`, default 15000); WARNING line when over. Also printed by `rtk network on` and `rtk port` ([hardware.md](hardware.md#sfp-power), #30) | none (needs hardware) |
 | `rtk port` / `rtk port status` | per cage: port, SerDes id, presence, module PN, laser on/off, SerDes mode, RX light (page 5 reg 0 bit 12), MAC link (`0xCB10`), LED owner (hw/sw). Read-only | `rtk_port` |
 | `rtk mode` | M1/M2/M3 position: `mode: pins 17/18/19 = a/b/c -> pattern N (Mx, ...)` (stock decode), then `boot policy: Mx <name> (pins 18/19; #46)`. Measured one-hot: M1 0/1/1, M2 1/0/1, M3 1/1/0 (hardware.md) | `rtk_mode` |
 | `rtk temp` | enables the thermal meter if off (RMW), waits for a valid sample (cap 100 ms, no measured settling time yet), prints deg C and min/max since enable | `rtk_temp` |
@@ -144,8 +146,8 @@ Unit = `rtk unit set` value (default 0); a unit >= 6 prints `\nUnit %u invalid u
 
 ## Open
 
-- Admin-state register for `port enable|disable` is from Linux behaviour, not from the SDK sources (stock path is a driver-table call).
-- Ethernet stage unlocks: `init`, `rtcore-init`, `send`.
+- Admin-state register for `port enable|disable` is from Linux behaviour; parity shows the same effect as stock (`MAC_L2_PORT_CTRL(8)` `0x30` → `0x33` on both, #34), stock may touch more.
+- Poll caps without a measured basis (#37): SerDes indirect access 1 ms, `rtk temp` VALID 100 × 1 ms.- Ethernet stage unlocks: `init`, `rtcore-init`, `send`.
 
 ## Stage 4: network on, 10g, macsds, port-isolation
 
@@ -160,12 +162,25 @@ Code `rtk_net.c` (media choice `rtk_sfpmode.c`). Sources: stock loader [BIN] (`t
     - LED sets: `0xcc28` = `0x0a080a01` (set 0 LED1:LED0), `0xcc24` = `0xffff0ba0` (LED3 = profile end marker `0xffffffff`, masked to 16 bits), `0xcc0c-0xcc20` (sets 1-3) = 0.
     - `0xcc00` [22] active = 1 (profile `led_active` 0), [3:2] power-on blink = 0, [1:0] mode = 1 (serial).
     - per port: `LED_PORT_SW_CTRL 0xcc5c+4p` [23:12] (fibre LED0-3 modes) = 0, `LED_PORT_SW_EN 0xcc4c` 4-bit field = `0xf` (LEDs under software control), `SW_LED_LOAD 0xcc48` bit 0 = 1.
-    - Stock measured before the port (2026-10-11): `0xcc00` stock `01452651` / ours `01052658`; `0xcc0c` stock `00000000` / ours `0a400a80`.
-  - Not ported from `mac_led_config`: its tail `mac_park_tx_disable` (stock i2c dev 8 = TX-disable PCA9534 `0x38`: reg 3 = `0xff`, reg 1 = `0xff`, all lasers off).
+    - Result 2026-10-11 (from flash, no stock network on): every LED register `0xcc00-0xccc8` equals stock's (`reg-diff compare stock-led ours-led`: 0 LED diffs; `0xcc00` = `01452651`, `0xcc0c` = 0). Before the port ours left `01052658` / `0a400a80` (#9).
+    - After network on, stock and ours leave the cage LEDs in software mode (`rtk port`: `led sw`); only `rtk ledtest`'s restore (`rtk_led_restore` 0x83f18564) returns them to hardware. Nothing writes LED pinmux (`0x200`/`0x3a0`).
+    - Guess: non-cage fields of `0xcc04/08` and `0xcc2c-0xcc38` keep reset values (RMW), as on stock.
+  - Tail of `mac_led_config` = `mac_park_tx_disable` 0x83f6f710: TX-disable PCA9534 `0x38` reg 3 = `0xff`, reg 1 = `0xff` = all lasers off. Ported (`rtk_net.c` `park_tx_disable()`).
   - once per boot, "Chip Construct" steps (stock table 0x83fa3718) with stock step names: SMI poll mask `0xca90[27:0]` = 0; polarity normal (page 6 reg 2 bits 13/14, page 0 reg 0 bits 8/9); MAC `SDS_MODE_SEL` = `0x1f` all 12; construct lists (`rtk_sds_tables.h`, list `a`, even 120 / odd 106 rows, sds 3 pages 0-3 -> physical 10); WDIG reg 0xb bit 1; `sds_mode_10gr_set` 0x83f90f74 per SerDes 2-9 (LC 10.3125G, ring 1.25G, CMU toggle until 3 ready reads, 10GR FSM/block-lock check); private poll mask 0; poll mask `0x0f110101`; page 0 reg 4 bit 2 (`fiberNwayForceLink`).
   - per cage: `phy_9300_enable_set` (page 2/4 BMCR power-up) -> media set with the current media, then the cage media (stock: `fiber10g` always).
   - CPU port: `Err:0xf030:FAIL (0xf030)` (stock text, no PHY driver), then 2 s settle.
-- Not run (switching plane, not link): chip defaults (rate, QoS, flow control, ACL, VLAN, L2/L3 init), SA learning. Registers will differ from stock there.
+- Hardware 2026-10-11 (#51), from flash, no stock network on, `rtk_media=stock`: `rtk network on` 7.1 s; all 8 SerDes `0x1a`; cage 1 `pcs up, mac up 10G`; `uboot-test network` PASS. Stock discriminator `rtk sdsreg get 0 2 46 20` = `0x1311` = list `a` (`0x1179` would be `bT`).
+- Switching-plane defaults are not run by ours yet (receive relies on chip reset values there); see [stock switch init](#stock-switch-init-what-rtk-network-on-writes-80).
+
+### Stock switch init: what `rtk network on` writes (#80)
+
+Source: SDK `dal_construct.c`, `dal_longan_mapper.c`, `rtk/init.c` (bootloader build), matched to the stock banner steps. Static only.
+
+- `Chip Construct` = `dal_longan_construct_default_init`: SMI poll select, auto-recover triggers, egress rate/burst, QoS CPU-queue map, flow-control thresholds (8XG column), IPMC/L3 exception actions, ACL lookup, trunk, VLAN CPU-port ingress filter + PVID format, L2 learning/notify, PPPoE parse, chip/watchdog reset enables.
+- `Mgmt_dev init` = `dal_longan_init` built with `__BOOTLOADER__`: `sds_init` (RAM only), `phy_init`, `flowctrl_init` (no writes), `port_init`, `l2_init`, `eee_init`, `trunk_init` (no writes), `stack_init`. Writes: CPU port id; port isolation all-to-all; unknown-UC and broadcast flood masks = cage ports + CPU; EEE off; stack defaults.
+- **No VLAN or STP init under stock:** `vlan_init` / `stp_init` are `#ifndef __BOOTLOADER__`. VLAN table and STP state = chip reset values under stock too; the only VLAN writes are the CPU-port ones in `Chip Construct`.
+- Port to ours (generated register list, `RST_GLB_CTRL_0[6:0]` reset triggers never written as 1, isolation kept cages → CPU, SMI `FREQ_SEL` skipped as rev-2-only): built on a branch, not on main, not run on hardware. Proof method: whole-window `reg-diff` (`0xbb000000-0xbb00ffff`) stock vs ours on a cold boot.
+- Not in the SDK init, set only by the managed ST5008F at port init (#82): pause-on allowed pages 100 per front port (`FC_PORT_ACT_CTRL` `0xD804 + 4p`), `MAC_L2_GLOBAL_CTRL0` `0xC700` `LIMIT_PAUSE_EN` [26:25] = 0, CPU max packet length RX/TX 12000. Values under OpenWrt / ours unread; matters only with flow control on ([MANAGED-FEATURES.md](MANAGED-FEATURES.md#flow-control-cpu-port-82-60)).
 - Ours only: every front port's PORT_ISO_CTRL entry = CPU port only (cage loop #19); `rtk port-isolation off` restores all-to-all.
 - Media per cage = Linux `sfp_select_interface` + support quirks + phylink preference (10GBASE-R, 2500BASE-X, SGMII, 1000BASE-X, 100BASE-X); `rtk sfp <cage> mode` prints it. 1000BASE-T modules -> SGMII (Linux after PHY probe; the module PHY is not configured here). `setenv rtk_media stock` = stock `fiber10g` on all cages (parity runs use it).
 - Media set = `phy_9300_10gMedia_set`: BMCR speed bits; SDK `dal_longan_sds_mode_set` (MAC force link down 20 ms, mode off, rx-cal defaults `_1d1`, mode on with the PLL rules of `_dal_longan_sds_pll_cfg`); `CFG_LINKDW_SEL`; 50 ms; MAC force off. Full RX calibration is not run (stock runs it only for DAC media in the link handler).

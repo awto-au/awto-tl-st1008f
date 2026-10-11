@@ -334,7 +334,7 @@ rtk i2c read 8 1               # readback
   - Bridge STP from first boot (set before netifd) blocks it: lan2 → blocking 1.5 s after up (own BPDU looped via lan1); bridge is root, the house switch sends no BPDUs; 10 min at 2-8 pps, 0 `Ring contention` (#19).
   - Flash OpenWrt (STP saved) at power-up, 2026-10-11: lan2 listening 28.7 s → blocking 30.1 s, lan1 forwarding 44.0 s; no port forwarded before STP decided; steady state lan2 blocking (#43).
   - Managed ST5008F firmware turns a port's laser off on admin-down and all lasers off before reboot; OpenWrt and ours do neither ([MANAGED-FEATURES.md](MANAGED-FEATURES.md), #19).
-- **GPIO/I2C before SDK init hangs the console.** `rtk pinGet`, `rtk i2c init sw`, `rtk i2c read` wedge U-Boot (power cycle needed) only if run before `rtk network on`. After it they work.
+- **GPIO/I2C before SDK init hangs the console.** `rtk pinGet`, `rtk i2c init sw`, `rtk i2c read` wedge U-Boot (power cycle needed) only if run before `rtk network on`. After it they work. Same for `rtk comboport copper|fiber` (#34).
 - **`rtk network on` twice in one boot is unreliable.** One second run returned `0xf030` and then the console went dead (power cycle); another second run returned normally. Run it once per boot.
 - `rtk 10g <port> <media>` before `rtk network on` → `0xf002` (unit not initialised).
 - `rtk network on` always ends `Err:0xf030:FAIL (0xf030)`: `phy_enable_set` returns `RT_ERR_PORT_NOT_SUPPORTED` for every PHY-less port; the loop ignores it. Benign.
