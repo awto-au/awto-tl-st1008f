@@ -147,6 +147,12 @@ def cmd_cpu_clock(extra: list[str]) -> int:
     return _script("cpu_clock_step.py", extra)
 
 
+@command("DDR3 clock experiment: self-refresh + MEM PLL + DTRs from SRAM; crc32/highmem verify (#39)",
+         args="<MHz> [MHz ...] [--nosr]  (stock bins; e.g. 600 650; mainline prompt)", kind="hardware")
+def cmd_mem_clock(extra: list[str]) -> int:
+    return _script("mem_clock_step.py", extra)
+
+
 @command("turn bridge STP on in the flash OpenWrt config, from RAM-booted OpenWrt (#43)",
          args="(run after `ramload openwrt`)", kind="hardware")
 def cmd_openwrt_flash_stp(extra: list[str]) -> int:

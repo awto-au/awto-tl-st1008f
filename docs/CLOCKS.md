@@ -3,7 +3,7 @@
 Source tags: **[SRC]** GPL file:line (`dms1250/` = `sources/rtk-dms1250/`, `xgs1210/` = `sources/uboot-xgs1210/` in a clone of `github.com/reyalo/Realtek`; `owrt/` = OpenWrt `target/linux/realtek/`). **[BIN]** stock preloader (SPL) VA (`loader.bin` file `0x0000..0x507f`, XIP at `0x9fc00000`, SRAM copy at `0x9f000000`). **[LIVE]** register dump on this unit, 2026-10-10, mainline U-Boot after stock SPL init. **[DS]** `sources/rtl9303-cg-brief.pdf` (Rev 1.1-1). **SPEC** = inferred, not verified on hardware.
 
 - Read it live: `clocks` (U-Boot, `board/tplink/tl-st1008f/clocks.c`). Host: `scripts/clock_calc.py decode <md.l dump>`.
-- Nothing here writes a clock register. Changes are procedures (below) for the main session to run.
+- Writes: `clocks set cpu ... force` (procedure (a)) and `clocks set mem <MHz> force` (procedure (b)), both from SRAM; nothing else writes a clock register.
 - Recovery for every experiment: everything is RAM-loaded; a power cycle reruns the stock SPL (CPU 800 / LX 175 / DDR 600). Flash is never written.
 
 ## Summary
@@ -21,7 +21,7 @@ Source tags: **[SRC]** GPL file:line (`dms1250/` = `sources/rtk-dms1250/`, `xgs1
 | MEM (DDR clock) | **600 MHz** (DDR3-1200) | 25 x (MPCR3[31:24] + 2) / (2 << MPCR2[15:14]) | [BIN] `0x9f000610`, `0x9fc00e0c` |
 | UART | 115131 baud | LX / 16 / divisor | ns16550 |
 
-- SPEC: OpenWrt's RTL960x MEM formula uses `NCODE + 3` (`owrt/files-6.18/drivers/clk/realtek/clk-rtl83xx.c:508-530`). RTL9300 SPL uses `+ 2` in two places; the actual DDR clock is not measured (#39).
+- MEM `+ 2`: RTL9300 SPL (two places) and the RTL9300 SDK `cg_mem.c:9` agree; OpenWrt's `+ 3` is the RTL960x formula (`owrt/files-6.18/drivers/clk/realtek/clk-rtl83xx.c:508-530`). DDR clock itself not measured (#39).
 - OCP = CPU clock in Realtek naming (`cg_dev_freq_t.ocp_mhz`, [SRC] `xgs1210/arch/otto40/plr/src/soc/cg_gen4/cg.h:7`).
 
 ## Register map
@@ -56,6 +56,7 @@ Source tags: **[SRC]** GPL file:line (`dms1250/` = `sources/rtk-dms1250/`, `xgs1
 | `0218` ANACR | `000000c4` | PLLANA 15:0 | 512 |
 | `021c` DCKOCR | `00000000` | DDR CK output phase taps | 518 |
 | `0220` MPSR | `00000002` | MCKG_PHS 2:0 = 2 | 528 |
+| `0234..024c` MEM PLL fields | — | [SRC] `xgs1210/arch/otto40/plr/src/platform/9300/cg/mem_pll.h:5-135`: MPCR0 `en_post_pi` 6:0, phase selects CK 16:12, CLKM 21:17, DQS0 26:22, DQS1 31:27; MPCR1 `cco_band` 31:30, DQ8-15 PI 4:0, DQ0-7 PI 9:5; MPCR2 `pdiv` 15:14, `icp` 11:8, `lpf_sr`, LDO; MPCR3 `n_code` 31:24; MPCR4 `clk_oe` 5:0, `dpi_mck_clk_en` 11:6; MPCR5 `f_code` 12:0 (0: integer N); MPCR6 SSC | — |
 | `0228` LPSR | `00000303` | SPICLK_SEL 11:8 = 3, LXCLK_SEL 3:0 = 3. SPEC: legacy; SPL helper `0x9fc00e40` computes 1000/(sel+2) = 200 MHz from it, which the working UART rules out | 536 |
 | `022c` DCER | `00000001` | START_DRAM_CLKO 0 = 1 | 544 |
 | `0234..024c` MPCR0-6 | `7f 400001ef 26a33860 2e0f0000 fff 0 0` | MEM PLL: MPCR2 `23c` PDIV 15:14; MPCR3 `240` NCODE 31:24 = 0x2e; MPCR4 `244` [5:0] = PLL enable/reset (SPL: 0 = hold, 0x3f = run) | 548-575 |
@@ -77,7 +78,11 @@ Source tags: **[SRC]** GPL file:line (`dms1250/` = `sources/rtk-dms1250/`, `xgs1
 | `100c` DTR1 | `0808061f` | tRP 9 (15.0 ns), tRCD 9 (15.0), tRRD 7 (11.7), tFAW 32 (53.3) |
 | `1010` DTR2 | `0a116000` | tRFC 162 clk (270 ns), tRAS 23 (38.3 ns) |
 | `101c` DMCR | `00130000` | DTR_UP_BUSY/MRS_BUSY 31 = 0; MR_MODE_EN 20 = 1, MR_MODE 17:16 = 3, MR_DATA 0: last MRS = MR3 0 |
-| `1040` MPMR0 | not dumped | PM_MODE 29:28 (SPEC: self-refresh entry), T_CKE, TRSD, T_XSREF |
+| `101c` DMCR write | — | any write latches DTR0-2 and issues the MRS in MR_MODE/MR_DATA; bit 31 busy until done; DIS_DRAM_REF 24 = refresh off. SDK rewrites it unchanged after DCR/DTR edits with DRAM live [SRC] `xgs1210/.../platform/9300/dram_gen4_9300/boot0412/memctl.c:2044`; MRS loop `.../fpga/memcntlr_setup.c:871-882` |
+| `1038` MSRR | not dumped | FLUSH_OCP_CMD 31, DRAM_CMD_GOING 30 (reset 1). Not used |
+| `1040` MPMR0 | `clocks` prints it | PM_MODE 29:28, T_CKE 27:24, TRSD 21:12, T_XSREF 9:0 (reset `0f3ff3ff`) [SRC] `.../dram_gen4_9300/memcntlr_reg.h:241-257`. PM_MODE 2 = self-refresh: SPEC (older Realtek controller, same field at 31:30: test code writes `0x8BFF1000` and treats read-back 2 as "in self-refresh", a bus access wakes it [SRC] `xgs1210/arch/otto/cpu/rlx5281/rtl8686/rtk_soc/test/crypto/crypto/rtl865xc_cryptoEngine.c:375-392`) |
+| `1500` DACCR | `clocks` prints it | AC_MODE 31 (1 = digital delay), DQS0/1 group taps 20:16 / 12:8, AC_DYN_BPTR_CLR_EN 5, AC_BPTR_CLEAR 4 [SRC] `memcntlr_reg.h:766-790`. PHY FIFO reset = bit 4 0 -> 1, bit 5 = 1 [SRC] `xgs1210/arch/otto40/plr/src/soc/dram_gen4/memcntlr_setup.c:647-651` |
+| `15b0..15c4` DCSDCR0-3, DWDMOR, DWDQSOR | `clocks` prints them | command/address/DQS delay taps [SRC] `memcntlr_reg.h:1010-1117`; the SPL writes speed-dependent values here (PHY pre-config) [BIN] |
 
 - DTR2 confirms the die size: SPL rule tRFC = MEM x tRFC_ns / 1000 + 5 with 260 ns (4 Gbit) gives 161 = `0xa1` [BIN `0x9fc022e4`, table `0x338c` = {90,110,160,260,350} ns]. The earlier hand-trace `0xa1016000` (#23) had the field 4 bits too high.
 - tREFI 3.84 us = the >85 °C (2x refresh) rate; tRP/tRCD 15 ns = DDR3-1333 timings.
@@ -114,8 +119,9 @@ Source tags: **[SRC]** GPL file:line (`dms1250/` = `sources/rtk-dms1250/`, `xgs1
 | 575 | `000c807f` | `4000018f` | `26a33860` | `2c0f0000` |
 | 600 | `0000007f` | `400001ef` | `26a33860` | `2e0f0000` |
 
-- Apply: MPCR4[5:0] = 0, 200 us, write MPCR0-3, MPCR5 = MPCR6 = 0, 5 us, MPCR4[5:0] = `0x3f`, 200 us; then CMUCR_OC0[9] and CMUCR_LX*[9] (SE_DRAM). Runs before DDR init.
-- No row above 600. MPCR3 NCODE for 625 / 650 = `0x30` / `0x32` by the formula; MPCR0-2 for them unknown (#39).
+- Same table in the GPL SDK [SRC] `xgs1210/arch/otto40/plr/src/platform/9300/cg/cg_mem.c:29-49` (formula `25*(ncode+2)/(2*(1<<pdiv))`, line 9 — settles the `+ 2`).
+- Apply [SRC] `cg_mem.c:60-83` `cg_mem_pll_init`: MPCR4 `clk_oe` = 0, 200 us, write MPCR0-3, MPCR5 = MPCR6 = 0, 5 us, `clk_oe` = `0x3f`, 200 us; then CMUCR_OC0[9] = (CPU <= MEM), CMUCR_LX0-2/LXP[9] = (LX <= MEM), 50 us. No MEM PLL ready bit: fixed waits.
+- No row above 600. 650 = 600 row + MPCR3 NCODE `0x32` (SPEC: MPCR0-2 hold PI phases and loop settings, 600 values reused).
 
 ### DDR timing bins (DTR table @ file `0x3320`; DDR3 select 650->0, 600->1, ... 200->8, other -> 300 bin)
 
@@ -138,12 +144,14 @@ Source tags: **[SRC]** GPL file:line (`dms1250/` = `sources/rtk-dms1250/`, `xgs1
 |---|---|---|---|---|
 | CPU | 800 MHz ([DS] p.1 "up to 800MHz") | no core-voltage control known (DVDDL 1.1 V +-5 %, [DS] Table 16); passive heatsink, 73 °C idle (hardware.md) | 800 | stock; above = overclock, procedure (a) |
 | LX | not stated; SPL accepts 133-204 MHz | UART divisor scales | 175 | stock default; 204 is inside the SPL window |
-| DDR3 clock | [DS] 8.3 "up to 800MHz (DDR3-1600)"; [DS] Table 25 fCK typ 600 MHz; SPL PLL table max 600, DTR/PHY to 650 | DRAM part rating unknown | 600 (DDR3-1200) | stock |
+| DDR3 clock | [DS] 8.3 "up to 800MHz (DDR3-1600)"; [DS] Table 25 fCK typ 600 MHz; SPL PLL table max 600, DTR/PHY to 650 | DRAM K4B4G1646E-BYMA = DDR3L-1866 (933 MHz) per OpenWrt commit `39b9b491bb`, not read on this unit | 600 (DDR3-1200); 650 via `clocks set mem` (untested) | stock; 650 = highest bin without an MRS (CWL 7 legal to 666 MHz) |
 | DDR3 timings | part unknown | — | CL10 CWL7 tRCD/tRP 15 ns, tREFI 3.84 us | stock bin; tREFI at 2x rate costs ~3 % bandwidth (SPEC) |
 | SPI SCK | 133 MHz FAST_READ (W25Q256JV) | not measured | 25.5 MHz | #35 |
 | UART | LX / 16 = 10.94 MBd | host adapter (#32) | 115200 or `--fast` | host side |
 
-- DRAM part: not visible in the board photos (top and bottom) → it sits under the SoC heatsink. Identify: remove the heatsink, read the marking (Samsung K4B4G1646x-xxyy: last letters = speed bin, e.g. `-BCK0` DDR3-1600, `-BCH9` DDR3-1333; Nanya/Winbond/Micron equivalents). No SPD on a soldered part; the die size (4 Gbit x16) is known from DCR/DTR2.
+- DRAM part: not visible in the board photos (top and bottom) → it sits under the SoC heatsink. OpenWrt commit `39b9b491bb` ("realtek: add support for TP-Link TL-ST1008F v2.0") lists Samsung K4B4G1646E-BYMA (4 Gbit x16 E-die, `Y` = DDR3L 1.35 V / 1.5 V capable, `MA` = DDR3-1866 13-13-13). Matches DCR/DTR2 (4 Gbit x16); speed bin SPEC until read.
+- To confirm (main session, heatsink off): marking line 2 `K4B4G1646E-BYMA` (or other suffix: `-BCK0`/`-BYK0` DDR3-1600, `-BCH9` DDR3-1333 → 666 MHz cap), date code, and whether it is the only DRAM package. Photo it into `artifacts/`.
+- Rated min at DDR3-1866 (JEDEC 13-13-13): tRCD = tRP = 13.91 ns, tRAS 34 ns, tWR 15 ns, tRTP/tWTR 7.5 ns, tRFC 260 ns (4 Gbit). The stock 650 bin (tRP/tRCD 10 clk = 15.4 ns, tRAS 26 = 40 ns) is inside it.
 
 ## Clock provider (U-Boot, implemented; hardware checks #41)
 
@@ -222,18 +230,55 @@ First experiments (exact values; `scripts/clock_calc.py cpu <MHz>`):
 4. Same step, before any output: UART divisor = round(LX / 16 / baud): 115200 -> 111 (114,958 baud, -0.2 %); write LCR DLAB, DLL/DLM, LCR. Update the ns16550 `plat->clock` (read once at probe) or U-Boot's next `setenv baudrate` uses the old LX.
 5. Scales with LX: UART, otto timer + watchdog (Linux), I2C SCL (SPEC), LX bus masters. Not: CPU, DDR, SPI (NOR has its own divider).
 
-### (b) DDR clock and timings (#39)
+### (b) DDR clock at runtime, DRAM kept — `clocks set mem <MHz> [nosr] force` (#39)
 
-Runtime change from DRAM-resident U-Boot: high risk, several unknowns. Order of preference:
+Implemented: `board/tplink/tl-st1008f/ddr_sram.S` (routine), `clocks.c` `mem_set()` (C side), `scripts/mem_clock_step.py` / `./dev.py mem-clock` (verify). Built, **not run on hardware yet**.
 
-1. **SRAM test program** (recommended first): RAM-loaded from stock U-Boot, copies itself to SRAM (64 KiB), runs with stack in SRAM, never touches DRAM until re-init. DRAM contents are abandoned (payload already done); result printed on UART; power cycle after.
-   1. MPCR4[5:0] = 0; 200 us; MPCR0-2 = 600 row (`0x7f`, `0x400001ef`, `0x26a33860`, SPEC for 650), MPCR3 = `0x320f0000` (650); MPCR5 = MPCR6 = 0; 5 us; MPCR4[5:0] = `0x3f`; 200 us. CMUCR_OC0/LX*[9] unchanged (MEM >= CPU/2, MEM >= LX).
-   2. Full DDR3 init exactly as the SPL at f = 650 (#23 sequence): PHY pre-config 650 branch, DCR provisional `0x21320000`, DTR0/1/2 = `0x99655838` / `0x0909061f` / `0x0ae19000`, ZQ cal, MRS (MR0 from CL10/tWR10, MR2 CWL7: same codes as 600), DLL reset, per-DQ tap training, DCR final `0x21421003`.
-   3. Memory test (address^pattern, both banks via highmem remap). Report taps and errors.
-2. **Runtime, keep DRAM** (only after 1 passes): flush D-cache; run from SRAM; write the 650 DTRs first (each field >= the 600 value: safe at 600), trigger by rewriting DCR and poll DMCR bit 31 = 0 (SPL order, SPEC that the DCR write latches DTRs); enter self-refresh (MPMR0 PM_MODE, encoding unknown: SPEC); MEM PLL as step 1.1; exit self-refresh; MR0 DLL reset + 512 clk; ZQCL (`0xb8001094`); retrain taps (destroys a 64 KiB buffer). JEDEC allows a DDR3 clock change only in self-refresh or precharge power-down.
-3. **Own SPL in flash**: final form; needs flash writes, out of scope.
+C side, before the routine:
 
-- Next bins: DDR3-1300 (650) uses the stock 650 DTR bin; above 650 needs new DTRs from the DRAM datasheet (part unknown) and PHY settings the SPL does not have.
+1. Bin = stock DTR bin (650, 600, 550, 500, 450, 400, 350, 300). PLL row per bin [SRC] `cg_mem.c:32-43`; 650 = 600 row + NCODE `0x32` (SPEC). DTR2 = ((MHz x tRFC_ns / 1000 + 5) << 20) | base, tRFC by die size from DCR (4 Gbit: 260 ns) [BIN].
+2. Refuse: CL or CWL differ from the live DTR0 (needs MRS, #48) → only 650/600/550 pass on this board; MEM crossing CPU or LX (CMUCR SE_DRAM bits would change, [SRC] `cg_mem.c:54-55`); DCR not one x16 die.
+3. Prints every register it will write (old -> new).
+4. Canary: 1024 words (offset ^ seed) written uncached into a fresh heap buffer after `flush_dcache_range` on it.
+5. Map SRAM (stock window, as (a)), copy routine to `0x9f004000`, I-cache fetch-and-lock; parameter block at `0xbf004800` (uncached SRAM; layout `ddr_sram.h`). Wait UART TEMT.
+6. D-cache index write-back-invalidate of every line (Config1 geometry), as the last step before the call: no dirty line can be evicted while DRAM is in self-refresh. The routine makes no cached access.
+
+Routine (SRAM, no stack, KSEG1 I/O only; UART marks `M S P X D` then `C`/`F`):
+
+1. Config7 |= `0xc` (prediction off), `sync`, SRAM read.
+2. DMCR `0xb800101c` bit 31 = 0 (bounded poll) else status 1, nothing written.
+3. Clock going up: DTR0/1/2 written first (every 650 field >= the 600 field: valid at 600 too), DMCR rewritten unchanged = DTR latch [SRC] `boot0412/memctl.c:2044`; poll bit 31 else status 2, PLL untouched.
+4. Self-refresh: MPMR0 `0xb8001040` PM_MODE 29:28 = 2 (SPEC encoding, see register map), read back into the block; 1 us. `nosr`: DMCR DIS_DRAM_REF 24 = 1 instead (DRAM unclocked-but-not-in-SR: violates JEDEC, no DLL reset on exit; fallback only).
+5. MEM PLL = SDK `cg_mem_pll_init` [SRC] `cg_mem.c:60-73`: MPCR4 `clk_oe` = 0, 200 us; MPCR0-3; MPCR5 = MPCR6 = 0; 5 us; `clk_oe` = `0x3f`; 200 us. CMUCR not touched (refused in C if it would change).
+6. Exit: PM_MODE = 0 (read back), 10 us (tXSDLL 512 clk = 0.8 us at 650). DRAM DLL resets itself on SR exit (JESD79-3); CL 10 / CWL 7 / WR 10 stay legal to 666 MHz, so no MRS.
+7. PHY FIFO pointer clear: DACCR `0xb8001500` bit 4 0 -> 1, bit 5 = 1 [SRC] `soc/dram_gen4/memcntlr_setup.c:647-651`.
+8. Clock going down: DTRs + latch now (status 4 on timeout).
+9. Canary read back uncached. Mismatch → status `0x10`, the same sequence back to the set read before the change, canary again (`0x20` good / `0x40` still bad).
+
+Bounds and waits:
+
+| Wait | Value | Why |
+|---|---|---|
+| DMCR busy | 64 polls | DTR latch + one MRS: tMOD 12-24 clk + bus ~1 us; poll >= 50 ns → >= 3.2 us. Poll count left is reported: tighten once measured |
+| PLL settle | 200 + 5 + 200 us fixed | SDK values; the MEM PLL has no ready bit |
+| delay loop | `loops/us` = CPU MHz / 2 | 2-instruction loop >= 2 cycles: never shorter than asked |
+| UART mark | 110 x 1 us | one char at 115200 = 87 us x 1.25; expiry drops the mark |
+
+SPEC / unverified:
+
+- PM_MODE 2 = self-refresh on this controller; whether it precharges all banks and how long entry takes. MPMR0 read-backs are printed (`MPMR0 in SR` should show `2` in 29:28, `exit` `0`).
+- 650 MPCR0-2 (600 row reused).
+- PHY delay taps (DCSDCR0-3, DWDQSOR) stay at their 600 values; the SPL has a 650 branch with different values (#49). AC_MODE = digital delay: taps are absolute, an 8 % shorter period moves the eye.
+- No ZQCL after the change (not required by JEDEC for a frequency change; periodic ZQCS per D3ZQCCR unchanged).
+- Other DRAM masters: the switch NIC DMA must be idle (no `rtk network on`, no eth command in this boot before the change; SPEC whether stock U-Boot's TFTP leaves it running after `go`).
+- OpenWrt (`clk-rtl838x-sram.S`, `clk-rtl83xx.c:630-640`) does not change MEM at runtime: its MEM `set_rate` is pinned to the startup rate, with a TODO naming DTRs and DLL reset.
+
+Run (main session): `./dev.py ramload uboot-mainline`, then `./dev.py mem-clock 600 650`. 600 first = stock values through the new sequence (proves self-refresh entry/exit and the PLL rewrite without a rate change). Pass per bin = `mem set OK`, `clocks` decodes the bin, crc32 + `md` of 16 MiB copied before the first change unchanged, `highmem test` 0 errors, crc32 unchanged after it. Hang = power cycle. If 600 hangs: retry with `--nosr` once, record which mark was last printed.
+
+- Above 650: CWL 8 → MRS with unknown stock MR0-MR2 (#48).
+- Fallback if the runtime path fails: SRAM-resident program (64 KiB SRAM, stack in SRAM) re-running the full SPL DDR init at 650 (PHY pre-config 650 branch, DCR provisional `0x21320000`, DTRs, ZQ cal, MRS, DLL reset, tap training, DCR `0x21421003`), then memtest; DRAM contents abandoned, power cycle after.
+- Final form: own SPL in flash (flash writes: out of scope).
+- Size: `uboot-mainline.bin` 301,941 -> 307,485 bytes (+5,544; routine 1,124 bytes), 2026-10-11.
 
 ### (c) Recovery
 
