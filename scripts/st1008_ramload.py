@@ -267,6 +267,9 @@ def main() -> int:
     ap.add_argument("--no-cycle", action="store_true", help="already at the stock RTL9300# prompt")
     ap.add_argument("--fast", type=int, nargs="?", const=1, metavar="DIV",
                     help="uboot-mainline: switch console to 10.9375 MBd/DIV after boot (default 1)")
+    ap.add_argument("--chain-test", action="store_true",
+                    help="uboot-mainline: write the chainload marker before go (as stock bootcmd will, #47): "
+                         "ours must autoboot flash OpenWrt")
     ap.add_argument("--stock-clocks", action="store_true",
                     help="uboot-mainline: keep stock CPU 800 MHz + SPI 25.5 MHz (default: 1 GHz + SPI 122.5 MHz)")
     ap.add_argument("--then", choices=["openwrt"],
@@ -294,6 +297,11 @@ def main() -> int:
                        check=True, timeout=10)  # local 5 MB rewrite, <1 s
         tftp(con, std.name, IMAGES["openwrt"][1])
     tftp(con, fname, addr)
+    if a.chain_test:
+        con.run("mw.l 0xa0f80000 0xa5a51008", r"RTL9300# ", 1, "chainload marker")
+        con.run(f"go 0x{addr:08x}", r"Please press Enter to activate", 60, "autoboot -> flash OpenWrt")
+        openwrt_stp(con)
+        return 0
     con.run(f"{start} 0x{addr:08x}", done, cap, f"{a.image} running")
     if a.image == "openwrt":
         openwrt_stp(con)

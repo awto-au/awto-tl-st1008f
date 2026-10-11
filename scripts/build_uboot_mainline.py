@@ -80,6 +80,10 @@ HOOKS = [
     ("drivers/spi/Kconfig", "config ATH79_SPI\n",
      "config SPI_REALTEK_RTL\n\tbool \"Realtek RTL83xx/93xx SPI-NOR controller (read-only)\"\n\tdepends on DM_SPI && ARCH_OTTO\n\n",
      "before", "config SPI_REALTEK_RTL"),
+    # OpenWrt RTL930x uImages carry Realtek magic 0x93030000 (stock U-Boot's); accept it in bootm
+    ("include/image.h", "\treturn (image_get_magic(hdr) == IH_MAGIC);\n",
+     "\tif (image_get_magic(hdr) == 0x93030000)\t/* Realtek RTL930x (OpenWrt images) */\n\t\treturn 1;\n",
+     "before", "0x93030000"),
     ("drivers/spi/Makefile", "obj-$(CONFIG_ATH79_SPI) += ath79_spi.o\n",
      "obj-$(CONFIG_SPI_REALTEK_RTL) += spi-realtek-rtl.o\n", "after", "spi-realtek-rtl.o"),
 ]

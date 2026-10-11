@@ -47,6 +47,9 @@ def main() -> int:
                  ("gateway", GW), ("dns", GW)):
         sh(con, f"uci set network.lan.{k}='{v}'")
     sh(con, "uci commit network")
+    # flush the JFFS2 overlay now: a power cut 5 s after an unsynced commit lost it (2026-10-11)
+    # sync = a few KiB of nodes, worst case one 64 KiB erase (W25Q256 max 2 s) x1.25 + poll
+    sh(con, "sync", cap=3)
     # netifd reload re-applies interfaces; returns in ~1 s, the address appears within ~2 s
     sh(con, "/etc/init.d/network reload", cap=5)
     for _ in range(5):  # 5 x 1 s; expected within ~2 s of the reload
