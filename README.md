@@ -11,12 +11,12 @@ This repo turns it into a managed switch/router on open firmware: our mainline U
 | **OpenWrt tracking** | local OpenWrt buildroot on OpenWrt main; our patches backported to 6.18; then OpenWrt userspace on our 7.3 kernel | in progress (#73) |
 | **Default boot** | OpenWrt on 7.3 (22 MiB) + recovery OpenWrt 6.18 (7 MiB), selected by our U-Boot | designed, not flashed (#73, [docs/DEFAULT-BOOT.md](docs/DEFAULT-BOOT.md)) |
 
-- Power-up today: stock loader → our U-Boot from flash (`jffs2-log`, CPU 1 GHz, DDR 650, DRAM prefetch) → flash OpenWrt 25.12.4 (STP on, 192.168.25.48). Stock U-Boot area is never written.
+- Power-up today: stock loader → our U-Boot → flash OpenWrt 25.12.4. Stock U-Boot is never written.
 - Upstream: patches are prepared for OpenWrt / Linux; posting needs owner approval.
 
 ## Mode switch (front panel M1 / M2 / M3)
 
-One-hot on GPIO 17/18/19 (measured: M1 `0/1/1`, M2 `1/0/1`, M3 `1/1/0`; [docs/hardware.md](docs/hardware.md), #8).
+Wiring and measurements: [docs/hardware.md](docs/hardware.md).
 
 | Position | Our firmware at boot (#73, #46) | Stock vendor meaning (Linux `rtk.ko`) |
 |---|---|---|
@@ -24,8 +24,8 @@ One-hot on GPIO 17/18/19 (measured: M1 `0/1/1`, M2 `1/0/1`, M3 `1/1/0`; [docs/ha
 | **M2** | isolated management: every cage reaches only the box | pattern 2: cages 1-4 as M1, 5-8 as M3 |
 | **M3** | recovery OpenWrt (isolated management) | pattern 3: 2.5G modules at 2.5G, 1G left down |
 
-- 10G modules ignore the speed pattern. Our Linux driver applies the vendor pattern too (`300-06`, #64).
-- Management address in every mode: DHCP client + fixed fallback `192.168.0.1/24` (house LAN: DHCP reservation .48). Live view: `./dev.py mode-watch`.
+- 10G modules ignore the speed pattern.
+- Management address in every mode: DHCP + fallback `192.168.0.1`.
 - Not yet flashed: today M2 stops at our U-Boot prompt and M3 needs the recovery image (#73).
 
 ## What we improved
