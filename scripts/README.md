@@ -203,6 +203,15 @@ End-to-end workflow: [../README.md#workflow](../README.md#workflow).
 - Timeout: 1 s per `md.l` (≤ 24 words ≈ 40 ms at 115200); a timeout or exception banner stops the run (console state unknown; recover with `./dev.py stock`).
 - Output: Markdown table, `tmp/hw_probe-<label>.json` (saved per probe). Log: `tmp/logs/hw_probe.log`.
 
+### bus_scan.py
+
+- Read-only device scan (#77, [../docs/BUS-SCAN.md](../docs/BUS-SCAN.md)) at our prompt: I2C MST1 SDA0-7 at 100 and 50 kHz, i2c8 (GPIO22/23 bit-bang), SPI-NOR controller CS0 (baseline) + CS1, plus `md.l` of switch-core SPI master/pinmux, I2C MST2, MAC EEPROM autoload, I2C/SPI slave, EXT_GPIO, SFCSR, GPIO.
+- Uses U-Boot `busscan` (`cmd_busscan.c`): probe 0x08-0x77, 16 B from reg 0 per responder; SPI = RDID + RDSR (driver refuses any other CS1 opcode). Without it (older flash copy of ours): `i2c probe`/`i2c md`, SPI skipped.
+- I2C MST2 never driven (SCL1 = GPIO17 = mode switch). Only write: `rtk laser none` (skip: `--keep-lasers`).
+- Run: `./dev.py bus-scan [--label L] [--network-on] [--keep-lasers]`.
+- Timeout: 1 s per command (112-address scan worst case ≈ 0.5 s incl. output + daemon latency); expiry stops the run.
+- Output: Markdown table, `tmp/bus_scan-<label>.json`. Log: `tmp/logs/bus_scan.log`.
+
 ### hidden_sdk_scan.py
 
 - Offline search for hidden/disabled hardware (#68, [../docs/HIDDEN-FEATURES.md](../docs/HIDDEN-FEATURES.md)). No hardware access.

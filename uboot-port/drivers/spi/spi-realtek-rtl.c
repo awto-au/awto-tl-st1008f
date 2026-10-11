@@ -7,6 +7,7 @@
  * only ever sent as part of WREAR (extended address register, volatile). Anything else
  * (program, erase, WRSR) is refused. The controller state is restored on release_bus so
  * the memory-mapped window (0xb4000000) keeps working after `sf` use.
+ * CS1 (ball E1, nothing known attached): ID/status/SFDP reads only (`busscan spi 1`, #77).
  */
 
 #include <clk.h>
@@ -70,11 +71,11 @@ static void wr(struct rtl_spi_priv *p, int reg, u32 val)
 	__raw_writel(val, p->base + reg);
 }
 
-static void cs(struct rtl_spi_priv *p, bool assert)
+static void cs(struct rtl_spi_priv *p, int csn, bool assert)
 {
-	u32 v = rd(p, SFCSR);
+	u32 b = csn ? SFCSR_CSB1 : SFCSR_CSB0, v = rd(p, SFCSR);
 
-	wr(p, SFCSR, assert ? v & ~SFCSR_CSB0 : v | SFCSR_CSB0);
+	wr(p, SFCSR, assert ? v & ~b : v | b);
 }
 
 static int wait_ready(struct rtl_spi_priv *p)
@@ -149,6 +150,12 @@ static bool opcode_ok(u8 op)
 	}
 }
 
+/* CS1: unknown slave, so no mode-changing opcodes (EN4B, WREN/WREAR, WRDI) either */
+static bool opcode_ok_cs1(u8 op)
+{
+	return op == OP_RDID || op == OP_RDSR || op == OP_RDSR2 || op == OP_RDSR3 || op == OP_RDSFDP;
+}
+
 static int rtl_spi_release_bus(struct udevice *dev);
 
 static int rtl_spi_claim_bus(struct udevice *dev)
@@ -183,9 +190,9 @@ static int rtl_spi_xfer(struct udevice *dev, unsigned int bitlen, const void *do
 			void *din, unsigned long flags)
 {
 	struct rtl_spi_priv *p = dev_get_priv(dev->parent);
-	int len = bitlen / 8, ret = 0;
+	int len = bitlen / 8, ret = 0, csn = spi_chip_select(dev);
 
-	if (bitlen % 8 || (dout && din))
+	if (bitlen % 8 || (dout && din) || csn < 0 || csn > 1)
 		return -EINVAL;
 
 	if (flags & SPI_XFER_BEGIN) {
@@ -194,6 +201,11 @@ static int rtl_spi_xfer(struct udevice *dev, unsigned int bitlen, const void *do
 		if (!len || !dout)
 			return -EINVAL;
 		p->deny = false;
+		if (csn && !opcode_ok_cs1(op)) {
+			printf("refused: CS1 is ID/status reads only (opcode 0x%02x)\n", op);
+			p->deny = !(flags & SPI_XFER_END);
+			return -EPERM;
+		}
 		if (op == OP_WREN) {
 			p->wren = true;	/* held back; only released for WREAR */
 			return 0;
@@ -201,9 +213,9 @@ static int rtl_spi_xfer(struct udevice *dev, unsigned int bitlen, const void *do
 		if (op == OP_WREAR && p->wren) {
 			u8 wren = OP_WREN;
 
-			cs(p, true);
+			cs(p, csn, true);
 			ret = send(p, &wren, 1);
-			cs(p, false);
+			cs(p, csn, false);
 			if (ret)
 				return ret;
 		} else if (!opcode_ok(op)) {
@@ -213,7 +225,7 @@ static int rtl_spi_xfer(struct udevice *dev, unsigned int bitlen, const void *do
 			return -EPERM;
 		}
 		p->wren = false;
-		cs(p, true);
+		cs(p, csn, true);
 	} else if (p->deny) {
 		p->deny = !(flags & SPI_XFER_END);
 		return -EPERM;
@@ -225,7 +237,7 @@ static int rtl_spi_xfer(struct udevice *dev, unsigned int bitlen, const void *do
 		ret = recv(p, din, len);
 
 	if ((flags & SPI_XFER_END) || ret)
-		cs(p, false);
+		cs(p, csn, false);
 	return ret;
 }
 

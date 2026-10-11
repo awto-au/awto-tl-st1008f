@@ -293,6 +293,12 @@ def cmd_hidden_probe(extra: list[str]) -> int:
     return _script("hidden_probe.py", extra)
 
 
+@command("read-only I2C (cages, expander bus) + SPI CS0/CS1 device scan and bus registers, at our prompt (#77, docs/BUS-SCAN.md)",
+         args="[--label L] [--network-on] [--keep-lasers]", kind="hardware")
+def cmd_bus_scan(extra: list[str]) -> int:
+    return _script("bus_scan.py", extra)
+
+
 @command("owner-approved write probes (#68): eFuse read, CHIP_INFO, CHIP_MODE, free table codes, DMY r/w; "
          "every write journaled + restored",
          args="snapshot <label> | diff <a> <b> | chipinfo | efuse [--addrs R] [--en V] | chipmode <n> [--reg 7c|c6fc] "

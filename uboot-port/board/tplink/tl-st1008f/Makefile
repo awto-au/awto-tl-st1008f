@@ -3,6 +3,7 @@
 obj-y += board.o
 obj-y += bootsel.o
 obj-y += cmd_rtk.o
+obj-y += cmd_busscan.o
 obj-y += sfp/
 obj-y += rtk_stock.o
 obj-y += rtk_sds.o rtk_sdstest.o
