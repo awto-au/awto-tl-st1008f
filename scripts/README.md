@@ -151,10 +151,17 @@ End-to-end workflow: [../README.md#workflow](../README.md#workflow).
 - Run: `analyzeHeadless private/ghidra <project> -process loader.bin -postScript TraceLoader.java <out.c> <addr>[=exact_name] ...`
 - Output: the `.c` file given as the first script argument (keep it in `private/ghidra/`; vendor-code decompilation is not published).
 
-### vendor_nic_decompile.py, ghidra/DecompileMatching.java
-- Purpose: Ghidra headless decompile of the TL-ST5008F v2 1.2.0 CPU-NIC code: `core` functions matching a regex (NIC, CPU port, rate limits, RX threads) + `rtcore.ko`/`ethdriver.ko`/`mgntPort.ko` in full. Feeds `docs/VENDOR-NIC-TUNING.md`.
-- Run: `scripts/vendor_nic_decompile.py [st5008f-core|st5008f-core-extra|st5008f-rtcore|...]` (`core` takes ~3.5 min).
-- Output: `private/ghidra/vendor-nic/<name>.c` (not published). Log: `tmp/logs/vendor_nic_decompile.log`.
+### vendor_nic_decompile.py, ghidra/DecompileMatching.java, ghidra/DecompileStringUsers.java, ghidra/DecompileRefsTo.java
+- Purpose: Ghidra headless decompile of TL-ST5008F v2 1.2.0 code: `core` functions matching a regex (NIC/CPU port; `st5008f-board` = board XML drivers, SerDes/LED/thermal/watchdog/flow control, #79) + `rtcore.ko`/`ethdriver.ko`/`mgntPort.ko` in full. Feeds `docs/VENDOR-NIC-TUNING.md`, `docs/MANAGED-FEATURES.md`.
+- Run: `scripts/vendor_nic_decompile.py [st5008f-core|st5008f-core-extra|st5008f-board|st5008f-rtcore|...]` (`core` takes ~3.5 min).
+- Follow-up on a kept project (`proj-st5008f-core`, first run analyses, later runs ~5 s): `addr 0x<va> ...` (unnamed callees), `str <needle> ...` (functions referencing matching strings, e.g. XML keys), `ref <symbol|0xaddr> ...` (readers of a global / callback slot), `name <regex>`.
+- `core` call targets: Ghidra `FUN_x` = dynsym symbol at `x + 8`.
+- Output: `private/ghidra/vendor-nic/<name>.c`, `st5008f-core-{addr,str,ref,name}.c` (not published). Log: `tmp/logs/vendor_nic_decompile.log`.
+
+### st5008f_board_values.py
+- Purpose: board/chip values from TL-ST5008F v2 1.2.0 vs stock ST1008F (#79): `boardInfo.xml` GPIO/pinmux/LED register writes decoded per field (SDK `swcore_rtl9300.h`), SFP TX-disable/ABS wiring, per-cage SerDes TX eye; `rxCaliConf` and `rtl9303_80G` TX tables from `core` and stock `rtk.ko`; `RTL9303_8XGE` LED set from both `rtcore.ko` (relocations resolved). Static only.
+- Run: `python3 -I scripts/st5008f_board_values.py` (needs pyelftools and the private SDK clone).
+- Output: `tmp/st5008f/board_values.json`. Log: `tmp/logs/st5008f_board_values.log`.
 
 ### vendor_nic_values.py
 - Purpose: find the RTL9300 NIC ring-size tables (tx[2] + rx[32] uint32) in vendor ELF data sections.
