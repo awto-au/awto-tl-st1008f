@@ -4,7 +4,7 @@ prove the ASIC (not the CPU) does the forwarding, with error counters watched
 on BOTH the switch and the host.
 
 Topology (router-on-a-stick / hairpin over the single 10G host link):
-  host enp7s0 (mgmt, untagged, 192.168.25.147)  ── lan1 ──  switch
+  host enp7s0 (mgmt, untagged, 192.168.25.30)  ── lan1 ──  switch
     enp7s0.10 (VLAN10) in netns ns10  10.0.1.2/24  -> SVI switch.10 10.0.1.1
     enp7s0.20 (VLAN20) in netns ns20  10.0.2.2/24  -> SVI switch.20 10.0.2.1
   iperf3 ns10 -> ns20 forces every packet onto the wire, through the switch's
@@ -45,7 +45,7 @@ LOG = ROOT / "tmp/logs/routing_wirespeed.log"
 
 # --- fixed test topology ---------------------------------------------------
 HOST_NIC = "enp7s0"                 # the single 10G host NIC (mlx4), mgmt + trunk
-SW_IP = "192.168.25.148"            # switch management (untouched)
+SW_IP = "192.168.25.48"             # st1008f-1-mgmt (awto-dan ip-registry)
 SW_PORT = "lan1"                    # hairpin front port (host is here)
 CPU_PORT = "eth0"                   # switch CPU port -- must stay flat
 VLANS = {                           # vlan -> (svi_ip, gw_host_ip, netns, far_ip)

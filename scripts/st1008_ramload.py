@@ -25,7 +25,18 @@ CONSOLE = ROOT / "private/serial/st1008-console.log"
 SOCK = Path(os.environ.get("XDG_RUNTIME_DIR", f"/run/user/{os.getuid()}")) / "tio-st1008.daemon.sock"
 DEV = "/dev/serial/by-id/usb-Prolific_Technology_Inc._USB-Serial_Controller-if00-port0"
 TFTP_ROOT = ROOT / "tmp/tftp"
-SWITCH_IP, SERVER_IP = "192.168.25.148", "192.168.25.147"
+# awto-dan docs/network/ip-registry.toml: st1008f-1-mgmt .48, selwyn-enp7s0 .30 (was .148/.147)
+SWITCH_IP, SERVER_IP, SERVER_NIC = "192.168.25.48", "192.168.25.30", "enp7s0"
+
+
+def ensure_server_ip() -> None:
+    """TFTP server address as a secondary on the host NIC; a host reboot drops it (2026-10-11)."""
+    have = subprocess.run(["ip", "-br", "-4", "addr", "show", SERVER_NIC], capture_output=True,
+                          text=True, timeout=2).stdout  # local netlink query, instant
+    if f"{SERVER_IP}/" not in have:
+        subprocess.run(["sudo", "-n", "ip", "addr", "add", f"{SERVER_IP}/24", "dev", SERVER_NIC],
+                       check=True, timeout=5)  # local netlink; 5 s names a sudo prompt hang
+        log(f"host {SERVER_NIC}: added {SERVER_IP}/24")
 
 IMAGES = {
     # name: (file, load addr, start cmd, done marker, cap s)
@@ -99,7 +110,7 @@ class Console:
             log(f"  echo mismatch (try {attempt}/{tries}): {len(got)}/{len(text)} chars; Ctrl-C")
             m = self.size()
             self.send("\x03", cr=False)
-            self.expect(r"st1008f-mainline # |RTL9300# ", 1, m, "prompt after Ctrl-C")
+            self.expect(r"st1008f-mainline # |RTL9300# |root@[^:\s]*:[^#]*# ", 1, m, "prompt after Ctrl-C")
         raise SystemExit(f"FAIL: line echo wrong {tries}x: {text[:60]!r}...")
 
     def expect(self, pattern: str, cap: float, mark: int, what: str,
@@ -179,6 +190,7 @@ def laser(con: Console, cage: int) -> None:
 
 
 def tftp(con: Console, fname: str, addr: int) -> None:
+    ensure_server_ip()
     size = (TFTP_ROOT / fname).stat().st_size
     srv = subprocess.Popen(["sudo", "-n", sys.executable, str(ROOT / "scripts/tftpd.py"), "--once"],
                            cwd=ROOT, stdout=subprocess.DEVNULL, stderr=subprocess.DEVNULL)

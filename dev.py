@@ -147,6 +147,18 @@ def cmd_cpu_clock(extra: list[str]) -> int:
     return _script("cpu_clock_step.py", extra)
 
 
+@command("turn bridge STP on in the flash OpenWrt config, from RAM-booted OpenWrt (#43)",
+         args="(run after `ramload openwrt`)", kind="hardware")
+def cmd_openwrt_flash_stp(extra: list[str]) -> int:
+    return _script("openwrt_flash_stp.py", extra)
+
+
+@command("boot the flash OpenWrt as an unattended power-up would; log STP/ports/uptime/temp (#43)",
+         args="[--minutes 10] [--every 30]  (run storm-watch alongside)", kind="hardware")
+def cmd_flash_openwrt_watch(extra: list[str]) -> int:
+    return _script("flash_openwrt_watch.py", extra)
+
+
 @command("run the rtk command list on stock and on our U-Boot, diff (see scripts/rtk_parity.py)",
          args="capture --side stock|ours | compare | both [--state] [--slow]", kind="check")
 def cmd_rtk_parity(extra: list[str]) -> int:
