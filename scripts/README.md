@@ -243,3 +243,24 @@ Desk-only; no switch access. Needs `tmp/openwrt` (sparse clone of openwrt, `targ
 - Purpose: console UART baud ladder at the mainline prompt (#32). One self-restoring command line per divisor (`mw.b` divisor, `md.b` 16 KiB, restore 115200); pass = byte-exact vs a 115200 baseline.
 - Host side: clone PL2303HX runs faster than requested; the script sweeps the requested rate down from the last good factor.
 - Run: `./dev.py serial-speed [divisor ...]`. Log: `tmp/logs/serial_speed_test.log`.
+
+### cpu_clock_step.py
+
+- Purpose: CPU PLL ladder at the mainline prompt (#38): `clocks set cpu` per value, then `sleep 5` vs host clock = real CPU rate (CP0 Count = CPU/2). Stops at the first fail or hang.
+- Run: `./dev.py cpu-clock <e210> <e208> [e208 ...]` (values: `scripts/clock_calc.py cpu <MHz>`). Log: `tmp/logs/cpu_clock_step.log`.
+
+### uimage_std_magic.py
+
+- Purpose: copy an OpenWrt Realtek-magic (`0x93030000`) uImage with the standard magic `0x27051956` for mainline `bootm`; header CRC recomputed, payload untouched.
+- Run: called by `./dev.py ramload uboot-mainline --then openwrt [--cpu E208]`. Log: `tmp/logs/uimage_std_magic.log`.
+
+### openwrt_flash_stp.py
+
+- Purpose: from RAM-booted OpenWrt, mount the flash overlay (`rootfs_data`) and set `network.switch.stp=1` in the flash OpenWrt's config (#43). Refuses if the overlay has no `etc/config/network`.
+- Run: `./dev.py ramload openwrt` then `./dev.py openwrt-flash-stp`. Log: `tmp/logs/openwrt_flash_stp.log`.
+
+### flash_openwrt_watch.py
+
+- Purpose: boot the flash OpenWrt as an unattended power-up would (autoboot caught, no `rtk network on`, `boota`), then sample uptime (reboot detection), `stp_state`, lan* STP port states, SoC temperature (#43).
+- Run: `./dev.py flash-openwrt-watch [--minutes 10] [--every 30] [--attach]` with `./dev.py storm-watch` alongside. Log: `tmp/logs/flash_openwrt_watch.log`.
+
