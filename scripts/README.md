@@ -165,6 +165,13 @@ End-to-end workflow: [../README.md#workflow](../README.md#workflow).
 - Timeout: 6 s per `make` call (clean build measured 4 s, x1.5); expiry kills make and logs the elapsed time.
 - Resets tracked files in the tree (`git checkout -- .`) before staging; the tree must be a throwaway clone.
 
+### mode_switch_map.py
+
+- Mode switch (#8) and its boot policy (#46). `./dev.py mode-map live | boot --expect M1|M2|M3`.
+- `live`: at our U-Boot prompt; logs `OWNER: slide the mode switch to Mx`, polls `rtk mode` every 0.5 s until the pins change and hold 3 polls; order M1 -> M2 -> M3 -> M1. PASS = 3 distinct patterns, decode == label.
+- `boot`: owner sets the switch first; power-cycle with the saved chain. M1 -> flash OpenWrt (STP set); M2/M3 -> our prompt, `boot_mode=Mx`.
+- Timeout: 180 s per owner move (request is relayed through chat). Log: `tmp/logs/mode_switch_map.log`.
+
 ### sfp_decode_host_test.py
 
 - Builds the U-Boot SFP decoder (`uboot-port/board/tplink/tl-st1008f/sfp/`) on the host with shim headers.

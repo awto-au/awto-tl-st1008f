@@ -101,6 +101,9 @@ int rtk_mode(int argc, char *const argv[])
 
 	printf("mode: pins 17/18/19 = %u/%u/%u -> pattern %d (%s)\n", v & 1, (v >> 1) & 1,
 	       (v >> 2) & 1, pat, name[pat - 1]);
+	pat = st1008f_boot_mode(NULL);
+	printf("boot policy: %sM%d %s (pins 18/19; #46)\n", pat ? "" : "invalid -> ", pat ? pat : 1,
+	       st1008f_mode_name(pat ? pat : 1));
 	return 0;
 }
 

@@ -48,7 +48,11 @@ CHECKS["rtk_sdsreg"] = ("rtk sdsreg get 0 2 0x1f 2",
 CHECKS["rtk_ext"] = ("rtk ext-pinGet 3", r"The pinNum \(3\) is invalid\.", 1)  # no RTL8231
 CHECKS["rtk_usage"] = ("rtk bogus", r"Usage:\r?\nrtk     - Realtek commands\r?\n", 1)
 # new commands (no stock equivalent)
-CHECKS["rtk_mode"] = ("rtk mode", r"mode: pins 17/18/19 = [01]/[01]/[01] -> pattern [123] \(M[123]", 1)
+CHECKS["rtk_mode"] = ("rtk mode", r"mode: pins 17/18/19 = [01]/[01]/[01] -> pattern [123] \(M[123][^\n]*\n"
+                     r"boot policy: M[123] (normal|easy|recovery) \(pins 18/19", 1)
+# boot policy latched at board_late_init (#46)
+CHECKS["boot_mode"] = ("printenv boot_mode bootcmd_m1",
+                       r"boot_mode=M[123]\r?\nbootcmd_m1=clocks fast; bootm 0xb4300000\r?\n", 1)
 CHECKS["rtk_temp"] = ("rtk temp", r"temp: \d+ C \(since enable: min \d+, max \d+\)", 1)
 # after stock `rtk network on` every cage is forced 10GBASE-R (WDIG reg 9, #42)
 CHECKS["rtk_port"] = ("rtk port", r"(?s)cage 1 \(port 0, sds 2\): [^\n]*sds 10GBASE-R \(0x1a\).*cage 8 \(port 27, sds 9\): ", 3)

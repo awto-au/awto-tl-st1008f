@@ -202,6 +202,12 @@ def cmd_uboot_chain_env(extra: list[str]) -> int:
     return _script("uboot_chain_env.py", extra)
 
 
+@command("mode switch (#8 #46): live = owner slides M1->M2->M3->M1 at our prompt; boot = chain power-on at a set position",
+         args="live | boot --expect M1|M2|M3", kind="hardware")
+def cmd_mode_map(extra: list[str]) -> int:
+    return _script("mode_switch_map.py", extra)
+
+
 @command("hash every file of the running flash OpenWrt's squashfs root (+ SQUASHFS error count)",
          args="<label> [--against <label>]", kind="check")
 def cmd_rootfs_hash(extra: list[str]) -> int:

@@ -130,7 +130,18 @@ Source: static RE of stock `rtk.ko` (TP-Link additions, `TP_CHKPATTERN` thread).
 - The `10G/2.5G/1G fiber insert` lines are EEPROM classification, not the switch. A 1G module logged as `10G fiber insert` under M1 means its EEPROM claimed 10G compliance bits; it is not evidence of a global mode.
 - `gpioInit` (`0x0020c6dc`) is dead code (no caller).
 - Stock U-Boot never reads pins 17-19.
-- Replacement-U-Boot implication: read DAT bits 17-19 directly; M1 vs not-M1 is the only distinguishable split on this board.
+- Stock decode with pin 17 always low separates only M1 vs not-M1. Pins 18/19 alone separate all three positions (measured reads above).
+
+### Boot policy (our U-Boot, #46)
+
+- `board_late_init` reads DAT bits 17-19 twice, 30 ms apart (stock settle), decodes pins 18/19 only: 1/1 = M1, 0/1 = M2, 1/0 = M3. Both low or the two reads differ = invalid -> M1.
+- Prints `Mode:  Mx <name>, pins 17/18/19 = a/b/c`; sets env `boot_mode=Mx`, `bootcmd_m1=clocks fast; bootm 0xb4300000`.
+- Chainloaded from flash (marker `0xa5a51008` @ `0xa0f80000`, cleared on read):
+  - M1 / invalid: `bootcmd` = `bootcmd_m1`, `bootdelay=1` (unchanged from before #46).
+  - M2 / M3: no autoboot, stays at the prompt; prints `needs Ethernet (stage 4, #46)`. `run bootcmd_m1` boots flash OpenWrt. DHCP/netconsole (M2) and TFTP recovery (M3) wait for stage-4 Ethernet.
+- RAM-loaded (no marker): prompt at every position, `boot_mode` still set.
+- Live check: `rtk mode` (stock pattern + `boot policy:` line). Mapping/verify: `./dev.py mode-map live | boot --expect Mx`.
+- The switch must sit at M1 for unattended power-up to reach OpenWrt.
 
 ## Thermal
 
