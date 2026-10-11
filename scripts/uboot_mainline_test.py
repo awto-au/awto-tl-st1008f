@@ -131,7 +131,11 @@ def sfp_a0(con: Console) -> bool:
             return False
         got = bytes(int(h, 16) for row in re.findall(r"^[0-9a-f]{4}: ((?:[0-9a-f]{2} ){1,16})", out, re.M)
                     for h in row.split())
-        same = got == dump.read_bytes()[:0x60]
+        ref = dump.read_bytes()[:0x60]
+        if len(got) == 0x60 and got[68:84] != ref[68:84]:  # A0 68-83 = serial: module swapped since the dump
+            log(f"SKIP sfp_a0 cage {cage}: module sn {got[68:84].strip()!r} != dump {ref[68:84].strip()!r}")
+            continue
+        same = got == ref
         ok &= same
         log(f"{'PASS' if same else 'FAIL'} sfp_a0 cage {cage}: {len(got)} B vs stock {dump.parent.name}")
     return ok

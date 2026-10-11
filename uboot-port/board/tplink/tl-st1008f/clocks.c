@@ -367,16 +367,42 @@ static int mem_set(u32 mhz, u32 method)
 #define MCR_REG		0xb8001000
 #define MCR_PREF	(BIT(23) | BIT(22))
 
+#define FAST_MEM_MHZ	650	/* runtime change with refresh paused (nosr); self-refresh mode hangs (#39) */
+#define DTR0_REG	0xb8001008
+#define DMCR_REG	0xb800101c
+/* tREFI = (t + 1) << (unit + 5) clk: t 8, unit 4 = 4608 clk = 7.09 us at 650 MHz (stock unit 3) */
+#define DTR0_REFI	((8 << 8) | (4 << 4))
+
+static int refi_set(void)
+{
+	u32 i;
+
+	__raw_writel((R(DTR0_REG) & ~0xff0) | DTR0_REFI, (void __iomem *)DTR0_REG);
+	__raw_writel(R(DMCR_REG), (void __iomem *)DMCR_REG);	/* rewrite = latch DTRs (SDK) */
+	for (i = 0; i < 64 && (R(DMCR_REG) & BIT(31)); i++)	/* latch ~1 us; 64 polls >= 3.2 us */
+		;
+	if (R(DMCR_REG) & BIT(31)) {
+		puts("clocks: DTR latch still busy after 64 polls\n");
+		return CMD_RET_FAILURE;
+	}
+	return 0;
+}
+
 static int fast_set(void)
 {
 	int ret = cpu_set(FAST_E208, FAST_E210, 0);
 
+	if (!ret)
+		ret = mem_set(FAST_MEM_MHZ, 1);
+	if (!ret)
+		ret = refi_set();
 	if (ret)
 		return ret;
 	__raw_writel(R(MCR_REG) & ~MCR_PREF, (void __iomem *)MCR_REG);
 	__raw_writel(R(MCR_REG) | MCR_PREF, (void __iomem *)MCR_REG);
 	__asm__ __volatile__("sync");
-	printf("clocks: fast = cpu 1000 MHz, dram prefetch on (MCR %08x), spi unchanged\n", R(MCR_REG));
+	printf("clocks: fast = cpu 1000 MHz, mem %u MHz, tREFI 4608 clk, dram prefetch on (MCR %08x), "
+	       "spi unchanged\n", FAST_MEM_MHZ, R(MCR_REG));
 	return 0;
 }
 
@@ -430,7 +456,7 @@ static int do_clocks(struct cmd_tbl *cmdtp, int flag, int argc, char *const argv
 
 U_BOOT_CMD(clocks, 7, 0, do_clocks, "show CPU/LX/SPI/MEM clocks and DDR3 timings; set CPU/MEM PLL",
 	   "\n  rates decoded from the PLL registers; docs/CLOCKS.md\n"
-	   "clocks fast  - CPU 1000 MHz + DRAM controller prefetch (SPI left alone)\n"
+	   "clocks fast  - CPU 1000 MHz, DDR 650 MHz, tREFI 7.1 us, DRAM controller prefetch (SPI left alone)\n"
 	   "clocks set cpu <e208> <e210> [relock 0|1] force\n"
 	   "  - CPU PLL from SRAM (stock sequence); relock 0 = e200 bit 30 (default), 1 = e220 bit 17\n"
 	   "clocks set lx <code 2..5> force  - LX = 2450 / (2 x (code + 2)) MHz; 5 = stock 175\n"

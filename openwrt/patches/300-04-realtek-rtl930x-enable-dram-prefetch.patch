@@ -24,7 +24,7 @@ Set them from the RTL930x early quirk hook, before memory sizing.
  
  #define RTL931X_DRAM_CONFIG		0x14304c
  
-@@ -228,6 +231,20 @@
+@@ -228,6 +231,21 @@
  	soc_info.memory_size = 1 << bits;
  }
  
@@ -40,12 +40,13 @@ Set them from the RTL930x early quirk hook, before memory sizing.
 +	soc_w32(mcr, RTL9300_MCR);
 +	soc_w32(mcr | RTL9300_MCR_IPREF | RTL9300_MCR_DPREF, RTL9300_MCR);
 +	__sync();
++	pr_info("RTL930x DRAM controller prefetch on (MCR %08x)\n", soc_r32(RTL9300_MCR));
 +}
 +
  static void rtl930x_prepare_highmem(void)
  {
  	if ((soc_info.memory_size <= 256 * 1024 * 1024) ||
-@@ -408,6 +425,7 @@
+@@ -408,6 +426,7 @@
  	.model_info_reg = RTL93XX_MODEL_NAME_INFO,
  	.family = RTL9300_FAMILY_ID,
  	.cpu_port = RTL930X_CPU_PORT,

@@ -3,9 +3,12 @@
 
 Needs: tmp/linux-v7.3 (shallow clone of v7.3-rc6), a mips big-endian cross gcc
 (default prefix mips64-linux-gnu-, -mabi=32 multilib). Log: tmp/logs/mainline_build_check.log
-Steps: install DTS + dts Makefile line, 32r2_defconfig + fragment, build vmlinux and the dtb.
+Steps: OpenWrt realtek board patches (300-01..03 + mach-rtl-otto headers) and ours
+(openwrt/patches/*.patch, e.g. 300-04 DRAM prefetch, #53), each skipped if already applied;
+install DTS + dts Makefile line, 32r2_defconfig + fragment, build vmlinux and the dtb.
 """
 import argparse
+import shutil
 import subprocess
 import sys
 import time
@@ -14,6 +17,21 @@ from pathlib import Path
 ROOT = Path(__file__).resolve().parent.parent
 LOG = ROOT / "tmp/logs/mainline_build_check.log"
 DTS = "tplink-tl-st1008f-v2"
+OWRT = ROOT / "tmp/openwrt/target/linux/realtek"
+PATCHES = [*sorted((OWRT / "patches-6.18").glob("300-0[1-3]-*.patch")),
+           *sorted((ROOT / "openwrt/patches").glob("*.patch"))]
+HDR = "arch/mips/include/asm/mach-rtl-otto"
+
+
+def apply_patches(tree):
+    """Idempotent: a patch whose reverse applies cleanly is already in the tree."""
+    shutil.copytree(OWRT / "files-6.18" / HDR, tree / HDR, dirs_exist_ok=True)
+    for p in PATCHES:
+        # --force: never flips -R (--batch silently dry-runs forward and "succeeds")
+        if run(["patch", "-p1", "-R", "--dry-run", "--force", "-s", "-i", str(p)], tree) == 0:
+            continue
+        if run(["patch", "-p1", "--forward", "--batch", "-i", str(p)], tree):
+            sys.exit(f"{p.name} does not apply, see log")
 
 
 def run(cmd, cwd):
@@ -38,6 +56,7 @@ def main():
     LOG.parent.mkdir(parents=True, exist_ok=True)
     LOG.write_text("")
 
+    apply_patches(tree)
     dts_dir = tree / "arch/mips/boot/dts/realtek"
     (dts_dir / f"{DTS}.dts").write_text((ROOT / f"mainline/{DTS}.dts").read_text())
     mk = dts_dir / "Makefile"
