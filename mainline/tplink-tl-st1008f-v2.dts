@@ -110,13 +110,14 @@
 		};
 	};
 
-	/* Cage N+1: MOD-DEF0 = GPIO N (active-low), TX-disable = expander pin N (active-high). */
+	/* Cage N+1: MOD-DEF0 = GPIO N (active-low), TX-disable = expander pin N (active-high).
+	 * Power: every cage 2000 mW (SFF-8472 max level); OpenWrt's 2.9/1.5/2.0 W split is copied, not measured (#30). */
 	sfp0: sfp-p1 {
 		compatible = "sff,sfp";
 		i2c-bus = <&i2c0_0>;
 		mod-def0-gpios = <&gpio0 0 GPIO_ACTIVE_LOW>;
 		tx-disable-gpios = <&gpioexp0 0 GPIO_ACTIVE_HIGH>;
-		maximum-power-milliwatt = <2900>;
+		maximum-power-milliwatt = <2000>;
 	};
 
 	sfp1: sfp-p2 {
@@ -124,7 +125,7 @@
 		i2c-bus = <&i2c0_1>;
 		mod-def0-gpios = <&gpio0 1 GPIO_ACTIVE_LOW>;
 		tx-disable-gpios = <&gpioexp0 1 GPIO_ACTIVE_HIGH>;
-		maximum-power-milliwatt = <1500>;
+		maximum-power-milliwatt = <2000>;
 	};
 
 	sfp2: sfp-p3 {
@@ -132,7 +133,7 @@
 		i2c-bus = <&i2c0_2>;
 		mod-def0-gpios = <&gpio0 2 GPIO_ACTIVE_LOW>;
 		tx-disable-gpios = <&gpioexp0 2 GPIO_ACTIVE_HIGH>;
-		maximum-power-milliwatt = <1500>;
+		maximum-power-milliwatt = <2000>;
 	};
 
 	sfp3: sfp-p4 {
@@ -156,7 +157,7 @@
 		i2c-bus = <&i2c0_5>;
 		mod-def0-gpios = <&gpio0 5 GPIO_ACTIVE_LOW>;
 		tx-disable-gpios = <&gpioexp0 5 GPIO_ACTIVE_HIGH>;
-		maximum-power-milliwatt = <1500>;
+		maximum-power-milliwatt = <2000>;
 	};
 
 	sfp6: sfp-p7 {
@@ -164,7 +165,7 @@
 		i2c-bus = <&i2c0_6>;
 		mod-def0-gpios = <&gpio0 6 GPIO_ACTIVE_LOW>;
 		tx-disable-gpios = <&gpioexp0 6 GPIO_ACTIVE_HIGH>;
-		maximum-power-milliwatt = <1500>;
+		maximum-power-milliwatt = <2000>;
 	};
 
 	sfp7: sfp-p8 {
@@ -172,7 +173,7 @@
 		i2c-bus = <&i2c0_7>;
 		mod-def0-gpios = <&gpio0 7 GPIO_ACTIVE_LOW>;
 		tx-disable-gpios = <&gpioexp0 7 GPIO_ACTIVE_HIGH>;
-		maximum-power-milliwatt = <2900>;
+		maximum-power-milliwatt = <2000>;
 	};
 
 	/* GPIO21: stock rtk.ko switch_reset() drives it low = board reset.
