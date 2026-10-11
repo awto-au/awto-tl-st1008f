@@ -96,6 +96,9 @@ int rtk_mode(int argc, char *const argv[]);
 int rtk_temp(int argc, char *const argv[]);
 int rtk_ours_help(void);
 
+/* rtk_sdstest.c: `rtk sds` SerDes test tools (#74) */
+int rtk_sds_cmd(int argc, char *const argv[]);
+
 /* board.c: mode switch boot policy (#46); 1-3 = M1-M3, 0 = invalid (treated as M1) */
 int st1008f_boot_mode(u32 *pins);
 const char *st1008f_mode_name(int mode);

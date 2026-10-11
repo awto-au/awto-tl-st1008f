@@ -613,6 +613,8 @@ static int do_rtk(struct cmd_tbl *cmdtp, int flag, int argc, char *const argv[])
 		return rtk_temp(argc, argv);
 	if (is(argv, 1, "sdsdump"))
 		return rtk_sdsdump(argc, argv);
+	if (is(argv, 1, "sds"))
+		return rtk_sds_cmd(argc, argv);
 	if (is(argv, 1, "help-ours"))
 		return rtk_ours_help();
 	return rtk_usage();
@@ -683,6 +685,12 @@ U_BOOT_CMD(rtk, 16, 0, do_rtk, "rtk     - Realtek commands\n",
 	   "        - per cage: module PN, laser, SerDes mode, PCS link, MAC link + speed, media, LED\n"
 	   "rtk sdsdump [sds | all]\n"
 	   "        - SerDes 2-9 pages 0-7, 0x1f-0x2f (for reg_diff.py)\n"
+	   "rtk sds status|errcnt [<cage>|s<sds>|all] [clear]\n"
+	   "rtk sds prbs <cage> 9|31 [ms] [near] [force] [v] | off\n"
+	   "rtk sds loopback <cage> near|off [force]\n"
+	   "rtk sds eye <cage> [frames] [raw]\n"
+	   "rtk sds txeye <cage> [<pre> <main> <post> | restore]\n"
+	   "        - SerDes test tools (needs network on); test modes restore on exit/Ctrl-C\n"
 	   "rtk mode\n"
 	   "        - M1/M2/M3 front switch position (GPIO 17-19)\n"
 	   "rtk temp\n"
