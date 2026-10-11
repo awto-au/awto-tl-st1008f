@@ -14,6 +14,9 @@ Usage (via ./dev.py nat-bench ...):
   mode nat|nat-ft|route|route-ft     nft: masquerade and/or software flowtable (fw4 forward accept)
   run [--secs N] [-P N] [--reverse] [--udp MBPS --len B]   iperf3 natlan -> natwan + switch CPU stats
   local [--secs N] [-P N] [--reverse] host <-> switch iperf3 (CPU terminates; NIC/stack ceiling)
+  pktgen [--count N --size B]       TX-only driver cost (in-kernel pktgen, kmod-pktgen)
+  rxdrop [--secs N --size B]        RX-only driver cost (host UDP flood, dropped at lan1 ingress)
+  v6-setup | v6-run [--onlink] [--dst A]   IPv6 routed through the ASIC (gateway-routed far /64s)
   status | teardown
 Log: tmp/logs/nat_bench.log (one JSON line per run: tmp/logs/nat_bench.jsonl)
 """
@@ -99,6 +102,8 @@ def setup() -> int:
         host(["ip", "-n", ns, "addr", "add", f"{ip}/24", "dev", sub])
         host(["ip", "-n", ns, "link", "set", "lo", "up"])
         # host enp7s0 runs MTU 9000; the switch ports are 1500 (jumbo -> lan1 ParserErrors, silent loss)
+        # own MAC per test netns: both subifs otherwise share enp7s0's MAC + link-local (v6 ND to natwan failed)
+        host(["ip", "-n", ns, "link", "set", sub, "address", f"02:99:00:00:{vid // 100:02d}:{vid % 100:02d}"])
         host(["ip", "-n", ns, "link", "set", sub, "mtu", "1500", "up"])
     host(["ip", "-n", NS_LAN, "route", "add", "default", "via", SW_LAN])
     return status()
@@ -111,11 +116,14 @@ def set_mode(mode: str) -> int:
     sw("nft delete table inet nattest 2>/dev/null; "
        "nft list chain inet fw4 forward | grep -q nattest || "
        f"nft insert rule inet fw4 forward iifname '{{ switch.{LAN_VID}, switch.{WAN_VID} }}' accept "
-       "comment nattest")
+       "comment nattest; "
+       "nft list chain inet fw4 input | grep -q nattest-nd || "
+       f"nft insert rule inet fw4 input iifname '{{ switch.{LAN_VID}, switch.{WAN_VID} }}' meta l4proto icmpv6 "
+       "accept comment nattest-nd")  # IPv6 ND replies to the SVIs (fw4 input policy drop)
     rules = ["table inet nattest {"]
     if ft:
         rules += [f"  flowtable ft {{ hook ingress priority 0; devices = {{ {SW_PORT} }}; }}",
-                  "  chain fwd { type filter hook forward priority 0; policy accept;",
+                  "  chain ftadd { type filter hook forward priority 0; policy accept;",
                   "    meta l4proto { tcp, udp } flow add @ft", "  }"]
     if nat:
         rules += ["  chain post { type nat hook postrouting priority srcnat; policy accept;",
@@ -132,7 +140,9 @@ def set_mode(mode: str) -> int:
 
 def teardown() -> int:
     log("teardown: nattest table, fw4 reload, SVIs, bridge VLANs, host netns")
-    sw("nft delete table inet nattest 2>/dev/null; /etc/init.d/firewall reload; "
+    sw("nft delete table inet nattest 2>/dev/null; nft delete table netdev rxdrop 2>/dev/null; "
+       "killall iperf3 2>/dev/null; rmmod pktgen 2>/dev/null; ip -6 route del 2000::/3 2>/dev/null; "
+       "/etc/init.d/firewall reload; "
        f"ip link del switch.{LAN_VID}; ip link del switch.{WAN_VID}; "
        f"bridge vlan del dev {SW_PORT} vid {LAN_VID}; bridge vlan del dev {SW_PORT} vid {WAN_VID}; "
        f"bridge vlan del dev switch vid {LAN_VID} self; bridge vlan del dev switch vid {WAN_VID} self; true",
@@ -190,11 +200,11 @@ def cpu_report(a: dict, b: dict) -> dict:
 
 def iperf(ns_srv: str, srv_ip: str, ns_cli: str | None, secs: int, streams: int, reverse: bool,
           udp: int | None, length: int | None) -> dict:
-    srv = (["sudo", "-n", "ip", "netns", "exec", ns_srv] if ns_srv else []) + \
+    srv = (["sudo", "-n", "nice", "-n", "19", "ip", "netns", "exec", ns_srv] if ns_srv else []) + \
         ["iperf3", "-s", "-1", "-B", srv_ip]
     p = subprocess.Popen(srv, stdout=subprocess.DEVNULL, stderr=subprocess.DEVNULL)
     time.sleep(0.5)  # iperf3 -s binds in <50 ms; 0.5 s keeps the client from racing it
-    cli = (["sudo", "-n", "ip", "netns", "exec", ns_cli] if ns_cli else []) + \
+    cli = (["sudo", "-n", "nice", "-n", "19", "ip", "netns", "exec", ns_cli] if ns_cli else []) + \
         ["iperf3", "-c", srv_ip, "-t", str(secs), "-P", str(streams), "-J", "-O", "2"]
     if reverse:
         cli.append("-R")
@@ -225,7 +235,7 @@ def summarize(label: str, res: dict, a: dict, b: dict, udp: int | None) -> dict:
         mbps = end.get("sum_received", {}).get("bits_per_second", 0) / 1e6
         extra = {"retrans": end.get("sum_sent", {}).get("retransmits")}
     dt = b["t"] - a["t"]
-    e = {k: b["eth0"][k] - a["eth0"][k] for k in a["eth0"]}
+    e = {k: (b["eth0"][k] - a["eth0"][k]) % 2**32 for k in a["eth0"]}  # 32-bit counters on MIPS32
     cpu = cpu_report(a, b)
     rx_pps = e["rx_packets"] / dt
     tx_pps = e["tx_packets"] / dt
@@ -257,7 +267,7 @@ def run(args, local: bool) -> int:
            f"pidof iperf3 >/dev/null || iperf3 -s -D -B {SW_LAN}")
     a = snap()
     if local:
-        cli = ["sudo", "-n", "ip", "netns", "exec", NS_LAN, "iperf3", "-c", SW_LAN, "-t", str(args.secs),
+        cli = ["sudo", "-n", "nice", "-n", "19", "ip", "netns", "exec", NS_LAN, "iperf3", "-c", SW_LAN, "-t", str(args.secs),
                "-P", str(args.P), "-J", "-O", "2"] + (["-R"] if args.reverse else []) + \
             (["-u", "-b", f"{args.udp}M", "-l", str(args.len)] if args.udp else [])
         tmo = int((args.secs + 2) * 1.25) + 5
@@ -317,7 +327,7 @@ def rxdrop(secs: int, size: int) -> int:
        f"table netdev rxdrop {{ chain in {{ type filter hook ingress device {SW_PORT} priority -500;\n"
        f"  ip daddr {SW_LAN} udp dport 9 counter drop\n  }}\n}}\nEOF")
     a = snap()
-    r = subprocess.run(["sudo", "-n", "ip", "netns", "exec", NS_LAN, sys.executable, "-I", __file__, "_flood",
+    r = subprocess.run(["sudo", "-n", "nice", "-n", "19", "ip", "netns", "exec", NS_LAN, sys.executable, "-I", __file__, "_flood",
                         SW_LAN, str(secs), str(size)], capture_output=True, text=True, timeout=secs * 1.25 + 5)
     b = snap()
     cnt = sw("nft list table netdev rxdrop | grep counter")
@@ -334,6 +344,50 @@ def rxdrop(secs: int, size: int) -> int:
         f"{int(pps)} pps | cpu0 {cpu['cpu0']} cpu1 {cpu['cpu1']} | VPE-ns/pkt {row['ns_vpe_per_pkt']}")
     with JSONL.open("a") as fh:
         fh.write(json.dumps(row) + "\n")
+    return 0
+
+
+# ---- IPv6: routed (no NAT) through the ASIC -----------------------------------
+V6 = {LAN_VID: ("fd99:1::1", "fd99:1::2", NS_LAN, "fd99:11::5", "fd99:11::/64"),
+      WAN_VID: ("fd99:2::1", "fd99:2::2", NS_WAN, "fd99:22::5", "fd99:22::/64")}
+
+
+def v6_setup() -> int:
+    """Gateway-routed v6 (far /64 behind each host) -> eligible for ASIC forwarding (l3.c)."""
+    cmds = []
+    for vid, (svi, hip, ns, far, farnet) in V6.items():
+        cmds += [f"ip -6 addr replace {svi}/64 dev switch.{vid} nodad",
+                 f"ip -6 route replace {farnet} via {hip} dev switch.{vid}"]
+    sw("; ".join(cmds))
+    for vid, (svi, hip, ns, far, farnet) in V6.items():
+        sub = f"{HOST_NIC}.{vid}"
+        host(["ip", "-n", ns, "-6", "addr", "replace", f"{hip}/64", "dev", sub, "nodad"])
+        host(["ip", "-n", ns, "-6", "addr", "replace", f"{far}/128", "dev", sub, "nodad"])
+        host(["ip", "-n", ns, "-6", "route", "replace", "default", "via", svi])
+    r = subprocess.run(["sudo", "-n", "ip", "netns", "exec", NS_LAN, "ping", "-6", "-c", "3", "-W", "1",
+                        "-I", V6[LAN_VID][3], V6[WAN_VID][3]], capture_output=True, text=True, timeout=10)
+    log(f"v6 ping far->far: {'OK' if r.returncode == 0 else 'FAIL'}")
+    log(sw("grep fd99 /sys/kernel/debug/realtek_otto_l3/routes; true"))
+    return 0 if r.returncode == 0 else 1
+
+
+def v6_run(secs: int, streams: int, onlink: bool, dst: str | None = None) -> int:
+    src = V6[LAN_VID][1] if onlink else V6[LAN_VID][3]
+    dst = dst or (V6[WAN_VID][1] if onlink else V6[WAN_VID][3])
+    sw("echo 1 > /sys/kernel/debug/realtek_otto_l3/clear_route_hits; true")
+    srv = subprocess.Popen(["sudo", "-n", "nice", "-n", "19", "ip", "netns", "exec", NS_WAN, "iperf3", "-s", "-1",
+                            "-B", dst], stdout=subprocess.DEVNULL, stderr=subprocess.DEVNULL)
+    time.sleep(0.5)  # iperf3 -s binds in <50 ms
+    a = snap()
+    tmo = int((secs + 2) * 1.25) + 5
+    r = subprocess.run(["sudo", "-n", "nice", "-n", "19", "ip", "netns", "exec", NS_LAN, "iperf3", "-6", "-c", dst,
+                        "-B", src, "-t", str(secs), "-P", str(streams), "-J", "-O", "2"],
+                       capture_output=True, text=True, timeout=tmo)
+    b = snap()
+    srv.kill()
+    res = json.loads(r.stdout)
+    summarize(f"v6-{'onlink' if onlink else 'gw'}-{dst}-tcp-P{streams}-{secs}s", res, a, b, None)
+    log(sw("grep fd99 /sys/kernel/debug/realtek_otto_l3/routes; true"))
     return 0
 
 
@@ -361,6 +415,12 @@ def main() -> int:
     f.add_argument("dst")
     f.add_argument("secs", type=float)
     f.add_argument("size", type=int)
+    sub.add_parser("v6-setup")
+    v = sub.add_parser("v6-run")
+    v.add_argument("--secs", type=int, default=10)
+    v.add_argument("-P", type=int, default=4)
+    v.add_argument("--onlink", action="store_true", help="host-to-host on-link (expect CPU trap)")
+    v.add_argument("--dst", default=None, help="far v6 address on natwan (e.g. one behind 2000::/3)")
     sub.add_parser("status")
     sub.add_parser("teardown")
     a = ap.parse_args()
@@ -377,6 +437,10 @@ def main() -> int:
         return pktgen(a.count, a.size)
     if a.cmd == "rxdrop":
         return rxdrop(a.secs, a.size)
+    if a.cmd == "v6-setup":
+        return v6_setup()
+    if a.cmd == "v6-run":
+        return v6_run(a.secs, a.P, a.onlink, a.dst)
     if a.cmd == "status":
         return status()
     return teardown()
