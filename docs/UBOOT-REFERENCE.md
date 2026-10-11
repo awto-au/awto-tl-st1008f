@@ -73,7 +73,10 @@ Method: prove the base by byte-identical git blob SHAs on untouched files, then 
 ## 1. Commands
 
 Full `help`: [../artifacts/uboot-help.txt](../artifacts/uboot-help.txt). `help rtk`: [../artifacts/uboot-help-rtk.txt](../artifacts/uboot-help-rtk.txt).
-No USB, `tftpput`, `nfs`, `dhcp` or `netconsole` commands.
+No USB, `tftpput`, `nfs`, `dhcp` or `netconsole` commands. No standalone `tftp`, `echo`, `test`, `source`, `i2c`, `mii` (`tftpboot` is the only TFTP entry; command table = 49-entry `cmd_tbl_t`, #24).
+
+- No send path compiled in (#3, static scan): no `tftpput`, no TFTP WRQ string, no `netconsole`/`nfs`/`dhcp`/`sntp`/`cdp`. The `TFTP %s server %pI4; our IP address is %pI4` string exists in 2011.12 `net/tftp.c` with or without `CONFIG_CMD_TFTPPUT`: not evidence of a send path. Raw TX `swnic_send` exists ([UBOOT-FUNCMAP.md](UBOOT-FUNCMAP.md)) but no command reaches it.
+- Copying flash off the board (#2): stock serial `md.b` ~2 KB/s at 115200 (~40x faster at 10.94 MBd, [UBOOT-MAINLINE.md](UBOOT-MAINLINE.md#console-speed)); RAM-booted OpenWrt + `scripts/st1008_mtd_backup.py` = 32 MiB in ~40 s (2026-10-08).
 
 ### `rtk` subcommands
 
@@ -117,14 +120,41 @@ Hazard: 🟢 returns cleanly; 🔴 hangs console (power cycle); ⚠ changes swit
 
 | Command | [BIN] off | Effect | Hazard |
 |---|---|---|---|
-| `boota` | `0xb8ba4` (param block) | boot from one of two RUNTIME images; passes `bootargs` env to the kernel | 🟢 |
+| `boota` | `0xb8ba4` (param block) | boot from one of two RUNTIME images; passes `bootargs` env to the kernel | 🟢 plain; ⚠ `boota 0\|1` |
 | `flshow` | `0xbf444` | print partition layout | 🟢 |
 | `printsys`/`savesys`/`setsys` | `0xbe804`/`0xbe6fc`/`0xbe748` | SYSINFO store (`Invalid system information` on this unit) | print 🟢 / save, set ⚠ |
 | `upgrade loader\|runtime1\|runtime2\|rom [FILE]` | `0xbecc8` | TFTP fetch + flash write | ⚠⚠ |
 | `loaderforce` and `*force` | `0xbec70` | upgrade without validation; rewrites the bootloader | ⚠⚠⚠ |
 | `flerase` | `0xbf468` | partition erase; refuses LOADER (`0xbf404`) | ⚠⚠ |
 
-No flash write is part of this project.
+Flash writes are limited to the approved flows (CLAUDE.md); the stock U-Boot area `0x0`-`0xDFFFF` is never written.
+
+### Hidden flash writers (#24, full decompile)
+
+- `boota 0|1`: rewrites SYSINFO (4 KiB erase + write) once the chosen image validates, and on fallback to the other slot. Plain `boota` (default `bootcmd`) writes only on fallback.
+- `boardid <id>` / `boardmodel <str>`: `setenv`, then erase + write of the 64 KiB BDINFO env sector (implicit `saveenv`).
+- `flerase <idx>` refuses only index 0 (LOADER); BDINFO, SYSINFO, JFFS2, RUNTIME1/2 are all erasable. Entry `0x83f16684` (`do_parterase` @`0x83f1668c` = its delay slot).
+- `upgrade rom` overwrites BDINFO + SYSINFO.
+- `protect`, `erase`, `flinfo` are no-op stubs (return 0); the real erase is `flerase`.
+
+### Image checks (#24)
+
+- Boot magic is not validated: `genimg_get_format` (`0x83f08f10`) is `return 1`; `image_check_hcrc` CRCs only the 0x40-byte header. No `0x27051956` constant in the image; `bootm`/`boota` accept any first header word.
+- Checks that run: header CRC, data CRC (gated by env `verify`), arch == 5 (MIPS), type ∈ {1, 2, 4, 0xe}, comp ∈ {0, 1 gzip, 3 LZMA} (no bzip2), uncompressed output ≤ `0x800000`.
+- `0x93000000` = RTL9300 chip-family ID (checked by `upgrade loader`), not an image magic. Re-stamping images to the standard magic is not needed for stock `bootm`.
+
+### Env and SYSINFO (#24)
+
+- Env = BDINFO @ `0xe0000`, 64 KiB: big-endian CRC32 word + NUL-separated `name=value`. Bad CRC → built-in default env (`bootcmd=boota`, `bootdelay=1`).
+- `CONFIG_SYS_MAXARGS=16`: `setenv` takes 14 value words; a 17th token prints `** Too many args (max. 16) **` but the command still runs with the first 16. A line ≥ 512 bytes fails with `Command too long`.
+- SYSINFO = partition 2 @ `0xf0000` (≤ `0x1000` used): `setsys`/`printsys`/`savesys`; `bootpartition` lives here, not in env.
+- Partition table picked at runtime by flash size (8/16/32/64/128 MiB), decoder `0x83f92e8c`: LOADER @0 (`0xe0000`), BDINFO @`0xe0000`, SYSINFO @`0xf0000`, JFFS2_CFG @`0x100000` (1 MiB), JFFS2_LOG @`0x200000` (1 MiB), RUNTIME1 @`0x300000`, RUNTIME2 after.
+
+### Boot timing before the countdown (#81)
+
+- Stock boot log (`artifacts/stock-boot-20261008.log`): banner, DRAM 512 MB, SPI flash probe, env load from `0xe0000`, `Net Initialization Skipped`, countdown. Banner → countdown = 28 ms; nothing optional starts, so no env setting shortens it.
+- ~2.6 s from the first console byte to the banner = preloader (DRAM init), not env-controlled.
+- Unknown whether this build checks for a key at `bootdelay=0` (`CONFIG_ZERO_BOOTDELAY_CHECK`); not tested (lockout risk), `bootdelay` stays 1 ([DEFAULT-BOOT.md](DEFAULT-BOOT.md#power-up-chain)).
 
 ---
 
@@ -147,7 +177,7 @@ No flash write is part of this project.
 `uboot_sdk_init(RTK)` → `dal_longan_init` → `dal_longan_sds_init`.
 - Not `__BOOTLOADER__`-gated **[SRC]** `dal_longan_mapper.c:157-162` (outside the guards at 143-155, 164+). `dal_longan_sds.c` has no `__BOOTLOADER__` guards.
 - Per 10G SerDes **[SRC]** `dal_longan_sds.c:4737-4788`:
-  1. `dal_longan_sds_rxCaliConf_set(sds, rtl9300_rxCaliConf_serdes_myParam)` `:4747` (tap0_init_val `0x1f`, vth_min 0, eqHoldEnable, dfeTap1_4Enable, dacLongCableOffset 3).
+  1. `dal_longan_sds_rxCaliConf_set(sds, rtl9300_rxCaliConf_serdes_myParam)` `:4747`. Values in stock `rtk.ko` and the ST5008F binary (= SDK 3.8.0): dacLongCableOffset 0, tap0_init_val `0x1f`, vth_min 1, eqHoldEnable 1, dfeTap1_4Enable 1. SDK 3.7.0 source has offset 3 / vth_min 0 (#25, [MANAGED-FEATURES.md](MANAGED-FEATURES.md)).
   2. gate `_dal_longan_sds_10gRxIdleRdy_wait(sds, 10 ms)` `:4770`: even SDS writes `0x35` to page `0x1f` reg `0x2`, reads page `0x1f` reg `0x14` bit 0; OK when `rxIdle == 0`. Odd SDS uses the even sibling, bit 1.
   3. if OK: `osal_time_mdelay(200)`; `dal_longan_sds_rxCali(sds, 0)` — one pass, no retry; a failed cali sets `PHY_SDS_RXCALI_STATUS_FAILED` and returns `RT_ERR_OK` `:4107-4143`.
   4. then `clk_routine` `:4777`, `linkFault_check` `:4780`, `rxCaliConf_cust` `:4783`, `txParam_config_init` `:4786`.
@@ -266,6 +296,10 @@ Base `0xBB000000`.
   `enp0` targets sds2 = cage 1. Values are DMS-1250-specific; not needed on this unit.
 - NIC driver (`drv_nic_init`) configures only CPU port 28: UNKN_UC flood mask, `MAC_L2_PORT_CTRL(28)` TX/RX enable, MAC force link-up. The 9310 path also adds CPU to the BC mask + VLAN 1; the 9300 path does not.
 - Bootloader compiles out front-port L2 setup **[SRC]** `dal_longan_mapper.c:147-262` (`dal_longan_switch_init`, QoS/VLAN/STP/ACL, port admin). Reduced `dal_longan_init` set: sds/phy/flowctrl/port/l2/eee/trunk/stack.
+- What stock `rtk network on` writes beyond SerDes (#80; SDK `dal_construct.c`, `dal_longan_mapper.c`, `rtk/init.c`, bootloader build, matched to the stock banner):
+  - `Chip Construct` = `dal_longan_construct_default_init`: SMI poll select, auto-recover triggers, egress rate/burst, QoS CPU-queue map, flow-control thresholds (8XG column), IPMC/L3 exception actions, ACL lookup, trunk, VLAN CPU-port ingress filter + PVID format, L2 learning/notify, PPPoE parse, chip/watchdog reset enables.
+  - `Mgmt_dev init` = `dal_longan_init` with `__BOOTLOADER__`: `sds_init` (RAM only), `phy_init`, `flowctrl_init` (no writes), `port_init`, `l2_init`, `eee_init`, `trunk_init` (no writes), `stack_init`. Writes: CPU port id, port isolation all-to-all, unknown-UC + broadcast flood masks = cage ports + CPU, EEE off, stack defaults.
+  - No VLAN or STP init: `vlan_init` / `stp_init` are `#ifndef __BOOTLOADER__`. VLAN table and STP state stay at chip reset values; the only VLAN writes are the CPU-port ones in `Chip Construct`.
 - Despite that, front↔front forwarding is active after `network on` (the cage loop, [hardware.md](hardware.md#hazards)).
 - Manual L2 recipe derived from source (RMW, after `rtk network on`; not needed on this unit): `0xBB003268 |= 0x3`, `0xBB003968 |= 0x3`, `0xBB00CA8C |= 0x203`, `0xBB009064 |= 0x10000001`, `0xBB009068 |= 0x10000001`.
 - Software NIC counters **[LIVE]**: successful TX submissions `0x83fc2758`, failures `0x83fc2754` (incremented by `0x83f1ed80`); NIC init flag `0x83fc27e0` = 1; chip-family index `0x83fa1dc4` = 0. TX ring `0xa3df4078`; doorbell callback `0x83f678e0` writes offset `0xe028`. RTL9300 tag callback `0x83f67e8c` builds no tag when the tag-present bit is clear (both loaders clear it).
@@ -291,6 +325,5 @@ Verified on cage 1 and cage 2 (5,383,940 bytes, `iminfo` checksum OK). Session: 
 
 ## Open
 
-- `md.l 0xBB000004` live chip-rev read (OpenWrt already reports rev B).
 - `rtk macsds set` mode enum beyond `10gr` = 2.
-- Whether a TFTP send path exists anywhere in the loader (no `tftpput` string).
+- An unreferenced TFTP WRQ branch in the net code (no WRQ string or command found, #3).
