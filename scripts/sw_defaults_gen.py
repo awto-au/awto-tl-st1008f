@@ -222,8 +222,9 @@ def construct_default():
     w("L3_IP_ROUTE_CTRL", "IP_HDR_ERR_ACT", 3)
     w("L3_IP_ROUTE_CTRL", "IP6_HDR_ERR_ACT", 3)
     w("PARSER_CTRL", "PPPOE_PARSE_EN", 1)
-    w("RST_GLB_CTRL_0", "CHIP_RST_EN", 1)  # enables, not triggers (SW_CHIP_RST is bit 0, never in a mask here)
-    w("RST_GLB_CTRL_0", "WD_RST_EN", 1)
+    # enables only: arm no timer (SoC WDT 0xb8003260 is outside this table), no trigger bit, no GPIO21
+    w("RST_GLB_CTRL_0", "CHIP_RST_EN", 1)  # SW_CHIP_RST (bit 0) takes effect; never written as 1 here
+    w("RST_GLB_CTRL_0", "WD_RST_EN", 1)  # a WDT expiry resets the chip: what bootsel `wdt on` relies on
     return ops
 
 
