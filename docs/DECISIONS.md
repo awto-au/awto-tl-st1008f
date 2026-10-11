@@ -4,6 +4,9 @@ Index of owner decisions, newest first. One line each: date (AEDT), decision, li
 
 ## 2026-10-12
 
+- **SFP power: no per-cage limits.** Every cage 2000 mW (SFF-8472 max; OpenWrt's borrowed 2.9/1.5/2.0 W split made modules fail in cages 2/3/6/7). Instead sum the power all fitted modules declare and warn if over the board budget. #30.
+- **README stays high-level:** no pins, register values or measurements; link to docs/. [README.md](../README.md).
+- README headline: Linux 7.3 port + OpenWrt tracking + default boot, mode-switch table, improvements vs stock/OpenWrt, comparison with managed ST5008F. [README.md](../README.md).
 - **Flash writes: standing approval** except the stock U-Boot area: never write `0x0`-`0xDFFFF` (`LOADER`/`u-boot`); `u-boot-env` only via `./dev.py uboot-chain-env apply|revert`; `jffs2-log`, `jffs2-cfg`, `firmware`, `recovery` writable without asking. Supersedes the 2026-10-11 "no flash writes except approved flows" entries. [CLAUDE.md](../CLAUDE.md), #73.
 - **Mode switch at boot (new meaning):** M1 = switch mode (bridge + STP); M2 = isolated management (every port reaches only the CPU, no port-to-port forwarding); M3 = recovery image, isolated management. Supersedes 2026-10-11 #46 (M2 = DHCP/U-Boot over LAN, stop at prompt; M3 = TFTP netboot). #73, #46.
 - **Management address:** DHCP client + always-present static fallback `192.168.0.1/24`; house LAN gives it `.48` by DHCP reservation. Supersedes the 2026-10-11 "static `.48` on the flash OpenWrt" entry. #73.
