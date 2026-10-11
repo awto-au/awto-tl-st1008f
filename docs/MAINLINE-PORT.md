@@ -179,7 +179,7 @@ Built with `./dev.py build-kernel` (GCC 16.2); booted 2026-10-12 with IP traffic
 | `300-13` | MIPS HIGHMEM lowmem fast paths (#27) |
 | `300-15` | `realtek_otto_wdt`: a watchdog armed by U-Boot stays on at probe (`WDOG_HW_RUNNING`), for the default boot ([DEFAULT-BOOT.md](DEFAULT-BOOT.md), #73) |
 | `300-16` | port LED patterns: `panic_blink`, sysfs error latch, boot-pattern release (`CONFIG_TPLINK_ST1008F_LEDS`, #9; [RTK-COMMANDS.md](RTK-COMMANDS.md#port-leds)) |
-| `300-17` | `l3.c`: on-link neighbour host entries (v4+v6) + default-route offload, opt-in module parameters `l3_onlink` / `l3_default` ([ROUTING-OFFLOAD.md](ROUTING-OFFLOAD.md), #59) |
+| `300-17` | `l3.c`: on-link neighbour host entries (v4+v6) + default-route offload, opt-in module parameters `l3_onlink` / `l3_default_v4` / `l3_default_v6` ([ROUTING-OFFLOAD.md](ROUTING-OFFLOAD.md), #59) |
 
 ### 6.18 -> 7.3 drift fixes (one line each; details in the patch headers)
 

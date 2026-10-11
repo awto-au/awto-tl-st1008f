@@ -65,7 +65,7 @@ Conditions:
 | `2000::/3 via <gw>` (default-route workaround), 60 s | **9079** | 0 % (eth0 7 pps) |
 | On-link host to host (no gateway) | 58.5 | trapped: VPE0 99.7 % |
 
-- `::/0` is not offloaded: it shows as `trap` in `realtek_otto_l3/routes`, same as IPv4 (#59). `300-17` `l3_default` offloads both (mainline port, not yet measured).
+- `::/0` is not offloaded: it shows as `trap` in `realtek_otto_l3/routes`, same as IPv4 (#59). `300-17` `l3_default_v4` / `l3_default_v6` offload them, one parameter per family (mainline port, not yet measured).
 - `2000::/3` covers all global unicast and is offloaded (`fwd`, `chk,dec`).
 - Offloaded routes depend on the gateway's neighbour entry. With a STALE neighbour the route reads `trap`; once the neighbour is REACHABLE again it reads `fwd`. No flapping was seen over 60 s at 9 Gbit/s.
 

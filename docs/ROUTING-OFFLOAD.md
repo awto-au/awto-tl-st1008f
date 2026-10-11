@@ -6,7 +6,7 @@ OpenWrt SNAPSHOT (kernel 6.18), `rtl83xx-switch` DSA driver, `l3.c` offload.
 
 - RTL930x HW-forwards **only routes reached through a gateway** whose MAC is learnt on a switch port. Route gets a nexthop entry → ASIC action `fwd`.
 - **On-link / directly-connected destinations TRAP to CPU** (upstream design). Plain inter-VLAN routing between two directly-attached subnets is **software** on the MIPS core. `300-17` `l3_onlink` changes this (below).
-- Default routes have no ASIC entry (reach CPU via catch-all); `300-17` `l3_default` changes this. Multicast not offloaded. All egress ifaces share one 1536 B MTU.
+- Default routes have no ASIC entry (reach CPU via catch-all); `300-17` `l3_default_v4` / `l3_default_v6` change this. Multicast not offloaded. All egress ifaces share one 1536 B MTU.
 - Capacity: 512 prefix rows (shared v4/v6; v6 = 3 rows), up to 1536 host routes.
 - RTL838x/839x limited; RTL931x unsupported (FIB/neigh events ignored).
 
@@ -30,9 +30,12 @@ Stock driver (OpenWrt `main` up to `e5ec5e199f`, 2026-10-11): both gaps are deli
 | Module parameter (`/sys/module/rtl_otto_dsa/parameters/`, 0644) | Effect |
 |---|---|
 | `l3_onlink` | Resolved neighbour, reached on-link through a switch port, gets a host-table entry forwarding to its MAC. IPv4 and IPv6 |
-| `l3_default` | `0.0.0.0/0` / `::/0` via a gateway forwards from a row just above the catch-all |
+| `l3_default_v4` | `0.0.0.0/0` via a gateway forwards from a row just above the catch-all |
+| `l3_default_v6` | `::/0` via a gateway, same |
 
-- A runtime change is applied at the next poll (`DELAY_PROBE_TIME`, 5 s default). Kernel cmdline: `rtl_otto_dsa.l3_onlink=1 rtl_otto_dsa.l3_default=1`.
+- A runtime change is applied at the next poll (`DELAY_PROBE_TIME`, 5 s default). Kernel cmdline: `rtl_otto_dsa.l3_onlink=1 rtl_otto_dsa.l3_default_v6=1`.
+- NAT box (CPU masquerades to the internet, #58): `l3_default_v4` stays 0. A forwarding v4 default row sends internet traffic out un-NATed with the private source; the ASIC cannot rewrite IPs. `l3_default_v6=1` is fine where v6 is routed without NAT.
+- The driver does not check for masquerade/SNAT: nftables rules are not visible to it without hooking the nf_tables core. Setting `l3_default_v4=1` on a NAT box is the operator's error.
 
 ### On-link neighbours (`l3_onlink`)
 
@@ -45,12 +48,14 @@ Stock driver (OpenWrt `main` up to `e5ec5e199f`, 2026-10-11): both gaps are deli
 - IPv6 host entries: 3 slots at slot 0 or 3 of a 6-slot row; hash = SDK `_dal_longan_l3_hostHash0/1_ret()` = IPv4 hash of the low 32 bits XOR bit *i* at *i* % 9 for *i* >= 32 (`scripts/l3_hash6_check.py`: 200 133 addresses x 2 algorithms, 0 mismatches). Slot occupancy kept in a bitmap: the 2nd/3rd slot of a v6 entry does not read back as an entry.
 - Capacity: 1536 host route ids shared with /32 FIB routes and the box's own v4 addresses; v6 entries use 3 of 6144 slots each.
 
-### Default route (`l3_default`)
+### Default route (`l3_default_v4`, `l3_default_v6`)
+
+- One parameter per family; each family's default row follows only its own parameter. Rules below apply per family.
 
 - Row placed above the catch-all (`otto_l3_route_place()` keeps the catch-all last); `DFLT_ROUTE` bit = `prefix_len == 0`, as the SDK sets it.
 - Upstream objection: a forwarding default row sends every destination the driver left without an entry to the gateway. Handling:
   - Every left-out destination already has a trap row above it (on-link prefixes, own addresses, routes through outside devices, blackhole/unreachable, multipath, nexthop objects, DSCP routes; v6 source-specific).
-  - A route that got no entry: on the list with `hw_missing`, or `lost[family]` when it could not even be listed. Either holds the family's default row at **trap**. `lost` clears on a FIB replay, which the next route delete requests while `l3_default` is set.
+  - A route that got no entry: on the list with `hw_missing`, or `lost[family]` when it could not even be listed. Either holds the family's default row at **trap**. `lost` clears on a FIB replay, which the next route delete of that family requests while its `l3_default_v4`/`_v6` is set.
   - Policy rules other than local/main (`v4_fwd_off`/`v6_fwd_off`): traps, as every forwarding row.
   - v6 source-specific default (`::/0 from X`): the default row traps.
 - Not offloaded (trap via the catch-all as before): RA-learnt `::/0` (`RTF_ADDRCONF`), multipath / nexthop-object defaults, default through a device outside the switch.

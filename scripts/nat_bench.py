@@ -19,7 +19,7 @@ Usage (via ./dev.py nat-bench ...):
   pktgen [--count N --size B]       TX-only driver cost (in-kernel pktgen, kmod-pktgen)
   rxdrop [--secs N --size B]        RX-only driver cost (host UDP flood, dropped at lan1 ingress)
   v6-setup | v6-run [--onlink] [--dst A]   IPv6 routed through the ASIC (gateway-routed far /64s)
-  offload [--onlink 0|1] [--default 0|1]   l3.c module parameters (300-17, #59); prints the tables
+  offload [--onlink 0|1] [--default-v4 0|1] [--default-v6 0|1]   l3.c module parameters (300-17, #59); prints the tables
   dflt-setup                         switch default routes (v4+v6) via natwan + far /128 and /32 on natwan
   routes                             realtek_otto_l3 routes + nexthops (test rows only)
   status | teardown
@@ -47,7 +47,7 @@ LAN_VID, WAN_VID = 991, 992    # test-only VIDs, tagged on lan1 only
 SW_LAN, SW_WAN = "10.99.1.1", "10.99.2.1"
 H_LAN, H_WAN = "10.99.1.2", "10.99.2.2"
 NS_LAN, NS_WAN = "natlan", "natwan"
-L3_PARAMS = "/sys/module/rtl_otto_dsa/parameters"   # l3_onlink, l3_default (300-17, #59)
+L3_PARAMS = "/sys/module/rtl_otto_dsa/parameters"   # l3_onlink, l3_default_v4/_v6 (300-17, #59)
 L3_DBG = "/sys/kernel/debug/realtek_otto_l3"
 # Reached only through the switch's default route (dflt-setup): TEST-NET-2, documentation v6
 FAR4, FAR6 = "198.51.100.5", "2001:db8:22::5"
@@ -172,7 +172,7 @@ def teardown() -> int:
     sw("nft delete table inet nattest 2>/dev/null; nft delete table netdev rxdrop 2>/dev/null; "
        "killall iperf3 2>/dev/null; ip -6 route del 2000::/3 2>/dev/null; "
        f"ip route del default via {H_WAN} 2>/dev/null; ip -6 route del default via {V6[WAN_VID][1]} 2>/dev/null; "
-       f"for p in l3_onlink l3_default; do echo 0 > {L3_PARAMS}/$p 2>/dev/null; done; "
+       f"for p in l3_onlink l3_default_v4 l3_default_v6; do echo 0 > {L3_PARAMS}/$p 2>/dev/null; done; "
        + ("echo 0 > /proc/sys/net/ipv4/ip_forward; echo rem_device_all > /proc/net/pktgen/kpktgend_0 2>/dev/null; "
           if mainline() else "rmmod pktgen 2>/dev/null; /etc/init.d/firewall reload; ")
        + f"ip link del {svi(LAN_VID)}; ip link del {svi(WAN_VID)}; "
@@ -335,8 +335,9 @@ def routes() -> str:
     return out
 
 
-def offload(onlink: int | None, default: int | None) -> int:
-    want = {k: v for k, v in (("l3_onlink", onlink), ("l3_default", default)) if v is not None}
+def offload(onlink: int | None, default_v4: int | None, default_v6: int | None) -> int:
+    want = {k: v for k, v in (("l3_onlink", onlink), ("l3_default_v4", default_v4),
+                              ("l3_default_v6", default_v6)) if v is not None}
     if not sw(f"ls {L3_PARAMS}/l3_onlink 2>/dev/null; true").strip():
         log(f"{L3_PARAMS}/l3_onlink missing: kernel without 300-17")
         return 1
@@ -347,12 +348,14 @@ def offload(onlink: int | None, default: int | None) -> int:
         out = routes()
         rows = out.splitlines()
         onl = [ln for ln in rows if f" {H_WAN}/32 " in ln]
-        dfl = [ln for ln in rows if " 0.0.0.0/0 " in ln and " fwd " in ln]
+        dfl = {"l3_default_v4": [ln for ln in rows if " 0.0.0.0/0 " in ln and " fwd " in ln],
+               "l3_default_v6": [ln for ln in rows if " ::/0 " in ln and " fwd " in ln]}
         ok = True
         if "l3_onlink" in want:  # the natwan host's own /32 host entry forwards, or is gone
             ok &= bool(onl) and " fwd " in onl[0] if want["l3_onlink"] else not onl
-        if "l3_default" in want and sw("ip route show default; true").strip():  # needs dflt-setup
-            ok &= bool(dfl) == bool(want["l3_default"])
+        for k, fam in (("l3_default_v4", "-4"), ("l3_default_v6", "-6")):
+            if k in want and sw(f"ip {fam} route show default; true").strip():  # needs dflt-setup
+                ok &= bool(dfl[k]) == bool(want[k])
         if ok or time.time() - t0 > L3_SETTLE_S:
             break
         time.sleep(1)  # one table dump per second while waiting for the l3.c poll
@@ -506,7 +509,9 @@ def main() -> int:
         r.add_argument("--dst", default=None, help=f"natwan address to reach (e.g. {FAR4} after dflt-setup)")
     o = sub.add_parser("offload")
     o.add_argument("--onlink", type=int, choices=[0, 1], default=None)
-    o.add_argument("--default", type=int, choices=[0, 1], default=None)
+    o.add_argument("--default-v4", type=int, choices=[0, 1], default=None,
+                   help="IPv4 default route offload; keep 0 where the switch NATs (#58)")
+    o.add_argument("--default-v6", type=int, choices=[0, 1], default=None)
     sub.add_parser("dflt-setup")
     sub.add_parser("routes")
     g = sub.add_parser("pktgen")
@@ -546,7 +551,7 @@ def main() -> int:
     if a.cmd == "v6-run":
         return v6_run(a.secs, a.P, a.onlink, a.dst)
     if a.cmd == "offload":
-        return offload(a.onlink, a.default)
+        return offload(a.onlink, a.default_v4, a.default_v6)
     if a.cmd == "dflt-setup":
         return dflt_setup()
     if a.cmd == "routes":
