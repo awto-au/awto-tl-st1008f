@@ -51,7 +51,7 @@ Source tags: **[SRC]** GPL file:line (`dms1250/` = `sources/rtk-dms1250/`, `xgs1
 
 | Reg | Live | Fields | Line |
 |---|---|---|---|
-| `0044` SSR | not dumped | **ckse_ocp0 2** (CPU clock: 1 = PLL, 0 = alternate; SPL clears it around a CPU PLL change), cksel_ocp1 3, gnt_dly 10:8, soc_init_rdy 0 | 124 |
+| `0044` SSR | `00000044` (bit 2 = 1: CPU on PLL) | **ckse_ocp0 2** (CPU clock: 1 = PLL, 0 = alternate; SPL clears it around a CPU PLL change), cksel_ocp1 3, gnt_dly 10:8, soc_init_rdy 0 | 124 |
 | `0200` SPCR | `000e000e` | OCP0PLL_DIV 21:16 = 14, RD_SDCLK_SEL 5:0 = 14. SPEC: legacy (RTL838x-era) field, not read by the SPL | 466 |
 | `0204` PCCR | `40000002` | SSC_RST_N 30 = 1, PLLDDR_PSEN 1 = 1, SSC_EN 6 = 0 | 472 |
 | `0218` ANACR | `000000c4` | PLLANA 15:0 | 512 |
@@ -61,10 +61,10 @@ Source tags: **[SRC]** GPL file:line (`dms1250/` = `sources/rtk-dms1250/`, `xgs1
 | `0228` LPSR | `00000303` | SPICLK_SEL 11:8 = 3, LXCLK_SEL 3:0 = 3. SPEC: legacy; SPL helper `0x9fc00e40` computes 1000/(sel+2) = 200 MHz from it, which the working UART rules out | 536 |
 | `022c` DCER | `00000001` | START_DRAM_CLKO 0 = 1 | 544 |
 | `0234..024c` MPCR0-6 | `7f 400001ef 26a33860 2e0f0000 fff 0 0` | MEM PLL: MPCR2 `23c` PDIV 15:14; MPCR3 `240` NCODE 31:24 = 0x2e; MPCR4 `244` [5:0] = PLL enable/reset (SPL: 0 = hold, 0x3f = run) | 548-575 |
-| `0388` CMUCR_OC0 | not dumped | SE_DRAM 9 = (MEM >= CPU/2), SE_SPIF 17 [BIN `0x9f00063c`, `0x9f0008f8`] | 591 |
+| `0388` CMUCR_OC0 | `00000200` (SE_DRAM 9 = 1) | SE_DRAM 9 = (MEM >= CPU/2), SE_SPIF 17 [BIN `0x9f00063c`, `0x9f0008f8`] | 591 |
 | `03a8/3b8/3c8/3d8` CMUCR_LX0-2/LXP | not dumped | SE_DRAM 9 = (MEM >= LX) | 629-695 |
-| `0700` | not dumped | bit 1 = (SRAM-domain limit `[0x9f000b96]` == 500); written by the CPU apply. No SDK name | — |
-| `40f8` | not dumped | [1:0] = CPU/2 vs 250 MHz class (0: < 250, 1: < 500, 2: >= 500), bit 6 = CPU/2 <= 250, bit 8 = 250 >= 3 x LX. No SDK name [BIN `0x9fc04100`, `0x9fc0422c`] | — |
+| `0700` | `00000000` | bit 1 = (SRAM-domain limit `[0x9f000b96]` == 500); written by the CPU apply. No SDK name | — |
+| `40f8` | `00000085` | [1:0] = CPU/2 vs 250 MHz class (0: < 250, 1: < 500, 2: >= 500), bit 6 = CPU/2 <= 250, bit 8 = 250 >= 3 x LX. No SDK name [BIN `0x9fc04100`, `0x9fc0422c`] | — |
 | `1200` SFCR | `5fc00244` (#35) | SPI_CLK_DIV 31:29 = 2 (divide 2 x (n+1) = 6) | 2169 |
 
 ### DDR3 controller `0xb8001000` — [SRC] `rtl9300_soc_reg.h:1253-1445`; encoding [SRC] `xgs1210/arch/otto40/plr/src/soc/dram_gen2/memcntlr_setup.c:120-298`
@@ -87,7 +87,10 @@ Source tags: **[SRC]** GPL file:line (`dms1250/` = `sources/rtk-dms1250/`, `xgs1
 | `1038` MSRR | not dumped | FLUSH_OCP_CMD 31, DRAM_CMD_GOING 30 (reset 1). Not used |
 | `1040` MPMR0 | `clocks` prints it | PM_MODE 29:28, T_CKE 27:24, TRSD 21:12, T_XSREF 9:0 (reset `0f3ff3ff`) [SRC] `.../dram_gen4_9300/memcntlr_reg.h:241-257`. PM_MODE 2 = self-refresh: SPEC (older Realtek controller, same field at 31:30: test code writes `0x8BFF1000` and treats read-back 2 as "in self-refresh", a bus access wakes it [SRC] `xgs1210/arch/otto/cpu/rlx5281/rtl8686/rtk_soc/test/crypto/crypto/rtl865xc_cryptoEngine.c:375-392`) |
 | `1500` DACCR | `clocks` prints it | AC_MODE 31 (1 = digital delay), DQS0/1 group taps 20:16 / 12:8, AC_DYN_BPTR_CLR_EN 5, AC_BPTR_CLEAR 4 [SRC] `memcntlr_reg.h:766-790`. PHY FIFO reset = bit 4 0 -> 1, bit 5 = 1 [SRC] `xgs1210/arch/otto40/plr/src/soc/dram_gen4/memcntlr_setup.c:647-651` |
-| `15b0..15c4` DCSDCR0-3, DWDMOR, DWDQSOR | `clocks` prints them | command/address/DQS delay taps [SRC] `memcntlr_reg.h:1010-1117`; the SPL writes speed-dependent values here (PHY pre-config) [BIN] |
+| `1050` DIDER | `clocks` prints it | DQS0/1 read-enable taps 28:24 / 20:16, half-clock bits 31 / 23 (#49) |
+| `1510` / `1550` + 4 x DQ: DACDQ_IDX_RR / FR | `clocks` prints them | trained read DQ taps, cur_tap 12:8 per DQ; live 600: taps 15-19, DQ4 = 19 (#48) |
+| `15b0..15bc` DCSDCR0-3 | `08888888 12120888 88888888 88888888` (600, 2026-10-11) | command/address delay taps [SRC] `memcntlr_reg.h:1010-1117`; the SPL writes speed-dependent values here (PHY pre-config) [BIN] |
+| `15c0` DWDMOR, `15c4` DWDQSOR | DWDQSOR `110f0000` (600) | DQS output-enable delay |
 
 - DTR2 confirms the die size: SPL rule tRFC = MEM x tRFC_ns / 1000 + 5 with 260 ns (4 Gbit) gives 161 = `0xa1` [BIN `0x9fc022e4`, table `0x338c` = {90,110,160,260,350} ns]. The earlier hand-trace `0xa1016000` (#23) had the field 4 bits too high.
 - tREFI 3.84 us = the >85 °C (2x refresh) rate; tRP/tRCD 15 ns = DDR3-1333 timings.
@@ -144,7 +147,13 @@ Source tags: **[SRC]** GPL file:line (`dms1250/` = `sources/rtk-dms1250/`, `xgs1
 
 - DTR2 = ((MEM x tRFC_ns / 1000 + 5) << 20) | base. 650 MHz, 4 Gbit: `0x0ae19000` (tRFC 175 clk = 269 ns).
 - The SPL PHY pre-config (`0x9fc02664`) also has a 650 MHz branch: Realtek planned DDR3-1300; only the MEM PLL table stops at 600.
-- SDK PHY pre-config per speed [SRC] `boot0412/memctl.c:1445-1556`: cases 650, 625/600, 575-500, 450/400, 350/300; any other MHz → default branch (DCSDCR0/2/3 `0x08888888`, DCSDCR1 `0x0a0a0fff`, DQM delays 0). No formula, nothing above 650.
+- SDK PHY pre-config per speed [SRC] `boot0412/memctl.c:1445-1556`: cases 650, 625/600, 575-500, 450/400, 350/300; any other MHz → default branch (DCSDCR0/2/3 `0x08888888`, DCSDCR1 `0x0a0a0fff`, DQM delays 0, "Unsupported Frequency" print). No formula, nothing above 650 (#49).
+  - 650: DCSDCR0 `0x0fffffff`, DCSDCR1 `0x03000fff`, DCSDCR2/3 `0xffffffff`.
+  - 625/600: DCSDCR0 `0x08888888`, DCSDCR1 `0x0c0d0888`, DCSDCR2/3 `0x88888888`.
+  - DWDQSOR DQS0/1 output-enable delay `0x0f` / `0x11` at 600 and 650.
+  - Live 600 DCSDCR1 is `12120888`, not the SDK's `0c0d0888`: the SPL binary does not follow this source for DCSDCR1 (or trains it). The SPL's own 600/650 branch stores are not decoded (decompiler output truncated).
+  - The SDK writes DCSDCR0-3 with the MEM PLL outputs disabled (`clk_oe` = 0), then 400 us.
+- The SPL also runs `DDR_Calibration` (DQ/DQS tap training) at init [SRC] `boot0412/memctl.c:2024`; `clocks set mem` does no retraining.
 
 ### DDR bins above 650 (ours; `scripts/clock_calc.py ddr-bin`)
 
@@ -162,6 +171,7 @@ Source tags: **[SRC]** GPL file:line (`dms1250/` = `sources/rtk-dms1250/`, `xgs1
 | 800 | `3e0f0000` | `bb755b3a` | `0b0b051f` | `0d51b000` | 12 | 28 | 6 | 32 | 3072 |
 
 - All bins: DRAM CL 11, CWL 8, WR 12 (DTR0 tWR field 11), tRTP = tWTR 6 clk; MR0 `00101c70`, MR2 `00120018` (SPL rule); MR1, MR3 unchanged.
+- CWL 7 is JEDEC-legal only to tCK 1.5 ns (666 MHz): 662.5 MHz (NCODE 51, MPCR3 `0x330f0000`, tCK 1.509 ns) is the last 12.5 MHz step without MRS. No bin defined for it (#48).
 - 800 is the ceiling: tFAW 40 ns = 32 clk fills its 5-bit field; CL 12+ / CWL 9+ have no code in the SPL MR table or the SDK checks; [DS] rates the controller to 800 MHz. 933 (DDR3-1866, CL 13 / CWL 9) is not implemented.
 
 ## Ratings
@@ -177,6 +187,29 @@ Source tags: **[SRC]** GPL file:line (`dms1250/` = `sources/rtk-dms1250/`, `xgs1
 
 - DRAM part (owner, board photo 2026-10-11): **Zentel A3T4GF40BBF-HP**, 4 Gbit 256M x16, 96-ball FBGA, DDR3-1866 13-13-13, 1.35 V with 1.5 V backward compatibility (#48). OpenWrt commit `39b9b491bb` lists Samsung K4B4G1646E-BYMA: not this board. Matches DCR/DTR2 (4 Gbit x16). Board VDD (1.35 / 1.5 V) not measured.
 - Datasheet minima (DSA3T4GF340BBFF rev 06): tRCD = tRP = 13.91 ns, tRAS 34 ns, tWR 15 ns, tRTP/tWTR max(4 clk, 7.5 ns), tRFC 260 ns, tREFI 7.8 µs (≤ 85 °C) / 3.9 µs (> 85 °C), tDLLK 512 clk, tMOD max(12 clk, 15 ns), tMRD 4 clk. The stock 650 bin (tRP/tRCD 10 clk = 15.4 ns, tRAS 26 = 40 ns) is inside it.
+- `clocks fast` set (CPU 1000, DDR 650 `nosr`, tREFI 7.09 µs, MCR prefetch; SPI stock) validated 2026-10-11 (#54): uboot-test 39/40 (`sfp_a0` since skips swapped modules), 256 MiB pattern test 0 errors, flash OpenWrt rootfs hash = stock, ~8 min Linux load (CPU hog + 32 MiB RAM re-hash loop) clean. No long soak (owner 2026-10-12, [DECISIONS.md](DECISIONS.md)).
+
+## UART rates (2026-10-10, #32)
+
+- Conditions: `./dev.py serial-speed [--stock]`; 16 KiB `md.b` dump (~81 KB text) per step, byte-exact vs a 115200 baseline; host PL2303HX clone (`067b:2303`, bcdDevice 3.00), Linux pl2303 driver. Ours = mainline U-Boot RAM-loaded; stock = stock U-Boot 2011.
+- UART clock = LX / 16; divisor 1 = the UART's max. Every divisor passes on both. [DS] gives pins only (2 UARTs, UART0 RTS/CTS), no clock, max baud or FIFO depth.
+
+| Div | Board baud | Host request that decodes | Ours char/s | Stock char/s |
+|---|---|---|---|---|
+| 95 | 115,131 | 115200 | ~10.6 k | — |
+| 47 | 232,713 | 232,713 | 20.7 k | 20.7 k |
+| 24 | 455,729 | 455,729 | 39.6 k | 39.7 k |
+| 12 | 911,458 | 875,000 (921600 fails) | 77.2 k | 76.5 k |
+| 6 | 1,822,917 | 1,604,167 | 140.9 k | 141.8 k |
+| 5 | 2,187,500 | 1,837,500 | 166.0 k | 166.1 k |
+| 4 | 2,734,375 | 2,187,500 | 194.8 k | 199.5 k |
+| 3 | 3,645,833 | 2,770,833 | 244.7 k | 249.7 k |
+| 2 | 5,468,750 | 3,718,750 | 313.5 k | 335.2 k |
+| 1 | 10,937,500 | 5,129,688 (5,468,750 also works) | 425.1 k | 465.8 k |
+
+- The clone PL2303HX runs faster than requested, more so at high rates: the host request is swept per rate. An FT232H / CH343 would take exact rates.
+- Above ~3.6 MBd char/s is below line rate: polled putc + USB full-speed bulk.
+- Ours ~9 % slower than stock at the top rate: per-character LSR polling in the DM ns16550 path (filling the 16-byte TX FIFO per THRE is the candidate fix).
 
 ## Clock provider (U-Boot, implemented; hardware checks #41)
 
@@ -198,7 +231,13 @@ Source tags: **[SRC]** GPL file:line (`dms1250/` = `sources/rtk-dms1250/`, `xgs1
   - MEM: 25 MHz x (`0xb8000240[31:24]` + 2) / (2 << `0xb800023c[15:14]`).
 - set_rate (optional): SRAM routine as the CPU apply below (SSR.ckse_ocp0 mux, relock trigger, READY poll); MEM set_rate only with the DDR procedure (b).
 - DT consumers to switch from fixed clocks: `cpu@0/1 clocks`, `uart0/1`, `timer@3200` (otto timer), watchdog, `i2c@36c/@388`, `/cpus frequency` (or make 300-02 read the clock).
-- Until then: U-Boot `ft_board_setup` patches the fixed-clock values.
+- Until then: U-Boot `ft_board_setup` patches the fixed-clock values, but only in a DTB passed by `bootm`; appended DTBs (OpenWrt's and ours) are not patched (#55).
+
+### CP0 timer rate in Linux (#55)
+
+- OpenWrt 300-02 `realtek_measure_hpt_freq()` reads `/cpus` `frequency` (default 500 MHz) and uses half of it as the CP0 timer rate. Our mainline DTS has no `frequency` → `No 'frequency' property in DT, using default.` → 250 MHz assumed; real 400 (CPU 800) / 500 (CPU 1000). OpenWrt's own DTS says 800 MHz: wrong at 1 GHz too.
+- Fix `openwrt/patches/300-05`: on RTL930x the CPU clock is computed from `0xbb00e208/e210` (same formula as U-Boot `clocks`); other families still use the DT. Boot via stock U-Boot logs `CPU frequency from PLL: 800MHz`.
+- Impact was limited to CP0 clocksource/clockevent sizing: the kernel clocksource is `realtek_otto_timer` (3125 kHz, LX-derived), so wall-clock time was never wrong.
 
 ## Benchmarks (U-Boot `bench`, 2026-10-11, mainline U-Boot RAM-loaded, heatsink off)
 
@@ -227,8 +266,38 @@ Source tags: **[SRC]** GPL file:line (`dms1250/` = `sources/rtk-dms1250/`, `xgs1
 - Prefetch on: 16 MiB CRC kept, `highmem test` 0 errors; flash OpenWrt rootfs hash identical to stock, 0 SQUASHFS errors. OpenWrt never writes MCR (only reads DCR), so Linux runs with it.
 - DDR 650 (2026-10-11, CPU 1000, `--nosr`): mem_read 342.7 (+2 % vs DDR 600), mem_read_uc 63.0 (+4 %), mem_write 237.0, memcpy 162.4.
 - SPI-NOR ladder (whole-chip CRC vs a /6 baseline, 2026-10-11): SFCR /6 25.5 MHz 16.7 s, /4 38.3 MHz 11.9 s, /2 76.6 MHz 7.0 s; then /2 with NOR source e220[16:13] code 5 (87.5 MHz) 6.2 s, code 4 (102.1 MHz) 5.3 s, **code 3 (122.5 MHz) 4.4 s, flash_uc 7.7 / flash_c 22.3 MB/s**; code 2 (153.1 MHz, rated 133) **CRC mismatch**. Flash limit between 122.5 and 153 MHz. Dual/quad read not tried.
-- Linux reads (29 MiB firmware mtdblock md5, RAM OpenWrt, 2026-10-11): bit-exact up to **102.1 MHz** (3.07 MB/s, PIO-bound); 122.5 MHz md5 mismatch. At 102.1 MHz the flash OpenWrt's JFFS2 overlay logged `node CRC failed` and lost /etc/config/network; at stock SPI the same flash reads clean (0 CRC errors). So Linux runs stock SPI; `clocks fast` leaves SPI unchanged (#50).
+- Linux reads: [SPI-NOR read path](#spi-nor-read-path).
 - LX 204.2 MHz (`clocks set lx 4 force`): console, I2C/SFP/DDM, lasers, sf, highmem, timer all pass; no bench test depends on LX.
+
+## SPI-NOR read path
+
+### Controller modes
+
+- SFCR2 `0xb8001204` = `0xbbc14a00`, set by the stock SPL/U-Boot (read 2026-10-10 at our prompt, #61). Field layout from stock `sf_config_read_mode` [BIN `0x83f01340`]:
+  - `[31:24]` cmd `0xBB` = Fast Read **Dual I/O**; `[23:21]` size 6, `[20]` rd_opt 0.
+  - `[19:18]` cmd_io 0 (x1), `[17:16]` addr_io 1 (x2), `[12:11]` data_io 1 (x2); `[15:13]` dummy 2; `[9]` 1 = 4-byte address (stock `sfcr2_set_4byte_addr`).
+- Memory-mapped window `0xb4000000` (32 MiB) reads in that mode: the U-Boot whole-chip CRC and `flash_*` figures above use it.
+- [DS] §8.2: serial/dual/quad data width, memory-mapped read interface, cached reads; pins `SPI_MST_SIO2` (F2) / `SIO3` (F1) exist.
+- W25Q256JV supports Quad I/O `0xEB`. Board routing of flash IO2/IO3 (WP#/HOLD#) to SIO2/3 and the QE bit (SR2) are unknown: quad not tried.
+
+### Linux
+
+- `drivers/spi/spi-realtek-rtl.c` (v7.3 + OpenWrt 037/040, 207 lines): `transfer_one` only, no `spi_controller_mem_ops`, no dirmap. Every 1 or 4 bytes = SFCSR write + RDY poll + SFDR read, single-bit, generic SPI-NOR read (03h/0Bh). Throughput is PIO-bound (< 3.1 MB/s), not clock-bound (#61).
+- Ladder (2026-10-11, `./dev.py spi-linux`; our U-Boot sets SFCR D / NOR code, then RAM OpenWrt `md5sum` of the 29 MiB `firmware` mtdblock vs a stock-clock reference, #50):
+
+| SPI MHz (D:code) | md5 | Time | MB/s |
+|---|---|---|---|
+| 25.5 (2:6) stock | reference | 17.6 s | 1.73 |
+| 38.3 (1:6) | match | 14.3 s | 2.12 |
+| 76.6 (0:6) | match | 11.1 s | 2.73 |
+| 87.5 (0:5) | match | 10.9 s | 2.79 |
+| 102.1 (0:4) | match | 9.9 s | 3.07 |
+| 122.5 (0:3) | **mismatch** | 8.9 s | 3.40 |
+
+- 122.5 MHz with flash OpenWrt 6.18.55 (power-up chain, 2026-10-11): `wget: I/O error`; from +67 s repeating `SQUASHFS error: Unable to read fragment cache entry` / `Unable to read page` (#50).
+- 102.1 MHz with flash OpenWrt (2026-10-11T21:20+11:00): JFFS2 overlay `jffs2_get_inode_nodes: Node header CRC failed`, `read_dnode: node CRC failed`, `crccheck of ino #462`; /etc/config/network read as default (LAN at 192.168.1.1). Same flash at 25.5 MHz next boot: 0 CRC errors, config intact. The bulk md5 passed; JFFS2's small node reads did not (#50).
+- So Linux runs stock 25.5 MHz; fast SPI only in U-Boot-only sessions (#50, [DECISIONS.md](DECISIONS.md)).
+- Dirmap (`openwrt/patches/300-07`, [MAINLINE-PORT.md](MAINLINE-PORT.md)): self-check fails on every 7.3 boot (2026-10-11/12, stock and our U-Boot): `dirmap: window != PIO at 0x0 (SFCR2 0xbbc14a00), using PIO`. Linux stays on PIO; cause unknown (DT window range `0x14000000` vs the U-Boot-verified KSEG1 `0xb4000000`, byte order of the 64 B compare, 4-byte-address assumption) (#61).
 
 ## CPU overclock: measured (2026-10-10, mainline U-Boot RAM-loaded, heatsink off, stock core voltage)
 
@@ -245,8 +314,7 @@ Source tags: **[SRC]** GPL file:line (`dms1250/` = `sources/rtk-dms1250/`, `xgs1
 | 1016.7 / 1033.3 / 1050 | `0x3b8` / `0x3c8` / `0x3d8` | `0x6b439e13` | PASS (timer only) |
 | 1066.7 | `0x3e8` | `0x6b439e13` | **hang** after the PLL write (VCO 3200 = stock's own max at /4, so the CPU, not the PLL) |
 
-- Ceiling ~1050 MHz. 1000 MHz chosen: uboot-test 40/40 and 15 min Linux load (2x md5sum, 0 % idle) with no reboot, 75 C flat (2026-10-11, #38).
-
+- Ceiling ~1050 MHz. 1000 MHz chosen: uboot-test 40/40 and Linux load (2026-10-11, #38): OpenWrt 25.12.4 initramfs from our U-Boot, 2x `md5sum /dev/zero` (0 % idle on both VPEs), STP on, 824 s, no reboot/oops, 68 → 75 C then flat from +580 s, heatsink off; Linux sees 512 MiB.
 ## Change procedures
 
 ### (a) CPU PLL at runtime — stock sequence [BIN] `0x9f000850` -> `0x9f0002a0` (#38)
@@ -258,8 +326,8 @@ Stock runs it from SRAM with the routine's I-cache lines locked (`0x9f000240`, r
 3. Wait UART TEMT (LSR bit 6) so no byte is in flight.
 4. CP0 Config7 (`$16, 7`) |= `0xc` (34K branch/return prediction off; OpenWrt 839x does the same).
 5. SSR `0xb8000044` bit 2 = 0 (CPU to the alternate clock). Write `0xbb00e208` (NCODE) **then** `0xbb00e210` (DIVN2): DIVN2 first with the old NCODE can briefly select a higher rate.
-6. Relock trigger: if `0xbb000004` bit 4 = 1 and [3:0] < 3: `0xbb00e220` bit 17 (SW_CMU_EN) 0 -> 1; else `0xbb00e200` bit 30 0 -> 1. Live `e200` bit 30 = 0 and `e220` bit 17 = 1 point at the first branch (SPEC). Hazard: SW_CMU_EN also gates the SW PLL = LX, NOR, switch core: a toggle may glitch the console and the running switch.
-7. Poll `0xbb00e200` bit 15 (CPU_PLL_READY) = 1. Stock has no limit. Ours: iteration bound, logged on expiry; lock time not known (SPEC: PLLs lock in tens of us).
+6. Relock trigger: if `0xbb000004` bit 4 = 1 and [3:0] < 3: `0xbb00e220` bit 17 (SW_CMU_EN) 0 -> 1; else `0xbb00e200` bit 30 0 -> 1. This board (`0x93030001`, bit 4 = 0) takes the `e200` bit 30 branch; `e220` bit 17 is not touched (#38). Hazard on the other branch: SW_CMU_EN also gates the SW PLL = LX, NOR, switch core.
+7. Poll `0xbb00e200` bit 15 (CPU_PLL_READY) = 1. Stock has no limit. Ours: iteration bound, logged on expiry. Measured 2026-10-10: the poll returned at once on every change 775-1050 MHz (#38).
 8. SSR bit 2 = 1. Rewrite `0xb8000700`/`0xb80040f8` only if the CPU class changes (not for 500-999 MHz). Spin 10000 iterations (stock). Restore Config7. I-cache invalidate.
 9. Nothing else scales with CPU: UART, I2C, SPI hang off the SW PLL. CP0 timer follows automatically (`get_tbclk`). Linux gets the new rate via `ft_board_setup`.
 
@@ -284,9 +352,10 @@ Measured 2026-10-11 (our U-Boot from flash, no `rtk network on`):
 | self-refresh (MPMR0 PM_MODE = 2) | **hang** after mark `D`: DRAM dead on SR exit | not tried |
 | `nosr` (DMCR refresh off for the 1.8 ms routine) | PASS | **PASS**: 16 MiB CRC kept, highmem 256 MiB 0 errors |
 
-- PM_MODE = 2 is not a usable self-refresh entry on this controller. `nosr` changes the clock with DRAM idle but not in SR (no DLL reset; outside JEDEC); passed every check so far.
+- PM_MODE = 2 is not a usable self-refresh entry on this controller (marks `MSPXD`, then the canary read never returns). `nosr` changes the clock with DRAM idle but not in SR (no DLL reset; outside JEDEC); passed every check so far.
+- 650 `nosr`: decoded mem 650.0 MHz, DTR `99655838 / 0909061f / 0ae19000`, DMCR polls left 63-64 of 64 (#39).
 
-Measured 2026-10-11, MRS bins (`nosr`, CPU 1000 MHz, our U-Boot; second 675 run from flash, no `rtk network on`):
+Measured 2026-10-11, MRS bins (`nosr`, our U-Boot; first 675 run CPU 800, second CPU 1000 from flash with no `rtk network on`):
 
 | Step | Result |
 |---|---|
@@ -294,13 +363,17 @@ Measured 2026-10-11, MRS bins (`nosr`, CPU 1000 MHz, our U-Boot; second 675 run 
 | 650 → 675 (CL 11 / CWL 8 / WR 12, 600 PLL row, 600 PHY taps) | **FAIL** twice: canary 260 and 247 / 1024 bad at 675, first word (+0x0) bad; revert to 650 clean (`MSPRXDFSPRXD`), highmem 0 errors after |
 
 - The revert restored the canary without rewriting it: the data written at 650 survived 675 → the failure is on the read side at 675 (read capture, read latency or command/address), not writes. Switch DMA ruled out (no `rtk network on`).
-- Isolation runs (2026-10-11, `mem-tap-sweep`, #48):
-  - 650 with `cl11` (CL 11 / CWL 8 / WR 12): 0 errors → CL 11 is not the cause.
-  - 675 failure = one data line (DQ4) captured late; a `dqshift` (read taps earlier) fixes it: 675 and 700 then pass CRC and the 256 MiB highmem test.
-  - 675 and 700 still hang under `bench` heavy writes (650 completes the same bench) → write side needs tuning too.
-  - 725 hangs during the clock change itself.
+- Isolation runs (2026-10-11T21:21-21:26+11:00, `mem-tap-sweep`, `--from-flash`, CPU 1000, #48):
+  - 650 with `cl11` (CL 11 / CWL 8 / WR 12) probe: 0/1024 bad → CL 11 is not the cause.
+  - 675 base: 239/1024 bad, XOR `00000010` (DQ4, then DQ1). Trained read taps 15-19, DQ4 = 19: DQ4 captured late.
+  - `dqshift` at 675: −1 … −20 all 0 bad; 0 … +8 fail (94 → 1024 bad).
+  - `mem-clock 675 --extra 'dqshift -8'`: PASS (16 MiB CRC kept, highmem 256 MiB 0 errors); then `700 --extra 'dqshift -6'`: PASS the same way.
+  - 725 (`dqshift -4` from there, taps clamped near 0): hang inside the set.
+  - Shifted taps persist after the set: the failing edge reappeared at +1 from the live taps at 700 and 725 (the sweep reference moves).
+  - `bench` hangs at 675 and 700 right after `crc_l1`, in `mem_write` (cached streaming writes); 650 completes it → write side (DWDQSOR / DCSDCR, CWL 8 or PLL row) needs tuning too.
+  - 675 with the 600 PLL row fails as above; the `mpcr` row sweep (#56) and DIDER/DACCR tap sweeps (#49) have not been run.
   - Gain ≤ 2 % (latency-bound). Decision: 650 stays ([DECISIONS.md](DECISIONS.md)); a speed passes only if `bench` completes too.
-- Experiment options (built, untested) to separate the causes: `cl11` (CL 11 / CWL 8 / WR 12 at 650; CWL 8 at tCK 1.54 ns is outside the datasheet table, p.15), `mpcr` (other SDK PLL rows), `reg` / `dqshift` (PHY read taps), `dtr0` (raw DTR0), `probe` (always revert, report the canary). The canary line also gives the OR of (read ^ expected): which bits/lanes fail.
+- Experiment options to separate the causes (`cl11`, `dqshift`, `probe` used in the runs above): `cl11` (CL 11 / CWL 8 / WR 12 at 650; CWL 8 at tCK 1.54 ns is outside the datasheet table, p.15), `mpcr` (other SDK PLL rows), `reg` / `dqshift` (PHY read taps), `dtr0` (raw DTR0), `probe` (always revert, report the canary). The canary line also gives the OR of (read ^ expected): which bits/lanes fail.
 
 C side, before the routine:
 
