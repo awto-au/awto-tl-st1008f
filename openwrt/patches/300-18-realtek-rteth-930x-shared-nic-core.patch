@@ -1,0 +1,200 @@
+Subject: realtek: rteth (rtl838x_eth) RTL930x paths on the NIC core shared with U-Boot (#83)
+
+- RTL930x register facts, descriptor + CPU-tag layout, NIC reset, HOL ring size/counter, max length,
+  enable, link down and the doorbell value come from rtl930x_nic.h. The build copies that file from
+  awto-tl-st1008f shared/rtl930x-nic/ (never edit the copy); our U-Boot rtl930x_eth.c includes the same file.
+- 930x gets its own create_tx_header/decode_tag/update_counter/set_hol/hw_reset; 931x keeps the 93xx ones.
+- static_asserts tie the generic paths' RTETH_930X_* offsets, ring bits and rteth_frag layout to the core.
+- Behaviour change: NIC reset self-clear limit 1 s -> 62.5 ms (SDK fixed 50 ms x1.25), warns on expiry.
+---
+--- a/drivers/net/ethernet/realtek/rtl838x_eth.c
++++ b/drivers/net/ethernet/realtek/rtl838x_eth.c
+@@ -31,6 +31,42 @@
+
+ #include "rtl838x_eth.h"
+
++/* RTL930x NIC core shared with U-Boot (awto-tl-st1008f shared/rtl930x-nic, #83); ctx = regmap */
++static inline u32 rtl930x_nic_rd(void *ctx, u32 off)
++{
++	u32 v;
++
++	regmap_read(ctx, off, &v);
++	return v;
++}
++
++static inline void rtl930x_nic_wr(void *ctx, u32 off, u32 v)
++{
++	regmap_write(ctx, off, v);
++}
++
++#define rtl930x_nic_msleep	msleep
++#define rtl930x_nic_udelay	udelay
++#include "rtl930x_nic.h"
++
++/* the generic paths below use the RTETH_930X_* and ring names: both must match the core */
++static_assert(RTETH_930X_DMA_IF_CTRL == RTL930X_NIC_DMA_IF_CTRL);
++static_assert(RTETH_930X_DMA_RX_BASE == RTL930X_NIC_DMA_RX_BASE);
++static_assert(RTETH_930X_DMA_TX_BASE == RTL930X_NIC_DMA_TX_BASE);
++static_assert(RTETH_930X_DMA_IF_INTR_MSK == RTL930X_NIC_DMA_INTR_MSK);
++static_assert(RTETH_930X_DMA_IF_INTR_STS == RTL930X_NIC_DMA_INTR_STS);
++static_assert(RTETH_930X_DMA_IF_RX_RING_SIZE == RTL930X_NIC_RX_RING_SIZE);
++static_assert(RTETH_930X_DMA_IF_RX_RING_CNTR == RTL930X_NIC_RX_RING_CNTR);
++static_assert(RTETH_930X_MAC_L2_PORT_CTRL == RTL930X_NIC_L2_PORT_CTRL);
++static_assert(RTETH_930X_MAC_FORCE_MODE_CTRL == RTL930X_NIC_MAC_FORCE);
++static_assert(RTETH_930X_MAC_L2_ADDR_CTRL == RTL930X_NIC_MAC_L2_ADDR);
++static_assert(RTETH_930X_QM_RSN2CPUQID_CTRL_0 == RTL930X_NIC_QM_RSN2CPUQID);
++static_assert(RTETH_930X_QM_RSN2CPUQID_CTRL_CNT == RTL930X_NIC_QM_RSN2CPUQID_N);
++static_assert(RTETH_RING_OWN_HW == RTL930X_NIC_OWN && RTETH_RING_WRAP == RTL930X_NIC_WRAP);
++static_assert(sizeof(struct rteth_frag) == sizeof(struct rtl930x_nic_hdr));
++static_assert(offsetof(struct rteth_frag, len) == offsetof(struct rtl930x_nic_hdr, len));
++static_assert(offsetof(struct rteth_frag, cpu_tag) == offsetof(struct rtl930x_nic_hdr, tag));
++
+ static void rteth_838x_create_tx_header(struct rteth_frag *frag, unsigned int port, int prio)
+ {
+ 	/* cpu_tag[0] is reserved on the RTL83XX SoCs */
+@@ -67,6 +103,11 @@
+ 		frag->cpu_tag[2] |= ((prio & 0x7) | BIT(3)) << 8;
+ }
+
++static void rteth_930x_create_tx_header(struct rteth_frag *frag, unsigned int port, int prio)
++{
++	rtl930x_nic_tx_tag(frag->cpu_tag, port, prio, RTL930X_NIC_TAG1_BP_STP);
++}
++
+ static void rteth_93xx_create_tx_header(struct rteth_frag *frag, unsigned int port, int prio)
+ {
+ 	frag->cpu_tag[0] = 0x8000;  /* CPU tag marker */
+@@ -182,6 +223,11 @@
+ 	/* Free floating rings without space tracking */
+ }
+
++static void rteth_930x_update_counter(struct rteth_ctrl *ctrl, int ring, int released)
++{
++	rtl930x_nic_rx_release(ctrl->map, ring, released);
++}
++
+ static void rteth_93xx_update_counter(struct rteth_ctrl *ctrl, int ring, int released)
+ {
+ 	int shift = (ring % 3) * 10;
+@@ -227,6 +273,22 @@
+ 	return t->l2_offloaded;
+ }
+
++static bool rteth_930x_decode_tag(struct rteth_frag *frag, struct rteth_dsa_tag *t)
++{
++	struct rtl930x_nic_rx_tag n;
++
++	rtl930x_nic_rx_tag(frag->cpu_tag, &n);
++	t->port = n.port;
++	t->queue = n.queue;
++	t->reason = n.reason;
++	t->crc_error = n.crc_error;
++	t->l2_offloaded = n.l2_offloaded;
++	if (t->reason != 63)
++		pr_debug("%s: Reason %d, port %d, queue %d\n", __func__, t->reason, t->port, t->queue);
++
++	return t->l2_offloaded;
++}
++
+ static bool rteth_93xx_decode_tag(struct rteth_frag *frag, struct rteth_dsa_tag *t)
+ {
+ 	t->port = (frag->cpu_tag[0] >> 8) & 0x3f;
+@@ -398,6 +460,26 @@
+ 	}
+ }
+
++static void rteth_930x_set_hol(struct rteth_ctrl *ctrl)
++{
++	/* same budget as rteth_93xx_set_hol: only fully filled packets, no ring overflow */
++	int frags_per_pkt = DIV_ROUND_UP(ctrl->dev->mtu + RTETH_FRAME_OVERHEAD, RTETH_SKB_FRAG_SIZE);
++	int cnt = min(RTETH_RX_RING_SIZE / frags_per_pkt, 0x3ff);
++
++	for (int ring = 0; ring < RTETH_RX_RINGS; ring++)
++		rtl930x_nic_rx_ring_size(ctrl->map, ring, cnt);
++}
++
++static void rteth_930x_hw_reset(struct rteth_ctrl *ctrl)
++{
++	int us;
++
++	pr_info("RESETTING CPU_PORT %d\n", ctrl->cfg->cpu_port);
++	us = rtl930x_nic_reset(ctrl->map, RTETH_RX_RINGS);
++	if (us < 0)
++		netdev_warn(ctrl->dev, "NIC reset not done after %d us\n", RTL930X_NIC_RST_US);
++}
++
+ static void rteth_93xx_hw_reset(struct rteth_ctrl *ctrl)
+ {
+ 	rteth_nic_reset(ctrl, 0x6);
+@@ -509,11 +591,7 @@
+
+ static void rteth_930x_set_max_packet_length(struct rteth_ctrl *ctrl, int len)
+ {
+-	regmap_update_bits(ctrl->map, RTETH_930X_MAC_L2_CPU_MAX_LEN_CTRL, GENMASK(13, 0), len);
+-	regmap_update_bits(ctrl->map, RTETH_930X_MAC_L2_PORT_MAX_LEN_CTRL,
+-			   GENMASK(27, 14) | GENMASK(13, 0),
+-			   FIELD_PREP(GENMASK(27, 14), len) | FIELD_PREP(GENMASK(13, 0), len));
+-	regmap_clear_bits(ctrl->map, ctrl->cfg->dma_if_ctrl, RTETH_RX_TRUNCATE_EN_93XX);
++	rtl930x_nic_max_len(ctrl->map, len);
+ 	rteth_930x_cache_dma_if_ctrl(ctrl);
+ }
+
+@@ -573,15 +651,7 @@
+
+ static void rteth_930x_hw_en_rxtx(struct rteth_ctrl *ctrl)
+ {
+-	/* Enable DMA */
+-	regmap_set_bits(ctrl->map, ctrl->cfg->dma_if_ctrl, ctrl->cfg->tx_rx_enable);
+-	rteth_930x_cache_dma_if_ctrl(ctrl);
+-
+-	/* Restart TX/RX to CPU port, enable CRC checking */
+-	regmap_set_bits(ctrl->map, ctrl->cfg->mac_l2_port_ctrl, 0x3 | BIT(4));
+-
+-	regmap_set_bits(ctrl->map, RTETH_930X_L2_UNKN_UC_FLD_PMSK, BIT(ctrl->cfg->cpu_port));
+-	regmap_write(ctrl->map, ctrl->cfg->mac_force_mode_ctrl, 0x217);
++	ctrl->dma_if_ctrl_val = rtl930x_nic_enable(ctrl->map);
+ }
+
+ static void rteth_931x_hw_en_rxtx(struct rteth_ctrl *ctrl)
+@@ -915,8 +985,7 @@
+ {
+ 	/* TODO: L2 flush needed */
+
+-	/* CPU-Port: Link down */
+-	regmap_clear_bits(ctrl->map, ctrl->cfg->mac_force_mode_ctrl, 0x3);
++	rtl930x_nic_link_down(ctrl->map);
+ }
+
+ static void rteth_931x_hw_stop(struct rteth_ctrl *ctrl)
+@@ -1163,8 +1232,8 @@
+  */
+ static void rteth_930x_tx_kick(struct rteth_ctrl *ctrl, int ring)
+ {
+-	writel_relaxed(ctrl->dma_if_ctrl_val | RTETH_TX_TRIGGER(ctrl, ring),
+-		       ctrl->base + ctrl->cfg->dma_if_ctrl);
++	writel_relaxed(rtl930x_nic_tx_kick_val(ctrl->dma_if_ctrl_val, ring),
++		       ctrl->base + RTL930X_NIC_DMA_IF_CTRL);
+ }
+
+ static int rteth_start_xmit(struct sk_buff *skb, struct net_device *dev)
+@@ -1757,15 +1826,15 @@
+ 	.l2_tbl_flush_ctrl	= RTETH_930X_L2_TBL_FLUSH_CTRL,
+ 	.confirm_disable_irqs	= rteth_93xx_confirm_disable_irqs,
+ 	.enable_rx_irq		= rteth_93xx_enable_rx_irq,
+-	.update_counter		= rteth_93xx_update_counter,
+-	.create_tx_header	= rteth_93xx_create_tx_header,
+-	.decode_tag		= rteth_93xx_decode_tag,
++	.update_counter		= rteth_930x_update_counter,
++	.create_tx_header	= rteth_930x_create_tx_header,
++	.decode_tag		= rteth_930x_decode_tag,
+ 	.hw_en_rxtx		= rteth_930x_hw_en_rxtx,
+ 	.hw_init		= rteth_930x_hw_init,
+ 	.hw_stop		= rteth_930x_hw_stop,
+-	.hw_reset		= rteth_93xx_hw_reset,
++	.hw_reset		= rteth_930x_hw_reset,
+ 	.init_mac		= rteth_930x_init_mac,
+-	.set_hol		= rteth_93xx_set_hol,
++	.set_hol		= rteth_930x_set_hol,
+ 	.set_max_packet_length	= rteth_930x_set_max_packet_length,
+ 	.set_rx_mode		= rteth_930x_set_rx_mode,
+ 	.tx_kick		= rteth_930x_tx_kick,

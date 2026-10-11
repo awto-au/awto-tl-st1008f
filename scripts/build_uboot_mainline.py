@@ -51,6 +51,10 @@ DIRS = {
     "arch/mips/mach-otto": "arch/mips/mach-otto",
     "board/tplink/tl-st1008f": "board/tplink/tl-st1008f",
 }
+# repo rel-path -> tree rel-path: OS-independent cores shared with the Linux patches (#83); copied, never edited
+SHARED = {
+    "shared/rtl930x-nic/rtl930x_nic.h": "board/tplink/tl-st1008f/rtl930x_nic.h",
+}
 
 ARCH_BLOCK = """config ARCH_OTTO
 	bool "Support Realtek Otto (RTL83xx/93xx) SoCs"
@@ -158,6 +162,9 @@ def stage() -> None:
             shutil.rmtree(d)
         shutil.copytree(SCAFFOLD / src, d)
         log(f"staged {dst}/")
+    for src, dst in SHARED.items():
+        shutil.copy2(ROOT / src, TREE / dst)
+        log(f"staged {dst} (shared)")
     for rel, anchor, text, where, marker in HOOKS:
         p = TREE / rel
         txt = p.read_text()

@@ -35,6 +35,7 @@ Overlay (re-applied each run on a `git checkout`/`git clean` of `target/linux`):
 | 300-07 SPI dirmap | rebased → `openwrt/backport-6.18/kernel/` | context: OpenWrt `040-v7.4` (second CS); 6.18 `spi_mem_dirmap_info.op_tmpl` is a struct (7.3: pointer) → `&desc->info.op_tmpl`; dirmap refused for CS != 0 (window + `rtspi_cs()` are CS0 only). Self-check fails on 7.3 (#61): watch the dirmap line |
 | 300-11 rteth TX ring/BQL/xmit_more | as-is (offsets −93..−123) | added: 300-12 builds on it |
 | 300-12 rteth 930x NIC path | rebased → `openwrt/backport-6.18/kernel/` | main dropped the L2 notification buffer (`membase`/`dmam_alloc_coherent`); doorbell `of_iomap` moved after the regmap lookup |
+| 300-18 rteth on the shared NIC core | 7.3 only | needs `rtl930x_nic.h` from `shared/` (`SHARED_FILES`); not in step 1 |
 | 300-13 MIPS highmem lowmem fast paths | as-is (offsets) | generic mm |
 | 300-08..10 | not used | 7.3 port glue |
 | 300-15 watchdog keep-running | not in step 1 | added to `openwrt/patches/` by the default-boot work after this list was set |

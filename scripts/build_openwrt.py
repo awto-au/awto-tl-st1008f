@@ -67,7 +67,8 @@ LINUX73 = ROOT / "tmp/linux-v7.3"
 TAG73, VER73 = "v7.3-rc6", "7.3-rc6"
 sys.path.insert(0, str(ROOT / "scripts"))
 # read-only inputs, shared with the 7.3 port build so both stay the same set
-from mainline_build_check import OWRT as OWRT_PIN, OWRT_COMMIT, OWRT_FILES, OWRT_FILES_DIR, OWRT_VERBATIM  # noqa: E402
+from mainline_build_check import (OWRT as OWRT_PIN, OWRT_COMMIT, OWRT_FILES, OWRT_FILES_DIR,  # noqa: E402
+                                  OWRT_VERBATIM, SHARED_FILES)
 
 PENDING73 = ["700", "701"]  # generic pending-6.18 nft flowtable patches; apply on 7.3 (MAINLINE-PORT §8)
 # generic hack-6.18 patches OpenWrt packages need on 7.3 (all apply as-is; status of the rest: docs/OPENWRT-BUILD.md)
@@ -287,6 +288,8 @@ def overlay_73() -> None:
         src, dst = OWRT_FILES_DIR / rel, fdir / rel
         dst.parent.mkdir(parents=True, exist_ok=True)
         (shutil.copytree if src.is_dir() else shutil.copy2)(src, dst)
+    for rel, src in SHARED_FILES.items():  # shared with U-Boot (#83); 300-18 includes it
+        shutil.copy2(src, fdir / rel)
     for kind, names in (("pending", PENDING73), ("hack", HACK73)):
         gdir = TREE / GEN / f"{kind}-7.3"
         gdir.mkdir()

@@ -1,8 +1,7 @@
-// SPDX-License-Identifier: GPL-2.0+
+// SPDX-License-Identifier: GPL-2.0-only
 /*
- * RTL930x CPU-port NIC (switch port 28), polled DM_ETH driver (#80).
- * Register use and descriptor/CPU-tag layout: OpenWrt rtl838x_eth.c (GPL-2.0, B. Koblitz) RTL930x
- * paths + our 300-12; tag bits: Realtek SDK nic_rtl9300.h. Doc: docs/UBOOT-MAINLINE.md#ethernet.
+ * RTL930x CPU-port NIC (switch port 28): DM_ETH glue, polling, one-cage loop guard (#80, #83).
+ * Hardware facts live in the shared core rtl930x_nic.h (same file as Linux 300-18; copied at build).
  * Loop guard: TX = physical forward to the one `ethport` cage; RX from other ports is dropped.
  */
 
@@ -18,68 +17,41 @@
 #include <linux/delay.h>
 #include "rtk.h"
 
-#define RST_GLB_CTRL_0		0x000c		/* bit 0 = chip reset: never set here */
-#define  RST_NIC_Q		(BIT(1) | BIT(2))	/* SW_Q_RST, SW_NIC_RST (OpenWrt 93xx mask 0x6) */
-#define L2_PORT_CTRL_CPU	(0x3268 + CPU_PORT * 64)	/* [1:0] TX/RX enable, [4] CRC check */
-#define L2_UNKN_UC_FLD_PMSK	0x9064
-#define L2_CPU_MAX_LEN		0xa3a0		/* [13:0] largest frame the switch hands to the CPU */
-#define QM_RSN2CPUQID(i)	(0xa344 + (i) * 4)	/* 6 x 5-bit reason -> RX ring fields per reg */
-#define QM_RSN2CPUQID_N		11
-#define MAC_L2_ADDR		0xc714		/* hi [15:0] = mac[0..1], +4 = mac[2..5] */
-#define MAC_FORCE_CPU		(0xca1c + CPU_PORT * 4)
-#define  CPU_FORCE		0x217		/* link up, 1G: stock + OpenWrt value (DATASHEET-AUDIT.md) */
-#define MAC_LINK_STS		0xcb10
-#define RX_RING_SIZE_REG	0x7c60		/* [9:0] ring 0: frames before the queue manager calls it full */
-#define RX_RING_CNTR		0x7c8c		/* write n: n more frames may be queued to ring 0 */
-#define DMA_RX_BASE(r)		(0xdf00 + (r) * 4)
-#define DMA_TX_BASE(r)		(0xe000 + (r) * 4)
-#define DMA_INTR_MSK(i)		(0xe010 + (i) * 4)	/* RX_RUNOUT, RX_DONE, TX_DONE */
-#define DMA_INTR_STS(i)		(0xe01c + (i) * 4)
-#define DMA_IF_CTRL		0xe028
-#define  DMA_RX_EN		BIT(4)
-#define  DMA_TX_EN		BIT(5)
-#define  DMA_TX_LOW_FETCH	BIT(2)		/* doorbell TX ring 0, self-clearing */
-#define  DMA_FETCH_BUSY		GENMASK(3, 0)
-#define NRX_RINGS		32
-#define NTX_RINGS		2
+/* platform shim for the core: switch block in KSEG1, ctx unused */
+static inline u32 rtl930x_nic_rd(void *ctx, u32 off)
+{
+	return sw_r(off);
+}
 
-#define OWN_HW			BIT(0)		/* ring entry = phys(header) | OWN | WRAP */
-#define WRAP			BIT(1)
-#define MORE			BIT(15)		/* header offset word: frame continues in the next */
+static inline void rtl930x_nic_wr(void *ctx, u32 off, u32 v)
+{
+	sw_w(off, v);
+}
+
+#define rtl930x_nic_msleep	mdelay
+#define rtl930x_nic_udelay	udelay
+#include "rtl930x_nic.h"
+
+#define MAC_LINK_STS		0xcb10
 #define RX_N			32		/* TFTP is lock-step; 32 covers a TCP window burst */
 #define TX_N			4
-#define BUF_SIZE		1664		/* 52 cache lines >= CPU max len */
-#define CPU_MAX_LEN		1600		/* 1522 + slack; longer frames dropped by the switch */
+#define BUF_SIZE		1664		/* 52 cache lines >= CPU_MAX_LEN */
+#define CPU_MAX_LEN		1600		/* 1522 + slack: one frame = one descriptor */
 #define FCS_LEN			4
 #define TX_MIN			60		/* frame without FCS */
-/* TX tag word 1: FWD_TYPE physical [11:8], BP_FLTR [3], BP_STP [2], BP_VLAN_EGR [1] */
-#define TAG1_TX			(1 << 8 | BIT(3) | BIT(2) | BIT(1))
-
-/* NIC reset self-clear: SDK r9300_swQueRst_set waits a fixed 50 ms; x1.25. Expiry: start fails. */
-#define NIC_RST_US		62500
-/* OpenWrt rteth_nic_reset settle before and after the reset (no measurement exists); once per boot */
-#define NIC_SETTLE_MS		100
+#define TX_BYPASS		(RTL930X_NIC_TAG1_BP_FLTR | RTL930X_NIC_TAG1_BP_STP | \
+				 RTL930X_NIC_TAG1_BP_VLAN_EGR)
 /* A TX slot frees when the NIC has fetched it: Linux 17-23 us per packet incl. DMA
  * (DATASHEET-AUDIT.md); a full 4-deep ring = 4 x 23 us, x1.25 = 115 us. Expiry: frame dropped, logged. */
 #define TX_SLOT_US		115
-
-struct nic_hdr {			/* SoC layout, big endian, 32 bytes */
-	u32 buf;
-	u16 rsvd;
-	u16 size;
-	u16 off_more;
-	u16 len;
-	u16 tag[10];
-};
-_Static_assert(sizeof(struct nic_hdr) == 32, "NIC header layout");
 
 struct nic_desc {			/* accessed through KSEG1 only */
 	u32 rx_ring[RX_N];
 	u32 tx_ring[TX_N];
 	u32 null_ring[4];		/* rings we do not use: one CPU-owned entry */
-	struct nic_hdr rx[RX_N];
-	struct nic_hdr tx[TX_N];
-	struct nic_hdr null;
+	struct rtl930x_nic_hdr rx[RX_N];
+	struct rtl930x_nic_hdr tx[TX_N];
+	struct rtl930x_nic_hdr null;
 };
 
 struct rtl930x_eth_priv {
@@ -87,8 +59,9 @@ struct rtl930x_eth_priv {
 	u8 *rx_buf, *tx_buf;		/* cached */
 	unsigned int rx_idx, tx_idx, port, cage;
 	bool hw_ready, rx_any;
+	u32 dma_if_ctrl;		/* doorbell base from rtl930x_nic_enable() */
 	ulong rx_other, rx_bad, tx_timeout;
-	u16 last_tag0, last_tag7;	/* RX tag of the last frame: rx port [12:8], reason [5:0] */
+	struct rtl930x_nic_rx_tag last;	/* tag of the last RX frame */
 };
 
 static void nic_sync(void)
@@ -121,7 +94,7 @@ static int laser_only(int cage)
 
 static void rx_arm(struct rtl930x_eth_priv *p, unsigned int i)
 {
-	volatile struct nic_hdr *h = &p->d->rx[i];
+	volatile struct rtl930x_nic_hdr *h = &p->d->rx[i];
 	u8 *b = p->rx_buf + i * BUF_SIZE;
 
 	invalidate_dcache_range((ulong)b, (ulong)b + BUF_SIZE);	/* drop lines the stack dirtied */
@@ -130,67 +103,48 @@ static void rx_arm(struct rtl930x_eth_priv *p, unsigned int i)
 	h->off_more = 0;
 	h->len = 0;
 	nic_sync();
-	p->d->rx_ring[i] = phys(h) | OWN_HW | (i == RX_N - 1 ? WRAP : 0);
+	p->d->rx_ring[i] = phys(h) | RTL930X_NIC_OWN | (i == RX_N - 1 ? RTL930X_NIC_WRAP : 0);
 }
 
 /* Stop DMA and the CPU port MAC: no frame lands in memory while U-Boot is not polling */
 static void nic_quiesce(void)
 {
-	int i;
-
-	sw_rmw(L2_PORT_CTRL_CPU, 3, 0);
-	sw_rmw(DMA_IF_CTRL, DMA_RX_EN | DMA_TX_EN | DMA_FETCH_BUSY, 0);
-	for (i = 0; i < 3; i++) {
-		sw_w(DMA_INTR_MSK(i), 0);
-		sw_w(DMA_INTR_STS(i), ~0U);
-	}
+	rtl930x_nic_stop(NULL);
+	rtl930x_nic_irq_off(NULL);
 }
 
 /* Once per boot: reset NIC + CPU queues (stock left its own rings armed), then our rings */
 static int nic_setup(struct rtl930x_eth_priv *p)
 {
 	volatile struct nic_desc *d = p->d;
-	ulong t0;
-	u32 v;
-	int i;
+	int i, us;
 
 	nic_quiesce();
-	mdelay(NIC_SETTLE_MS);
-	sw_w(RST_GLB_CTRL_0, (sw_r(RST_GLB_CTRL_0) & ~BIT(0)) | RST_NIC_Q);
-	t0 = timer_get_us();
-	while (sw_r(RST_GLB_CTRL_0) & RST_NIC_Q) {
-		if (timer_get_us() - t0 > NIC_RST_US) {
-			printf("rtl930x-eth: NIC reset not done after %d us (0x%08x)\n", NIC_RST_US,
-			       sw_r(RST_GLB_CTRL_0));
-			return -ETIMEDOUT;
-		}
+	us = rtl930x_nic_reset(NULL, 1);
+	if (us < 0) {
+		printf("rtl930x-eth: NIC reset not done after %d us (0x%08x)\n", RTL930X_NIC_RST_US,
+		       sw_r(RTL930X_NIC_RST_GLB_CTRL_0));
+		return us;
 	}
-	printf("rtl930x-eth: NIC reset %lu us\n", timer_get_us() - t0);
-	mdelay(NIC_SETTLE_MS);
-	v = sw_r(RX_RING_CNTR);			/* OpenWrt: write back = clear ring counters */
-	sw_w(RX_RING_CNTR, v);
-	sw_rmw(RX_RING_SIZE_REG, 0x3ff, RX_N);	/* 1 frame = 1 descriptor (CPU_MAX_LEN < BUF_SIZE) */
-	for (i = 0; i < QM_RSN2CPUQID_N; i++)	/* every trap reason -> ring 0 */
-		sw_rmw(QM_RSN2CPUQID(i), GENMASK(29, 0), 0);
-
+	printf("rtl930x-eth: NIC reset %d us\n", us);
+	rtl930x_nic_rx_ring_size(NULL, 0, RX_N);
+	rtl930x_nic_reason_map(NULL, 1);	/* every trap reason -> ring 0 */
 	d->null.buf = 0;
 	d->null.size = 0;
-	d->null_ring[0] = phys(&d->null) | WRAP;	/* CPU-owned: the NIC never writes */
+	d->null_ring[0] = phys(&d->null) | RTL930X_NIC_WRAP;	/* CPU-owned: the NIC never writes */
 	for (i = 0; i < RX_N; i++)
 		rx_arm(p, i);
 	for (i = 0; i < TX_N; i++)
-		d->tx_ring[i] = phys(&d->tx[i]) | (i == TX_N - 1 ? WRAP : 0);
+		d->tx_ring[i] = phys(&d->tx[i]) | (i == TX_N - 1 ? RTL930X_NIC_WRAP : 0);
 	nic_sync();
-	sw_w(DMA_RX_BASE(0), phys(d->rx_ring));
-	for (i = 1; i < NRX_RINGS; i++)
-		sw_w(DMA_RX_BASE(i), phys(d->null_ring));
-	sw_w(DMA_TX_BASE(0), phys(d->tx_ring));
-	sw_w(DMA_TX_BASE(1), phys(d->null_ring));
+	rtl930x_nic_ring_base(NULL, false, 0, phys(d->rx_ring));
+	for (i = 1; i < RTL930X_NIC_RX_RINGS; i++)
+		rtl930x_nic_ring_base(NULL, false, i, phys(d->null_ring));
+	rtl930x_nic_ring_base(NULL, true, 0, phys(d->tx_ring));
+	rtl930x_nic_ring_base(NULL, true, 1, phys(d->null_ring));
 	p->rx_idx = 0;
 	p->tx_idx = 0;
-	sw_rmw(L2_CPU_MAX_LEN, GENMASK(13, 0), CPU_MAX_LEN);
-	sw_rmw(L2_UNKN_UC_FLD_PMSK, 0, BIT(CPU_PORT));	/* unknown unicast reaches the CPU */
-	sw_w(MAC_FORCE_CPU, CPU_FORCE);
+	rtl930x_nic_max_len(NULL, CPU_MAX_LEN);
 	return 0;
 }
 
@@ -206,7 +160,7 @@ static int rtl930x_eth_start(struct udevice *dev)
 	}
 	if (!p->hw_ready) {
 		/* stock `rtk network on` forces the CPU port link (MAC_FORCE 0x217); else run ours */
-		if (!rtk_net_is_on() && (sw_r(MAC_FORCE_CPU) & 3) != 3) {
+		if (!rtk_net_is_on() && (sw_r(RTL930X_NIC_MAC_FORCE) & 3) != 3) {
 			printf("rtl930x-eth: switch not set up, running `rtk network on`\n");
 			rtk_network(3, on);
 		}
@@ -226,8 +180,7 @@ static int rtl930x_eth_start(struct udevice *dev)
 		printf("rtl930x-eth: cage %d (port %u) only, link %s\n", cage, p->port,
 		       sw_r(MAC_LINK_STS) & BIT(p->port) ? "up" : "down");
 	}
-	sw_rmw(DMA_IF_CTRL, DMA_FETCH_BUSY, DMA_RX_EN | DMA_TX_EN);
-	sw_rmw(L2_PORT_CTRL_CPU, 0, 3 | BIT(4));
+	p->dma_if_ctrl = rtl930x_nic_enable(NULL);
 	return 0;
 }
 
@@ -235,14 +188,14 @@ static int rtl930x_eth_send(struct udevice *dev, void *packet, int length)
 {
 	struct rtl930x_eth_priv *p = dev_get_priv(dev);
 	unsigned int i = p->tx_idx;
-	volatile struct nic_hdr *h = &p->d->tx[i];
+	volatile struct rtl930x_nic_hdr *h = &p->d->tx[i];
 	u8 *b = p->tx_buf + i * BUF_SIZE;
 	int len = max(length, TX_MIN) + FCS_LEN;
 	ulong t0 = timer_get_us();
 
 	if (length > BUF_SIZE - FCS_LEN)
 		return -EMSGSIZE;
-	while (p->d->tx_ring[i] & OWN_HW) {
+	while (p->d->tx_ring[i] & RTL930X_NIC_OWN) {
 		if (timer_get_us() - t0 > TX_SLOT_US) {
 			p->tx_timeout++;
 			printf("rtl930x-eth: TX slot %u still owned by the NIC after %d us\n", i, TX_SLOT_US);
@@ -256,20 +209,11 @@ static int rtl930x_eth_send(struct udevice *dev, void *packet, int length)
 	h->size = BUF_SIZE;
 	h->off_more = 0;
 	h->len = len;
-	h->tag[0] = 0x8000;			/* CPUTAGIF */
-	h->tag[1] = TAG1_TX;
-	h->tag[2] = 0;
-	h->tag[3] = 0;
-	h->tag[4] = 0;
-	h->tag[5] = 0;				/* DPM ports 32-55 */
-	h->tag[6] = BIT(p->port) >> 16;		/* DPM ports 0-31: the mgmt port only */
-	h->tag[7] = BIT(p->port) & 0xffff;
-	h->tag[8] = 0;
-	h->tag[9] = 0;
+	rtl930x_nic_tx_tag((u16 *)h->tag, p->port, -1, TX_BYPASS);
 	nic_sync();
-	p->d->tx_ring[i] = phys(h) | OWN_HW | (i == TX_N - 1 ? WRAP : 0);
+	p->d->tx_ring[i] = phys(h) | RTL930X_NIC_OWN | (i == TX_N - 1 ? RTL930X_NIC_WRAP : 0);
 	nic_sync();
-	sw_w(DMA_IF_CTRL, (sw_r(DMA_IF_CTRL) & ~DMA_FETCH_BUSY) | DMA_TX_LOW_FETCH);
+	sw_w(RTL930X_NIC_DMA_IF_CTRL, rtl930x_nic_tx_kick_val(p->dma_if_ctrl, 0));
 	p->tx_idx = (i + 1) % TX_N;
 	return 0;
 }
@@ -279,27 +223,26 @@ static void rx_release(struct rtl930x_eth_priv *p)
 {
 	rx_arm(p, p->rx_idx);
 	nic_sync();
-	sw_w(RX_RING_CNTR, 1);
+	rtl930x_nic_rx_release(NULL, 0, 1);
 	p->rx_idx = (p->rx_idx + 1) % RX_N;
 }
 
 static int rtl930x_eth_recv(struct udevice *dev, int flags, uchar **packetp)
 {
 	struct rtl930x_eth_priv *p = dev_get_priv(dev);
-	volatile struct nic_hdr *h;
+	volatile struct rtl930x_nic_hdr *h;
 	unsigned int n, len;
 	u8 *b;
 
 	for (n = 0; n < RX_N; n++) {
-		if (p->d->rx_ring[p->rx_idx] & OWN_HW)
+		if (p->d->rx_ring[p->rx_idx] & RTL930X_NIC_OWN)
 			return -EAGAIN;
 		h = &p->d->rx[p->rx_idx];
 		len = h->len;
-		p->last_tag0 = h->tag[0];
-		p->last_tag7 = h->tag[7];
-		if (h->off_more & MORE || len < ETH_HLEN + FCS_LEN || len > BUF_SIZE) {
+		rtl930x_nic_rx_tag((const u16 *)h->tag, &p->last);
+		if (h->off_more & RTL930X_NIC_MORE || len < ETH_HLEN + FCS_LEN || len > BUF_SIZE) {
 			p->rx_bad++;
-		} else if (!p->rx_any && ((h->tag[0] >> 8) & 0x1f) != p->port) {
+		} else if (!p->rx_any && p->last.port != p->port) {
 			p->rx_other++;		/* isolated cages still reach the CPU: not ours */
 		} else {
 			b = p->rx_buf + p->rx_idx * BUF_SIZE;
@@ -331,10 +274,10 @@ static void rtl930x_eth_stop(struct udevice *dev)
 	if (!p->hw_ready)
 		return;
 	for (i = 0; i < TX_N; i++)
-		while (p->d->tx_ring[i] & OWN_HW && timer_get_us() - t0 <= TX_SLOT_US)
+		while (p->d->tx_ring[i] & RTL930X_NIC_OWN && timer_get_us() - t0 <= TX_SLOT_US)
 			;
 	for (i = 0; i < TX_N; i++)
-		if (p->d->tx_ring[i] & OWN_HW) {
+		if (p->d->tx_ring[i] & RTL930X_NIC_OWN) {
 			p->tx_timeout++;
 			printf("rtl930x-eth: stop: TX slot %u not fetched after %d us\n", i, TX_SLOT_US);
 		}
@@ -343,10 +286,7 @@ static void rtl930x_eth_stop(struct udevice *dev)
 
 static int rtl930x_eth_write_hwaddr(struct udevice *dev)
 {
-	u8 *m = ((struct eth_pdata *)dev_get_plat(dev))->enetaddr;
-
-	sw_w(MAC_L2_ADDR, m[0] << 8 | m[1]);
-	sw_w(MAC_L2_ADDR + 4, m[2] << 24 | m[3] << 16 | m[4] << 8 | m[5]);
+	rtl930x_nic_set_mac(NULL, ((struct eth_pdata *)dev_get_plat(dev))->enetaddr);
 	return 0;
 }
 
@@ -413,9 +353,10 @@ static int do_ethstat(struct cmd_tbl *cmdtp, int flag, int argc, char *const arg
 	p = dev_get_priv(dev);
 	printf("cage %u port %u, rx idx %u, tx idx %u, rx other-port %lu, rx bad %lu, tx timeout %lu\n",
 	       p->cage, p->port, p->rx_idx, p->tx_idx, p->rx_other, p->rx_bad, p->tx_timeout);
-	printf("last RX tag: rx port %u, reason %u\n", (p->last_tag0 >> 8) & 0x1f, p->last_tag7 & 0x3f);
+	printf("last RX tag: rx port %u, reason %u, queue %u\n", p->last.port, p->last.reason, p->last.queue);
 	printf("DMA_IF_CTRL 0x%08x, RX_RING_CNTR 0x%08x, CPU port L2 0x%08x force 0x%08x\n",
-	       sw_r(DMA_IF_CTRL), sw_r(RX_RING_CNTR), sw_r(L2_PORT_CTRL_CPU), sw_r(MAC_FORCE_CPU));
+	       sw_r(RTL930X_NIC_DMA_IF_CTRL), sw_r(RTL930X_NIC_RX_RING_CNTR),
+	       sw_r(RTL930X_NIC_L2_PORT_CTRL), sw_r(RTL930X_NIC_MAC_FORCE));
 	return 0;
 }
 

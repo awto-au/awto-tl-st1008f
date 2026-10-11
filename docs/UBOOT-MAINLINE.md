@@ -190,8 +190,12 @@ Implementation: [RTK-COMMANDS.md](RTK-COMMANDS.md#stage-4-network-on-10g-macsds-
 ## Ethernet (#80)
 
 - Driver: `board/tplink/tl-st1008f/rtl930x_eth.c`, DM_ETH, node `ethernet@df00` (`realtek,rtl9301-eth`). Polled, no IRQ. Built, not yet run on the board.
+- Shared core (#83): `shared/rtl930x-nic/rtl930x_nic.h` = registers, descriptor + CPU-tag layout, NIC reset, HOL ring size/counter, reason map, ring base, max length, enable/stop, doorbell value. Same file in Linux (`300-18`).
+  - Boundary: core = hardware facts and register sequences; U-Boot glue = DM_ETH, rings in KSEG1, cache ops, polling, loop guard, `ethport`; Linux glue = page_pool, NAPI, BQL, DSA.
+  - Platform shim: the includer defines `rtl930x_nic_rd/wr(ctx, off)` (U-Boot `sw_r/sw_w`, Linux regmap), `rtl930x_nic_msleep`, `rtl930x_nic_udelay`.
+  - Sync rule: edit only `shared/`; `build_uboot_mainline.py` (`SHARED`), `mainline_build_check.py` and `build_openwrt.py` (`SHARED_FILES`) copy it. Linux `static_assert`s tie `RTETH_930X_*`, ring bits and `rteth_frag` to the core.
 - Stack: legacy U-Boot net (`NET_LEGACY`): `dhcp`, `ping`, `tftpboot`, `wget` (HTTP only; HTTPS needs lwIP + mbedTLS), netconsole (`nc`), `fastboot udp` (RAM download only: `FASTBOOT_FLASH` off, buffer `0x84f00000` 32 MiB).
-- Size: `u-boot.bin` 444153 B with net (375 KiB before); build fails above the 512 KiB chain copy (`CHAIN_COPY_MAX`).
+- Size: `u-boot.bin` 444849 B with net + shared core (375 KiB before net); build fails above the 512 KiB chain copy (`CHAIN_COPY_MAX`).
 - Env defaults: `ethport=1` (mgmt cage), `ipaddr=192.168.25.48` (st1008f-1-mgmt), `serverip=192.168.25.30`, `gatewayip=192.168.25.254`, `netmask=255.255.255.0`, `autoload=no`. MAC: stock flash env `ethaddr` (same as Linux nvmem); random MAC + warning if absent.
 - Debug: `ethstat` (ring indices, drop counters, last RX tag, NIC registers); `setenv ethrxany 1` accepts frames from every cage.
 

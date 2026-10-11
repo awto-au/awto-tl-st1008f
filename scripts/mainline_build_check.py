@@ -47,6 +47,10 @@ OWRT_FILES = [
     "include/linux/soc/realtek/otto_table.h",
     "net/dsa/tag_rtl_otto.c",
 ]
+# tree rel-path -> repo source: OS-independent cores shared with U-Boot (#83); copied before the patches
+SHARED_FILES = {
+    "drivers/net/ethernet/realtek/rtl930x_nic.h": ROOT / "shared/rtl930x-nic/rtl930x_nic.h",
+}
 PATCHES = [*(next((OWRT / "patches-6.18").glob(f"{n}-*.patch")) for n in OWRT_VERBATIM),
            *sorted((ROOT / "openwrt/patches").glob("*.patch"))]
 
@@ -76,7 +80,7 @@ def apply_patches(tree):
             if ln.startswith("+++ b/"):
                 (created if prev.startswith("--- /dev/null") else touched).add(
                     ln[6:].split("\t")[0].strip())
-    copied = owrt_copied()
+    copied = owrt_copied() | set(SHARED_FILES)
     for f in created | copied:  # not in git: delete so the copy/patch re-creates them
         (tree / f).unlink(missing_ok=True)
     if run(["git", "checkout", "--", *sorted(touched - copied - created)], tree):
@@ -92,6 +96,8 @@ def apply_patches(tree):
         else:
             dst.parent.mkdir(parents=True, exist_ok=True)
             shutil.copy2(src, dst)
+    for rel, src in SHARED_FILES.items():
+        shutil.copy2(src, tree / rel)
     for p in PATCHES:
         if run(["patch", "-p1", "--forward", "--batch", "-i", str(p)], tree):
             sys.exit(f"{p.name} does not apply, see log")
