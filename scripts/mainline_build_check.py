@@ -1,16 +1,17 @@
 #!/usr/bin/env python3
-"""Build-check the mainline ST1008F v2 DTS and Kconfig fragment against a Linux tree.
+"""Build the mainline ST1008F v2 kernel: Linux v7.3 + forward-ported OpenWrt realtek drivers (#16).
 
-Needs: tmp/linux-v7.3 (shallow clone of v7.3-rc6), a mips big-endian cross gcc
-(default prefix mips64-linux-gnu-, -mabi=32 multilib). Log: tmp/logs/mainline_build_check.log
-Steps: OpenWrt realtek board patches (300-01..03 + mach-rtl-otto headers) and ours
-(openwrt/patches/*.patch, e.g. 300-04 DRAM prefetch, #53), applied fresh each run (patched files reset
-via git, patch-created files deleted);
-install DTS + dts Makefile line, allnoconfig + complete board fragment (mainline/st1008f-v2.config)
-+ generated initramfs fragment (scripts/mainline_initramfs.py: BusyBox shell), olddefconfig,
-fail if any fragment option did not survive, build vmlinux and the dtb.
+Needs: tmp/linux-v7.3 (clone of v7.3-rc6), tmp/openwrt at OWRT_COMMIT, mips big-endian cross gcc
+(default mips64-linux-gnu-, -mabi=32). Log: tmp/logs/mainline_build_check.log
+Derived tree state, rebuilt each run (patched files reset via git, copied/created files deleted):
+- OWRT_VERBATIM patches-6.18, OWRT_FILES from files-6.18, then openwrt/patches/*.patch (ours and
+  forward-ports, 300-04..). Status of every OpenWrt patch/file: docs/MAINLINE-PORT.md.
+- DTS + dts Makefile line; allnoconfig + mainline/st1008f-v2.config (+ st1008f-v2-smp.config with
+  --smp) + generated initramfs fragment (mainline_initramfs.py); olddefconfig; fail if a fragment
+  option did not survive; build vmlinux + dtb at nice 19, -j8 max.
 """
 import argparse
+import os
 import re
 import shutil
 import subprocess
@@ -24,13 +25,47 @@ ROOT = Path(__file__).resolve().parent.parent
 LOG = ROOT / "tmp/logs/mainline_build_check.log"
 DTS = "tplink-tl-st1008f-v2"
 OWRT = ROOT / "tmp/openwrt/target/linux/realtek"
-PATCHES = [*sorted((OWRT / "patches-6.18").glob("300-0[1-3]-*.patch")),
+OWRT_FILES_DIR = OWRT / "files-6.18"
+# OpenWrt commit the verbatim patches/files and our forward-ports are taken against (#16).
+OWRT_COMMIT = "53ec2d05a487e6011cfa096de9211d15197c501b"
+# Applied verbatim from OpenWrt realtek patches-6.18; status of every patch: docs/MAINLINE-PORT.md.
+OWRT_VERBATIM = ["300-01", "300-02", "300-03", "309", "330", "331", "712", "714", "718", "722"]
+# Copied verbatim from files-6.18; 7.3 API fixes on top are in openwrt/patches/300-10.
+OWRT_FILES = [
+    "arch/mips/include/asm/mach-rtl-otto",
+    "drivers/net/dsa/rtl83xx",
+    "drivers/net/ethernet/realtek/rtl838x_eth.c",
+    "drivers/net/ethernet/realtek/rtl838x_eth.h",
+    "drivers/net/mdio/mdio-realtek-otto.c",
+    "drivers/net/mdio/mdio-realtek-otto-serdes.c",
+    "drivers/net/pcs/pcs-rtl-otto.c",
+    "drivers/soc/realtek",
+    "drivers/thermal/realtek-thermal.c",
+    "include/linux/soc/realtek/otto_table.h",
+    "net/dsa/tag_rtl_otto.c",
+]
+PATCHES = [*(next((OWRT / "patches-6.18").glob(f"{n}-*.patch")) for n in OWRT_VERBATIM),
            *sorted((ROOT / "openwrt/patches").glob("*.patch"))]
-HDR = "arch/mips/include/asm/mach-rtl-otto"
+
+
+def owrt_commit():
+    r = subprocess.run(["git", "rev-parse", "HEAD"], cwd=OWRT, capture_output=True, text=True)
+    return r.stdout.strip()
+
+
+def owrt_copied():
+    """Tree-relative paths of every file OWRT_FILES copies."""
+    out = set()
+    for rel in OWRT_FILES:
+        src = OWRT_FILES_DIR / rel
+        for f in [src] if src.is_file() else src.rglob("*"):
+            if f.is_file():
+                out.add(str(f.relative_to(OWRT_FILES_DIR)))
+    return out
 
 
 def apply_patches(tree):
-    """Derived state: reset every file the series touches to git, then apply it all fresh."""
+    """Derived state: reset every file the series touches to git, then copy + apply it all fresh."""
     touched, created = set(), set()
     for p in PATCHES:
         lines = p.read_text().splitlines()
@@ -38,16 +73,22 @@ def apply_patches(tree):
             if ln.startswith("+++ b/"):
                 (created if prev.startswith("--- /dev/null") else touched).add(
                     ln[6:].split("\t")[0].strip())
-    for f in created:  # new files: not in git, delete so the patch re-creates them
+    copied = owrt_copied()
+    for f in created | copied:  # not in git: delete so the copy/patch re-creates them
         (tree / f).unlink(missing_ok=True)
-    if run(["git", "checkout", "--", *sorted(touched)], tree):
+    if run(["git", "checkout", "--", *sorted(touched - copied - created)], tree):
         sys.exit("git checkout of the patched files failed, see log")
-    for f in tree.glob("arch/mips/**/*.rej"):
-        f.unlink()
-    for f in tree.glob("arch/mips/**/*.orig"):
-        f.unlink()
-    shutil.rmtree(tree / HDR, ignore_errors=True)
-    shutil.copytree(OWRT / "files-6.18" / HDR, tree / HDR)
+    for f in touched | created:
+        for suf in (".rej", ".orig"):
+            (tree / (f + suf)).unlink(missing_ok=True)
+    for rel in OWRT_FILES:
+        src, dst = OWRT_FILES_DIR / rel, tree / rel
+        if src.is_dir():
+            shutil.rmtree(dst, ignore_errors=True)
+            shutil.copytree(src, dst)
+        else:
+            dst.parent.mkdir(parents=True, exist_ok=True)
+            shutil.copy2(src, dst)
     for p in PATCHES:
         if run(["patch", "-p1", "--forward", "--batch", "-i", str(p)], tree):
             sys.exit(f"{p.name} does not apply, see log")
@@ -86,14 +127,21 @@ def main():
     ap.add_argument("--tree", default=str(ROOT / "tmp/linux-v7.3"))
     ap.add_argument("--out", default=str(ROOT / "tmp/build-mips"))
     ap.add_argument("--cross", default="mips64-linux-gnu-")
-    ap.add_argument("--jobs", default="16")
+    ap.add_argument("--jobs", default="8", help="owner: at most 8, keep host cores free")
     ap.add_argument("--dtb-only", action="store_true")
+    ap.add_argument("--apply-only", action="store_true", help="copy + patch the tree, no config/build")
+    ap.add_argument("--smp", action="store_true", help="merge mainline/st1008f-v2-smp.config (MT SMP, VPE1)")
     a = ap.parse_args()
+    os.nice(19)  # owner: builds yield to interactive host work
     tree, out = Path(a.tree), Path(a.out)
     LOG.parent.mkdir(parents=True, exist_ok=True)
     LOG.write_text("")
+    if (c := owrt_commit()) != OWRT_COMMIT:
+        sys.exit(f"tmp/openwrt is at {c or '?'}; patches are against {OWRT_COMMIT}")
 
     apply_patches(tree)
+    if a.apply_only:
+        return
     dts_dir = tree / "arch/mips/boot/dts/realtek"
     (dts_dir / f"{DTS}.dts").write_text((ROOT / f"mainline/{DTS}.dts").read_text())
     mk = dts_dir / "Makefile"
@@ -104,7 +152,8 @@ def main():
     base = ["make", "-C", str(tree), "ARCH=mips", f"CROSS_COMPILE={a.cross}", f"O={out}"]
     if run(base + ["allnoconfig"], tree):
         sys.exit("allnoconfig failed, see log")
-    frags = [ROOT / "mainline/st1008f-v2.config", mainline_initramfs.build()]
+    frags = [ROOT / "mainline/st1008f-v2.config",
+             *([ROOT / "mainline/st1008f-v2-smp.config"] if a.smp else []), mainline_initramfs.build()]
     merge = tree / "scripts/kconfig/merge_config.sh"
     if run([str(merge), "-m", "-O", str(out), str(out / ".config"), *map(str, frags)], tree):
         sys.exit("merge_config failed, see log")

@@ -33,3 +33,8 @@ Carried over from the retired `awto-st1008f` notes repo (2026-08-18).
 - URL: https://busybox.net/downloads/binaries/1.31.0-defconfig-multiarch-musl/busybox-mips
 - Revision: BusyBox 1.31.0 defconfig, static musl, ELF32 MSB MIPS-I o32 (busybox.net multiarch build, 2019-06-10). Used by `scripts/mainline_initramfs.py`.
 - Good copy: 1,629,084 bytes, sha256 `c3fed048a70d5529f95820c5abb77553efc276a89a8608414ca03e53d6bedd1d` (checked by the script). Gitignored; fetch with playwrong's download tool.
+
+## openwrt-24.10.7-ipk/
+- URL base: https://downloads.openwrt.org/releases/24.10.7/ (`packages/mips_24kc/{base,packages}/`, `targets/realtek/rtl930x/packages/`).
+- Revision: OpenWrt 24.10.7 (2026-05-31), arch `mips_24kc` (the 24.10 realtek/rtl930x arch), musl 1.2.5. Packages: libc, libgcc1, libatomic1, libmnl0, libnftnl11, nftables-nojson 1.1.1, zlib, libelf1, libbpf1, libnl-tiny1, tc-tiny 6.11.0, ip-full 6.11.0, ethtool 6.11, libiperf3 + iperf3 3.17.1.
+- Good copy: sha256 per file pinned in `scripts/initramfs_tools.py` (from the feed `Packages` index; libc/libgcc1 also match `targets/realtek/rtl930x/sha256sums`). Each `.ipk` is a gzip tar holding `data.tar.gz`. Gitignored; the script fetches missing files with `playwrong --pdf`.

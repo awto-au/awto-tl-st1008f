@@ -262,14 +262,27 @@ Desk-only; no switch access. Needs `tmp/openwrt` (sparse clone of openwrt, `targ
 - Output: `tmp/logs/mainline_patch_check.log` (patch table, then make output), build tree `tmp/build-fp`.
 
 ### mainline_build_check.py
-- Purpose: build the stage-0 board DTS (`mainline/tplink-tl-st1008f-v2.dts`) against `tmp/linux-v7.3`: OpenWrt 300-01..03 + `openwrt/patches/*.patch`, `allnoconfig` + `mainline/st1008f-v2.config` + generated initramfs fragment.
-- Run: `scripts/mainline_build_check.py [--dtb-only] [--jobs N]` (or `./dev.py build-kernel`, which also wraps `tmp/tftp/mainline.bin`).
+- Purpose: build the mainline kernel against `tmp/linux-v7.3`: OpenWrt realtek patches applied verbatim (`OWRT_VERBATIM`), driver files copied from `files-6.18` (`OWRT_FILES`), then `openwrt/patches/*.patch` (300-04..11: ours + forward-ports); `allnoconfig` + `mainline/st1008f-v2.config` (+ `st1008f-v2-smp.config` with `--smp`) + generated initramfs fragment. Checks `tmp/openwrt` is at the pinned OpenWrt commit.
+- Run: `scripts/mainline_build_check.py [--dtb-only] [--apply-only] [--smp] [--jobs N]` (or `./dev.py build-kernel [...]`, which also wraps `tmp/tftp/mainline.bin`). Runs at nice 19, default `-j8` (owner limit).
 - Output: `tmp/logs/mainline_build_check.log`, build tree `tmp/build-mips`; prints the `=y` count.
 - Fails, listing them, if `olddefconfig` drops or changes any fragment line.
+- Notes: `--out` must be absolute (relative paths resolve inside the kernel tree). Patch/file status table: [../docs/MAINLINE-PORT.md](../docs/MAINLINE-PORT.md).
+
+### openwrt_patch_status.py
+- Purpose: classify each OpenWrt patch against the 7.3 tree in series order: `upstream` (reverse-applies), `applies` (kept applied so series stack), `fails`. Resets the tree before and after.
+- Run: `scripts/openwrt_patch_status.py [--dir tmp/openwrt/target/linux/generic/pending-6.18] [--glob '7*.patch'] [--out tmp/x.tsv]`.
+- Output: `tmp/openwrt_patch_status.tsv`; log `tmp/logs/openwrt_patch_status.log`.
+- Notes: `applies` can be a false positive (705 applies into another function; its line is already upstream). `fails` often means upstream in a different form; check the source.
 
 ### mainline_initramfs.py
-- Purpose: stage-0 initramfs: static BusyBox (`sources/busybox/busybox-mips`, sha256-checked) + `/init` -> shell `st1008f-linux # ` on the console. Called by `mainline_build_check.py`.
+- Purpose: initramfs: static BusyBox (`sources/busybox/busybox-mips`, sha256-checked) + `/init` -> shell `st1008f-linux # ` on the console, plus NAT test tools from `initramfs_tools.py` and `/usr/sbin/port-up` (one cage at a time). Called by `mainline_build_check.py`.
 - Output: `tmp/initramfs/st1008f-initramfs.cpio.xz` (deterministic newc, xz CRC32), `tmp/initramfs/initramfs.config`. Log: `tmp/logs/mainline_initramfs.log`.
+- Notes: `/init` configures no network; all ports stay down and unbridged.
+
+### initramfs_tools.py
+- Purpose: `nft`, `iperf3`, `ethtool`, `tc`, `ip` for the initramfs: pinned OpenWrt 24.10.7 `mips_24kc` packages (musl, dynamic) + dependency closure; sha256 from the feed index / `sha256sums`.
+- Run: called by `mainline_initramfs.py`; standalone lists the staged files. Missing `.ipk` are fetched with `playwrong --pdf URL -o PATH` into `sources/openwrt-24.10.7-ipk/` (gitignored, manifest `sources/README.md`).
+- Log: `tmp/logs/initramfs_tools.log`.
 
 ### spi_dirmap_test.py
 - Purpose: A/B SPI-NOR reads under the mainline kernel (#61): per `dirmap` mode (0 PIO, 2 cached window, 1 uncached) time `dd` of a partition and md5sum it.

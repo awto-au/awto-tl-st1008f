@@ -18,5 +18,6 @@ uboot/*.bin
 sources/**/*.pdf
 # downloaded binaries (manifest: sources/README.md)
 sources/busybox/
+sources/openwrt-24.10.7-ipk/
 # Claude Code local settings + agent worktrees
 .claude/

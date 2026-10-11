@@ -1,0 +1,182 @@
+Subject: realtek: rteth (rtl838x_eth) TX: 32-slot ring, BQL, xmit_more doorbell batching
+
+#16/#65 owner inputs; RX design (NAPI, page_pool, 2 rings x 128) unchanged.
+- RTETH_TX_RING_SIZE 16 -> 32 (Realtek SDK value).
+- BQL: __netdev_tx_sent_queue() in xmit, netdev_tx_completed_queue() in reclaim,
+  netdev_tx_reset_queue() when the rings are freed.
+- Doorbell (DMA_IF_CTRL TX trigger) written only when __netdev_tx_sent_queue() says so:
+  end of an xmit_more batch, or the queue stopped.
+- Queue stopped when all 32 slots are in flight; woken by reclaim at >= 4 free slots.
+- No TX-done IRQ on this NIC: reclaim stays in the RX NAPI poll; it now runs also while the
+  queue is stopped (was skipped), xmit schedules NAPI when it stops a queue, and the poll
+  keeps repolling while a stopped queue still has frames owned by the hardware.
+Not measured on hardware yet (perf counters / ftrace in the kernel config for that).
+---
+diff --git a/drivers/net/ethernet/realtek/rtl838x_eth.c b/drivers/net/ethernet/realtek/rtl838x_eth.c
+index 78a2b97f7..59b8202c5 100644
+--- a/drivers/net/ethernet/realtek/rtl838x_eth.c
++++ b/drivers/net/ethernet/realtek/rtl838x_eth.c
+@@ -602,12 +602,16 @@ static void rteth_free_tx_buffers(struct rteth_ctrl *ctrl)
+ 		}
+ 		tx_info->send_count = 0;
+ 		tx_info->clean_count = 0;
++		netdev_tx_reset_queue(netdev_get_tx_queue(ctrl->dev, r));
+ 	}
+ }
+ 
++/* Caller holds the txq lock. Reports completions to BQL, wakes a stopped queue. */
+ static void rteth_reclaim_tx_ring(struct rteth_ctrl *ctrl, int r)
+ {
+ 	struct rteth_tx_info *tx_info = &ctrl->tx_info[r];
++	struct netdev_queue *txq = netdev_get_tx_queue(ctrl->dev, r);
++	unsigned int pkts = 0, bytes = 0;
+ 
+ 	BUILD_BUG_ON(RTETH_TX_RING_SIZE & (RTETH_TX_RING_SIZE - 1));
+ 
+@@ -619,14 +623,26 @@ static void rteth_reclaim_tx_ring(struct rteth_ctrl *ctrl, int r)
+ 
+ 		dma_unmap_single(&ctrl->pdev->dev, ctrl->tx_data[r].frag[i].dma,
+ 				 tx_info->skb[i]->len, DMA_TO_DEVICE);
++		pkts++;
++		bytes += tx_info->skb[i]->len;
+ 		dev_consume_skb_any(tx_info->skb[i]);
+ 		tx_info->skb[i] = NULL;
+ 		tx_info->clean_count++;
+ 	}
++
++	netdev_tx_completed_queue(txq, pkts, bytes);
++	if (netif_tx_queue_stopped(txq) &&
++	    RTETH_TX_RING_SIZE - (tx_info->send_count - tx_info->clean_count) >= RTETH_TX_WAKE_THRESH)
++		netif_tx_wake_queue(txq);
+ }
+ 
+-static void rteth_reclaim_tx_rings(struct rteth_ctrl *ctrl)
++/* True while a TX queue is stopped with frames still owned by the hardware: there is no
++ * TX-done interrupt, so the RX NAPI poll keeps polling until they drain.
++ */
++static bool rteth_reclaim_tx_rings(struct rteth_ctrl *ctrl)
+ {
++	bool pending = false;
++
+ 	for (int r = 0; r < RTETH_TX_RINGS; r++) {
+ 		struct netdev_queue *txq;
+ 
+@@ -638,12 +654,13 @@ static void rteth_reclaim_tx_rings(struct rteth_ctrl *ctrl)
+ 		txq = netdev_get_tx_queue(ctrl->dev, r);
+ 
+ 		__netif_tx_lock(txq, smp_processor_id());
+-
+-		if (!netif_xmit_frozen_or_stopped(txq))
+-			rteth_reclaim_tx_ring(ctrl, r);
+-
++		rteth_reclaim_tx_ring(ctrl, r);
++		pending |= netif_xmit_stopped(txq) &&
++			   ctrl->tx_info[r].send_count != ctrl->tx_info[r].clean_count;
+ 		__netif_tx_unlock(txq);
+ 	}
++
++	return pending;
+ }
+ 
+ static void rteth_free_rx_buffers(struct rteth_ctrl *ctrl)
+@@ -1108,8 +1125,11 @@ static int rteth_get_dsa_port(struct sk_buff *skb, struct net_device *dev)
+ static int rteth_start_xmit(struct sk_buff *skb, struct net_device *dev)
+ {
+ 	int port, val, slot, len = skb->len, ring = skb_get_queue_mapping(skb);
++	struct netdev_queue *txq = netdev_get_tx_queue(dev, ring);
+ 	struct rteth_ctrl *ctrl = netdev_priv(dev);
++	struct rteth_tx_info *tx_info = &ctrl->tx_info[ring];
+ 	struct sk_buff **packet_skb;
++	bool kick;
+ 	struct rteth_frag *frag;
+ 	dma_addr_t packet_dma;
+ 
+@@ -1120,6 +1140,7 @@ static int rteth_start_xmit(struct sk_buff *skb, struct net_device *dev)
+ 
+ 	if (unlikely(packet_dma & RTETH_RING_OWN_HW)) {
+ 		netif_stop_subqueue(dev, ring);
++		napi_schedule(&ctrl->rx_info[ring % RTETH_RX_RINGS].napi);
+ 		if (net_ratelimit())
+ 			netdev_warn(dev, "tx ring %d busy, waiting for slot %d\n", ring, slot);
+ 
+@@ -1155,27 +1176,39 @@ static int rteth_start_xmit(struct sk_buff *skb, struct net_device *dev)
+ 	/* Hand frag over to switch */
+ 	dma_wmb();
+ 	ctrl->tx_data[ring].ring[slot] = packet_dma | RTETH_RING_OWN_HW;
+-	ctrl->tx_info[ring].send_count++;
++	tx_info->send_count++;
+ 	wmb();
+ 
++	if (tx_info->send_count - tx_info->clean_count == RTETH_TX_RING_SIZE)
++		netif_tx_stop_queue(txq);
++
++	/* BQL; doorbell only at the end of an xmit_more batch or when the queue stopped */
++	kick = __netdev_tx_sent_queue(txq, skb->len, netdev_xmit_more());
++
+ 	spin_lock(&ctrl->tx_lock);
+ 
+-	/*
+-	 * Issue send for 1 or 2 triggers. On some SoCs (especially RTL838x) there is a known
+-	 * bug, where the hardware sometimes reads empty values from the register. Work around
+-	 * that with a poll that checks if TX/RX is enabled in the register.
+-	 */
+-	if (regmap_read_poll_timeout(ctrl->map, ctrl->cfg->dma_if_ctrl,
+-				     val, val & ctrl->cfg->tx_rx_enable, 0, 5000))
+-		netdev_warn_once(dev, "DMA interface ctrl register read failed\n");
++	if (kick) {
++		/*
++		 * Issue send for 1 or 2 triggers. On some SoCs (especially RTL838x) there is a known
++		 * bug, where the hardware sometimes reads empty values from the register. Work around
++		 * that with a poll that checks if TX/RX is enabled in the register.
++		 */
++		if (regmap_read_poll_timeout(ctrl->map, ctrl->cfg->dma_if_ctrl,
++					     val, val & ctrl->cfg->tx_rx_enable, 0, 5000))
++			netdev_warn_once(dev, "DMA interface ctrl register read failed\n");
+ 
+-	regmap_write(ctrl->map, ctrl->cfg->dma_if_ctrl, val | RTETH_TX_TRIGGER(ctrl, ring));
++		regmap_write(ctrl->map, ctrl->cfg->dma_if_ctrl, val | RTETH_TX_TRIGGER(ctrl, ring));
++	}
+ 
+ 	dev->stats.tx_packets++;
+ 	dev->stats.tx_bytes += len - ETH_FCS_LEN;
+ 
+ 	spin_unlock(&ctrl->tx_lock);
+ 
++	/* no TX-done IRQ: let the RX NAPI poll reclaim and wake the stopped queue */
++	if (netif_xmit_stopped(txq))
++		napi_schedule(&ctrl->rx_info[ring % RTETH_RX_RINGS].napi);
++
+ 	return NETDEV_TX_OK;
+ }
+ 
+@@ -1345,10 +1378,13 @@ static int rteth_poll_rx(struct napi_struct *napi, int budget)
+ 	struct rteth_rx_info *rx_q = container_of(napi, struct rteth_rx_info, napi);
+ 	struct rteth_ctrl *ctrl = rx_q->ctrl;
+ 	int work_done, ring = rx_q->id;
++	bool tx_pending;
+ 
+-	rteth_reclaim_tx_rings(ctrl);
++	tx_pending = rteth_reclaim_tx_rings(ctrl);
+ 
+ 	work_done = rteth_hw_receive(ctrl->dev, ring, budget);
++	if (tx_pending)
++		return budget;
+ 	if (work_done < budget && napi_complete_done(napi, work_done))
+ 		ctrl->cfg->enable_rx_irq(ctrl, ring);
+ 
+diff --git a/drivers/net/ethernet/realtek/rtl838x_eth.h b/drivers/net/ethernet/realtek/rtl838x_eth.h
+index 9ced37515..8bfb665fc 100644
+--- a/drivers/net/ethernet/realtek/rtl838x_eth.h
++++ b/drivers/net/ethernet/realtek/rtl838x_eth.h
+@@ -195,7 +195,10 @@
+ 
+ #define RTETH_RX_RING_SIZE			128
+ #define RTETH_RX_RINGS				2
+-#define RTETH_TX_RING_SIZE			16
++/* SDK value (#16); was 16 */
++#define RTETH_TX_RING_SIZE			32
++/* free slots before a stopped TX queue is woken */
++#define RTETH_TX_WAKE_THRESH			4
+ #define RTETH_TX_RINGS				2
+ #define RTETH_TX_TRIGGER(ctrl, ring)		((0x16 >> ring) & ctrl->cfg->tx_trigger_mask)
+ 

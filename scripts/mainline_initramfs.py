@@ -6,7 +6,10 @@
 - Output: tmp/initramfs/st1008f-initramfs.cpio.xz (newc, mtime 0, uid/gid 0: byte-identical per input)
   + tmp/initramfs/initramfs.config (CONFIG_INITRAMFS_SOURCE, merged by mainline_build_check.py).
 - xz inside, not raw cpio: keeps the uImage raw size under the bootm limit (mainline_uimage.py).
+- NAT test tools (nft, iperf3, ethtool, tc, ip): OpenWrt 24.10.7 packages via initramfs_tools.py;
+  /sbin/ip and /sbin/tc point at them (BusyBox --install does not overwrite existing links).
 - /init: mount proc/sys/devtmpfs/debugfs, print INIT_MARKER, shell with PROMPT on the console.
+  No network config: every port stays down and unbridged until a script brings one up (#16).
 - Log: tmp/logs/mainline_initramfs.log
 """
 
@@ -14,6 +17,8 @@ import hashlib
 import lzma
 import time
 from pathlib import Path
+
+import initramfs_tools
 
 ROOT = Path(__file__).resolve().parent.parent
 LOG = ROOT / "tmp/logs/mainline_initramfs.log"
@@ -36,7 +41,31 @@ cd /root
 exec setsid cttyhack sh
 """
 
-DIRS = ["bin", "sbin", "usr", "usr/bin", "usr/sbin", "dev", "proc", "sys", "tmp", "root", "mnt"]
+# One cage at a time (house LAN loop, 2026-10-10): refuses while another lanX is up or a bridge exists.
+PORT_UP = """#!/bin/sh
+# port-up <cage 1-8> [addr/len] [vlan-id]: bring up lan<cage> only (laser on via SFP TX-disable release)
+n=$1; addr=$2; vid=$3
+case "$n" in [1-8]) ;; *) echo "usage: port-up <cage 1-8> [addr/len] [vlan-id]"; exit 2;; esac
+for d in /sys/class/net/*; do
+  [ -d "$d/bridge" ] && { echo "refused: bridge ${d##*/} exists"; exit 1; }
+done
+for d in /sys/class/net/lan*; do
+  l=${d##*/}; [ "$l" = "lan$n" ] && continue
+  ip -o link show "$l" | grep -q '[<,]UP[,>]' && { echo "refused: $l is up (one cage at a time)"; exit 1; }
+done
+ip link set eth0 up && ip link set "lan$n" up || exit 1
+dev=lan$n
+if [ -n "$vid" ]; then
+  ip link add link "lan$n" name "lan$n.$vid" type vlan id "$vid" && ip link set "lan$n.$vid" up || exit 1
+  dev=lan$n.$vid
+fi
+[ -n "$addr" ] && ip addr add "$addr" dev "$dev"
+ip -br link show "lan$n"; ip -br addr show "$dev"
+"""
+
+DIRS = ["bin", "sbin", "lib", "usr", "usr/bin", "usr/sbin", "usr/lib", "usr/libexec", "dev", "proc", "sys",
+        "tmp", "root", "mnt", "var", "run"]
+TOOL_LINKS = {"sbin/ip": "/usr/libexec/ip-full", "sbin/tc": "/usr/libexec/tc-tiny"}
 
 
 def log(msg: str) -> None:
@@ -92,6 +121,14 @@ def build() -> Path:
     c.file("bin/busybox", bb)
     c.symlink("bin/sh", "busybox")
     c.file("init", INIT.encode())
+    for name, (kind, data, mode) in sorted(initramfs_tools.staged_files().items()):
+        if kind == "link":
+            c.symlink(name, data)
+        else:
+            c.file(name, data, mode)
+    c.file("usr/sbin/port-up", PORT_UP.encode())
+    for name, target in TOOL_LINKS.items():
+        c.symlink(name, target)
     cpio = c.finish()
     OUT.mkdir(parents=True, exist_ok=True)
     out = OUT / "st1008f-initramfs.cpio.xz"

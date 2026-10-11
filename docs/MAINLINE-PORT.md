@@ -1,6 +1,6 @@
 # Mainline Linux port (issue #16)
 
-Goal: Linux 7.x mainline-based kernel driving the 8 SFP+ ports of the TL-ST1008F v2 (RTL9303). Desk analysis, 2026-10-10; nothing here was run on the switch.
+Goal: Linux 7.x mainline-based kernel driving the 8 SFP+ ports of the TL-ST1008F v2 (RTL9303). Desk analysis 2026-10-10; network driver port built 2026-10-11 ([section 7](#7-openwrt-realtek-network-drivers-on-73-delivered-2026-10-11)). Nothing here has run on the switch yet; bring-up: [MAINLINE-NET-OPS.md](MAINLINE-NET-OPS.md).
 
 ## Baselines
 
@@ -18,6 +18,7 @@ Goal: Linux 7.x mainline-based kernel driving the 8 SFP+ ports of the TL-ST1008F
 - The whole OpenWrt RTL930x driver set (DSA, CPU-port Ethernet, PCS, SerDes MDIO, otto_table, thermal, tagger, ~30k lines) compiles and links into a 7.3-rc6 `vmlinux` after: one identifier rename, one DSA tag number change, one Kconfig-hook rebase, and a hand-rebased generic phylink PCS series. Compile only; no run.
 - The real blocker is not driver code drift but a non-mainline generic prerequisite: the phylink fwnode PCS provider series (12 patches, pending upstream, not in 7.3).
 - 10G link-up behaviour (SerDes calibration) is the unverifiable-at-desk risk.
+- 2026-10-11: delivered as `./dev.py build-kernel` (section 7): warning-free build, 573 `=y`, `mainline.bin` 4.59 MB.
 
 ## 1. Inventory: OpenWrt realtek target for RTL930x
 
@@ -115,12 +116,12 @@ Upstream-hostile items to carry out-of-tree: #7 (`700`, `722`), #8 until merged,
 
 - `mainline/tplink-tl-st1008f-v2.dts`: includes mainline `rtl930x.dtsi`; compatible `tplink,tl-st1008f-v2`, `realtek,rtl9302-soc` (the board matcher in `board-realtek.c` keys on the latter).
   - Uses only upstream bindings: `uart0`, `spi0` + `jedec,spi-nor` + fixed partitions (same layout as OpenWrt), `i2c0` (`realtek,rtl9303-i2c`, `realtek,scl = <0>`, channels 0..7 = one SDA per cage), mode switch on gpio0 17..19 (`tplink,st1008f-mode-switch`, our patch 300-06, #64; was `gpio-keys`), `i2c-gpio` + `nxp,pca9534` @0x38 (SCL GPIO22, SDA GPIO23), 8x `sff,sfp` (MOD-DEF0 gpio0 0..7, TX-disable expander pins 0..7), `linux,wdt-gpio` on GPIO21, `realtek,rtl9303-switch` compatible.
-  - Omitted (no upstream driver/binding): switch ports, CPU port, PCS handles, SerDes, LEDs, thermal, 2nd RAM bank.
+  - Switch ports, CPU port, PCS/SerDes, table, thermal, LED set: section 7. Still omitted: 2nd RAM bank.
   - SFP I2C left at the controller default; SFF-8472 module EEPROM is a 100 kHz interface, so default is the rated max.
 - `mainline/st1008f-v2.config`: complete board config on `allnoconfig` (no `32r2_defconfig`): MIPS32r2 BE UP, HIGHMEM, 8250 OF console + earlycon, GPIO otto + PCA953X, I2C rtl9300 + i2c-gpio, `MFD_SYSCON`, mode switch (300-06), watchdog, SPI + MTD SPI-NOR + OF parts, NET/INET/PACKET/UNIX, PHYLIB/SFP/MDIO rtl9300, initrd (xz), devtmpfs, debugfs, SysRq. `MODULES`, IPv6, wireless, VT, input off.
   - `scripts/mainline_build_check.py` fails and lists every fragment line that `olddefconfig` drops.
   - Size (2026-10-11, incl. initramfs): 939 `=y` / raw 15.28 MB / `mainline.bin` 5.46 MB on `32r2_defconfig` -> 417 `=y` / raw 6.74 MB / 2.60 MB.
-  - Not enabled yet: `RTL930X` (selects `MIPS_CPU_SCACHE`, `MIPS_EXTERNAL_TIMER`), MT SMP (2 VPEs); the pre-allnoconfig boots ran without them too.
+  - `RTL930X` enabled with the network port (section 7); MT SMP (2 VPEs) is the opt-in `--smp` fragment.
 - 300-06 Kconfig: mode switch `select PHYLINK` + `select SFP` (nothing else selects `PHYLINK` without a MAC driver).
 - `mainline_uimage.py` refuses kernel+DTB over 16 MiB (our U-Boot `SYS_BOOTM_LEN`; stock's limit unrecorded).
 
@@ -144,11 +145,11 @@ Upstream-hostile items to carry out-of-tree: #7 (`700`, `722`), #8 until merged,
 
 ## 5. Next steps (dependency order)
 
-1. Image wrapper for stock U-Boot (uImage magic `0x93030000`, appended DTB, LZMA); boot stage-0 in RAM on a free hardware session, one cage lit.
-2. Add `300-01..03` + headers to the 7.3 tree; boot with 512 MiB.
-3. Rebase `737-01..08` onto 7.3 properly (hand-merge `737-02`, review fuzz); then `700`/`721`/`722` as one DSA-core patch.
-4. Boot the compiled full set with the OpenWrt-style DTS (switch children nodes, `pcs-handle`, `mdio-controller` without `reg` for the OTTO fork, or with `reg = <0xca00 0x200>` for mainline MDIO).
-5. Gate per issue #16 stages: CPU port up, MDIO/PCS pages, L2 bridge at 1G, 10GBASE-R link on one cage.
+1. Boot the section-7 kernel per [MAINLINE-NET-OPS.md](MAINLINE-NET-OPS.md): probe order, `ip link`, one cage, ping, no loop.
+2. 10GBASE-R link on one cage (PCS calibration, issue #16 stage 5); then NAT bench (`docs/NAT-OPS.md` flow, adapted to the initramfs tools).
+3. Profile the CPU-port NIC path (#65): perf counters + function_graph are in the config; a `perf` binary is not (no pinned build, see section 7).
+4. Try `--smp` (VPE1: RPS, second RX ring NAPI).
+5. Step 2 (separate task): full OpenWrt userspace on 7.3 via a buildroot kernel bump; generic-patch dependencies listed in section 8.
 
 ## 6. Not determined
 
@@ -158,3 +159,162 @@ Upstream-hostile items to carry out-of-tree: #7 (`700`, `722`), #8 until merged,
 - Whether mainline `MACH_REALTEK_RTL` needs `MIPS_CPU_SCACHE` for RTL930x (OpenWrt selects it, mainline does not).
 - Pinmux assumptions: board DTS sets none; SDA/SCL, SPI and GPIO muxing rely on U-Boot state.
 - `dtbs_check` result; U-Boot image wrapper.
+
+## 7. OpenWrt realtek network drivers on 7.3 (delivered 2026-10-11)
+
+Build only (`./dev.py build-kernel`, GCC 16.2); not booted. OpenWrt source pinned at `53ec2d0` (`OWRT_COMMIT` in `scripts/mainline_build_check.py`, checked each run).
+
+### What the build applies
+
+| Step | Content |
+|---|---|
+| OpenWrt patches verbatim (`OWRT_VERBATIM`) | `300-01..03`, `309`, `330`, `331`, `712`, `714`, `718`, `722` |
+| OpenWrt files verbatim (`OWRT_FILES`) | `mach-rtl-otto` headers, `drivers/net/dsa/rtl83xx/`, `rtl838x_eth.[ch]`, `mdio-realtek-otto.c`, `mdio-realtek-otto-serdes.c`, `pcs-rtl-otto.c`, `drivers/soc/realtek/`, `otto_table.h`, `realtek-thermal.c`, `tag_rtl_otto.c` |
+| `openwrt/patches/300-04..07` | ours: DRAM prefetch, HPT freq, mode switch, SPI dirmap (unchanged) |
+| `300-08` | generic `pending-6.18/737-01..07` phylink fwnode PCS provider, forward-ported |
+| `300-09` | Kconfig/Makefile hooks: forward-ports of `700`, `716`, `721`, `730`, `806`, `808` |
+| `300-10` | 7.3 API fixes on the copied files |
+| `300-11` | rteth TX: 32-slot ring, BQL, xmit_more doorbell (owner input, #65) |
+
+### 6.18 -> 7.3 drift fixes (one line each; details in the patch headers)
+
+- `l3.c`: parameter `at_least` renamed `min_len`; 7.3 `compiler_types.h` defines `at_least` as a macro.
+- `NET_RTL838X` selects `PAGE_POOL` (nothing else selects it on our `allnoconfig` base).
+- `DSA_TAG_PROTO_RTL_OTTO` = 36 (32-35 taken in 7.3).
+- `platform_data/dsa.h`, Ethernet, PCS, MDIO Kconfig/Makefile context moved: hooks re-placed (`700`, `716`, `730`, `806`, `808`); MDIO hooks no longer need the aux-MDIO (`723`) context.
+- `phylink.h`: `phylink_config` gained `wol_*` fields; `737-02` fields re-placed.
+- `I2C_SMBUS` is only user-visible with `I2C_HELPER_AUTO` off; `712` makes `SFP` select `MDIO_SMBUS`, which depends on it (fragment sets both).
+- `705` dropped: already in 7.3 `sfp_i2c_configure()`; applied verbatim it lands in `sfp_hwmon_insert()`.
+
+### Config and size
+
+| Build | `=y` | kernel raw | `mainline.bin` (LZMA) |
+|---|---|---|---|
+| Before (main, 2026-10-11 22:52) | 417 | 6,739,744 B | 2,597,955 B |
+| After, default (UP) | 573 | 11,502,624 B (initramfs xz 1,649,584 B inside) | 4,586,227 B |
+| After, `--smp` | 600 | not wrapped | - |
+
+- Bootm limit 16 MiB raw (`mainline_uimage.py`): 4.9 MiB headroom.
+- Fragment additions: `RTL930X`, `IPV6`, `BRIDGE` (+ VLAN filtering), `VLAN_8021Q`, `ETHERNET`, `NET_RTL838X`, `NET_DSA` + `RTL83XX` + `TAG_RTL_OTTO`, `REALTEK_OTTO_TABLE`, `PCS_RTL_OTTO`, `FWNODE_PCS`, `MDIO_REALTEK_OTTO(+_SERDES)`, `PHYLINK`, `MDIO_SMBUS`, `MARVELL_PHY` (GLC-T copper SFPs), netfilter/nf_tables/NAT/masq/ct/flowtable (inet, v4, v6), `NET_SCHED` + ingress + flower + gact + mirred, `PERF_EVENTS` + `HW_PERF_EVENTS`, `FUNCTION_TRACER` + `FUNCTION_GRAPH_TRACER` + `DYNAMIC_FTRACE`, `THERMAL_OF` + `REALTEK_THERMAL`.
+- `MDIO_REALTEK_RTL9300` off: OpenWrt's `mdio-realtek-otto` binds the same `realtek,rtl9301-mdio`, and the DSA driver waits for its buses (`rtldsa_mdio_loaded()`).
+- The DSA driver still builds all four SoC backends (838x/839x/930x/931x) and l3/pie/tc/qos/lag/mirror: they share files with the 930x code; trimming is a refactor, not done.
+- `--smp` (`mainline/st1008f-v2-smp.config`): `SMP`, `MIPS_MT_SMP`, `NR_CPUS=2`, `RPS`, `XPS`. Builds warning-free; default stays UP.
+
+### DTS (`mainline/tplink-tl-st1008f-v2.dts`)
+
+- `&switch0` compatible `realtek,rtl9303-switch`, `realtek,rtl9301-switch` (DSA match), `realtek,otto-switch`, `syscon`, `simple-mfd`.
+- Children from OpenWrt `rtl930x.dtsi`: `ethernet` (`realtek,rtl9301-eth`, IRQ 24, fixed-link 1G), `mdio-serdes`, `pcs` (SerDes 0-11), `table`, `thermal`; `led_set` node and a `cpu-thermal` zone at root.
+- Ports: cage N = `lanN`. Switch port / SerDes: 0/2, 8/3, 16/4, 20/5, 24/6, 25/7, 26/8, 27/9; CPU port 28. `phy-mode = "1000base-x"`, `managed = "in-band-status"`, `sfp = <&sfp(N-1)>` (OpenWrt `SWITCH_PORT_SFP`).
+- Mainline `mdio-controller@ca00` + 4 buses enabled with the OTTO compatible added; no PHYs on them.
+- 1-cell interrupts: 7.3 `irq-realtek-rtl` uses `irq_domain_xlate_onecell` (OpenWrt DTS has 2 cells).
+- Not carried: OpenWrt `gpio-keys` (replaced by the mode switch, 300-06); `#thermal-sensor-cells` on SFP nodes + `sfp-thermal` zone (provider not in 7.3 or the ported set); GPIO21 watchdog stays disabled.
+
+### CPU-port NIC (`300-11`)
+
+- TX ring 16 -> 32 slots (SDK value); RX unchanged (NAPI, page_pool, 2 rings x 128).
+- BQL; doorbell only at the end of an `xmit_more` batch or when the queue stops.
+- No TX-done IRQ: reclaim runs in the RX NAPI poll, now also while the queue is stopped; xmit schedules NAPI when it stops a queue; the poll repolls while a stopped queue has frames owned by hardware.
+- CPU port MAC force register (`0xbb00ca8c`, power-up 0x217 = 1G): left as the driver sets it.
+
+### Safety defaults (house LAN; loop of 2026-10-10)
+
+- `/init` configures no network: every `lanN` and `eth0` stay down; no bridge exists.
+- DSA setup (`rtldsa_93xx_setup`) isolates every port: port N forwards only to itself; `port_enable` adds the CPU port only. Port-to-port forwarding needs a Linux bridge.
+- Lasers: Linux touches them only through the SFP state machine. `sfp` asserts TX-disable at probe (expander pin N-1 high = laser off) and releases it when `lanN` goes up. GLC-T copper modules (cages 3 and 7, cabled to each other) ignore TX-disable.
+- `/usr/sbin/port-up <cage> [addr/len] [vid]` brings up one `lanN` (+ optional VLAN subif and address); refuses while another `lanN` is up or any bridge exists.
+- A bridge made by hand needs `stp_state 1`: STP is off by default in Linux bridges.
+- Before the drivers probe, the switch runs whatever U-Boot left: `./dev.py ramload` runs stock `rtk network on` (one cage lit, `--cage N`) and the ASIC forwards until `rtldsa_93xx_setup` isolates the ports.
+
+### Reliance on U-Boot state
+
+- `rtk network on` is not needed by the drivers: eth, PCS/SerDes, MDIO polling, table access and L2 setup are programmed by Linux.
+- CPU-port MAC: DT has none; `rteth_probe` reads the switch MAC registers left by U-Boot, else uses a random one.
+- Pinmux: DTS sets none; I2C SDA/SCL, SPI and GPIO muxing rely on U-Boot state (as before).
+
+### Not done here
+
+- `perf` userspace (#67): OpenWrt 24.10.7 publishes no `perf` package for realtek, and the host cross toolchain has no libc. Kernel side (perf events, 34K counters, function_graph) is in. Whether the CP0 perf-counter IRQ is wired on this platform (needed for sampling) is unchecked.
+- `generic/pending-6.18/700`, `701` (nft flowtable device events, ignore `EOPNOTSUPP` on offload): apply on 7.3, not applied; software flowtables do not need them.
+- Boot, link, NAT throughput: hardware session ([MAINLINE-NET-OPS.md](MAINLINE-NET-OPS.md)).
+
+## 8. Status of every OpenWrt realtek patch and file (7.3-rc6)
+
+Method: `scripts/openwrt_patch_status.py` (series order; reverse-apply = upstream) plus a source check of each `fails`. Ported = in our build (verbatim or forward-ported, section 7). Dropped = not built for this board.
+
+### `patches-6.18`
+
+| Patch | Status | Evidence / reason |
+|---|---|---|
+| `021` gpio-regmap shadowed-output cache | dropped | No gpio-regmap user on this board (RTL8231 only) |
+| `022`, `023-01/02` | upstream | reverse-apply |
+| `024-01/03` dt-bindings `enet-phy-pair-order` | dropped | RTL8224 binding docs; no RTL8224 |
+| `024-02` RTL8224 pair order | upstream | 7.3 `realtek_main.c` has pair-order support (different context) |
+| `024-04` | upstream | reverse-apply |
+| `025-01`, `026`, `027-01..04`, `027-06/07` i2c-rtl9300 | upstream | 7.3 `i2c-rtl9300.c` has the `bus_freq` enum, `F_BUSY`, `rd_reg`, `max_read_len` quirk, clk, RTL9607 config |
+| `025-02`, `027-05`, `027-08` | upstream | reverse-apply |
+| `028`, `029` lm75, `030` RTL8226 MDI swap | upstream | reverse-apply |
+| `031-01..24` mdio-realtek-rtl9300 (v7.2) | upstream | `-16`, `-18..20`, `-22`, `-23` reverse-apply; the rest is in 7.3 with later context. Driver not built (OTTO fork used) |
+| `031-25..34` mdio-realtek-rtl9300 (v7.4) | dropped | Apply (`-29` fails), but `MDIO_REALTEK_RTL9300` is off: `mdio-realtek-otto` is used, as in OpenWrt |
+| `032-06..08` irqchip select / shuffle / multi-parent | upstream | 7.3 has `intc_select`, multi-parent setup, onecell xlate |
+| `033-01` | upstream | reverse-apply |
+| `033-02` i2c-gpio shared SCL | upstream | 7.3 `i2c-gpio.c` has the shared-SCL code |
+| `034-01`, `035`, `036`, `037` | upstream | reverse-apply |
+| `034-02` wdt clock enable | upstream | 7.3 uses `devm_clk_get_enabled` |
+| `039-01/02` gpio raw IO / overridable bank IO (v7.4) | dropped | GPIO works on 7.3 without them; needed for RTL960x |
+| `040` SPI second CS (v7.4) | dropped | One flash, on CS0 |
+| `300-01..03` platform / board setup | ported | verbatim |
+| `301` RTL960x platform | dropped | other SoC |
+| `308` mtune 4kec | dropped | RTL838x only; needs the generic mtune-24kc hack |
+| `309` csum_partial maddu | ported | verbatim |
+| `318` clk-rtl83xx | dropped | OpenWrt sets `COMMON_CLK_REALTEK` off for 930x; fixed clocks |
+| `330` thermal hook | ported | verbatim |
+| `331` otto_table hook | ported | verbatim |
+| `700` DSA max ports / u64 masks | ported | forward-port, `300-09` |
+| `705` sfp `i2c_block_size` init (v7.1) | upstream | line present in 7.3 `sfp_i2c_configure()` |
+| `706-01` sfp I2C quirks (v7.2) | upstream | 7.3 `sfp.c` has the `max_read_len` handling |
+| `706-02` | upstream | reverse-apply |
+| `712` MDIO SMBus library | ported | verbatim |
+| `714` SFP over SMBus | ported | verbatim |
+| `716` rtl838x eth hook | ported | forward-port, `300-09` (+ `select PAGE_POOL`) |
+| `717` RTL960x GMAC | dropped | other SoC |
+| `718` DSA hook | ported | verbatim |
+| `720` multiport PHY (RTL8214/8218) | dropped | no copper PHYs on board |
+| `721` tag rtl-otto hook | ported | forward-port, `300-09` (tag 36) |
+| `722` trapped-frame metadata | ported | verbatim |
+| `723` aux MDIO | dropped | RTL8231 bus only |
+| `730` PCS hook | ported | forward-port, `300-09` |
+| `743` RTL8224 SerDes config | dropped | no RTL8224 |
+| `802-804` RTL8231 MFD / pinctrl / LEDs | dropped | no RTL8231 |
+| `806`, `808` MDIO otto / SerDes hooks | ported | forward-port, `300-09` |
+| `809`, `810`, `813` Hasivo MCU | dropped | other boards |
+| `816-01..03`, `817-819` PSE | dropped | no PoE (`816-03` is upstream) |
+| `820` RTL960x MDIO, `821`, `822` PCIe | dropped | other SoC / no PCIe use |
+
+### `files-6.18`
+
+| File(s) | Status | Note |
+|---|---|---|
+| `arch/mips/include/asm/mach-rtl-otto/*` | ported | verbatim |
+| `drivers/clk/realtek/*`, `include/dt-bindings/clock/rtl83xx-clk.h` | dropped | see `318` |
+| `drivers/net/dsa/rtl83xx/*` (incl. `l3.c` v4+v6 routing offload, `l2`, `tc`, `pie`, `qos`, `lag`, `mirror`, `stp`, `vlan`, `debugfs`) | ported | verbatim + `300-10` |
+| `drivers/net/ethernet/realtek/rtl838x_eth.[ch]` | ported | verbatim + `300-11` |
+| `drivers/net/ethernet/realtek/rtl960x_gmac.[ch]` | dropped | other SoC |
+| `drivers/net/mdio/mdio-realtek-otto.c`, `mdio-realtek-otto-serdes.c` | ported | verbatim |
+| `drivers/net/mdio/mdio-realtek-otto-rtl960x.c` | dropped | other SoC |
+| `drivers/net/pcs/pcs-rtl-otto.c` | ported | verbatim |
+| `drivers/net/phy/realtek/realtek_multiport.c` | dropped | see `720` |
+| `drivers/pci/controller/pcie-realtek.c`, `drivers/phy/realtek/phy-rtk-pcie.c` | dropped | no PCIe use |
+| `drivers/soc/realtek/*`, `include/linux/soc/realtek/otto_table.h` | ported | verbatim |
+| `drivers/thermal/realtek-thermal.c` | ported | verbatim |
+| `net/dsa/tag_rtl_otto.c` | ported | verbatim |
+
+### OpenWrt `target/linux/generic` patches the realtek code depends on (scope for step 2)
+
+| Generic patch | Needed by | Here |
+|---|---|---|
+| `pending-6.18/737-01..07` phylink fwnode PCS provider | `pcs-rtl-otto` (provider), `rtl83xx/dsa.c` (`fwnode_phylink_pcs_parse`, `fill_available_pcs`) | forward-ported (`300-08`); `737-02/04/05/06` fail verbatim on 7.3 |
+| `pending-6.18/700`, `701` nft flowtable device events / offload `EOPNOTSUPP` | nft `flags offload` flowtables over DSA ports | apply on 7.3; not applied |
+| `pending-6.18/720-*`, `721-*`, `742`, `743` Realtek RTL82xx PHYs | boards with RTL822x/826x PHYs | not needed (SFP only) |
+| `hack-6.18` mtune 24kc | `308` | not needed |
+
+The rest of `generic/` (backports, other vendors' PHY/DSA/Ethernet, MediaTek PPE, bridge BPDU knob `710`) is not referenced by the realtek files above.
