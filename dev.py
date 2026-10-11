@@ -287,6 +287,13 @@ def cmd_hw_probe(extra: list[str]) -> int:
     return _script("hw_probe.py", extra)
 
 
+@command("SoC crypto engine at our U-Boot prompt: probe, NIST/RFC KATs, 1 MiB MB/s vs software (#62, docs/CRYPTO.md)",
+         args="[run --label L | gen-kat]  (gen-kat: rewrite rtk_crypto_kat.h, host-verified; no hardware)",
+         kind="check")
+def cmd_crypto_test(extra: list[str]) -> int:
+    return _script("crypto_test.py", extra)
+
+
 @command("read-only md.l probes for hidden/disabled hardware: bonding, encap, HSA/HSM, dummy regs (#68)",
          args="[--label L] [--holes] [--alias] [--list]  (--holes/--alias read unnamed addresses: may hang)",
          kind="check")

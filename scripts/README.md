@@ -219,6 +219,16 @@ End-to-end workflow: [../README.md#workflow](../README.md#workflow).
 - Timeout: 1 s per command (112-address scan worst case ≈ 0.5 s incl. output + daemon latency); expiry stops the run.
 - Output: Markdown table, `tmp/bus_scan-<label>.json`. Log: `tmp/logs/bus_scan.log`.
 
+### crypto_test.py
+
+- SoC crypto engine (#62, [../docs/CRYPTO.md](../docs/CRYPTO.md)). `./dev.py crypto-test [run --label L]` at our prompt: `rtk crypto probe`, `rtk crypto test` (KATs), `rtk crypto bench` (1 MiB MB/s, engine vs U-Boot software).
+- `gen-kat`: NIST/RFC vectors in the script, each checked against host `hashlib`/`cryptography`, written to `uboot-port/board/tplink/tl-st1008f/rtk_crypto_kat.h`. No hardware.
+- Timeouts: probe 2 s, test 5 s, bench 30 s (derivations in the script). Output `tmp/crypto_test-<label>.json`; log `tmp/logs/crypto_test.log`.
+
+### fetch_sdk_files.py
+
+- Fetch single files/dirs from the GPL SDK (`github.com/reyalo/Realtek`) via `gh api` into `tmp/sdk/<repo path>`, for files a sparse local clone lacks. Log `tmp/logs/fetch_sdk_files.log`.
+
 ### hidden_sdk_scan.py
 
 - Offline search for hidden/disabled hardware (#68, [../docs/HIDDEN-FEATURES.md](../docs/HIDDEN-FEATURES.md)). No hardware access.

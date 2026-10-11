@@ -617,6 +617,8 @@ static int do_rtk(struct cmd_tbl *cmdtp, int flag, int argc, char *const argv[])
 		return rtk_sds_cmd(argc, argv);
 	if (is(argv, 1, "led"))
 		return rtk_led(argc, argv);
+	if (is(argv, 1, "crypto"))
+		return rtk_crypto(argc, argv);
 	if (is(argv, 1, "help-ours"))
 		return rtk_ours_help();
 	return rtk_usage();
@@ -701,6 +703,8 @@ U_BOOT_CMD(rtk, 16, 0, do_rtk, "rtk     - Realtek commands\n",
 	   "        - M1/M2/M3 front switch position (GPIO 17-19)\n"
 	   "rtk temp\n"
 	   "        - on-die temperature (enables the thermal meter if off)\n"
+	   "rtk crypto probe | test | bench\n"
+	   "        - SoC crypto engine: register read / NIST+RFC known-answer tests / 1 MiB MB/s vs software\n"
 	   "rtk help-ours\n"
 	   "        - one-line list of the above\n"
 	   "hidden stock verbs (work here, absent from stock help): port enable|disable <port>,\n"
