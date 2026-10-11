@@ -15,15 +15,30 @@ OpenWrt SNAPSHOT (kernel 6.18), `rtl83xx-switch` DSA driver, `l3.c` offload.
 - Not hidden or fused off either: [HIDDEN-FEATURES.md](HIDDEN-FEATURES.md) (#68).
 - Routing rewrites SMAC, DMAC, VID, TTL, IPv4 header checksum only (datasheet §7.14). No IP address or L4 port rewrite.
 - `L3_NEXTHOP` = DMAC idx + egress intf idx; `L3_EGR_INTF` = VID, SMAC idx, MTU idx, TTL/ICMP-redirect controls (GPL SDK `rtk_longan_table_struct.h`). ACL/PIE edits: VLAN, 1p, DSCP/TOS, IP reserved flag (datasheet §7.13.1, SDK `include/rtk/acl.h`). No NAT symbol in the SDK.
-- OpenWrt `tc.c` rejects `FLOW_ACTION_MANGLE`; no HW flowtable binding.
-- NAT stays on the CPU path (`rtl838x_eth`, 1G CPU port, #60). Fast path = route without NAT (static route on the upstream router; IPv6).
+- SDK `include/rtk/acl.h` forward actions: permit, drop, copy/redirect to port(mask), unicast routing, default unicast routing, filtering, loopback, VLAN leaky. Remark actions: 1p, DSCP, TOS, IP precedence. No address/port rewrite.
+- Tunnels, VXLAN, MPLS, OpenFlow set-field: RTL9310 (Mango) only; Longan has no tunnel DAL. Realtek hardware NAT exists in PON/router SoCs (RTL9607C, RTL8198 "fc"/hwnat), not the Otto switch family.
+- OpenWrt `tc.c` rejects `FLOW_ACTION_MANGLE`; no `ndo_setup_tc` flow block, so nftables `flags offload` (HW flowtable) cannot bind.
+- Not possible in hardware: SNAT, DNAT, masquerade, 1:1 NAT, port forwarding, NAT hairpin.
+- Partial: ACL `UNICAST_ROUTING` (policy routing) steers selected flows to a next hop in hardware; still no rewrite.
+- NAT stays on the CPU path (`rtl838x_eth`, 1G CPU port, #60; [NAT.md](NAT.md)). Fast path = route without NAT: the switch routes internal VLANs in hardware, the upstream router gets a static route to the switch's subnets; IPv6 needs no NAT.
 
 ## Offload gaps (#59) and `300-17`
 
-Stock driver (OpenWrt `main` up to `e5ec5e199f`, 2026-10-11): both gaps are deliberate upstream design, nobody is working on them (upstream survey: #59 comment 2026-10-12).
+Stock driver (OpenWrt `main` up to `e5ec5e199f`, 2026-10-11): both gaps are deliberate upstream design, nobody is working on them (upstream state below).
 
-- On-link destinations: neighbours are not host routes, so directly-connected inter-VLAN routing traps (host table unused for this).
-- Default route: rejected by `otto_l3_fib_check_v4()` (`!info->dst`, also rejects `0.0.0.0/1`) and `otto_l3_fib_check_v6()` (`ipv6_addr_any`). Workarounds: v4 8 routes `1/8 2/7 4/6 8/5 16/4 32/3 64/2 128/1`, v6 `2000::/3` via the gateway.
+- On-link destinations: neighbours are not host routes, so directly-connected inter-VLAN routing traps (host table unused for this). Measured ~70 Mbit/s (v4) / 58.5 Mbit/s (v6) vs 9.69 Gbit/s gateway-routed.
+- Default route: rejected by `otto_l3_fib_check_v4()` (`!info->dst`, also rejects `0.0.0.0/1`, so the `0/1 + 128/1` split fails) and `otto_l3_fib_check_v6()` (`ipv6_addr_any`). Effect: "route internally, uplink to the house router" sends every uplink packet to the CPU.
+- Workarounds (no code): v4 8 routes `1/8 2/7 4/6 8/5 16/4 32/3 64/2 128/1` via the gateway (all but `0/8`; 8 of 512 prefix rows; on-link prefixes keep their longer trap rows; not measured). v6 `2000::/3` via the gateway: offloaded (`fwd`), 9.08 Gbit/s at 0 % CPU (NAT.md).
+
+### Upstream state (surveyed 2026-10-12, #59)
+
+- Design statements by the l3 author: on-link "forwarded by the CPU, which is what the box does with the offload off"; default route "gets no row, because such a row would match every destination" (openwrt/openwrt#25313). `otto_l3_fib_check_v6()`: left-out destinations go to the CPU because "sending those to the gateway is worse than trapping them".
+- Consequence for `300-17`: default row above the catch-all; every left-out destination keeps a trap row above it (true since #25572/#25313); default row falls back to trap when any route of its family has no entry.
+- Relevant merged PRs: #25313 (IPv6 offload + catch-all trap rows, 2026-10-03), #25583 (default with a source: no row), #25572 (v4 left-out routes and on-link prefixes get trap rows), #25602 (`RTF_ADDRCONF` RA routes left to the kernel), #25187 (connected subnets no longer written as /32), #25170 (host-route placement), #25636 (offload built unconditionally), #25740/#25753 (trap main routes inside a local prefix). Open #25822 is RTL839x only.
+- Issues: #25129 (old rhltable keyed on `gw_ip`; CPU routing estimated "~20-50 MBit"), #25555 (RA default routes never offloaded), #25731 (closed: HW routing bypasses firewall and NAT "as already happens between VLAN interfaces"; any upstream PR must state that neighbour host routes extend this), #20139 (open, stale: inter-VLAN routing on physical ports broken on 24.10).
+- Maintainer merges small bench-tested series quickly ("fully featured unicast routing for RTL930x within one month", #25731).
+- Forum (OpenWrt realtek thread, 2026-09-22, SKS8300-8X / RTL9303, 6.18.52): inter-VLAN 7.71 Gbit/s with 4 streams and forwarding /32 host entries for on-link hosts. That is pre-rework code; current `main` traps on-link.
+- `300-17` upstream PR: drafted, compiles `W=1` against `main` with the whole rtl83xx dir on 7.3, checkpatch --strict clean; not posted (owner approval required).
 
 `openwrt/patches/300-17` (mainline 7.3 port; same change against `main` drafted for upstream) closes both. **Off by default**: what the ASIC routes bypasses nftables (firewall, NAT, conntrack).
 
@@ -33,7 +48,8 @@ Stock driver (OpenWrt `main` up to `e5ec5e199f`, 2026-10-11): both gaps are deli
 | `l3_default_v4` | `0.0.0.0/0` via a gateway forwards from a row just above the catch-all |
 | `l3_default_v6` | `::/0` via a gateway, same |
 
-- A runtime change is applied at the next poll (`DELAY_PROBE_TIME`, 5 s default). Kernel cmdline: `rtl_otto_dsa.l3_onlink=1 rtl_otto_dsa.l3_default_v6=1`.
+- Status (2026-10-12): built (`build-kernel --up` clean, `W=1` on `l3.o` clean), not run on hardware. Test plan: [ROUTING-OFFLOAD-OPS.md](ROUTING-OFFLOAD-OPS.md).
+- A runtime change is applied at the next poll (`DELAY_PROBE_TIME`, 5 s default). Kernel cmdline: `rtl_otto_dsa.l3_onlink=1 rtl_otto_dsa.l3_default_v6=1`. The poll takes RTNL every 5 s and reads one entry per forwarding gateway route.
 - NAT box (CPU masquerades to the internet, #58): `l3_default_v4` stays 0. A forwarding v4 default row sends internet traffic out un-NATed with the private source; the ASIC cannot rewrite IPs. `l3_default_v6=1` is fine where v6 is routed without NAT.
 - The driver does not check for masquerade/SNAT: nftables rules are not visible to it without hooking the nf_tables core. Setting `l3_default_v4=1` on a NAT box is the operator's error.
 
@@ -67,6 +83,22 @@ Stock driver (OpenWrt `main` up to `e5ec5e199f`, 2026-10-11): both gaps are deli
 - Every `DELAY_PROBE_TIME`: per forwarding route with a gateway (incl. neighbour entries), entry HIT set and neighbour `STALE` -> `neigh_event_send()` (kernel unicast-probes), HIT cleared. HIT is left alone otherwise, so the dump keeps showing it.
 - Same poll retries next hops still waiting for an L2 entry (`no port ... routing in software`), and applies parameter changes.
 
+## Firewall on the ASIC path (#66)
+
+- Routes with action `fwd` are switched in the ASIC (DS §7.14.1 p.31); only `trap` routes reach the netfilter forward hook. nftables (forward chain, `ct state established`, WAN→LAN drop) does not see ASIC-routed traffic, including the IPv6 fast path (9.08 Gbit/s, eth0 7 pps).
+- The ASIC has no connection tracking (none in the DS; no conntrack module in SDK `dal_longan_*`).
+- PIE (DS §7.13 p.30-31) is the only enforcement point on this path:
+  - 2K entries; actions drop / permit / redirect / trap / police / log.
+  - The VLAN ACL phase runs before L2/L3 lookup, so it filters routed packets before routing.
+  - The RTL930x template has `TCP_INFO` (TCP flags) at field 19 (`pie.c:1856`).
+- OpenWrt `tc.c` does not accept `FLOW_DISSECTOR_KEY_TCP`: a flower rule on TCP flags cannot be offloaded today. Accepted keys: control, basic, eth addrs, vlan, ipv4/ipv6 addrs, ports.
+- Consequence: IPv6 via the ASIC reaches every LAN host with a global address unless PIE rules drop it.
+- Options (policy not decided):
+  - Stateless PIE: drop WAN-ingress TCP SYN=1 ACK=0 towards LAN prefixes; allow ICMPv6 per RFC 4890; per-host permits; UDP has no SYN equivalent (trap inbound UDP to nftables, or permit selected ports).
+  - Keep WAN→LAN v6 as `trap` (firewall applies) and offload LAN→WAN only: costs the downstream direction, the bulk of the traffic.
+- Needed for stateless PIE: `FLOW_DISSECTOR_KEY_TCP` (flags) in `tc.c` → `pr->tcp_info` / `tcp_info_m`; test that a WAN-side SYN to a LAN host drops while LAN-initiated TCP runs at line rate.
+- `300-17` parameters are off by default for this reason.
+
 ## Verification surfaces
 
 - ASIC route table: `cat /sys/kernel/debug/realtek_otto_l3/routes` — ACTION `trap` vs `fwd`, `chk,dec` = HW checksum + TTL-decrement, HIT bit. Reset: `echo 1 > …/clear_route_hits`.
@@ -90,4 +122,6 @@ Contrast — on-link inter-VLAN (no gateway): **trap → CPU**, ~70 Mbit/s, 216 
 
 ## Pending
 
-- True all-port routed test (ingress ≠ egress port) needs a **second 10G endpoint** — host has one 10G SFP+ (single-port ConnectX), twin is SFP+-only. Tracked for when equipment is available.
+- True all-port routed test (ingress ≠ egress port, #22) needs a clean **second 10G endpoint** — host has one 10G SFP+ (single-port ConnectX), twin is SFP+-only.
+- Two-port L2 forwarding (2026-10-10, host on lan1, UNVR 10G SFP+ on lan8): lan1 rx +4.00 GB = lan8 tx +4.00 GB; lan1/lan8 rx_err 0, tx_err 0, 2 rx drops over 4 GB. Switch clean at line rate. Rates were endpoint-limited: UNVR→host 93 Mbit/s (UNVR `al_eth` TX bug), UNVR RX FCS errors (348 err / 13694 drop), bidir 2.5-3.6 Gbit/s. The UNVR is not a clean L3 endpoint.
+- Candidate in-switch traffic sources for #22: Smart Packet Generator (#70), OAM loopback (DS §7.27).
