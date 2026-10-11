@@ -99,6 +99,26 @@ Stock driver (OpenWrt `main` up to `e5ec5e199f`, 2026-10-11): both gaps are deli
 - Needed for stateless PIE: `FLOW_DISSECTOR_KEY_TCP` (flags) in `tc.c` → `pr->tcp_info` / `tcp_info_m`; test that a WAN-side SYN to a LAN host drops while LAN-initiated TCP runs at line rate.
 - `300-17` parameters are off by default for this reason.
 
+## Kernel visibility of offloaded traffic (switchdev model)
+
+Upstream model (mlxsw, prestera, OpenWrt `l3.c`): the kernel's FIB, neighbour table and netfilter stay the source of truth; the driver mirrors them into the ASIC through FIB/netevent notifiers and must fall back to `trap` whenever the ASIC cannot honour kernel state.
+
+Blind to ASIC-routed packets:
+- `tcpdump` on lanN / eth0, nftables / iptables counters and logs, conntrack, `tc` software filters, flowtable stats, socket-level tools.
+
+What still sees them, or how upstream restores visibility:
+- Port counters: `ip -s link`, `ethtool -S lanN` (hardware MIB through DSA).
+- Route state: `ip route` / `ip -6 route` flags `offload` / `trap` / `offload_failed` (`fib_alias_hw_flags_set`, `fib6_info_hw_flags_set`).
+- Per-route hits: debugfs HIT bit (above).
+- Packet copies: port mirroring (`tc ... matchall mirred`, `mirror.c`) to a capture port; sFlow sampling (ASIC sampler, `hsflowd`) for statistical visibility.
+- Filtering: rules must be offloaded too (`tc flower` → PIE); otherwise the route stays `trap` (#66).
+
+Gaps in ours (OpenWrt `l3.c` + `300-17`):
+- IPv6 routes report offload flags; IPv4 routes do not (no `fib_alias_hw_flags_set` in `l3.c`), so `ip route` cannot show which v4 routes are in hardware.
+- `300-17` takes RTNL in a 5 s poll (neighbour refresh, parameter apply); upstream expects notifier-driven updates.
+- No check that nftables forward rules exist before offloading: `l3_default_v4`/`l3_onlink` on a box with a forward firewall or NAT silently bypasses it (params default off for this reason).
+- No sampling to the CPU (`psample`) and no mirror-to-CPU wiring for `tcpdump` of offloaded flows.
+
 ## Verification surfaces
 
 - ASIC route table: `cat /sys/kernel/debug/realtek_otto_l3/routes` — ACTION `trap` vs `fwd`, `chk,dec` = HW checksum + TTL-decrement, HIT bit. Reset: `echo 1 > …/clear_route_hits`.
