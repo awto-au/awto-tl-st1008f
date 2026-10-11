@@ -25,6 +25,7 @@ from __future__ import annotations
 
 import argparse
 import json
+import os
 import subprocess
 import sys
 import time
@@ -41,7 +42,8 @@ LAN_VID, WAN_VID = 991, 992    # test-only VIDs, tagged on lan1 only
 SW_LAN, SW_WAN = "10.99.1.1", "10.99.2.1"
 H_LAN, H_WAN = "10.99.1.2", "10.99.2.2"
 NS_LAN, NS_WAN = "natlan", "natwan"
-CPU_HZ = 1_000_000_000         # `clocks fast` (docs/CLOCKS-OPS.md); one 34Kc pipeline shared by 2 VPEs
+CPU_HZ = 1_000_000_000
+TAG = os.environ.get("NAT_BENCH_TAG", "")  # set by scripts/nat_clock_variants.py: variant name per row         # `clocks fast` (docs/CLOCKS-OPS.md); one 34Kc pipeline shared by 2 VPEs
 
 SSH = ["ssh", "-o", "StrictHostKeyChecking=no", "-o", "UserKnownHostsFile=/dev/null",
        "-o", "LogLevel=ERROR", "-o", "BatchMode=yes", "-o", "ConnectTimeout=5",
@@ -241,7 +243,7 @@ def summarize(label: str, res: dict, a: dict, b: dict, udp: int | None) -> dict:
     tx_pps = e["tx_packets"] / dt
     busy_vpe = sum(cpu[c]["busy"] for c in cpu if c != "cpu") / 100  # VPE-seconds per second
     row = {
-        "label": label, "when": time.strftime("%Y-%m-%dT%H:%M:%S%z"), "mbps": round(mbps, 1), **extra,
+        "label": label, "tag": TAG, "when": time.strftime("%Y-%m-%dT%H:%M:%S%z"), "mbps": round(mbps, 1), **extra,
         "eth0_rx_mbps": round(e["rx_bytes"] * 8 / dt / 1e6, 1), "eth0_tx_mbps": round(e["tx_bytes"] * 8 / dt / 1e6, 1),
         "eth0_rx_pps": int(rx_pps), "eth0_tx_pps": int(tx_pps),
         "eth0_rx_dropped": e["rx_dropped"], "eth0_tx_dropped": e["tx_dropped"],
@@ -299,7 +301,7 @@ def pktgen(count: int, size: int) -> int:
     b = snap()
     res = sw(f"grep -A2 Result {pg}/{SW_PORT}")
     cpu = cpu_report(a, b)
-    row = {"label": f"pktgen-tx-{size}B", "when": time.strftime("%Y-%m-%dT%H:%M:%S%z"),
+    row = {"label": f"pktgen-tx-{size}B", "tag": TAG, "when": time.strftime("%Y-%m-%dT%H:%M:%S%z"),
            "result": " ".join(res.split()), "cpu": cpu}
     log(f"RESULT pktgen {size} B x {count}: {row['result']} | cpu0 {cpu['cpu0']} cpu1 {cpu['cpu1']}")
     with JSONL.open("a") as fh:
@@ -323,9 +325,11 @@ def flood(dst: str, secs: float, size: int) -> int:
 
 def rxdrop(secs: int, size: int) -> int:
     """RX-only cost: UDP flood to the switch SVI, dropped at lan1 netdev ingress (driver + DSA rx only)."""
+    mac = host(["ip", "netns", "exec", NS_LAN, "cat", f"/sys/class/net/{HOST_NIC}.{LAN_VID}/address"]).strip()
     sw("nft delete table netdev rxdrop 2>/dev/null; nft -f - <<'EOF'\n"
        f"table netdev rxdrop {{ chain in {{ type filter hook ingress device {SW_PORT} priority -500;\n"
-       f"  ip daddr {SW_LAN} udp dport 9 counter drop\n  }}\n}}\nEOF")
+       # match the source MAC: the frame may still carry its VLAN tag here, so `ip daddr` misses it
+       f"  ether saddr {mac} counter drop\n  }}\n}}\nEOF")
     a = snap()
     r = subprocess.run(["sudo", "-n", "nice", "-n", "19", "ip", "netns", "exec", NS_LAN, sys.executable, "-I", __file__, "_flood",
                         SW_LAN, str(secs), str(size)], capture_output=True, text=True, timeout=secs * 1.25 + 5)
@@ -338,9 +342,13 @@ def rxdrop(secs: int, size: int) -> int:
     dropped = int(cnt.split("packets")[1].split()[0])
     pps = dropped / dt
     busy = sum(cpu[c]["busy"] for c in cpu if c != "cpu") / 100
-    row = {"label": f"rxdrop-{size}B", "when": time.strftime("%Y-%m-%dT%H:%M:%S%z"), "sent": sent,
+    row = {"label": f"rxdrop-{size}B", "tag": TAG, "when": time.strftime("%Y-%m-%dT%H:%M:%S%z"), "sent": sent,
            "received_pps": int(pps), "cpu": cpu, "ns_vpe_per_pkt": round(busy * 1e9 / pps) if pps else None}
-    log(f"RESULT rxdrop {size} B: host sent {sent} ({sent/secs:.0f} pps), switch ingress-dropped "
+    # RX rate = eth0 packets: with rx-gro-list on (default) the ingress counter sees GRO skbs, not packets
+    eth_pps = int(((b["eth0"]["rx_packets"] - a["eth0"]["rx_packets"]) % 2**32) / dt)
+    row["eth0_rx_pps"] = eth_pps
+    row["ns_vpe_per_pkt"] = round(busy * 1e9 / eth_pps) if eth_pps else None
+    log(f"RESULT rxdrop {size} B: host sent {sent} ({sent/secs:.0f} pps), eth0 rx {eth_pps} pps, ingress-dropped "
         f"{int(pps)} pps | cpu0 {cpu['cpu0']} cpu1 {cpu['cpu1']} | VPE-ns/pkt {row['ns_vpe_per_pkt']}")
     with JSONL.open("a") as fh:
         fh.write(json.dumps(row) + "\n")

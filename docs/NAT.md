@@ -5,10 +5,11 @@ Target: NAT near 2.5 Gbit/s (owner ISP: NBN HFC ~2 Gbit/s down). Issue: "Fast NA
 ## Verdict
 
 - IPv4 NAT runs only on the CPU path: the ASIC has no IP/port rewrite (#58).
-  - Best measured: **228 Mbit/s** TCP NAT, with the nftables software flowtable.
-  - 2.5 Gbit/s needs about 10x fewer µs per packet than the NIC driver floor allows. Not reachable on this CPU.
+  - Best measured, with the nftables software flowtable: **248 Mbit/s** TCP NAT; UDP 1400 B forwards 39.7 kpps (about 445 Mbit/s).
+  - 2.5 Gbit/s needs about 10x less CPU per packet than today. Not reachable on this CPU.
+  - The per-packet cost scales with the CPU clock and barely with DDR or LX (see "Clock sensitivity"): the CPU path is compute-bound.
 - IPv6 needs no NAT and is routed by the ASIC at **9.08 Gbit/s with 0 % CPU**. This is the fast path; clients prefer IPv6 when it is offered (see "IPv6 fast path").
-- CPU port speed setting (1G) is not the limit. Every CPU path measured tops out below 250 Mbit/s.
+- CPU port speed setting (1G) is not the limit. Every CPU path measured tops out below 500 Mbit/s.
 
 ## Measured (2026-10-11)
 
@@ -23,10 +24,12 @@ Conditions:
 
 | Probe | 1400 B | 64 B | VPE0 | µs/pkt |
 |---|---|---|---|---|
-| RX only: UDP flood dropped at lan1 netdev ingress | 43.6 kpps | 48.4 kpps | 98 % softirq | 20-23 |
-| TX only: in-kernel pktgen on lan1 | 49.9 kpps (559 Mbit/s) | 39.3 kpps | 87-92 % sys | 17-23 |
+| RX only, eth0 GRO + rx-gro-list on (default): UDP flood dropped at lan1 netdev ingress, rate = eth0 rx_packets | 96.6-101.3 kpps | 110-115 kpps | 98 % softirq | 8.6-10 |
+| RX only, GRO and rx-gro-list off | 43.6 kpps | 48.4 kpps | 98 % softirq | 20-23 |
+| TX only: in-kernel pktgen on lan1 (clone_skb 0) | 42-53 kpps (476-591 Mbit/s) | 33-56 kpps | 82-93 % sys | 17-25 |
 
-- RX + TX ≈ 40 µs per forwarded packet before any IP stack work. That caps forwarding at about 25 kpps, about 300 Mbit/s at 1500 B.
+- RX: fraglist GRO batches the stack per GRO skb. The ingress counter then sees about 1 skb per 40 packets. Driver RX alone costs about 9 µs per packet.
+- TX: pktgen spread is ±20 % between runs, larger than the clock effects below. Treat it as a range.
 - Cost is per packet, not per byte: 64 B and 1400 B give about the same pps.
 
 ### Forwarding through the CPU (TCP, 4 streams unless noted)
@@ -35,14 +38,17 @@ Conditions:
 |---|---|---|---|
 | NAT (masquerade), no flowtable | 80 (GRO on) / 58 (GRO off) | 10.2 k / 7.5 k | 94-128 |
 | Route only, no NAT, no flowtable | 62 | 7.8 k | 124 |
-| NAT + flowtable | **228** (GRO on) / 213-217 (GRO off, P1/P4/reverse) | 28.1 k / 26.6 k | 34-36 |
+| NAT + flowtable | **243-248** (GRO on, via `clocks fast`); 228 (GRO on, chain boot) / 213-217 (GRO off, P1/P4/reverse) | 30.6 k / 28.1 k / 26.6 k | 31-36 |
 | Route + flowtable | 232 | 28.8 k | 33 |
-| NAT + flowtable, UDP 1400 B at 250 Mbit/s | 250, 0 % loss | 21.2 k | 45 |
-| NAT + flowtable, UDP 1400 B at 600 Mbit/s offered | 240 goodput, 59.6 % loss | 20.8 k | - |
-| NAT + flowtable, UDP 64 B | 21.6 kpps | - | - |
+| NAT + flowtable, UDP 1400 B at 600 Mbit/s offered, GRO on | **441-460 goodput** | 38.1-39.7 k, 0 driver drops | 24-25 |
+| NAT + flowtable, UDP 64 B, GRO on | 41.9-44.9 kpps | - | 22 |
+| NAT + flowtable, UDP 1400 B at 600 Mbit/s offered, GRO off | 240 goodput, 59.6 % loss | 20.8 k, heavy `rx_dropped` | - |
+| NAT + flowtable, UDP 64 B, GRO off | 21.6 kpps | - | - |
 | NAT + flowtable + RPS to VPE1 | **128** (worse) | 16.1 k | both VPEs ~95 % |
 
-- The flowtable cuts the stack cost from about 85 µs to about 0. What is left is the driver floor.
+- The flowtable cuts the stack cost from about 85 µs to about 0. What is left is the driver plus per-skb cost.
+- GRO on (the default, with rx-gro-list) doubles UDP forwarding through the flowtable (20.8 to 39.7 kpps). Keep it on.
+- The GRO-on TCP and UDP rows (243-248 Mbit/s, 38-40 kpps) come from boots via our U-Boot `clocks fast` (`./dev.py nat-clock-variants base`, 3 runs).
 - NAT itself costs nothing extra: NAT and plain routing give the same numbers with and without the flowtable.
 - One VPE does all the work: one NIC IRQ, NAPI on VPE0, VPE1 idle.
   - RPS onto VPE1 halves throughput. The two VPEs share one 34Kc pipeline, and IPIs plus cache sharing cost more than they save.
@@ -71,10 +77,31 @@ Conditions:
 - CPU-queue force drop `0xC4DC` = 0. Peak CPU-queue depth under flood: `0x340` pages (clear-on-read `0x7E40`).
 - `QM_RSN2CPUQID`: every reason goes to queue 0 or 1 (2 of 32 rings).
 
+## Clock sensitivity (2026-10-11, `./dev.py nat-clock-variants`)
+
+- Flash OpenWrt booted from our U-Boot after `clocks fast` plus one change. SPI stays stock throughout.
+- NAT + flowtable, GRO on. Base = CPU 1000, DDR 650, tREFI 7.1 µs, MCR prefetch on, LX 175.
+- Base spread over 3 boots: TCP 243-248 Mbit/s, UDP 1400 B 38.1-39.7 kpps, UDP 64 B 41.9-44.9 kpps, RX-drop 64 B 110-115 kpps. That is about ±4 %.
+
+| Variant | Change | NAT TCP Mbit/s | µs/pkt | UDP 1400 B fwd kpps | UDP 64 B fwd kpps | RX-drop 1400/64 B kpps | vs base (UDP 64 B) |
+|---|---|---|---|---|---|---|---|
+| base | - | 248.3 | 31.2 | 39.7 | 44.9 | 101.3/114.6 | - |
+| cpu800 | CPU 1000 to 800 (−20 %) | 212.4 | 36.4 | 34.4 | 36.2 | 86.4/96.8 | **−19 %** |
+| ddr600 | DDR 650 to 600 (−8 %) | 239.0 | 32.6 | 37.5 | 41.0 | 94.5/112.6 | −9 % (TCP −4 %) |
+| nopref | MCR ip_ref/dp_ref off | 233.9 | 33.1 | 37.6 | 41.7 | 97.8/109.4 | −7 % (TCP −6 %) |
+| lx204 | LX 175 to 204 (+17 %) | 238.7 | 32.3 | 37.9 | 41.4 | 98.7/112.4 | −8 % (no gain) |
+
+- **Compute-bound.** The CPU clock moves forwarding about 1:1: −20 % clock gives −13 to −19 % pps and −15 % RX.
+- DDR clock and controller prefetch matter a little (≤ 9 %, near the run-to-run spread).
+- LX (the switch-register / MMIO bus) gives no gain at +17 %. Per-packet uncached register access over LX is not the bottleneck.
+- So the time is mostly instructions executed on the core, not DRAM latency or MMIO. Profiling (perf in the 7.3 port, #16) needs to find which code runs about 25-30k cycles per packet.
+- LX 204 under Linux: the console prints garbage (DTB/UART rate mismatch). The board ran fine otherwise. STP was checked over SSH.
+- `clocks set lx` takes codes 2..5 only (5 = stock 175), so a slower-LX step is not available.
+
 ## Ceiling arithmetic
 
 - 2.5 Gbit/s of 1500 B frames = 208 kpps of data, plus about 104 kpps of TCP ACKs the other way. That is about 312 kpps through the CPU port.
-- With one 34Kc pipeline at 1 GHz, that leaves about **3.2 µs (3200 cycles) per packet for RX + NAT + TX**. Measured today: 34 µs with the flowtable, and the driver floor alone is 40 µs.
+- With one 34Kc pipeline at 1 GHz, that leaves about **3.2 µs (3200 cycles) per packet for RX + NAT + TX**. Measured today: 22-31 µs with the flowtable (GRO on); RX alone is about 9 µs and TX alone 17-25 µs.
 - No L2 cache; a random cached miss costs 109 ns (CLOCKS.md). DMA is non-coherent, so every packet header is a cache miss after invalidate.
 - 2 Gbit/s down-only (ACKs up) still needs about 250 kpps.
 - A driver rewrite gaining 3-4x (not measured) would give about 0.6-0.9 Gbit/s, and needs perf data first.
@@ -92,7 +119,7 @@ Conditions:
   - Insert TX checksums or do TSO.
   - Provide coherent DMA.
 - Consequence: every NAT packet crosses the CPU twice (RX + TX). PIE can only keep non-NAT traffic away from the CPU: route it in hardware, drop junk in the ACL.
-- FWD_ALE + `L3_ACT` re-injection (#63) skips only the egress stack. RX + TX DMA (40 µs) remains, so the hybrid design cannot reach 2.5G either.
+- FWD_ALE + `L3_ACT` re-injection (#63) skips only the egress stack. driver RX + TX (about 26-34 µs) remains, so the hybrid design cannot reach 2.5G either.
 
 ## IPv6 fast path (how most traffic avoids NAT)
 

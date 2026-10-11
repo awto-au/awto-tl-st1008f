@@ -50,6 +50,23 @@ Facts and results: [NAT.md](NAT.md). Everything runs through `./dev.py nat-bench
   - RPS: `echo 2 > /sys/class/net/eth0/queues/rx-{0,1}/rps_cpus`; `0` restores. It measured worse.
   - GRO: `ethtool -K eth0|lan1 gro off rx-gro-list off`; the default is on, which is slightly better.
 
+## Clock variants
+
+```
+./dev.py nat-clock-variants base|cpu800|ddr600|nopref|lx204   # one boot + bench set each
+./dev.py nat-clock-variants table                             # summary from tmp/logs/nat_bench.jsonl
+```
+
+- Steps per variant:
+  - Power cycle to the stock prompt.
+  - Load ours from flash (`--from-flash` path, no `rtk network on`).
+  - `clocks fast`, then the variant's command, then `clocks` (logged).
+  - `bootm 0xb4300000`, then the STP step on the console (`openwrt_stp`).
+  - SSH up, then the bench set, then teardown.
+- `lx204`: the Linux console is unreadable. STP is checked over SSH instead; if `stp_state` is not 1, lan* go down and the relay goes off.
+- Ends in flash OpenWrt booted this way. Normal power-up: `./dev.py uboot-chain-env boot`.
+- Rows carry `"tag": <variant>` (env `NAT_BENCH_TAG`).
+
 ## Reading results
 
 - `RESULT` line fields:
@@ -60,6 +77,7 @@ Facts and results: [NAT.md](NAT.md). Everything runs through `./dev.py nat-bench
   - `VPE-ns/pkt` = busy VPE time / eth0 RX packets.
 - HW-offload proof: eth0 pps stays near 0 and `realtek_otto_l3/routes` shows `fwd`.
 - eth0 byte counters are 32-bit; the script takes deltas mod 2^32.
+- `rxdrop` rate = eth0 `rx_packets`. With rx-gro-list on (default), the lan1 ingress counter sees GRO skbs, not packets.
 - Registers are read-only: `/sys/kernel/debug/regmap/dummy-ethernet-switch@0x1b000000/registers`. There is no `/dev/mem` or devmem in the OpenWrt image.
 
 ## Recover

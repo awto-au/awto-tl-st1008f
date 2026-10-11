@@ -240,6 +240,12 @@ def cmd_nat_bench(extra: list[str]) -> int:
     return _script("nat_bench.py", extra)
 
 
+@command("CPU-path cost vs clocks: boot flash OpenWrt from ours with one clock change, run the nat-bench set (#65)",
+         args="base|cpu800|ddr600|nopref|lx204|all|table [--bench-only]", kind="hardware")
+def cmd_nat_clock_variants(extra: list[str]) -> int:
+    return _script("nat_clock_variants.py", extra)
+
+
 @command("dump pinmux/GPIO/I2C registers at the live prompt, or diff two dumps (#51)",
          args="capture <label> | compare <a> <b>", kind="check")
 def cmd_reg_diff(extra: list[str]) -> int:
