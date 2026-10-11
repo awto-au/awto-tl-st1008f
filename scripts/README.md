@@ -380,3 +380,5 @@ Desk-only; no switch access. Needs `tmp/openwrt` (sparse clone of openwrt, `targ
 - Purpose: boot the flash OpenWrt as an unattended power-up would (autoboot caught, no `rtk network on`, `boota`), then sample uptime (reboot detection), `stp_state`, lan* STP port states, SoC temperature (#43).
 - Run: `./dev.py flash-openwrt-watch [--minutes 10] [--every 30] [--attach]` with `./dev.py storm-watch` alongside. Log: `tmp/logs/flash_openwrt_watch.log`.
 
+
+- `sdk_leftovers_scan.py`: offline scan of Realtek SDK trees + stock/managed firmware for debug/test/disabled features; output `tmp/sdk_leftovers/scan.json`, log `tmp/logs/sdk_leftovers_scan.log`; `--decompile` adds a Ghidra pass (private/). Results: docs/SDK-LEFTOVERS.md, #74.
