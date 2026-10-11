@@ -1,12 +1,12 @@
 # Mainline U-Boot port (stage 0: RAM chainload)
 
-Issue #23. Stock U-Boot 2011 (clocks + DDR already up) `tftpboot`s a mainline U-Boot and `go`es to it. No flash, no DDR init, no reset.
-Not hardware-verified yet (built and inspected only).
+Issue #23. Stock U-Boot 2011 (clocks + DDR already up) loads a mainline U-Boot and `go`es to it: on power-up from flash `jffs2-log` via the stock `bootcmd` ([DEFAULT-BOOT.md](DEFAULT-BOOT.md#power-up-chain), #47), or RAM-loaded over TFTP by `./dev.py ramload uboot-mainline`. No DDR init (stock SPL does it).
+Runs on the board: first boot 2026-10-10 (18 s from power-off to prompt via `ramload`, log CLEAN); `uboot-test` 40/40 on 2026-10-11 (02d8c05).
 
 ## Layout
 
 - Scaffold: `uboot-port/` (tracked) = `arch/mips/mach-otto/`, `arch/mips/dts/tplink_tl-st1008f.dts`, `board/tplink/tl-st1008f/`, `include/configs/tplink_tl-st1008f.h`, `configs/tplink_tl-st1008f_ram_defconfig`.
-- Build: `scripts/build_uboot_mainline.py` stages the scaffold into a pinned tree, patches 4 hooks idempotently (`arch/mips/Kconfig` x2, `arch/mips/Makefile`, `arch/mips/dts/Makefile`), builds out-of-tree.
+- Build: `scripts/build_uboot_mainline.py` stages the scaffold into a pinned tree, patches 11 hooks idempotently (`arch/mips/Kconfig` x2, `arch/mips/Makefile`, `arch/mips/dts/Makefile`, Kconfig + Makefile of `drivers/gpio`, `drivers/i2c`, `drivers/spi`, `include/image.h` Realtek magic), builds out-of-tree.
 - Pinned tree: mainline tag `v2026.07` at `tmp/u-boot-v2026.07` (plain clone of the upstream mirror; `git clone -s -n <upstream clone> tmp/u-boot-v2026.07 && git -C tmp/u-boot-v2026.07 checkout --detach v2026.07`).
 - Build dir `tmp/uboot-mainline-build`; outputs `tmp/tftp/uboot-mainline.{bin,elf}`; log `tmp/logs/build_uboot_mainline.log`.
 - Toolchain: `mips64-linux-gnu-` GCC 16.2.1, `-march=mips32r2 -mabi=32`, big-endian ELF32 (clang fallback not needed).
@@ -41,7 +41,6 @@ Not hardware-verified yet (built and inspected only).
 ```
 
 - `ramload` = stock `rtk network on`, one cage lit, `tftpboot 0x81000000 uboot-mainline.bin`, `go 0x81000000`. Entry = image start, no header.
-- Status 2026-10-10 (stage 2): `uboot-test` 15/15 on the board; boot log CLEAN.
 
 ## On-board checks (`./dev.py uboot-test`)
 
@@ -62,16 +61,48 @@ Not hardware-verified yet (built and inspected only).
 | laser | `rtk laser 2` → expander `0xfd` **and** cage 2 bias 1 mA → 6.3 mA; back to cage 1 |
 | rtk_i2c / rtk_pin | stock output format (`data 0x..`) |
 | refuse_* | module EEPROM write, GPIO21 low, all lasers on: refused |
+| network | our `rtk network on` with no stock network-on: cage 1 PCS + MAC up (#51) |
+
+Results 2026-10-11 (board, CPU 1 GHz where `clocks fast` ran):
+
+- `clocks` PASS (`cpu ... src pll`); `fdt_clocks` PASS: `fdt: clocks cpu 1000000 kHz, lx 175000 kHz`, `/cpus`, `/cpu-clock`, `/lx_clk` all match (21:49+11:00, 0cd6993, #41).
+- `cr_idle` PASS: bare CR after 1, 2, 5, 10, 13, 15, 20, 30 s idle got a prompt every time (21:49+11:00, #31). The single 2026-10-10 no-echo event did not reproduce. Host PL2303 `power/control` = `on` (no USB autosuspend).
+- `div64` PASS (5f29530, #33).
+- `i2c_scan` and `sfp_phy` PASS after 032c7c8 (#33); values under [I2C](#i2c-i2c-rtl9300-and-sfp-phy-33).
+- `network` PASS (ab649f1, `--from-flash`, `rtk_media=stock`): cage 1 `pcs up, mac up 10G`; cages 2-8 10GBASE-R, no link (lasers off). Power-up chain with the same build PASS (#51).
+- `timer` +0.3 % at 800 MHz; also used for the 775-1050 MHz overclock steps ([CLOCKS.md](CLOCKS.md)).
+- `ft_board_setup` is not exercised by OpenWrt boots: OpenWrt uImages carry an appended DTB, `bootm` passes none, so no `fdt: clocks` line and flash OpenWrt prints `CPU frequency from device tree: 800MHz` even at 1 GHz. Linux side fixed by `300-05` (CPU rate from the PLL, #55); `fdt_clocks` tests the fixup on a control-DTB copy instead.
 
 Full stock `rtk` parity inventory, registers and parity harness: [RTK-COMMANDS.md](RTK-COMMANDS.md).
 
 ## Console speed
 
-- UART = LX 175 MHz / 16 / divisor; every divisor 47..1 (232 k .. 10.94 MBd) passes byte-exact (`./dev.py serial-speed`). Results + host request table: #32.
+- UART = LX 175 MHz / 16 / divisor; every divisor 47..1 (232 k .. 10.94 MBd) passes byte-exact (`./dev.py serial-speed`, #32). Divisor 1 = the UART's rated max; the SoC passes at every divisor.
+- Measured 2026-10-10 (dda6fff): RAM-loaded U-Boot, 16 KiB `md.b` (~81 KB text) per step, byte-exact vs a 115200 baseline; host PL2303HX clone (067b:2303, bcdDevice 3.00), Linux `pl2303`. Stock U-Boot 2011 measured the same way (`--stock`, markers via `printenv`): 9/9 rates pass, same host requests.
+
+| Div | Board rate | Host request that decodes | Ours char/s | Stock char/s |
+|---|---|---|---|---|
+| 95 | 115,131 | 115200 | ~10.6 k | - |
+| 47 | 232,713 | 232,713 | 20.7 k | 20.7 k |
+| 24 | 455,729 | 455,729 | 39.6 k | 39.7 k |
+| 12 | 911,458 | 875,000 (921600 fails) | 77.2 k | 76.5 k |
+| 6 | 1,822,917 | 1,604,167 | 140.9 k | 141.8 k |
+| 5 | 2,187,500 | 1,837,500 | 166.0 k | 166.1 k |
+| 4 | 2,734,375 | 2,187,500 | 194.8 k | 199.5 k |
+| 3 | 3,645,833 | 2,770,833 | 244.7 k | 249.7 k |
+| 2 | 5,468,750 | 3,718,750 | 313.5 k | 335.2 k |
+| 1 | 10,937,500 | 5,129,688 (5,468,750 also works) | 425.1 k | 465.8 k |
+
+- Host limit is the adapter: the clone PL2303HX runs faster than requested, more so at high rates, so `serial_speed_test.py` sweeps the request. An FT232H / CH343 would take exact rates.
+- Above ~3.6 MBd char/s is below line rate: polled `putc` + USB full-speed bulk. Ours ~9 % slower than stock at the top rate: per-character LSR polling in the DM ns16550 path (candidate: fill the 16-byte TX FIFO per THRE).
+- Datasheet (RTL9303-CG Rev 1.1-1) gives pins only (2 UARTs, UART0 with RTS/CTS); no clock, max baud or FIFO depth.
 - `./dev.py ramload uboot-mainline --fast [DIV]`: after boot, `setenv baudrate` to 10.9375 MBd/DIV (default 1) and find the host request (`tmp/serial-cal.json` first, then sweep). `uboot-test` 29/29 at 10.94 MBd.
 - After `--fast` the board stays fast until power-off; `console-restart`, the daemon's autoboot catch and `uboot-test reset` assume 115200.
 - `CFG_SYS_BAUDRATE_TABLE` lists the exact divisor rates so `setenv baudrate` accepts them.
-- Long input lines lose characters (#31): scripts type through `Console.send_checked` (echo-verified, Enter last).
+- Long input lines lose characters (#31, 2026-10-10 at 115200): lines of ~220-250 chars drop one char (`eho PAD_PAD` for `echo PAD_PAD`). UART FIFO on (IIR `0xc1`, LCR `0x03`, IER `0x00`). Adapter TX vs SoC RX not separated.
+  - A lost final CR looks like a hang: U-Boot waits for Enter; one bare CR runs the pending line.
+  - A lost char can change an address: a ~560-char `crc32` line became `crc32 0x82b0000 0x1000` (KUSEG, TLB-mapped) → `crc32_no_comp` fault, `Cause d0000028` (ExcCode 0x0a), U-Boot halted.
+  - Workaround: `Console.send_checked` types 16-char chunks, compares the echo, sends Enter only on an exact match, else Ctrl-C and retry (fired 2x in ~30 lines during the serial ladder). `Console.run` uses it for every line over 60 chars.
 
 ## `rtk` command (stock-compatible subset, `board/tplink/tl-st1008f/cmd_rtk.c`)
 
@@ -82,7 +113,7 @@ Full stock `rtk` parity inventory, registers and parity harness: [RTK-COMMANDS.m
 - `rtk sfp power`: counted power per cage + total vs budget (warn only, #30). Rules: [hardware.md](hardware.md#sfp-power).
 - `rtk sfp <cage> phy [reg]`: copper module PHY at 0x56; each 16-bit reg = two 1-byte reads of the same reg (MSB, then LSB), as Linux `mdio-i2c` SMBus. A 2-byte block read returns LSB `0xff` (master has no clock stretching). ID1 first: read as `0x4101` = byte order off by one → one extra byte read re-aligns. Each byte: up to 5 tries 1 ms apart.
 - Decoder: `board/tplink/tl-st1008f/sfp/` = ethtool 7.1 (`6b7b16e`) `sfpid.c`, `sfpdiag.c`, `sff-common.c`, `module-common.c` (GPL-2.0); printf output, no JSON, integer fixed point (no FPU). Rx external-cal polynomial per SFF-8472 (upstream omits r^2..r^4). Host check: `scripts/sfp_decode_host_test.py`.
-- `rtk network on`: not yet (no Ethernet driver; stage 4).
+- `rtk network on`: ours (`rtk_net.c`), stock sequence + cage isolation ([RTK-COMMANDS.md](RTK-COMMANDS.md#stage-4-network-on-10g-macsds-port-isolation)); results below ([Stage 4](#stage-4-network-on-without-stock-51)).
 
 ## Expected console
 
@@ -107,8 +138,42 @@ st1008f-mainline #
 - Implemented: clock provider + `clocks` command (decode; `set cpu`/`set mem` from SRAM) + `ft_board_setup` rate patching ([CLOCKS.md](CLOCKS.md)), CP0 timer, ns16550 console, fixed 256 MiB RAM (U-Boot itself), `highmem` window for the second 256 MiB, env in RAM, `go`/`bootm`/memory commands, ERL cleared at entry; GPIO (`gpio-realtek-otto`), mode switch buttons; RTL9300 I2C master (8 SFP buses, `i2c-rtl9300`); i2c-gpio + TCA9534A lasers; `rtk` command.
 - SPI-NOR read-only (stage 3, verified on the board 2026-10-10; see [SPI-NOR](#spi-nor-stage-3-read-only)).
 - Chained-boot selection primary / recovery (`bootsel`, attempt record in RAM, SoC watchdog): [DEFAULT-BOOT.md](DEFAULT-BOOT.md) (#73); not run on the board.
-- Not: Ethernet, SerDes, flash env, reset (next: switch-core `+0x0c` write 1 = `syscon-reboot` per Linux DTS), interrupts (polled console only), second RAM bank (#32), second hardware thread.
-- `bootm`: mainline accepts only standard uImage magic `0x27051956`; `scripts/mainline_uimage.py` writes the Realtek `0x93030000` that stock accepts. Needs a `--magic` option before using `bootm` here.
+- SerDes bring-up + `rtk network on` without stock (#51, [Stage 4](#stage-4-network-on-without-stock-51)).
+- Not: Ethernet (CPU-port NIC, #80), flash env, reset (next: switch-core `+0x0c` write 1 = `syscon-reboot` per Linux DTS), interrupts (polled console only), second RAM bank (#32), second hardware thread.
+- `bootm`: accepts the standard uImage magic `0x27051956` and the Realtek `0x93030000` (stock-style images, flash OpenWrt), so `bootm 0xb4300000` boots the flash OpenWrt (#47).
+
+## 64-bit divide (`__udivdi3`, #33)
+
+- Mainline v2026.07 `arch/mips/lib/udivdi3.c` is `__udivdi3(long long u, word_type b)` with a 32-bit `b`; GCC passes a 64-bit divisor in a register pair. On big-endian o32 `b` = the divisor's high word = 0 for any 32-bit divisor → `__div64_32` divides by 0 → `divu` + `teq` → ExcCode 13. Upstream bug (BE MIPS32; LE truncates divisors ≥ 2^32), not build flags.
+- Fix: `uboot-port/arch/mips/lib/udivdi3.c` replaces mainline's: `__udivdi3` + `__umoddi3`, both `u64`, shift-subtract, no `divu`.
+- Host proof: `scripts/udivdi3_host_test.py` under qemu-mips-static (MIPS32r2 BE): 211 cases match Python; mainline's signature called with the libgcc ABI sees divisor 0 for 1000. Board: `uboot-test div64` PASS.
+
+## I2C (`i2c-rtl9300`) and SFP PHY (#33)
+
+- `i2c probe` scan: skips reserved addresses 0x00-0x07 and 0x78-0x7f (i2cdetect range). The scan still failed until the driver kept ≥ 10 SCL periods of bus idle before each TRIG (100 µs at 100 kHz, 200 µs at 50 kHz), timed from the last transfer's end. Back-to-back transfers (µs gap) failed; single commands (ms gap) worked. Linux's busy poll sleeps 26-100 µs, so it never hits this.
+- CTRL1 FAIL bit: stays set (`0000000a`) after a NACK even when 0 is written: write-1-to-clear or read-only, not a plain bit. Driver writes FAIL = 0 with TRIG and after a NACK. Result 2026-10-11 (032c7c8): bus 0 lists 50 51.
+- Block reads from MCU-emulated EEPROMs (GLC-T, GLC-SX) fail at 100 kHz (module clock-stretches; the master has none). `rtk sfp` retries a failed block read at 50 kHz after 20 ms, then byte-wise; logs `[50 kHz: module clock-stretches]` (cages 3, 4, 7 on many boots).
+- Copper PHY (88E1111 at 0x56): Linux binds it as `smbus:sfp-p3:16` via `mdio-i2c` `smbus_byte_mii_read_default_c22` = two 1-byte reads of the same register (MSB, then LSB). A 2-byte read returns LSB `0xff` (same at 50 kHz). One run read reg 0 as `0x4001` (BMCR `0x0140` byte-swapped: pointer one byte out), hence the ID1 realign in `rtk sfp N phy`.
+- Result 2026-10-11 (032c7c8), GLC-T cages 3 and 7: BMCR `0x0140`, BMSR `0x0149`, ID `0x0141`/`0x0cc2`, reg 0x11 `0x8100`/`0x8140`; one byte retry each, no realign needed.
+- SDK alternate layout (`RTL9300_INT_I2C_*`, for `HWP_CHIP_REV < 3` + `IF_CHIP_TYPE_1`: MST1 SDA_OUT_SEL bit 5, shifted MEM_ADDR, read = RWOP 1) does not apply: ours uses the normal layout and reads cages 1-7, which the INT layout would fail. GLB_CTRL `0x384` SDA_SEL bit per channel is set as the SDK does (#51).
+
+## Stage 4: `network on` without stock (#51)
+
+Implementation: [RTK-COMMANDS.md](RTK-COMMANDS.md#stage-4-network-on-10g-macsds-port-isolation). Our U-Boot no longer depends on stock `rtk network on` (ab649f1, 2026-10-11T22:08+11:00).
+
+- Before: from flash with no stock network-on, every SerDes read `off (0x1f)`.
+- `rtk network on` from flash, no stock: 7.1 s; all 8 SerDes 10GBASE-R (`0x1a`).
+- MAC link needed `SMI_MAC_TYPE_CTRL 0xca04` cleared for the SerDes ports (stock `_rtl9300_smiMacType_init`), plus CPU port force `0xca8c = 0x217`. Before that fix: cage 1 PCS up, MAC down.
+- Construct list: stock `rtk sdsreg get 0 2 46 20` = `0x1311` → list `a` (production chip `0x93030001`), not `bT` (`0x1179`).
+- Default media from the Linux SFP logic: GLC-T → SGMII (`0x02`); GLC-SX-MM, PTB3370553 → 1000BASE-X (`0x04`); SFP-10GSR-85 → 10GBASE-R (`0x1a`).
+- Not run at autoboot (opt-in `rtk_boot_net`); the power-up chain with this build PASS (stock → ours → flash OpenWrt, STP on).
+- Register diff, stock after `rtk network on` vs ours from flash without it (`./dev.py reg-diff`, 2026-10-11T21:34+11:00):
+  - pinmux `0xbb0003a0`: stock `0035e000`, ours `00340000` (stock also sets `0x1e000`; bit 13 muxes GPIO3-5 to SPI = false presence on cages 4-6, cleared by ours, [hardware.md](hardware.md)).
+  - I2C GLB `0x384`: stock `00a3ffff`, ours 0 until first use; MST1 CTRL1 stock `0x78`.
+  - GPIO DIR `0x3308`: stock also drives GPIO22 as output (`00600000` vs `00200000`); DATA pins 8-16 read 0 under stock (muxed to I2C), 1 under ours.
+  - LED `0xcc00`/`0xcc0c` differed until the stock LED profile was ported (#9: 0 LED diffs since 24430e8).
+- Cage 8 I2C works without stock (`i2c dev 7; i2c md 0x50` = `03 04 07 …`, `SFP-10GSR-85`); the one earlier `empty` read was a seating/transient fault.
+- MAC/SerDes diff before the `0xca04` fix (54 words): `0xca8c` 217 vs 194; `0xcb14` `0f110101` vs `0f000000`; `0xcb18/cb1c` bit 2 stock only; SerDes page 4 regs 1/8, page 5 reg 1 bit 15, page 7 regs 0x15-0x19 on sds 3/5/7/9, page 0 reg 0x1d on sds 2/4.
 
 ## RAM above 256 MiB (`highmem`, #32)
 
@@ -158,4 +223,39 @@ Stage 0 uses none of them.
 4. RTL930x CPU-port Ethernet + SerDes 10GBASE-R; DM_ETH; `rtk network on`.
 5. lwIP + iperf (lwiperf) for wire-speed tests.
 6. `hwtest` commands in the style of awto-unvr `docs/uboot-hw-test-suite.md`.
-7. DDR SPL from the RE'd preloader sequence (#23); then flash boot replacing stock SPL + payload.
+7. DDR SPL from the RE'd preloader sequence (#23). Replacing the stock SPL/payload in flash is out: `0x0`-`0xDFFFF` is never written (#47, #81).
+
+## Feature scope (#80, owner 2026-10-12)
+
+- Network: CPU-port Ethernet driver (DM_ETH, polled) over our `rtk network on`; management through the CPU port with ports isolated (loop-safe).
+- Firmware update without TFTP: web failsafe (HTTP upload → verify uImage/FIT header, size, CRC → write `firmware`/`recovery` only), `wget` (HTTP; HTTPS needs lwIP), fastboot over UDP.
+- No SSH: no SSH server exists for U-Boot; netconsole + web failsafe on the isolated management port instead.
+- Unmanaged-switch mode: after `network on` the ASIC forwards with an idle CPU; needs ASIC storm control + loop detection (no STP in U-Boot). Fallback when Linux will not boot.
+- Router in U-Boot: not planned (ARP/neighbour/trap handling = a network stack in a bootloader; Linux does it).
+- Everything must work as if stock never ran: our `rtk network on` reproduces stock's full switch init ([UBOOT-REFERENCE.md](UBOOT-REFERENCE.md#datapath-registers-and-hand-derived-pokes)); proof = whole switch-core `reg-diff` on a cold boot, stock vs ours, every difference copied or listed with a reason. Primary test path = cold power-up → stock chain-load → ours.
+
+## Driver reuse audit (#83)
+
+Owner 2026-10-12: U-Boot drivers reuse Linux/OpenWrt code where possible (one OS-independent core + thin platform glue, awto-unvr pattern). Audit 2026-10-12 (01dd293). Mainline U-Boot v2026.07 has no Realtek Otto driver of any kind.
+
+- **Shared core (built in 01dd293 on top of #80's 976a2b5; not yet merged to main):** NIC `rtl930x_eth.c` ↔ OpenWrt `rtl838x_eth.c` + `300-11/12`: `shared/rtl930x-nic/rtl930x_nic.h` (registers, descriptor/tag, reset, HOL, reason map, ring base, max length, enable/stop, doorbell); Linux via `300-18`. Linux glue (page_pool, NAPI, DSA) cannot run in U-Boot.
+- **Share a core (to do), in suggested order:**
+  - SFP power `rtk_sfppower.c` ↔ `300-06` `st_power_mw()`: pure function on A0 bytes, same rules written twice (drift risk). Trivial.
+  - Mode-switch decode (`board.c`) ↔ `300-06`: one-hot pin table written twice. Trivial.
+  - SerDes access `rtk_sds.c` ↔ OpenWrt `mdio-realtek-otto-serdes.c`: indirect cmd/data and page/SerDes remap (sds 3 → 10) must agree. Small, high value.
+  - Port isolation (`rtk_iso_guard`, `iso_set`) ↔ OpenWrt `otto_table.c` + DSA: table-access engine also needed for VLAN/L2 init (#80).
+  - Watchdog (`bootsel.c`) ↔ Linux `realtek_otto_wdt.c`: prescale/phase math duplicated; U-Boot `wdt` uclass driver on a shared core.
+  - Port LEDs `rtk_led.c` ↔ OpenWrt DSA LED setup + `300-16`: same register map. Medium.
+  - I2C `i2c-rtl9300.c` (233 lines) ↔ Linux (670): Linux uses regmap `reg_field` tables per SoC, so a core needs a field-accessor shim. Ours is hardware-verified: follow-up.
+  - CP0 timer rate (`mach-otto`) ↔ `300-05`: same PLL formula. Small.
+  - Thermal (`rtk temp`) ↔ OpenWrt `realtek-thermal.c`: enable + 2 field reads. Low value.
+- **Reuse as-is:** SPI-NOR, i2c-gpio, TCA9534A, ns16550 (mainline U-Boot, unchanged); SFP decode `sfp/` (verbatim ethtool `sfpid.c`/`sfpdiag.c`); cage presence pinmux (`rtk_presence_pins_gpio`) → candidate: U-Boot `pinctrl-single` with the Linux DT node @ `0x1b0003a0` (needs a size and on-board check).
+- **Keep ours:**
+  - GPIO `gpio-realtek-otto.c` (97 lines) vs Linux (470): 3 data registers; Linux file is gpio-regmap + irqchip glue. Upstream ours to U-Boot later.
+  - SPI controller `spi-realtek-rtl.c` (326) vs Linux (394): the read-only/#81 guard is U-Boot-only and must not move.
+  - Clock decode `mach-otto/clock.c`, `clocks.c`: Linux has no Otto clk driver (U-Boot patches rates into the DTB, #41).
+  - SerDes/MAC construct (`rtk_net.c`, `rtk_sds_tables.h`): replays the stock loader; OpenWrt PCS uses another mode-set; converging needs an on-board A/B.
+  - SFP interface pick `rtk_sfpmode.c`: Linux code is bound to linkmode bitmaps/phylink. Re-sync the quirk list on Linux changes.
+  - `highmem.c` (U-Boot needs a wired TLB entry; only register values common), `rtk_sdstest.c`, crypto, DDR/clock SRAM code (no Linux counterpart), `bootsel.c`, `board.c`, `cmd_rtk.c`, `rtk_stock.c`, `rtk_ours.c`, `bench.c`, `cmd_busscan.c` (U-Boot commands / boot policy).
+- **Upstream:** `arch/mips/lib/udivdi3.c` fix ([64-bit divide](#64-bit-divide-__udivdi3-33)).
+- Shared-source rule (with that merge): edit only `shared/`; build scripts copy it into U-Boot, the 7.3 tree and OpenWrt `files-7.3`; Linux `static_assert`s catch drift.
