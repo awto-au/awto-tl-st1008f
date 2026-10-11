@@ -19,7 +19,7 @@ from pathlib import Path
 
 sys.path.insert(0, str(Path(__file__).resolve().parent))
 import flash_guard  # noqa: E402
-from st1008_ramload import ROOT, SOCK, Console, openwrt_stp, power, restart_daemon  # noqa: E402
+from st1008_ramload import OW_READY, ROOT, SOCK, Console, openwrt_stp, power, restart_daemon  # noqa: E402
 
 LOG = ROOT / "tmp/logs/uboot_chain_env.log"
 CHAIN = "mw.l 0xa0f80000 0xa5a51008; cp.b 0x94200000 0x81000000 0x80000; go 0x81000000"
@@ -64,7 +64,7 @@ def boot() -> int:
         con.expect(r"U-Boot 2026\.07", 6, mark, "stock -> saved bootcmd -> our U-Boot", boot_ok=True)
         con.expect(r"clocks: fast = cpu 1000 MHz", 4, mark, "our autoboot: clocks fast", boot_ok=True)
         # bootm from flash + kernel to console ~23 s after ours (measured 24 s incl. bootdelay); x1.25
-        con.expect(r"Please press Enter to activate", 30, mark, "flash OpenWrt console", boot_ok=True)
+        con.expect(OW_READY, 30, mark, "flash OpenWrt console", boot_ok=True)
         openwrt_stp(con)
     finally:
         set_policy("hold")
@@ -89,7 +89,7 @@ def main() -> int:
         con.run(CHAIN, r"U-Boot 2026\.07", 3, "chain -> our U-Boot")
         # no keypress here: any byte stops our autoboot. 1 s bootdelay + clocks fast + bootm from
         # flash + kernel to console ~25 s (measured); x1.25 + slack
-        con.expect(r"Please press Enter to activate", 40, mark, "autoboot -> flash OpenWrt")
+        con.expect(OW_READY, 40, mark, "autoboot -> flash OpenWrt")
         openwrt_stp(con)
         log("PASS test: stock -> chain (not saved) -> ours -> flash OpenWrt")
         return 0

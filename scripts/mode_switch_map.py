@@ -17,7 +17,7 @@ import time
 from pathlib import Path
 
 sys.path.insert(0, str(Path(__file__).resolve().parent))
-from st1008_ramload import ROOT, Console, openwrt_stp, power, restart_daemon  # noqa: E402
+from st1008_ramload import OW_READY, ROOT, Console, openwrt_stp, power, restart_daemon  # noqa: E402
 from uboot_chain_env import set_policy  # noqa: E402
 
 LOG = ROOT / "tmp/logs/mode_switch_map.log"
@@ -92,7 +92,7 @@ def boot(expect: int) -> int:
         if expect in (1, 2):  # M2 boots the primary too, with st1008f.mode=m2 (#73)
             con.expect(r"clocks: fast = cpu 1000 MHz", 4, mark, "M1 autoboot: clocks fast", boot_ok=True)
             # bootm from flash + kernel to console ~23 s after ours (uboot_chain_env); x1.25
-            con.expect(r"Please press Enter to activate", 30, mark, "flash OpenWrt console", boot_ok=True)
+            con.expect(OW_READY, 30, mark, "flash OpenWrt console", boot_ok=True)
             openwrt_stp(con)
         else:
             # M3 without a recovery image: `Boot:  prompt` (#73); with one it boots it (default-boot tests)

@@ -15,7 +15,7 @@ import time
 from pathlib import Path
 
 sys.path.insert(0, str(Path(__file__).resolve().parent))
-from st1008_ramload import OW_PROMPT, ROOT, Console  # noqa: E402
+from st1008_ramload import OW_PROMPT, OW_READY, ROOT, Console  # noqa: E402
 
 LOG = ROOT / "tmp/logs/flash_openwrt_watch.log"
 STATE = {"0": "disabled", "1": "listening", "2": "learning", "3": "forwarding", "4": "blocking"}
@@ -47,7 +47,7 @@ def main() -> int:
     t0 = time.monotonic()
     # "Please press Enter": RAM initramfs ~25 s; flash adds squashfs + overlay mount and was
     # reported slow: cap 120 s, expiry logged by expect
-    con.run("boota", r"Please press Enter to activate", 120, "flash OpenWrt booted")
+    con.run("boota", OW_READY, 120, "flash OpenWrt booted")
     log(f"flash OpenWrt console up after {time.monotonic() - t0:.0f}s")
     con.run("", OW_PROMPT, 3, "shell")
     return watch(con, a)

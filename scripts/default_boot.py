@@ -30,7 +30,7 @@ from pathlib import Path
 
 sys.path.insert(0, str(Path(__file__).resolve().parent))
 import flash_guard  # noqa: E402
-from st1008_ramload import OW_PROMPT, SERVER_IP, TFTP_ROOT, Console  # noqa: E402
+from st1008_ramload import OW_PROMPT, OW_READY, SERVER_IP, TFTP_ROOT, Console  # noqa: E402
 from uboot_chain_env import set_policy  # noqa: E402
 
 ROOT = Path(__file__).resolve().parent.parent
@@ -227,7 +227,7 @@ def cmd_install(a) -> int:
             con.send("sysupgrade -n /tmp/p.bin")
             # erase+program ~6 MB: datasheet worst 96 x 2 s + 24k pages x 3 ms = 264 s; + boot ~45 s; x1.25
             con.expect(r"Boot:  legacy", 390, mark, "sysupgrade -> reboot -> ours (legacy)", boot_ok=True)
-            con.expect(r"Please press Enter to activate", 60, mark, "flash primary console", boot_ok=True)
+            con.expect(OW_READY, 60, mark, "flash primary console", boot_ok=True)
         finally:
             set_policy("hold")
         return 1 if shell_checks(con) else 0

@@ -43,17 +43,20 @@ def ensure_server_ip() -> None:
                        check=True, timeout=5)  # local netlink; 5 s names a sudo prompt hang
         log(f"host {SERVER_NIC}: added {SERVER_IP}/24")
 
+# OpenWrt console-ready line; a kernel printk can land inside it ("Please[ 12.6] procd: - init -\n press ...")
+OW_READY = r"Please(?:\[[^\n]*\n)*\s?press Enter to activate"
+
 IMAGES = {
     # name: (file, load addr, start cmd, done marker, cap s)
     # caps: uboot-mainline reaches its prompt <1 s after go; OpenWrt shell ~25 s, ports ~75 s;
     # mainline kernel reached its VFS panic <3 s (pre-initramfs). Each cap ≈ 1.25x measured + margin.
     "uboot-mainline": ("uboot-mainline.bin", 0x81000000, "go", r"st1008f-mainline #", 5),
-    "openwrt": ("openwrt-initramfs.bin", 0x84f00000, "bootm", r"Please press Enter to activate", 40),
+    "openwrt": ("openwrt-initramfs.bin", 0x84f00000, "bootm", OW_READY, 40),
     # local OpenWrt main builds (scripts/build_openwrt.py, #73): ours = 7.3 kernel, -6.18 = OpenWrt kernel
     # + backports. Same STP enforcement as `openwrt`.
-    "openwrt-ours": ("openwrt-ours-initramfs.bin", 0x84f00000, "bootm", r"Please press Enter to activate", 40),
+    "openwrt-ours": ("openwrt-ours-initramfs.bin", 0x84f00000, "bootm", OW_READY, 40),
     "openwrt-ours-6.18": ("openwrt-ours-6.18-initramfs.bin", 0x84f00000, "bootm",
-                          r"Please press Enter to activate", 40),
+                          OW_READY, 40),
     "mainline-kernel": ("mainline.bin", 0x84f00000, "bootm",
                         r"st1008f-linux # ", 10),
 }
@@ -370,7 +373,7 @@ def main() -> int:
     tftp(con, fname, addr)
     if a.chain_test:
         con.run("mw.l 0xa0f80000 0xa5a51008", r"RTL9300# ", 1, "chainload marker")
-        con.run(f"go 0x{addr:08x}", r"Please press Enter to activate", 60, "autoboot -> flash OpenWrt")
+        con.run(f"go 0x{addr:08x}", OW_READY, 60, "autoboot -> flash OpenWrt")
         openwrt_stp(con)
         return 0
     con.run(f"{start} 0x{addr:08x}", done, cap, f"{a.image} running")

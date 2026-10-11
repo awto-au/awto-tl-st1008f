@@ -21,7 +21,7 @@ import time
 from pathlib import Path
 
 sys.path.insert(0, str(Path(__file__).resolve().parent))
-from st1008_ramload import ROOT, Console, openwrt_stp, to_stock_uboot  # noqa: E402
+from st1008_ramload import OW_READY, ROOT, Console, openwrt_stp, to_stock_uboot  # noqa: E402
 
 LOG = ROOT / "tmp/logs/nat_clock_variants.log"
 JSONL = ROOT / "tmp/logs/nat_bench.jsonl"
@@ -80,7 +80,7 @@ def boot_variant(name: str) -> None:
         con.send("bootm 0xb4300000")
         return
     # bootm from flash + kernel to console: chain boot measured ~23 s; x1.25 + margin
-    con.run("bootm 0xb4300000", r"Please press Enter to activate", 35, "flash OpenWrt console")
+    con.run("bootm 0xb4300000", OW_READY, 35, "flash OpenWrt console")
     openwrt_stp(con)
 
 
