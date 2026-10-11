@@ -12,6 +12,7 @@ OpenWrt SNAPSHOT (kernel 6.18), `rtl83xx-switch` DSA driver, `l3.c` offload.
 
 ## Hardware NAT / IP rewrite: none (#58)
 
+- Not hidden or fused off either: [HIDDEN-FEATURES.md](HIDDEN-FEATURES.md) (#68).
 - Routing rewrites SMAC, DMAC, VID, TTL, IPv4 header checksum only (datasheet §7.14). No IP address or L4 port rewrite.
 - `L3_NEXTHOP` = DMAC idx + egress intf idx; `L3_EGR_INTF` = VID, SMAC idx, MTU idx, TTL/ICMP-redirect controls (GPL SDK `rtk_longan_table_struct.h`). ACL/PIE edits: VLAN, 1p, DSCP/TOS, IP reserved flag (datasheet §7.13.1, SDK `include/rtk/acl.h`). No NAT symbol in the SDK.
 - OpenWrt `tc.c` rejects `FLOW_ACTION_MANGLE`; no HW flowtable binding.

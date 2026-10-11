@@ -194,6 +194,20 @@ End-to-end workflow: [../README.md#workflow](../README.md#workflow).
 - Timeout: 1 s per `md.l` (≤ 24 words ≈ 40 ms at 115200); a timeout or exception banner stops the run (console state unknown; recover with `./dev.py stock`).
 - Output: Markdown table, `tmp/hw_probe-<label>.json` (saved per probe). Log: `tmp/logs/hw_probe.log`.
 
+### hidden_sdk_scan.py
+
+- Offline search for hidden/disabled hardware (#68, [../docs/HIDDEN-FEATURES.md](../docs/HIDDEN-FEATURES.md)). No hardware access.
+- Inputs: GPL SDK clone (`github.com/reyalo/Realtek`, `sources/`) via `--sdk` or `REALTEK_SRC` (default `private/reyalo-Realtek/sources`); stock `rtk.ko`, ST5008F `core` and decompiles from `private/` when present.
+- Reports: switch-core address holes, free table codes per access controller, unnamed bits per table entry, NAT-ish names, BIST memory list, longan vs mango features, named regs no SDK code uses, vendor reg/table lists vs GPL, decompile literal addresses outside the named map.
+- Output: `tmp/hidden/sdk_scan.json`. Log: `tmp/logs/hidden_sdk_scan.log`.
+
+### hidden_probe.py
+
+- Read-only `md.l` probes for the candidates in HIDDEN-FEATURES.md (#68): bonding/eFuse status, clock gates, encap block, table-access ctrl, HSB/HSA/HSM snapshots, L3 lookup-test regs, SPG ctrl (#70), all 90 `DMY_REG*`.
+- Run: `./dev.py hidden-probe [--label L] [--holes] [--alias] [--list]`. `--holes` samples the 44 unnamed holes (a word may be a clear-on-read counter); `--alias` reads outside the 64 KiB switch window (may bus-hang); `--list` prints the commands only.
+- Timeout: 1 s per `md.l` (≤ 30 words ≈ 50 ms at 115200; reuses `hw_probe.md`); a timeout or exception stops the run (recover with `./dev.py stock`).
+- Output: Markdown table, `tmp/hidden_probe-<label>.json`. Log: `tmp/logs/hidden_probe.log`.
+
 ### sfp_decode_host_test.py
 
 - Builds the U-Boot SFP decoder (`uboot-port/board/tplink/tl-st1008f/sfp/`) on the host with shim headers.

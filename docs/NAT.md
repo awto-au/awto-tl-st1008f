@@ -136,5 +136,6 @@ Conditions:
 - #59 offload gaps.
 - #60 NIC driver.
 - #63 hybrid NAT.
+- #68 no hidden/disabled rewrite hardware in the die ([HIDDEN-FEATURES.md](HIDDEN-FEATURES.md)).
 - #22 all-port test.
 - [ROUTING-OFFLOAD.md](ROUTING-OFFLOAD.md).

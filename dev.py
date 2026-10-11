@@ -258,6 +258,13 @@ def cmd_hw_probe(extra: list[str]) -> int:
     return _script("hw_probe.py", extra)
 
 
+@command("read-only md.l probes for hidden/disabled hardware: bonding, encap, HSA/HSM, dummy regs (#68)",
+         args="[--label L] [--holes] [--alias] [--list]  (--holes/--alias read unnamed addresses: may hang)",
+         kind="check")
+def cmd_hidden_probe(extra: list[str]) -> int:
+    return _script("hidden_probe.py", extra)
+
+
 @command("run the rtk command list on stock and on our U-Boot, diff (see scripts/rtk_parity.py)",
          args="capture --side stock|ours | compare | both [--state] [--slow]", kind="check")
 def cmd_rtk_parity(extra: list[str]) -> int:
