@@ -92,6 +92,7 @@ Details per script: [scripts/README.md](scripts/README.md).
 - [docs/UBOOT-REFERENCE.md](docs/UBOOT-REFERENCE.md) — stock U-Boot: source match, `rtk` commands + hazards, bring-up path, datapath registers.
 - [docs/UBOOT-FUNCMAP.md](docs/UBOOT-FUNCMAP.md) — SDK function addresses in the stock loader.
 - [docs/FIRMWARE-ANALYSIS.md](docs/FIRMWARE-ANALYSIS.md) — stock flash/kernel/initramfs; related managed firmware.
+- [docs/DEFAULT-BOOT.md](docs/DEFAULT-BOOT.md) — OpenWrt on 7.3 as default boot, recovery fallback (design, #73).
 - [docs/HISTORY.md](docs/HISTORY.md) — history / how we did it: timeline, wrong turns, what resolved them.
 - [artifacts/](artifacts/) — captured U-Boot and boot logs (redacted).
 

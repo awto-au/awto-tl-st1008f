@@ -49,7 +49,7 @@ int board_init(void)
 	return 0;
 }
 
-/* boot_mode from the switch; chainloaded from flash + M1: autoboot flash OpenWrt, else prompt */
+/* boot_mode from the switch; chainloaded from flash: bootsel.c picks the image (#73), M2 = prompt */
 int board_late_init(void)
 {
 	bool chained = __raw_readl(CHAIN_MARK_ADDR) == CHAIN_MARK;
@@ -72,12 +72,10 @@ int board_late_init(void)
 		run_command("rtk network on; rtk port", 0);
 	if (!chained)
 		return 0;
-	if (mode >= 2) {	/* M2 DHCP/netconsole, M3 TFTP recovery: both need Ethernet */
-		printf("Mode:  M%d needs Ethernet (stage 4, #46): no autoboot; `run bootcmd_m1` boots OpenWrt\n",
-		       mode);
+	if (mode == 2) {	/* M2 DHCP/netconsole: needs Ethernet */
+		printf("Mode:  M2 needs Ethernet (stage 4, #46): no autoboot; `run bootcmd_m1` boots OpenWrt\n");
 		return 0;
 	}
-	env_set("bootcmd", BOOTCMD_M1);
-	env_set("bootdelay", "1");
-	return 0;
+	/* M1/invalid: primary with fallback; M3: fallback; no recovery image: as before (#73) */
+	return st1008f_bootsel(mode ? mode : 1);
 }

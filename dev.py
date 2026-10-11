@@ -208,6 +208,14 @@ def cmd_uboot_chain_env(extra: list[str]) -> int:
     return _script("uboot_chain_env.py", extra)
 
 
+@command("OpenWrt on 7.3 as default boot, recovery OpenWrt fallback (#73, docs/DEFAULT-BOOT.md); "
+         "install/revert = flash writes, refused without --i-have-owner-approval",
+         args="check | test | status | install primary|recovery [--i-have-owner-approval] | "
+              "revert --backup DIR [--i-have-owner-approval]", kind="hardware")
+def cmd_default_boot(extra: list[str]) -> int:
+    return _script("default_boot.py", extra)
+
+
 @command("mode switch (#8 #46): live = owner slides M1->M2->M3->M1 at our prompt; boot = chain power-on at a set position",
          args="live | boot --expect M1|M2|M3", kind="hardware")
 def cmd_mode_map(extra: list[str]) -> int:

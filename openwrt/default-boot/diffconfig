@@ -1,0 +1,6 @@
+# Default-boot additions to the local OpenWrt build (#73); append to the track-1 diffconfig.
+# /dev/mem + devmem: st1008f-bootok clears our U-Boot's attempt record (reserved RAM page).
+CONFIG_KERNEL_DEVMEM=y
+CONFIG_BUSYBOX_CUSTOM=y
+CONFIG_BUSYBOX_CONFIG_DEVMEM=y
+# uboot-envtools is a realtek default package: fw_setenv st1008f_boot (stock env flag)

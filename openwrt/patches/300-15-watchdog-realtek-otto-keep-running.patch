@@ -1,0 +1,47 @@
+Subject: watchdog: realtek_otto: keep a watchdog the boot loader armed running (#73)
+
+Probe wrote CTRL_DEFAULT, which stops a watchdog U-Boot armed before bootm: a hang between
+probe and procd opening /dev/watchdog was not covered.
+- ENABLE set at probe: ping, program the timeout, re-enable, WDOG_HW_RUNNING (core pings until
+  userspace opens the device).
+- ENABLE clear (RAM loads, stock U-Boot): unchanged.
+Compile-checked on 7.3-rc6 (tmp/build-mips); not run. Upstreamable as-is.
+---
+--- a/drivers/watchdog/realtek_otto_wdt.c
++++ b/drivers/watchdog/realtek_otto_wdt.c
+@@ -279,6 +279,8 @@ static int otto_wdt_probe(struct platform_device *pdev)
+ 	struct otto_wdt_ctrl *ctrl;
+ 	unsigned int max_tick_ms;
+ 	void __iomem *base;
++	bool running;
++	u32 v;
+ 	int ret;
+ 
+ 	ctrl = devm_kzalloc(dev, sizeof(*ctrl), GFP_KERNEL);
+@@ -301,6 +303,12 @@ static int otto_wdt_probe(struct platform_device *pdev)
+ 	if (ret)
+ 		return ret;
+ 
++	/* Armed by the boot loader (ST1008F default boot, #73): keep it, the core pings until userspace */
++	regmap_read(ctrl->regmap, OTTO_WDT_REG_CTRL, &v);
++	running = v & OTTO_WDT_CTRL_ENABLE;
++	if (running)
++		otto_wdt_ping(&ctrl->wdev);
++
+ 	/* Clear any old interrupts and reset initial state */
+ 	regmap_write(ctrl->regmap, OTTO_WDT_REG_INTR,
+ 		     OTTO_WDT_INTR_PHASE_1 | OTTO_WDT_INTR_PHASE_2);
+@@ -341,6 +349,13 @@ static int otto_wdt_probe(struct platform_device *pdev)
+ 	if (ret)
+ 		return dev_err_probe(dev, ret, "Failed to set timeout\n");
+ 
++	if (running) {
++		otto_wdt_start(&ctrl->wdev);
++		otto_wdt_ping(&ctrl->wdev);
++		set_bit(WDOG_HW_RUNNING, &ctrl->wdev.status);
++		dev_info(dev, "running at probe: kept, %u s timeout\n", ctrl->wdev.timeout);
++	}
++
+ 	return devm_watchdog_register_device(dev, &ctrl->wdev);
+ }
+ 

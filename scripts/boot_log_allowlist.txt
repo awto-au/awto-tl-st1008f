@@ -376,6 +376,11 @@ Mode:  M1 normal, pins 17/18/19 = [01]/1/1  # mode switch boot policy (#46): pin
 Mode:  M2 easy, pins 17/18/19 = [01]/0/1  # mode switch boot policy (#46)
 Mode:  M3 recovery, pins 17/18/19 = [01]/1/0  # mode switch boot policy (#46)
 Mode:  M[23] needs Ethernet \(stage 4, #46\): no autoboot; `run bootcmd_m1` boots OpenWrt  # chainloaded at M2/M3: stays at the prompt until stage-4 Ethernet
+Boot:  (legacy|prompt) \(no image in recovery slot: single-image boot as before\)  # default boot (#73): no recovery image yet, today's behaviour (M3 = prompt)
+Boot:  primary \(attempt 1/2 \(cold boot or confirmed\)\)  # default boot (#73): last primary boot confirmed or power-up
+Boot:  fallback \(mode switch M3\)  # default boot (#73): owner selected recovery
+Boot:  (fallback|prompt) \(stock env st1008f_boot=(fallback|prompt)\)  # default boot (#73): owner-set env flag
+wdt: on, \d+ ms \(prescale [0-3], \d+ x \d+ ms ticks at lx 175000 kHz\), SoC reset on expiry  # bootsel arms the SoC watchdog before bootm (#73)
 
 [mainline]
 rtl838x_eth 1b000000\.switch:ethernet eth0: Failed to create a device link to DSA switch 1b000000\.switch  # same in OpenWrt 6.18 (eth is a child of the switch node); harmless; known #16
@@ -384,3 +389,6 @@ rtl83xx-switch 1b000000\.switch: fib_add\(\) failed  # follows 'lower interface 
 sfp sfp-p4: SFP: unknown connector id 0x03  # GLC-SX-MM in cage 4 reports connector 0x03; module still used; known #16
 tplink-st1008f-mode mode-switch: port [0-7]: unknown media insert  # vendor class for a module it cannot classify (cage 5 CISCO-NEO): left untouched; known #64
 realtek-rtl-spi 18001200\.spi: dirmap: window != PIO at 0x0 \(SFCR2 0xbbc14a00\), using PIO  # 300-07 self-check fell back to PIO after stock `rtk network on`; known #61
+
+[linux]
+realtek-otto-watchdog \S+: running at probe: kept, \d+ s timeout  # 300-15: watchdog armed by our U-Boot stays on (#73)

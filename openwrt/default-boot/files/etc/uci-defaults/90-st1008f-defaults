@@ -1,0 +1,15 @@
+#!/bin/sh
+# ST1008F default config (#73) = flash OpenWrt 25.12.4 config as of 2026-10-11 (#43, registry .48).
+# uci-defaults run in /etc/init.d/boot (START=10), before network (START=20): the bridge is
+# created with STP already on (cage loop #19). Tmpfs root (recovery image): runs every boot.
+uci -q batch <<'EOF'
+set network.switch.stp='1'
+set network.switch.forward_delay='2'
+set network.lan.proto='static'
+set network.lan.ipaddr='192.168.25.48'
+set network.lan.netmask='255.255.255.0'
+set network.lan.gateway='192.168.25.254'
+set network.lan.dns='192.168.25.254'
+commit network
+EOF
+exit 0

@@ -94,7 +94,8 @@ def boot(expect: int) -> int:
             con.expect(r"Please press Enter to activate", 30, mark, "flash OpenWrt console", boot_ok=True)
             openwrt_stp(con)
         else:
-            con.expect(r"needs Ethernet[^\n]*\n" + r"(?s:.*)" + PROMPT, 2, mark, f"M{expect}: prompt",
+            # M3 without a recovery image: `Boot:  prompt` (#73); with one it boots it (default-boot tests)
+            con.expect(r"(needs Ethernet|Boot:  prompt)[^\n]*\n" + r"(?s:.*)" + PROMPT, 2, mark, f"M{expect}: prompt",
                        boot_ok=True)
             con.run("printenv boot_mode", rf"boot_mode=M{expect}\r?\n" + PROMPT, 1, "boot_mode")
     finally:

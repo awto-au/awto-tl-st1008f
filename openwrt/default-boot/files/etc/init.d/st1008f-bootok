@@ -1,0 +1,31 @@
+#!/bin/sh /etc/rc.common
+# Confirm a good boot to our U-Boot (#73, docs/DEFAULT-BOOT.md): attempt record (RAM) = 0.
+# Good = bridge `switch` exists with STP on. Unconfirmed boots count; 2 -> U-Boot boots recovery.
+
+START=99
+
+REC=0x0e000000		# reserved-memory in the DTS; layout: magic, attempts, ~attempts
+REC_MAGIC=0x5b007ec0
+# bridge appears ~27 s uptime, S99 starts ~15 s: 12 s expected x1.25
+WAIT_S=15
+
+start() {
+	local b=/sys/class/net/switch/bridge i=0
+
+	while [ ! -e $b/stp_state ] && [ $i -lt $WAIT_S ]; do
+		sleep 1
+		i=$((i + 1))
+	done
+	if [ ! -e $b/stp_state ]; then
+		logger -p daemon.err -t st1008f-bootok "no bridge 'switch' after ${WAIT_S} s: boot not confirmed"
+		return 0
+	fi
+	if [ "$(cat $b/stp_state)" != 1 ]; then
+		echo 1 > $b/stp_state	# loop safety first (#19), as ./dev.py ramload does
+		logger -p daemon.err -t st1008f-bootok "bridge STP was off: forced on; boot not confirmed"
+		return 0
+	fi
+	# O_SYNC /dev/mem = uncached: the write reaches DRAM before any watchdog reset
+	devmem 0x0e000004 32 0 && devmem 0x0e000008 32 0xffffffff && devmem $REC 32 $REC_MAGIC &&
+		logger -t st1008f-bootok "boot confirmed: attempt record cleared (STP on after ${i} s)"
+}

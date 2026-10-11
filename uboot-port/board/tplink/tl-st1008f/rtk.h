@@ -100,4 +100,7 @@ int rtk_ours_help(void);
 int st1008f_boot_mode(u32 *pins);
 const char *st1008f_mode_name(int mode);
 
+/* bootsel.c: chained-boot selection primary/fallback (#73); sets bootcmd */
+int st1008f_bootsel(int mode);
+
 #endif

@@ -1,0 +1,59 @@
+Subject: realtek: tl-st1008f-v2: recovery slot + boot-attempt record (local build only, #73)
+
+- firmware 0x300000 29 MiB -> 22 MiB; new `recovery` 0x1900000 7 MiB (fallback OpenWrt initramfs
+  uImage, booted by our U-Boot at 0xb5900000).
+- reserved-memory 0x0e000000 4 KiB: our U-Boot's boot-attempt record (bootsel.c); /dev/mem clears it.
+- IMAGE_SIZE 22528k: the build refuses a bigger image; on the device `mtd write` stops at `firmware`.
+Against OpenWrt main e5ec5e1; dtc-checked (cpp + dtc), not built. Layout differs from upstream:
+an upstream image's overlay would run over `recovery` (docs/DEFAULT-BOOT.md).
+---
+--- a/target/linux/realtek/dts/rtl9303_tplink_tl-st1008f-v2.dts
++++ b/target/linux/realtek/dts/rtl9303_tplink_tl-st1008f-v2.dts
+@@ -16,6 +16,18 @@
+ 		      <0x20000000 0x10000000>; /* remaining 256 MiB */
+ 	};
+ 
++	reserved-memory {
++		#address-cells = <1>;
++		#size-cells = <1>;
++		ranges;
++
++		/* boot-attempt record of our U-Boot default-boot selection (bootsel.c) */
++		bootrec@e000000 {
++			reg = <0x0e000000 0x1000>;
++			no-map;
++		};
++	};
++
+ 	chosen {
+ 		stdout-path = "serial0:115200n8";
+ 	};
+@@ -227,10 +239,16 @@
+ 
+ 			partition@300000 {
+ 				compatible = "openwrt,uimage", "denx,uimage";
+-				reg = <0x300000 0x1d00000>;
++				reg = <0x300000 0x1600000>;
+ 				label = "firmware";
+ 				openwrt,ih-magic = <0x93030000>;
+ 			};
++
++			/* fallback OpenWrt initramfs uImage, booted by our U-Boot */
++			partition@1900000 {
++				label = "recovery";
++				reg = <0x1900000 0x700000>;
++			};
+ 		};
+ 	};
+ };
+--- a/target/linux/realtek/image/rtl930x.mk
++++ b/target/linux/realtek/image/rtl930x.mk
+@@ -283,7 +283,7 @@
+   DEVICE_VARIANT := v2.0
+   DEVICE_PACKAGES := kmod-gpio-pca953x
+   SUPPORTED_DEVICES += tplink,tl-st1008f,v2
+-  IMAGE_SIZE := 29696k
++  IMAGE_SIZE := 22528k
+   $(Device/kernel-lzma)
+ endef
+ TARGET_DEVICES += tplink_tl-st1008f-v2

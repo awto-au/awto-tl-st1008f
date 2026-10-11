@@ -176,6 +176,7 @@ Built with `./dev.py build-kernel` (GCC 16.2); booted 2026-10-12 with IP traffic
 | `300-10` | 7.3 API fixes on the copied files |
 | `300-11` | rteth TX: 32-slot ring, BQL, xmit_more doorbell (owner input, #65) |
 | `300-12` | rteth NIC path: RTL930x lockless doorbell, `napi_consume_skb` reclaim, overload fix (128-slot TX ring, reclaim in xmit, kick batch) (#60, #65) |
+| `300-15` | `realtek_otto_wdt`: a watchdog armed by U-Boot stays on at probe (`WDOG_HW_RUNNING`), for the default boot ([DEFAULT-BOOT.md](DEFAULT-BOOT.md), #73) |
 
 ### 6.18 -> 7.3 drift fixes (one line each; details in the patch headers)
 

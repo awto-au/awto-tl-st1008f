@@ -179,6 +179,14 @@ End-to-end workflow: [../README.md#workflow](../README.md#workflow).
 - Timeout: 6 s per `make` call (clean build measured 4 s, x1.5); expiry kills make and logs the elapsed time.
 - Resets tracked files in the tree (`git checkout -- .`) before staging; the tree must be a throwaway clone.
 
+### default_boot.py
+
+- OpenWrt on 7.3 as default boot + recovery OpenWrt fallback (#73). `./dev.py default-boot check | test | status | install primary|recovery | revert --backup DIR`. Docs: [../docs/DEFAULT-BOOT.md](../docs/DEFAULT-BOOT.md), [../docs/DEFAULT-BOOT-OPS.md](../docs/DEFAULT-BOOT-OPS.md).
+- `check` (host): uImage header + data CRC, slot fit, split-layout DTB (`recovery`, `bootrec@e000000`) inside each kernel; prints the flash-write plan.
+- `test`: `ramload openwrt-ours` + shell checks (STP, uci, `/proc/mtd`, `devmem`, 7.3, dropbear). `status`: read-only at an OpenWrt shell.
+- `install` / `revert`: flash writes; without `--i-have-owner-approval` they print the plan and exit 2.
+- Timeouts: sysupgrade 390 s, `mtd write` recovery 290 s, revert 1600 s = W25Q256 datasheet worst erase/program x1.25. Log: `tmp/logs/default_boot.log`.
+
 ### mode_switch_map.py
 
 - Mode switch (#8) and its boot policy (#46). `./dev.py mode-map live | boot --expect M1|M2|M3`.

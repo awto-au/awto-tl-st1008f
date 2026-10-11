@@ -1,6 +1,7 @@
 # SPDX-License-Identifier: GPL-2.0+
 
 obj-y += board.o
+obj-y += bootsel.o
 obj-y += cmd_rtk.o
 obj-y += sfp/
 obj-y += rtk_stock.o
