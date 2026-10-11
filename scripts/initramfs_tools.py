@@ -1,5 +1,5 @@
 #!/usr/bin/env python3
-"""NAT/switch test userspace for the mainline initramfs: nft, iperf3, ethtool, tc, ip (#16).
+"""NAT/switch test userspace for the mainline initramfs: nft, iperf3, ethtool, tc, ip, dropbear (#16).
 
 - Pinned OpenWrt 24.10.7 packages (mips_24kc = the 24.10 realtek/rtl930x arch, musl, dynamic),
   dependency closure resolved from the feed Packages indexes; sha256 from the index / sha256sums.
@@ -37,6 +37,8 @@ PKGS = [
     ("packages/mips_24kc/base/ethtool_6.11-r1_mips_24kc.ipk", "6b7835c164b7e43a0a2c9f44370f221f9c2aba9f5ded7bebf9d514c5a2cfedef"),
     ("packages/mips_24kc/packages/libiperf3_3.17.1-r4_mips_24kc.ipk", "1051a5629345ca45e29297e40583780fbae600db0a6637654069b5e6c6f9a46a"),
     ("packages/mips_24kc/packages/iperf3_3.17.1-r4_mips_24kc.ipk", "f46e8bd239a8cf11d32517032ac95d95fb48fb52d929fc53902074e003c761fd"),
+    # SSH for nat_bench.py (same transport as on OpenWrt); started by port-up, blank root password (-B)
+    ("targets/realtek/rtl930x/packages/dropbear_2024.86-r2_mips_24kc.ipk", "c29470780076f6f497846cebc41d0f7f350d9ed367d3402533aee3b1c1d06cf2"),
 ]
 SKIP = ("etc/", "lib/upgrade/", "usr/lib/opkg/")  # OpenWrt init/config glue: not used here
 

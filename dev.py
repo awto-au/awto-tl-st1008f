@@ -240,6 +240,13 @@ def cmd_nat_bench(extra: list[str]) -> int:
     return _script("nat_bench.py", extra)
 
 
+@command("function_graph timing of rteth RX/TX under nat-bench load, mainline 7.3 initramfs (#65 #67)",
+         args="[--depth N] [--roots f,g] [--load \"--secs 3 -P 4\"]  (nat-bench setup + mode first)",
+         kind="hardware")
+def cmd_rteth_ftrace(extra: list[str]) -> int:
+    return _script("rteth_ftrace.py", extra)
+
+
 @command("CPU-path cost vs clocks: boot flash OpenWrt from ours with one clock change, run the nat-bench set (#65)",
          args="base|cpu800|ddr600|nopref|lx204|all|table [--bench-only]", kind="hardware")
 def cmd_nat_clock_variants(extra: list[str]) -> int:

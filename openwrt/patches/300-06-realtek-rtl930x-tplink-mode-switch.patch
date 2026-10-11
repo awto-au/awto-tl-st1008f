@@ -29,6 +29,9 @@ Vendor flow, ported:
 - The speed is applied with set_link_ksettings on the netdev whose
   sfp_bus is the cage's; phylink then picks the SFP interface. It is
   re-checked every pass, because phylink resets it on module insert.
+  Re-applied only when the readback differs from the one after our last
+  set (phylink normalises some requests, e.g. GLC-T copper; else a
+  re-apply every pass).
 
 Deviations from stock:
 - Pattern change: stock logs "pattern changed switch reset" and drives
@@ -56,10 +59,14 @@ DT (replaces the gpio-keys M1/M2/M3 node, which would hold the pins):
 			<&gpio0 19 GPIO_ACTIVE_HIGH>;
 		#address-cells = <1>;
 		#size-cells = <0>;
-		port@0 { reg = <0>; sfp = <&sfp0>; };
+		cage@0 { reg = <0>; sfp = <&sfp0>; };
 		...
-		port@7 { reg = <7>; sfp = <&sfp7>; };
+		cage@7 { reg = <7>; sfp = <&sfp7>; };
 	};
+
+Child nodes must not be named "port": the rtl83xx DSA driver walks every
+"port" node in the tree (for_each_node_by_name) and a reg 0-7 here
+clobbers switch ports 0-7.
 
 Signed-off-by: Dan <dan@awto.au>
 ---
@@ -97,7 +104,7 @@ new file mode 100644
 index 000000000..131e3e101
 --- /dev/null
 +++ b/drivers/platform/mips/tplink-st1008f-mode.c
-@@ -0,0 +1,649 @@
+@@ -0,0 +1,664 @@
 +// SPDX-License-Identifier: GPL-2.0-only
 +/*
 + * TP-Link TL-ST1008F v2: 3-position mode switch, ported from the stock rtk.ko
@@ -172,6 +179,8 @@ index 000000000..131e3e101
 +	int media;			/* vendor media id logged for the decision */
 +	enum st_action act;
 +	bool down_done;			/* ST_ACT_DOWN applied once for this decision */
++	bool set_seen;			/* set_ks: readback after our last set is in set_ks */
++	struct ethtool_link_ksettings set_ks;
 +	bool downed;			/* we cleared IFF_UP */
 +	int res;			/* last apply result */
 +	const char *note;		/* last apply outcome, for the log and debugfs */
@@ -329,6 +338,7 @@ index 000000000..131e3e101
 +	p->act = ST_ACT_NONE;
 +	p->media = 0;
 +	p->down_done = false;
++	p->set_seen = false;
 +	p->note = NULL;
 +	if (p->cls == ST_CLS_2G5 && p->pat == 1) {
 +		dev_info(dev, "port %d media %d for auto speed down\n", i, 2);
@@ -386,6 +396,13 @@ index 000000000..131e3e101
 +	return ret;
 +}
 +
++/* remember what the netdev reports after our set; returns 1 (changed) */
++static int st_set_done(struct st_port *p, struct net_device *nd)
++{
++	p->set_seen = !__ethtool_get_link_ksettings(nd, &p->set_ks);
++	return 1;
++}
++
 +/* media 2 / media 3 -> phylink interface via ethtool; returns 1 if it changed something */
 +static int st_apply_speed(struct st_port *p, struct net_device *nd)
 +{
@@ -413,12 +430,17 @@ index 000000000..131e3e101
 +	}
 +	if (st_ks_matches(&ks, want_2500))
 +		return 0;
++	/* phylink may normalise our request (e.g. copper module): same readback = nothing to redo */
++	if (p->set_seen && ks.base.autoneg == p->set_ks.base.autoneg &&
++	    ks.base.speed == p->set_ks.base.speed &&
++	    linkmode_equal(ks.link_modes.advertising, p->set_ks.link_modes.advertising))
++		return 0;
 +
 +	ks.base.duplex = DUPLEX_FULL;
 +	if (want_2500) {
 +		ks.base.autoneg = AUTONEG_DISABLE;
 +		ks.base.speed = SPEED_2500;
-+		return st_set_ks(nd, &ks) ?: 1;
++		return st_set_ks(nd, &ks) ?: st_set_done(p, nd);
 +	}
 +	ks.base.autoneg = AUTONEG_ENABLE;
 +	linkmode_zero(ks.link_modes.advertising);
@@ -428,12 +450,12 @@ index 000000000..131e3e101
 +	linkmode_set_bit(ETHTOOL_LINK_MODE_Asym_Pause_BIT, ks.link_modes.advertising);
 +	ret = st_set_ks(nd, &ks);
 +	if (ret != -EINVAL)
-+		return ret ?: 1;
++		return ret ?: st_set_done(p, nd);
 +	/* PCS refuses in-band AN on 1000BASE-X: keep the speed, drop AN */
 +	p->note = "1000base-x, autoneg off (in-band AN refused)";
 +	ks.base.autoneg = AUTONEG_DISABLE;
 +	ks.base.speed = SPEED_1000;
-+	return st_set_ks(nd, &ks) ?: 1;
++	return st_set_ks(nd, &ks) ?: st_set_done(p, nd);
 +}
 +
 +static void st_apply(struct st_ms *ms, int i)

@@ -38,7 +38,7 @@ TRACE = re.compile(r"\s*\[<[0-9a-f]{8}>\] .*|Stack : .*|\s+([0-9a-f]{8} )+[0-9a-
 DAEMON_TS = re.compile(r"^\[\d\d:\d\d:\d\d\.\d{3}\] ?")
 KERNEL_TS = re.compile(r"^\[\s*\d+\.\d+\]\s?")
 SHELL_PROMPT = re.compile(r"Please press Enter to activate this console|^root@[\w()-]+:.*# ?|^/ # |"
-                          r"^st1008f-(mainline|linux) # ")
+                          r"^st1008f-mainline # |^st1008f-linux # ?")  # lines are rstripped: bare linux prompt has no space
 SKIP = re.compile(r"^\[TX \d\d:\d\d:\d\d\]|^\[daemon\]|^\s*$|^RTL9300#|^st1008f-(mainline|linux) #")
 # U-Boot replies to our own md/rtk i2c commands (dump rows, `data 0x..`, `done`).
 UBOOT_REPLY = re.compile(r"[0-9a-f]{8}: [0-9a-f]{8}.*|data 0x[0-9a-f]+|done")

@@ -48,7 +48,8 @@
 	};
 
 	/* M1/M2/M3 switch, read raw like stock rtk.ko (openwrt/patches/300-06, #64).
-	 * Replaces OpenWrt's gpio-keys on the same pins (one owner per pin). */
+	 * Replaces OpenWrt's gpio-keys on the same pins (one owner per pin).
+	 * Children are cage@N, never port@N: rtl83xx walks every "port" node in the tree. */
 	mode-switch {
 		compatible = "tplink,st1008f-mode-switch";
 		gpios = <&gpio0 17 GPIO_ACTIVE_HIGH>, <&gpio0 18 GPIO_ACTIVE_HIGH>,
@@ -56,35 +57,35 @@
 		#address-cells = <1>;
 		#size-cells = <0>;
 
-		port@0 {
+		cage@0 {
 			reg = <0>;
 			sfp = <&sfp0>;
 		};
-		port@1 {
+		cage@1 {
 			reg = <1>;
 			sfp = <&sfp1>;
 		};
-		port@2 {
+		cage@2 {
 			reg = <2>;
 			sfp = <&sfp2>;
 		};
-		port@3 {
+		cage@3 {
 			reg = <3>;
 			sfp = <&sfp3>;
 		};
-		port@4 {
+		cage@4 {
 			reg = <4>;
 			sfp = <&sfp4>;
 		};
-		port@5 {
+		cage@5 {
 			reg = <5>;
 			sfp = <&sfp5>;
 		};
-		port@6 {
+		cage@6 {
 			reg = <6>;
 			sfp = <&sfp6>;
 		};
-		port@7 {
+		cage@7 {
 			reg = <7>;
 			sfp = <&sfp7>;
 		};
@@ -226,6 +227,8 @@
 		interrupt-parent = <&intc>;
 		interrupts = <24>;
 		phy-mode = "internal";
+		nvmem-cells = <&macaddr_uboot 0>;
+		nvmem-cell-names = "mac-address";
 
 		fixed-link {
 			speed = <1000>;
@@ -377,6 +380,14 @@
 				label = "u-boot-env";
 				reg = <0xe0000 0x10000>;
 				read-only;
+
+				nvmem-layout {
+					compatible = "u-boot,env";
+
+					macaddr_uboot: ethaddr {
+						#nvmem-cell-cells = <1>;
+					};
+				};
 			};
 
 			partition@f0000 {

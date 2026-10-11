@@ -80,6 +80,7 @@ End-to-end workflow: [../README.md#workflow](../README.md#workflow).
 ### st1008_ramload.py
 - Purpose: one-shot RAM load: relay off → daemon restart → relay on → catch stock prompt → `rtk network on` → light one cage → TFTP (byte count checked) → `go`/`bootm` → wait for the image's done marker → `boot_log_check`.
 - Run via `./dev.py ramload uboot-mainline|openwrt|mainline-kernel|stock [--cage N] [--no-cycle] [--no-network]`.
+- `ramload uboot-mainline --then openwrt|mainline-kernel`: ours runs `clocks fast` (CPU 1 GHz, SPI stock), then `bootm` of the std-magic copy of that image.
 - Log: `tmp/logs/st1008_ramload.log`. Every wait has a console marker + stated cap; a stock banner mid-run = unexpected reset = FAIL.
 - Measured 2026-10-10: power-off → mainline U-Boot prompt 18 s (catch 2.1 s, network on 7.9 s, TFTP 5.1 s incl. one 5 s first-block retransmit).
 
@@ -292,6 +293,15 @@ Desk-only; no switch access. Needs `tmp/openwrt` (sparse clone of openwrt, `targ
 - Output: `tmp/openwrt_patch_status.tsv`; log `tmp/logs/openwrt_patch_status.log`.
 - Notes: `applies` can be a false positive (705 applies into another function; its line is already upstream). `fails` often means upstream in a different form; check the source.
 
+### rteth_ftrace.py
+- Purpose: ftrace `function_graph` timing of the CPU-port NIC path (`rteth_poll_rx`, `rteth_start_xmit`) under `nat_bench.py run` load on the mainline initramfs (#65, #67). Per (depth, function): calls, total, avg µs.
+- Run: `./dev.py rteth-ftrace [--depth N] [--roots f,g] [--load "--secs 3 -P 4"]` after `nat-bench setup` + `mode`.
+- Notes: tracer overhead inflates every number (all functions keep the mcount hook); use the split, not the absolute µs. Depth >= 2 overruns the buffer: per-call averages stay valid. Raw: `tmp/rteth_ftrace/`; log `tmp/logs/rteth_ftrace.log`.
+
+### patch_refresh.py
+- Purpose: rewrite the new-file hunks of an `openwrt/patches/*.patch` from the patched tree (`tmp/linux-v7.3`) after editing a file the patch creates (e.g. the 300-06 mode-switch driver).
+- Run: `python3 scripts/patch_refresh.py openwrt/patches/<patch> [--tree DIR]`. Log: `tmp/logs/patch_refresh.log`.
+
 ### mainline_initramfs.py
 - Purpose: initramfs: static BusyBox (`sources/busybox/busybox-mips`, sha256-checked) + `/init` -> shell `st1008f-linux # ` on the console, plus NAT test tools from `initramfs_tools.py` and `/usr/sbin/port-up` (one cage at a time). Called by `mainline_build_check.py`.
 - Output: `tmp/initramfs/st1008f-initramfs.cpio.xz` (deterministic newc, xz CRC32), `tmp/initramfs/initramfs.config`. Log: `tmp/logs/mainline_initramfs.log`.
@@ -342,7 +352,7 @@ Desk-only; no switch access. Needs `tmp/openwrt` (sparse clone of openwrt, `targ
 ### uimage_std_magic.py
 
 - Purpose: copy an OpenWrt Realtek-magic (`0x93030000`) uImage with the standard magic `0x27051956` for mainline `bootm`; header CRC recomputed, payload untouched.
-- Run: called by `./dev.py ramload uboot-mainline --then openwrt [--cpu E208]`. Log: `tmp/logs/uimage_std_magic.log`.
+- Run: called by `./dev.py ramload uboot-mainline --then openwrt|mainline-kernel [--cpu E208]`. Log: `tmp/logs/uimage_std_magic.log`.
 
 ### openwrt_flash_stp.py
 

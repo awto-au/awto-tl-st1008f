@@ -312,8 +312,9 @@ def main() -> int:
                     help="uboot-mainline: keep stock CPU 800 MHz + SPI 25.5 MHz (default: 1 GHz + SPI 122.5 MHz)")
     ap.add_argument("--spi", metavar="D:CODE",
                     help="with --then: SPI before bootm, SFCR D (0 = /2) and NOR code e220[16:13] (6 = stock)")
-    ap.add_argument("--then", choices=["openwrt"],
-                    help="uboot-mainline: also TFTP OpenWrt (std magic) to 0x84f00000, bootm it from ours")
+    ap.add_argument("--then", choices=["openwrt", "mainline-kernel"],
+                    help="uboot-mainline: also TFTP that image (std magic) to 0x84f00000, bootm it from ours "
+                         "(after `clocks fast`)")
     ap.add_argument("--cpu", metavar="E208",
                     help="uboot-mainline: CPU e208 for /3 (default 0x3a8 = 1000 MHz; docs/CLOCKS.md)")
     ap.add_argument("--no-network", action="store_true", help="rtk network on already done this boot")
@@ -341,11 +342,12 @@ def main() -> int:
     if a.image == "stock":
         return 0
     fname, addr, start, done, cap = IMAGES[a.image]
-    if a.then == "openwrt":
-        src, std = TFTP_ROOT / IMAGES["openwrt"][0], TFTP_ROOT / "openwrt-initramfs-std.bin"
+    if a.then:
+        src = TFTP_ROOT / IMAGES[a.then][0]
+        std = src.with_name(src.stem + "-std.bin")
         subprocess.run([sys.executable, str(ROOT / "scripts/uimage_std_magic.py"), str(src), str(std)],
                        check=True, timeout=10)  # local 5 MB rewrite, <1 s
-        tftp(con, std.name, IMAGES["openwrt"][1])
+        tftp(con, std.name, IMAGES[a.then][1])
     tftp(con, fname, addr)
     if a.chain_test:
         con.run("mw.l 0xa0f80000 0xa5a51008", r"RTL9300# ", 1, "chainload marker")
@@ -362,13 +364,14 @@ def main() -> int:
     if a.image == "uboot-mainline" and not a.stock_clocks:
         # fast SPI only when Linux will not run: under Linux it corrupted squashfs reads (#50)
         fast_clocks(con, a.cpu or FAST_CPU_E208, spi=not (a.then or a.chain_test))
-    if a.then == "openwrt" and a.spi:
+    if a.then and a.spi:
         d, code = (int(x) for x in a.spi.split(":"))
         set_spi(con, d, code)
-    if a.then == "openwrt":
-        ow = IMAGES["openwrt"]
-        con.run(f"bootm 0x{ow[1]:08x}", ow[3], ow[4], "OpenWrt via mainline bootm")
-        openwrt_stp(con)
+    if a.then:
+        ow = IMAGES[a.then]
+        con.run(f"bootm 0x{ow[1]:08x}", ow[3], ow[4], f"{a.then} via mainline bootm")
+        if a.then == "openwrt":
+            openwrt_stp(con)
         r = subprocess.run([sys.executable, str(ROOT / "scripts/boot_log_check.py"), "--boot", "-1"],
                            capture_output=True, text=True, timeout=30)  # local file scan, <2 s
         sys.stdout.write(r.stdout)

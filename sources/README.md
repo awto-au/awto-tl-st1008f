@@ -84,5 +84,6 @@ Carried over from the retired `awto-st1008f` notes repo (2026-08-18).
 
 ## openwrt-24.10.7-ipk/
 - URL base: https://downloads.openwrt.org/releases/24.10.7/ (`packages/mips_24kc/{base,packages}/`, `targets/realtek/rtl930x/packages/`).
-- Revision: OpenWrt 24.10.7 (2026-05-31), arch `mips_24kc` (the 24.10 realtek/rtl930x arch), musl 1.2.5. Packages: libc, libgcc1, libatomic1, libmnl0, libnftnl11, nftables-nojson 1.1.1, zlib, libelf1, libbpf1, libnl-tiny1, tc-tiny 6.11.0, ip-full 6.11.0, ethtool 6.11, libiperf3 + iperf3 3.17.1.
+- Revision: OpenWrt 24.10.7 (2026-05-31), arch `mips_24kc` (the 24.10 realtek/rtl930x arch), musl 1.2.5. Packages: libc, libgcc1, libatomic1, libmnl0, libnftnl11, nftables-nojson 1.1.1, zlib, libelf1, libbpf1, libnl-tiny1, tc-tiny 6.11.0, ip-full 6.11.0, ethtool 6.11, libiperf3 + iperf3 3.17.1, dropbear 2024.86-r2 (`targets/realtek/rtl930x/packages/`).
+- `Packages-base`, `Packages-target`: feed indexes (`packages/mips_24kc/base/Packages`, `targets/realtek/rtl930x/packages/Packages`), fetched 2026-10-12 to pin versions/sha256. Good copy: plain text starting `Package: `.
 - Good copy: sha256 per file pinned in `scripts/initramfs_tools.py` (from the feed `Packages` index; libc/libgcc1 also match `targets/realtek/rtl930x/sha256sums`). Each `.ipk` is a gzip tar holding `data.tar.gz`. Gitignored; the script fetches missing files with `playwrong --pdf`.

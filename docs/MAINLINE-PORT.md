@@ -162,7 +162,7 @@ Upstream-hostile items to carry out-of-tree: #7 (`700`, `722`), #8 until merged,
 
 ## 7. OpenWrt realtek network drivers on 7.3 (delivered 2026-10-11)
 
-Build only (`./dev.py build-kernel`, GCC 16.2); not booted. OpenWrt source pinned at `53ec2d0` (`OWRT_COMMIT` in `scripts/mainline_build_check.py`, checked each run).
+Built with `./dev.py build-kernel` (GCC 16.2); booted 2026-10-12 with IP traffic on lan1 at 10G (#16). OpenWrt source pinned at `53ec2d0` (`OWRT_COMMIT` in `scripts/mainline_build_check.py`, checked each run).
 
 ### What the build applies
 
@@ -170,7 +170,7 @@ Build only (`./dev.py build-kernel`, GCC 16.2); not booted. OpenWrt source pinne
 |---|---|
 | OpenWrt patches verbatim (`OWRT_VERBATIM`) | `300-01..03`, `309`, `330`, `331`, `712`, `714`, `718`, `722` |
 | OpenWrt files verbatim (`OWRT_FILES`) | `mach-rtl-otto` headers, `drivers/net/dsa/rtl83xx/`, `rtl838x_eth.[ch]`, `mdio-realtek-otto.c`, `mdio-realtek-otto-serdes.c`, `pcs-rtl-otto.c`, `drivers/soc/realtek/`, `otto_table.h`, `realtek-thermal.c`, `tag_rtl_otto.c` |
-| `openwrt/patches/300-04..07` | ours: DRAM prefetch, HPT freq, mode switch, SPI dirmap (unchanged) |
+| `openwrt/patches/300-04..07` | ours: DRAM prefetch, HPT freq, mode switch, SPI dirmap. 300-06: speed re-applied only when the ethtool readback differs from the one after our last set (was: every 0.57 s on GLC-T cages 3/7, phylink normalises the request) |
 | `300-08` | generic `pending-6.18/737-01..07` phylink fwnode PCS provider, forward-ported |
 | `300-09` | Kconfig/Makefile hooks: forward-ports of `700`, `716`, `721`, `730`, `806`, `808` |
 | `300-10` | 7.3 API fixes on the copied files |
@@ -195,7 +195,7 @@ Build only (`./dev.py build-kernel`, GCC 16.2); not booted. OpenWrt source pinne
 | After, `--smp` | 600 | not wrapped | - |
 
 - Bootm limit 16 MiB raw (`mainline_uimage.py`): 4.9 MiB headroom.
-- Fragment additions: `RTL930X`, `IPV6`, `BRIDGE` (+ VLAN filtering), `VLAN_8021Q`, `ETHERNET`, `NET_RTL838X`, `NET_DSA` + `RTL83XX` + `TAG_RTL_OTTO`, `REALTEK_OTTO_TABLE`, `PCS_RTL_OTTO`, `FWNODE_PCS`, `MDIO_REALTEK_OTTO(+_SERDES)`, `PHYLINK`, `MDIO_SMBUS`, `MARVELL_PHY` (GLC-T copper SFPs), netfilter/nf_tables/NAT/masq/ct/flowtable (inet, v4, v6), `NET_SCHED` + ingress + flower + gact + mirred, `PERF_EVENTS` + `HW_PERF_EVENTS`, `FUNCTION_TRACER` + `FUNCTION_GRAPH_TRACER` + `DYNAMIC_FTRACE`, `THERMAL_OF` + `REALTEK_THERMAL`.
+- Fragment additions: `RTL930X`, `IPV6`, `BRIDGE` (+ VLAN filtering), `VLAN_8021Q`, `ETHERNET`, `NET_RTL838X`, `NET_DSA` + `RTL83XX` + `TAG_RTL_OTTO`, `REALTEK_OTTO_TABLE`, `PCS_RTL_OTTO`, `FWNODE_PCS`, `MDIO_REALTEK_OTTO(+_SERDES)`, `PHYLINK`, `MDIO_SMBUS`, `MARVELL_PHY` (GLC-T copper SFPs), netfilter/nf_tables/NAT/masq/ct/flowtable (inet, v4, v6), `NET_SCHED` + ingress + flower + gact + mirred, `PERF_EVENTS` + `HW_PERF_EVENTS`, `FUNCTION_TRACER` + `FUNCTION_GRAPH_TRACER` + `DYNAMIC_FTRACE`, `THERMAL_OF` + `REALTEK_THERMAL`, `NVMEM` + `NVMEM_LAYOUT_U_BOOT_ENV` (MAC), `COMPAT_32BIT_TIME` (BusyBox 1.31 is pre-time64 musl: without it `ping` fails `clock_gettime(MONOTONIC)`), `HIGH_RES_TIMERS`, `NET_PKTGEN`, `NF_TABLES_NETDEV` (nat-bench pktgen / rxdrop).
 - `MDIO_REALTEK_RTL9300` off: OpenWrt's `mdio-realtek-otto` binds the same `realtek,rtl9301-mdio`, and the DSA driver waits for its buses (`rtldsa_mdio_loaded()`).
 - The DSA driver still builds all four SoC backends (838x/839x/930x/931x) and l3/pie/tc/qos/lag/mirror: they share files with the 930x code; trimming is a refactor, not done.
 - `--smp` (`mainline/st1008f-v2-smp.config`): `SMP`, `MIPS_MT_SMP`, `NR_CPUS=2`, `RPS`, `XPS`. Builds warning-free; default stays UP.
@@ -207,6 +207,8 @@ Build only (`./dev.py build-kernel`, GCC 16.2); not booted. OpenWrt source pinne
 - Ports: cage N = `lanN`. Switch port / SerDes: 0/2, 8/3, 16/4, 20/5, 24/6, 25/7, 26/8, 27/9; CPU port 28. `phy-mode = "1000base-x"`, `managed = "in-band-status"`, `sfp = <&sfp(N-1)>` (OpenWrt `SWITCH_PORT_SFP`).
 - Mainline `mdio-controller@ca00` + 4 buses enabled with the OTTO compatible added; no PHYs on them.
 - 1-cell interrupts: 7.3 `irq-realtek-rtl` uses `irq_domain_xlate_onecell` (OpenWrt DTS has 2 cells).
+- Mode-switch children are `cage@N`, not `port@N`: rtl83xx `rtldsa_ports_probe()` walks every node named `port` in the tree (`for_each_node_by_name`). Named `port@0`, the mode switch's reg-0 child cleared `has_pcs` of switch port 0 (lan1), so lan1 was never added to the CPU port's isolation mask: no traffic to the CPU, `Port node N has neither pcs-handle nor phy-handle` x8 (#16).
+- `ethernet` gets `nvmem-cells = <&macaddr_uboot 0>` from a `u-boot,env` nvmem layout on `u-boot-env`: eth0 = env `ethaddr` (`16:b0:46:e9:0d:c0`, same as the flash OpenWrt bridge). Stock `rtk network on` leaves the switch MAC registers at `00:e0:4c:00:00:00`.
 - Not carried: OpenWrt `gpio-keys` (replaced by the mode switch, 300-06); `#thermal-sensor-cells` on SFP nodes + `sfp-thermal` zone (provider not in 7.3 or the ported set); GPIO21 watchdog stays disabled.
 
 ### CPU-port NIC (`300-11`)
@@ -221,21 +223,21 @@ Build only (`./dev.py build-kernel`, GCC 16.2); not booted. OpenWrt source pinne
 - `/init` configures no network: every `lanN` and `eth0` stay down; no bridge exists.
 - DSA setup (`rtldsa_93xx_setup`) isolates every port: port N forwards only to itself; `port_enable` adds the CPU port only. Port-to-port forwarding needs a Linux bridge.
 - Lasers: Linux touches them only through the SFP state machine. `sfp` asserts TX-disable at probe (expander pin N-1 high = laser off) and releases it when `lanN` goes up. GLC-T copper modules (cages 3 and 7, cabled to each other) ignore TX-disable.
-- `/usr/sbin/port-up <cage> [addr/len] [vid]` brings up one `lanN` (+ optional VLAN subif and address); refuses while another `lanN` is up or any bridge exists.
+- `/usr/sbin/port-up <cage> [addr/len] [vid]` brings up one `lanN` (+ optional VLAN subif and address); refuses while another `lanN` is up or any bridge exists. It also sets `rx-gro-list on` (eth0 + lanN, as OpenWrt) and starts dropbear (root, blank password, like the flash OpenWrt) for `nat-bench`.
 - A bridge made by hand needs `stp_state 1`: STP is off by default in Linux bridges.
 - Before the drivers probe, the switch runs whatever U-Boot left: `./dev.py ramload` runs stock `rtk network on` (one cage lit, `--cage N`) and the ASIC forwards until `rtldsa_93xx_setup` isolates the ports.
 
 ### Reliance on U-Boot state
 
 - `rtk network on` is not needed by the drivers: eth, PCS/SerDes, MDIO polling, table access and L2 setup are programmed by Linux.
-- CPU-port MAC: DT has none; `rteth_probe` reads the switch MAC registers left by U-Boot, else uses a random one.
+- CPU-port MAC: from the U-Boot env via nvmem (DTS above); the switch MAC registers U-Boot leaves are only the fallback.
 - Pinmux: DTS sets none; I2C SDA/SCL, SPI and GPIO muxing rely on U-Boot state (as before).
 
 ### Not done here
 
 - `perf` userspace (#67): OpenWrt 24.10.7 publishes no `perf` package for realtek, and the host cross toolchain has no libc. Kernel side (perf events, 34K counters, function_graph) is in. Whether the CP0 perf-counter IRQ is wired on this platform (needed for sampling) is unchecked.
 - `generic/pending-6.18/700`, `701` (nft flowtable device events, ignore `EOPNOTSUPP` on offload): apply on 7.3, not applied; software flowtables do not need them.
-- Boot, link, NAT throughput: hardware session ([MAINLINE-NET-OPS.md](MAINLINE-NET-OPS.md)).
+- Results of the first boots: [NAT.md](NAT.md) "Mainline 7.3"; operations: [MAINLINE-NET-OPS.md](MAINLINE-NET-OPS.md).
 
 ## 8. Status of every OpenWrt realtek patch and file (7.3-rc6)
 

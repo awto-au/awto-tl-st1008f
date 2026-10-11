@@ -5,11 +5,11 @@ Target: NAT near 2.5 Gbit/s (owner ISP: NBN HFC ~2 Gbit/s down). Issue: "Fast NA
 ## Verdict
 
 - IPv4 NAT runs only on the CPU path: the ASIC has no IP/port rewrite (#58).
-  - Best measured, with the nftables software flowtable: **248 Mbit/s** TCP NAT; UDP 1400 B forwards 39.7 kpps (about 445 Mbit/s).
+  - Best measured, with the nftables software flowtable: OpenWrt 6.18 **248 Mbit/s** TCP NAT, UDP 1400 B 39.7 kpps (about 445 Mbit/s); our mainline 7.3 (DDR 600) **up to 328 Mbit/s** TCP NAT, UDP 1400 B 51 kpps (600 Mbit/s, 0 % loss). See "Mainline 7.3".
   - 2.5 Gbit/s needs about 10x less CPU per packet than today. Not reachable on this CPU.
   - The per-packet cost scales with the CPU clock and barely with DDR or LX (see "Clock sensitivity"): the CPU path is compute-bound.
 - IPv6 needs no NAT and is routed by the ASIC at **9.08 Gbit/s with 0 % CPU**. This is the fast path; clients prefer IPv6 when it is offered (see "IPv6 fast path").
-- CPU port speed setting (1G) is not the limit. Every CPU path measured tops out below 500 Mbit/s.
+- CPU port speed setting (1G) is not the limit. Every CPU path measured tops out below 700 Mbit/s.
 
 ## Measured (2026-10-11)
 
@@ -76,6 +76,44 @@ Conditions:
 - `EGBW_PORT_CTRL(28)` `0x7820`: EN = 0. `IGBW_PORT_CTRL(28)` `0x80D8`: BW_EN = 0.
 - CPU-queue force drop `0xC4DC` = 0. Peak CPU-queue depth under flood: `0x340` pages (clear-on-read `0x7E40`).
 - `QM_RSN2CPUQID`: every reason goes to queue 0 or 1 (2 of 32 rings).
+
+## Mainline 7.3 (2026-10-12)
+
+Conditions:
+- Our 7.3-rc6 kernel (#16): OpenWrt realtek drivers + `300-11` (TX ring 32, BQL, xmit_more doorbell), UP (one VPE), initramfs.
+- Booted via `./dev.py ramload uboot-mainline --then mainline-kernel`: CPU 1000 MHz, **DDR 600** (compare with the OpenWrt `ddr600` row above), DRAM prefetch on, SPI stock.
+- Same topology and script (`nat-bench`, SVIs `lan1.991`/`lan1.992`, no fw4). `rx-gro-list on` on eth0 + lan1 (set by `port-up`; the 7.3 default is off).
+- Rows: `tmp/logs/nat_bench.jsonl`, tags `mainline73-1ghz`, `mainline73-1ghz-grolist`, `mainline73-cpu800`.
+
+| Test | 7.3 rx-gro-list on | 7.3 rx-gro-list off | OpenWrt 6.18 (ddr600 / base) |
+|---|---|---|---|
+| NAT + flowtable, TCP P4 | **256-328** (2 boots: 323-328, 256-274) | 220-227 | 239 / 243-248 |
+| NAT + flowtable, TCP P1 | 286-291 | 220 | 213-217 (GRO off) |
+| NAT + flowtable, UDP 1400 B at 600 Mbit/s offered | **600 goodput, 0 % loss, 51 kpps** | 21.4 kpps fwd (qdisc drops) | 37.5 / 38-40 kpps |
+| NAT + flowtable, UDP 1400 B at 700 / 900 offered | 46.9 / 31.7 kpps fwd | - | - |
+| NAT + flowtable, UDP 64 B | **55.8-56.6 kpps** | 35.8 kpps | 41.0 / 42-45 kpps |
+| Route + flowtable, TCP P4 | 356 | - | 232 |
+| NAT, no flowtable, TCP P4 | 258 | - | 80 (fw4 ruleset) |
+| Route, no flowtable, TCP P4 | 331 | - | 62 (fw4 ruleset) |
+| RX only (rxdrop), 1400 / 64 B | 133 / 162 kpps | - | 94.5 / 112.6 kpps |
+| TX only (pktgen), 1400 / 64 B | 37.7-40.0 / 60.8 kpps | - | 42-53 / 33-56 kpps |
+| CPU-terminated TCP RX / TX (local, P1) | 295 / 238 | - | 102 / 128 |
+| CPU-terminated UDP RX / TX | 53 kpps (613 Mbit/s) / 100 Mbit/s | - | 230 / 87 Mbit/s |
+
+- 7.3 with fraglist GRO beats OpenWrt 6.18 on every forwarding row: TCP NAT +7-37 %, UDP +36-38 %, RX-only +41-44 %. TX-only is level.
+- No-flowtable rows are not comparable: the initramfs has no fw4 ruleset, OpenWrt runs every packet through it.
+- At 800 MHz (stock clocks, gro-list off): NAT + flowtable TCP 199.5, UDP 1400 B 25.6 kpps fwd; local TCP RX 277 / TX 212.
+- Overload collapse: past about 51 kpps (UDP 1400 B at 700-900 Mbit/s offered) forwarding falls to 31.7 kpps. RX NAPI starves TX: eth0 qdisc drops + requeues, no driver `rx_dropped`. Same with gro-list off at 600 offered (#60).
+- TCP P4 differs between two boots of the same image (323-328 vs 256-274, retransmits 1400 vs 3000); P1 matched (291 vs 286). Cause not isolated.
+
+### Where the NIC time goes (`./dev.py rteth-ftrace`, 1 GHz, NAT + flowtable TCP)
+
+- `function_graph` keeps the mcount hook on every function, so all times are inflated (load drops to 50-90 Mbit/s); use the split.
+- Depth 1, per packet: `rteth_poll_rx` 25.8 µs (637 µs per poll, ~25 frames), `rteth_start_xmit` 18.9 µs. Untraced total: 25 µs per forwarded packet (VPE-ns/pkt).
+- `rteth_start_xmit` children (depth 3, per call, inflated): `regmap_read` + `regmap_write` 29 µs per kick, kicks on 58 % of packets (doorbell: `regmap_read_poll_timeout` + write, each with a regmap spinlock and `ktime_get`); `dma_map_page_attrs` 10.6 µs.
+- TX reclaim per packet: `dev_kfree_skb_any_reason` 11.8 µs, `dma_unmap_page_attrs` 5.6 µs.
+- RX per packet (depth 2): `gro_receive_skb` 6.4, `page_pool_alloc_frag` 2.9, `napi_build_skb` 2.6, `__dma_sync_single_for_cpu` 2.2, `decode_tag` 1.8 µs; the rest is `rteth_poll_rx` itself (ring + uncached descriptor access).
+- Candidates (#60): doorbell by direct MMIO without the poll (RTL838x workaround), skb free batching (`napi_consume_skb`), fewer DMA-map calls.
 
 ## Clock sensitivity (2026-10-11, `./dev.py nat-clock-variants`)
 

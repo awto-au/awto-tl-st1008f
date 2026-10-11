@@ -271,6 +271,43 @@ Run /init as init process  # initramfs init start
 \s+(/init|with arguments:|with environment:|HOME=/|TERM=linux)  # init argv/env dump
 st1008f-initramfs: up \(Linux 7\.\d+\.\d+(-rc\d+)?(-dirty)?\)  # scripts/mainline_initramfs.py /init marker before the shell (#16)
 
+# ---- mainline 7.3 + OpenWrt realtek network drivers (#16), reviewed 2026-10-12 ----
+sfp sfp-p[1-8]: module .+ rev +\S* +sn \S+ +dc \d+  # SFP ID EEPROM read: vendor/PN/rev are free text (#16)
+8021q: 802\.1Q VLAN Support v1\.8  # VLAN core (#16)
+8021q: adding VLAN 0 to HW filter on device lan[1-8]  # port up (#16)
+DSA: tree 0 setup  # DSA switch registered (#16)
+GACT probability NOT on  # tc gact init (#16)
+Mirror/redirect action on  # tc mirred init (#16)
+sit: IPv6, IPv4 and MPLS over IPv4 tunneling driver  # IPv6 core (#16)
+thermal_sys: Registered thermal governor 'step_wise'  # thermal core (#16)
+pktgen: Packet Generator for packet performance testing\. Version: 2\.75  # NET_PKTGEN for nat-bench pktgen (#65)
+Kernel command line: earlycon  # DTS bootargs
+Performance counters: mips/34K PMU enabled, 2 32-bit counters available to each CPU, irq 7  # 34K PMU (#67)
+RCU Tasks Rude: Setting shift to 0 and lim to 1 rcu_task_cb_adjust=1 rcu_task_cpu_ids=1\.  # RCU tasks (ftrace) init
+ftrace: allocat(ing \d+ entries|ed \d+ pages with \d+ groups)( in \d+ pages)?  # ftrace init (#67)
+printk: console \[ttyS0\] disabled  # earlycon -> ttyS0 hand-over
+process '/bin/busybox' started with executable stack  # BusyBox 1.31 binary (sources/busybox) has PT_GNU_STACK RWX
+In otto_vlan_setup  # rtl83xx debug print (#16)
+In rteth_mac_config, mode 1  # rteth debug print (#16)
+LINK state irq: 23  # rtl83xx link IRQ (#16)
+Probing RTL838X eth device pdev: [0-9a-f]{8}, dev: [0-9a-f]{8}  # rteth probe debug print (#16)
+RESETTING CPU_PORT 28  # rteth open resets the CPU port (#16)
+rtl930x_dbgfs_init called  # rtl83xx debugfs (#16)
+rtldsa_93xx_setup called  # rtl83xx setup (#16)
+realtek-otto-pcs 1b000000\.switch:pcs: Realtek PCS driver initialized  # PCS provider (#16)
+realtek-otto-pcs 1b000000\.switch:pcs: SerDes \d+ configured for (10gbase-r|1000base-x|2500base-x|sgmii) mode  # PCS on port up (#16)
+realtek-otto-serdes-mdio 1b000000\.switch:mdio-serdes: Realtek SerDes mdio bus initialized, 12 SerDes, 64 pages, 32 registers  # SerDes MDIO (#16)
+rtl838x_eth 1b000000\.switch:ethernet: Using MAC 16:b0:46:e9:0d:c0  # eth0 MAC from U-Boot env ethaddr via nvmem (#16); a change shows up
+rtl838x_eth 1b000000\.switch:ethernet eth0: (Link is Up - 1Gbps/Full - flow control off|configuring for fixed/internal link mode|entered promiscuous mode)  # CPU port (#16)
+rtl838x_eth 1b000000\.switch:ethernet eth0: receive page pool below \d+ MB  # rteth page_pool sizing info (#16)
+rtl83xx-switch 1b000000\.switch lan[1-8]: (Link is Up - (10Gbps|1Gbps|2\.5Gbps)/Full - flow control off|Link is Down)  # port link (#16)
+rtl83xx-switch 1b000000\.switch lan[1-8]: (configuring for|switched to) inband/(10gbase-r|1000base-x|2500base-x|sgmii) link mode  # phylink (#16)
+rtl83xx-switch 1b000000\.switch: (Link is Up - 1Gbps/Full - flow control off|configuring for fixed/internal link mode)  # CPU port of the DSA switch (#16)
+rtl83xx-switch 1b000000\.switch: led_set0 has 3 LEDs configured  # DTS led_set (#16)
+rtl83xx-switch 1b000000\.switch: (add|delete) IPv4 route [0-9./]+ \(VLAN \d+, MAC 16:b0:46:e9:0d:c0\)  # l3.c route offload log (#16)
+rtl83xx-switch 1b000000\.switch: route allocated for gw 0\.0\.0\.0  # l3.c on-link route (#16)
+rtl83xx-switch 1b000000\.switch: skip loopback/broadcast addresses and default routes  # l3.c (#16)
+
 # ---- Reviewed DENY lines: tolerated only with a tracking issue (known #NN) ----
 
 [uboot]
@@ -312,6 +349,16 @@ List of all bdev filesystems:  # rootfs panic listing
 Load address: 0x81000000  # tftpboot of uboot-mainline.bin
 
 [uboot-mainline]
+\#\# Booting kernel from Legacy Image at 84f00000 \.\.\.  # `ramload uboot-mainline --then`: bootm from ours
+\s+Image Name:\s+(MIPS OpenWrt Linux-\d+\.\d+\.\d+|mainline ST1008F)  # bootm header: images we build
+\s+Image Type:\s+MIPS Linux Kernel Image \(lzma compressed\)  # bootm header; type pinned
+\s+Data Size:\s+\d+ Bytes = [0-9.]+ MiB  # bootm header
+\s+Load Address: 80100000  # bootm header; load address pinned
+\s+Entry Point:\s+[0-9a-f]{8}  # bootm header; entry differs per build
+\s+Verifying Checksum \.\.\. OK  # bootm CRC pass
+\s+Uncompressing Kernel Image to 80100000  # bootm LZMA unpack
+Working FDT set to 0  # bootm: no separate FDT (DTB appended to the kernel)
+Starting kernel \.\.\.  # bootm handoff
 U-Boot 2026\.07(-dirty)? \([A-Z][a-z]{2} +\d+ 20\d\d - \d\d:\d\d:\d\d [+-]\d{4}\)  # mainline U-Boot banner, pinned to v2026.07 (uboot-port/)
 Model: TP-Link TL-ST1008F v2\.0  # DTS model pinned
 DRAM:  256 MiB  # stage 0 maps 256 MiB (second bank not linear); pinned
@@ -322,3 +369,11 @@ Mode:  M1 normal, pins 17/18/19 = [01]/1/1  # mode switch boot policy (#46): pin
 Mode:  M2 easy, pins 17/18/19 = [01]/0/1  # mode switch boot policy (#46)
 Mode:  M3 recovery, pins 17/18/19 = [01]/1/0  # mode switch boot policy (#46)
 Mode:  M[23] needs Ethernet \(stage 4, #46\): no autoboot; `run bootcmd_m1` boots OpenWrt  # chainloaded at M2/M3: stays at the prompt until stage-4 Ethernet
+
+[mainline]
+rtl838x_eth 1b000000\.switch:ethernet eth0: Failed to create a device link to DSA switch 1b000000\.switch  # same in OpenWrt 6.18 (eth is a child of the switch node); harmless; known #16
+rtl83xx-switch 1b000000\.switch: lower interface lan[1-8] not found  # l3.c offload only for bridged/VLAN uppers; standalone port stays on the CPU path; same in OpenWrt; known #16
+rtl83xx-switch 1b000000\.switch: fib_add\(\) failed  # follows 'lower interface not found'; known #16
+sfp sfp-p4: SFP: unknown connector id 0x03  # GLC-SX-MM in cage 4 reports connector 0x03; module still used; known #16
+tplink-st1008f-mode mode-switch: port [0-7]: unknown media insert  # vendor class for a module it cannot classify (cage 5 CISCO-NEO): left untouched; known #64
+realtek-rtl-spi 18001200\.spi: dirmap: window != PIO at 0x0 \(SFCR2 0xbbc14a00\), using PIO  # 300-07 self-check fell back to PIO after stock `rtk network on`; known #61

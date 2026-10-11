@@ -11,11 +11,12 @@ Facts (what is built, safety defaults, patch status): [MAINLINE-PORT.md](MAINLIN
 ## Boot
 
 ```
-./dev.py ramload mainline-kernel --cage 1
+./dev.py ramload mainline-kernel --cage 1                          # stock clocks: CPU 800 MHz
+./dev.py ramload uboot-mainline --then mainline-kernel --cage 1    # via ours after `clocks fast`: CPU 1 GHz (NAT numbers)
 ```
 
 - Stock U-Boot `rtk network on` lights cage 1 only; Linux then isolates every port at DSA setup.
-- `check-log` will flag the new driver lines (DSA, rteth, PCS, SFP probe lines, `rtldsa_93xx_setup called`): review them, add allowlist entries with an issue number.
+- `check-log` is clean on both paths (2026-10-12); a new driver line shows up as UNKNOWN.
 
 ## At `st1008f-linux # `
 
@@ -25,7 +26,7 @@ Facts (what is built, safety defaults, patch status): [MAINLINE-PORT.md](MAINLIN
 | Ports exist, all down | `ip -br link` | `eth0`, `lan1`..`lan8`, all `DOWN` |
 | No bridge | `ls /sys/class/net/*/bridge 2>/dev/null` | empty |
 | Lasers off | `cat /sys/kernel/debug/sfp-p*/state` (debugfs is mounted) | `tx_disable: 1` for every cage with a module |
-| Isolation matrix | `cat /sys/kernel/debug/rtl838x/port_masks_table` | each front port: itself only (CPU port added once the port is up) |
+| MAC | `dmesg \| grep 'Using MAC'` | `16:b0:46:e9:0d:c0` (U-Boot env `ethaddr` via nvmem) |
 | Thermal | `cat /sys/class/thermal/thermal_zone0/temp` | m°C, plausible |
 
 ## One cage up, ping the house LAN
@@ -38,7 +39,10 @@ ethtool lan1                         # link speed / port
 cat /sys/kernel/debug/sfp-p1/state   # tx_disable: 0 now
 ```
 
-- `port-up` refuses while another `lanN` is up or a bridge exists.
+- `port-up` refuses while another `lanN` is up or a bridge exists. It sets `rx-gro-list on` and starts dropbear: `ssh root@192.168.25.48` (blank password).
+- Host side: `ping 192.168.25.48`, `iperf3 -c 192.168.25.48` after `iperf3 -s -D` on the switch.
+- NAT bench: `./dev.py nat-bench setup|mode|run|local|pktgen|rxdrop` detect the mainline shell (no `switch` bridge): SVIs are `lan1.991`/`lan1.992`, no fw4, `ip_forward` set by `setup`.
+- NIC path timing: `./dev.py rteth-ftrace --depth 1|2|3` (after `nat-bench setup` + `mode nat-ft`).
 - Tagged test instead of the house VLAN: `port-up 1 10.99.1.1/24 991`, host netns `natlan` on `enp7s0.991` = 10.99.1.2 (same VLAN as [NAT-OPS.md](NAT-OPS.md)); `ping 10.99.1.2`.
 - 10G optics: if no link at 10G, record `ethtool lan1` + `dmesg` tail; PCS calibration is the known risk (#16 stage 5).
 

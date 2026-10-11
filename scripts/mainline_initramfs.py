@@ -6,7 +6,7 @@
 - Output: tmp/initramfs/st1008f-initramfs.cpio.xz (newc, mtime 0, uid/gid 0: byte-identical per input)
   + tmp/initramfs/initramfs.config (CONFIG_INITRAMFS_SOURCE, merged by mainline_build_check.py).
 - xz inside, not raw cpio: keeps the uImage raw size under the bootm limit (mainline_uimage.py).
-- NAT test tools (nft, iperf3, ethtool, tc, ip): OpenWrt 24.10.7 packages via initramfs_tools.py;
+- NAT test tools (nft, iperf3, ethtool, tc, ip, dropbear): OpenWrt 24.10.7 packages via initramfs_tools.py;
   /sbin/ip and /sbin/tc point at them (BusyBox --install does not overwrite existing links).
 - /init: mount proc/sys/devtmpfs/debugfs, print INIT_MARKER, shell with PROMPT on the console.
   No network config: every port stays down and unbridged until a script brings one up (#16).
@@ -36,6 +36,8 @@ mount -t proc proc /proc
 mount -t sysfs sysfs /sys
 mount -t devtmpfs devtmpfs /dev
 mount -t debugfs debugfs /sys/kernel/debug
+mount -t tracefs tracefs /sys/kernel/tracing  # not debug/tracing: that automount is deprecated
+mkdir -p /dev/pts && mount -t devpts devpts /dev/pts
 echo "{INIT_MARKER} (Linux $(uname -r))"
 cd /root
 exec setsid cttyhack sh
@@ -54,17 +56,21 @@ for d in /sys/class/net/lan*; do
   ip -o link show "$l" | grep -q '[<,]UP[,>]' && { echo "refused: $l is up (one cage at a time)"; exit 1; }
 done
 ip link set eth0 up && ip link set "lan$n" up || exit 1
+# fraglist GRO on the CPU port, as OpenWrt does: +45 % NAT/flowtable forwarding (docs/NAT.md)
+ethtool -K eth0 rx-gro-list on; ethtool -K "lan$n" rx-gro-list on
 dev=lan$n
 if [ -n "$vid" ]; then
   ip link add link "lan$n" name "lan$n.$vid" type vlan id "$vid" && ip link set "lan$n.$vid" up || exit 1
   dev=lan$n.$vid
 fi
 [ -n "$addr" ] && ip addr add "$addr" dev "$dev"
+# SSH for scripts/nat_bench.py: root, blank password, like the flash OpenWrt
+pidof dropbear >/dev/null || dropbear -R -B
 ip -br link show "lan$n"; ip -br addr show "$dev"
 """
 
 DIRS = ["bin", "sbin", "lib", "usr", "usr/bin", "usr/sbin", "usr/lib", "usr/libexec", "dev", "proc", "sys",
-        "tmp", "root", "mnt", "var", "run"]
+        "tmp", "root", "mnt", "var", "var/run", "run"]
 TOOL_LINKS = {"sbin/ip": "/usr/libexec/ip-full", "sbin/tc": "/usr/libexec/tc-tiny"}
 
 
@@ -127,6 +133,11 @@ def build() -> Path:
         else:
             c.file(name, data, mode)
     c.file("usr/sbin/port-up", PORT_UP.encode())
+    c.dir("etc")
+    c.dir("etc/dropbear")  # -R writes host keys here on first connect
+    c.file("etc/passwd", b"root::0:0:root:/root:/bin/sh\n", 0o644)
+    c.file("etc/group", b"root:x:0:\n", 0o644)
+    c.file("etc/shells", b"/bin/sh\n", 0o644)
     for name, target in TOOL_LINKS.items():
         c.symlink(name, target)
     cpio = c.finish()

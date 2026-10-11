@@ -8,6 +8,8 @@ Topology (one-armed, all over the single 10G host link; lan1 reaches the host vi
   so each forwarded packet crosses the CPU port twice (RX + TX).
 - Test VLANs are tagged on lan1 only, never bridged to VLAN 1; no DHCP; NAT only out switch.992.
 - Switch config is runtime only (bridge/ip/nft): nothing is written to flash; a reboot clears it.
+- Two switch flavours, detected over SSH: OpenWrt (bridge `switch`, SVIs switch.99x, fw4) and the
+  mainline 7.3 initramfs (no bridge, no fw4: SVIs are lan1.99x VLAN subifs, ip_forward set here).
 
 Usage (via ./dev.py nat-bench ...):
   setup                              switch SVIs + host netns
@@ -54,6 +56,21 @@ SSH = ["ssh", "-o", "StrictHostKeyChecking=no", "-o", "UserKnownHostsFile=/dev/n
 SSH_TMO_S = 20
 
 
+_MAINLINE: bool | None = None
+
+
+def mainline() -> bool:
+    """True on the mainline initramfs: no `switch` bridge, no fw4."""
+    global _MAINLINE
+    if _MAINLINE is None:
+        _MAINLINE = sw("test -d /sys/class/net/switch && echo owrt || echo mainline").strip() == "mainline"
+    return _MAINLINE
+
+
+def svi(vid: int) -> str:
+    return f"{SW_PORT}.{vid}" if mainline() else f"switch.{vid}"
+
+
 def log(msg: str) -> None:
     line = f"{time.strftime('%Y-%m-%dT%H:%M:%S%z')} {msg}"
     print(line, flush=True)
@@ -84,13 +101,15 @@ def host(cmd: list[str], check: bool = True) -> str:
 # ---- setup / teardown --------------------------------------------------------
 def setup() -> int:
     log(f"setup: switch VLAN {LAN_VID}/{WAN_VID} tagged on {SW_PORT} + SVIs (runtime only)")
-    cmds = []
+    cmds = ["echo 1 > /proc/sys/net/ipv4/ip_forward", "echo 1 > /proc/sys/net/ipv6/conf/all/forwarding"] \
+        if mainline() else []
     for vid, ip in ((LAN_VID, SW_LAN), (WAN_VID, SW_WAN)):
-        cmds += [f"bridge vlan add dev {SW_PORT} vid {vid}",
-                 f"bridge vlan add dev switch vid {vid} self",
-                 f"ip link add link switch name switch.{vid} type vlan id {vid} 2>/dev/null; true",
-                 f"ip addr replace {ip}/24 dev switch.{vid}",
-                 f"ip link set switch.{vid} up"]
+        if not mainline():
+            cmds += [f"bridge vlan add dev {SW_PORT} vid {vid}", f"bridge vlan add dev switch vid {vid} self"]
+        parent = SW_PORT if mainline() else "switch"
+        cmds += [f"{{ ip link add link {parent} name {svi(vid)} type vlan id {vid} 2>/dev/null; true; }}",
+                 f"ip addr replace {ip}/24 dev {svi(vid)}",
+                 f"ip link set {svi(vid)} up"]
     sw(" && ".join(cmds))
     log(f"setup: host netns {NS_LAN}/{NS_WAN} on {HOST_NIC}.{LAN_VID}/.{WAN_VID}")
     host(["modprobe", "8021q"])
@@ -115,13 +134,14 @@ def set_mode(mode: str) -> int:
     nat = mode.startswith("nat")
     ft = mode.endswith("-ft")
     log(f"mode {mode}: masquerade={'on' if nat else 'off'} flowtable={'on' if ft else 'off'}")
-    sw("nft delete table inet nattest 2>/dev/null; "
+    fw4 = "true" if mainline() else (
        "nft list chain inet fw4 forward | grep -q nattest || "
        f"nft insert rule inet fw4 forward iifname '{{ switch.{LAN_VID}, switch.{WAN_VID} }}' accept "
        "comment nattest; "
        "nft list chain inet fw4 input | grep -q nattest-nd || "
        f"nft insert rule inet fw4 input iifname '{{ switch.{LAN_VID}, switch.{WAN_VID} }}' meta l4proto icmpv6 "
        "accept comment nattest-nd")  # IPv6 ND replies to the SVIs (fw4 input policy drop)
+    sw("nft delete table inet nattest 2>/dev/null; " + fw4)
     rules = ["table inet nattest {"]
     if ft:
         rules += [f"  flowtable ft {{ hook ingress priority 0; devices = {{ {SW_PORT} }}; }}",
@@ -129,7 +149,7 @@ def set_mode(mode: str) -> int:
                   "    meta l4proto { tcp, udp } flow add @ft", "  }"]
     if nat:
         rules += ["  chain post { type nat hook postrouting priority srcnat; policy accept;",
-                  f"    oifname switch.{WAN_VID} masquerade", "  }"]
+                  f"    oifname {svi(WAN_VID)} masquerade", "  }"]
     rules += ["}"]
     sw("nft -f - <<'EOF'\n" + "\n".join(rules) + "\nEOF")
     # route mode: natwan needs the way back to the LAN subnet (no NAT hides it)
@@ -143,11 +163,13 @@ def set_mode(mode: str) -> int:
 def teardown() -> int:
     log("teardown: nattest table, fw4 reload, SVIs, bridge VLANs, host netns")
     sw("nft delete table inet nattest 2>/dev/null; nft delete table netdev rxdrop 2>/dev/null; "
-       "killall iperf3 2>/dev/null; rmmod pktgen 2>/dev/null; ip -6 route del 2000::/3 2>/dev/null; "
-       "/etc/init.d/firewall reload; "
-       f"ip link del switch.{LAN_VID}; ip link del switch.{WAN_VID}; "
-       f"bridge vlan del dev {SW_PORT} vid {LAN_VID}; bridge vlan del dev {SW_PORT} vid {WAN_VID}; "
-       f"bridge vlan del dev switch vid {LAN_VID} self; bridge vlan del dev switch vid {WAN_VID} self; true",
+       "killall iperf3 2>/dev/null; ip -6 route del 2000::/3 2>/dev/null; "
+       + ("echo 0 > /proc/sys/net/ipv4/ip_forward; echo rem_device_all > /proc/net/pktgen/kpktgend_0 2>/dev/null; "
+          if mainline() else "rmmod pktgen 2>/dev/null; /etc/init.d/firewall reload; ")
+       + f"ip link del {svi(LAN_VID)}; ip link del {svi(WAN_VID)}; "
+       + ("true" if mainline() else
+          f"bridge vlan del dev {SW_PORT} vid {LAN_VID}; bridge vlan del dev {SW_PORT} vid {WAN_VID}; "
+          f"bridge vlan del dev switch vid {LAN_VID} self; bridge vlan del dev switch vid {WAN_VID} self; true"),
        check=False)
     for ns, vid in ((NS_LAN, LAN_VID), (NS_WAN, WAN_VID)):
         host(["ip", "netns", "del", ns], check=False)
@@ -156,7 +178,7 @@ def teardown() -> int:
 
 
 def status() -> int:
-    out = sw(f"bridge vlan show dev {SW_PORT}; ip -br addr | grep switch.99; "
+    out = sw(("" if mainline() else f"bridge vlan show dev {SW_PORT}; ") + "ip -br addr | grep '\\.99'; "
              "nft list table inet nattest 2>/dev/null | head -20; "
              "grep -E 'nattest|99[12]' /sys/kernel/debug/realtek_otto_l3/routes; true", check=False)
     log(out.strip())
@@ -182,7 +204,8 @@ def snap() -> dict:
         f = line.split()
         cpus[f[0]] = [int(x) for x in f[1:]]
     eth = [int(x) for x in eth_part.split()]
-    irq = sum(int(x) for x in irq_part.split()[1:3])
+    cols = irq_part.split()[1:3]  # per-CPU counts: 2 on SMP OpenWrt, 1 on the UP mainline kernel
+    irq = sum(int(x) for x in cols if x.isdigit())
     return {"t": time.time(), "cpu": cpus, "eth0": dict(zip(
         ("rx_packets", "tx_packets", "rx_bytes", "tx_bytes", "rx_dropped", "tx_dropped"), eth)),
         "irq": irq, "ct": int(ct_part.split()[0])}
@@ -264,9 +287,9 @@ def run(args, local: bool) -> int:
     label = args.label or ("local" if local else "fwd") + \
         f"{'-R' if args.reverse else ''}-P{args.P}{f'-udp{args.udp}-l{args.len}' if args.udp else ''}"
     if local:
-        sw("nft list chain inet fw4 input | grep -q nattest || "
-           f"nft insert rule inet fw4 input iifname switch.{LAN_VID} accept comment nattest; "
-           f"pidof iperf3 >/dev/null || iperf3 -s -D -B {SW_LAN}")
+        sw(("" if mainline() else "nft list chain inet fw4 input | grep -q nattest || "
+            f"nft insert rule inet fw4 input iifname switch.{LAN_VID} accept comment nattest; ")
+           + f"pidof iperf3 >/dev/null || iperf3 -s -D -B {SW_LAN}")
     a = snap()
     if local:
         cli = ["sudo", "-n", "nice", "-n", "19", "ip", "netns", "exec", NS_LAN, "iperf3", "-c", SW_LAN, "-t", str(args.secs),
@@ -289,7 +312,7 @@ def pktgen(count: int, size: int) -> int:
     """TX-only cost: in-kernel pktgen on the switch, lan1 -> VLAN 992 -> natwan (host)."""
     mac = host(["ip", "netns", "exec", NS_WAN, "cat", f"/sys/class/net/{HOST_NIC}.{WAN_VID}/address"]).strip()
     pg = "/proc/net/pktgen"
-    cfg = [f"modprobe pktgen", f"echo rem_device_all > {pg}/kpktgend_0", f"echo add_device {SW_PORT} > {pg}/kpktgend_0"]
+    cfg = ([] if mainline() else ["modprobe pktgen"]) + [f"echo rem_device_all > {pg}/kpktgend_0", f"echo add_device {SW_PORT} > {pg}/kpktgend_0"]
     cfg += [f"echo '{c}' > {pg}/{SW_PORT}" for c in (
         f"count {count}", "clone_skb 0", f"pkt_size {size}", "delay 0", f"dst {H_WAN}", f"dst_mac {mac}",
         f"src_min {SW_WAN}", f"src_max {SW_WAN}", f"vlan_id {WAN_VID}", "udp_dst_min 9", "udp_dst_max 9")]
@@ -303,7 +326,7 @@ def pktgen(count: int, size: int) -> int:
     cpu = cpu_report(a, b)
     row = {"label": f"pktgen-tx-{size}B", "tag": TAG, "when": time.strftime("%Y-%m-%dT%H:%M:%S%z"),
            "result": " ".join(res.split()), "cpu": cpu}
-    log(f"RESULT pktgen {size} B x {count}: {row['result']} | cpu0 {cpu['cpu0']} cpu1 {cpu['cpu1']}")
+    log(f"RESULT pktgen {size} B x {count}: {row['result']} | cpu0 {cpu['cpu0']} cpu1 {cpu.get('cpu1')}")
     with JSONL.open("a") as fh:
         fh.write(json.dumps(row) + "\n")
     return 0
@@ -349,7 +372,7 @@ def rxdrop(secs: int, size: int) -> int:
     row["eth0_rx_pps"] = eth_pps
     row["ns_vpe_per_pkt"] = round(busy * 1e9 / eth_pps) if eth_pps else None
     log(f"RESULT rxdrop {size} B: host sent {sent} ({sent/secs:.0f} pps), eth0 rx {eth_pps} pps, ingress-dropped "
-        f"{int(pps)} pps | cpu0 {cpu['cpu0']} cpu1 {cpu['cpu1']} | VPE-ns/pkt {row['ns_vpe_per_pkt']}")
+        f"{int(pps)} pps | cpu0 {cpu['cpu0']} cpu1 {cpu.get('cpu1')} | VPE-ns/pkt {row['ns_vpe_per_pkt']}")
     with JSONL.open("a") as fh:
         fh.write(json.dumps(row) + "\n")
     return 0
@@ -363,15 +386,15 @@ V6 = {LAN_VID: ("fd99:1::1", "fd99:1::2", NS_LAN, "fd99:11::5", "fd99:11::/64"),
 def v6_setup() -> int:
     """Gateway-routed v6 (far /64 behind each host) -> eligible for ASIC forwarding (l3.c)."""
     cmds = []
-    for vid, (svi, hip, ns, far, farnet) in V6.items():
-        cmds += [f"ip -6 addr replace {svi}/64 dev switch.{vid} nodad",
-                 f"ip -6 route replace {farnet} via {hip} dev switch.{vid}"]
+    for vid, (svi6, hip, ns, far, farnet) in V6.items():
+        cmds += [f"ip -6 addr replace {svi6}/64 dev {svi(vid)} nodad",
+                 f"ip -6 route replace {farnet} via {hip} dev {svi(vid)}"]
     sw("; ".join(cmds))
-    for vid, (svi, hip, ns, far, farnet) in V6.items():
+    for vid, (svi6, hip, ns, far, farnet) in V6.items():
         sub = f"{HOST_NIC}.{vid}"
         host(["ip", "-n", ns, "-6", "addr", "replace", f"{hip}/64", "dev", sub, "nodad"])
         host(["ip", "-n", ns, "-6", "addr", "replace", f"{far}/128", "dev", sub, "nodad"])
-        host(["ip", "-n", ns, "-6", "route", "replace", "default", "via", svi])
+        host(["ip", "-n", ns, "-6", "route", "replace", "default", "via", svi6])
     r = subprocess.run(["sudo", "-n", "ip", "netns", "exec", NS_LAN, "ping", "-6", "-c", "3", "-W", "1",
                         "-I", V6[LAN_VID][3], V6[WAN_VID][3]], capture_output=True, text=True, timeout=10)
     log(f"v6 ping far->far: {'OK' if r.returncode == 0 else 'FAIL'}")

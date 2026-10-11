@@ -5,6 +5,7 @@ Facts and results: [NAT.md](NAT.md). Everything runs through `./dev.py nat-bench
 ## Preconditions
 
 - Board runs OpenWrt reachable at `192.168.25.48`, with SSH as root and no password. This is either the flash OpenWrt (normal power-up) or `./dev.py ramload openwrt` plus a static IP.
+  - Or the mainline 7.3 initramfs: `./dev.py ramload uboot-mainline --then mainline-kernel --cage 1`, then `port-up 1 192.168.25.48/24` on the console (dropbear, tools and pktgen built in; [MAINLINE-NET-OPS.md](MAINLINE-NET-OPS.md)). The script detects it: SVIs `lan1.99x`, no fw4.
 - Packages installed in the switch overlay: `iperf3 ip-full ip-bridge tcpdump-mini kmod-pktgen`.
   - Install: `apk update && apk add ...`. This writes to the flash overlay, which is allowed.
   - `kmod-pktgen` must match the kernel's kmods hash in `/etc/apk/repositories.d`.
