@@ -285,6 +285,14 @@ def cmd_hidden_probe(extra: list[str]) -> int:
     return _script("hidden_probe.py", extra)
 
 
+@command("owner-approved write probes (#68): eFuse read, CHIP_INFO, CHIP_MODE, free table codes, DMY r/w; "
+         "every write journaled + restored",
+         args="snapshot <label> | diff <a> <b> | chipinfo | efuse [--addrs R] [--en V] | chipmode <n> [--reg 7c|c6fc] "
+              "[--snap] | tables | dmy  (our prompt; power cycle recovers)", kind="hardware")
+def cmd_hidden_write_probe(extra: list[str]) -> int:
+    return _script("hidden_write_probe.py", extra)
+
+
 @command("run the rtk command list on stock and on our U-Boot, diff (see scripts/rtk_parity.py)",
          args="capture --side stock|ours | compare | both [--state] [--slow]", kind="check")
 def cmd_rtk_parity(extra: list[str]) -> int:

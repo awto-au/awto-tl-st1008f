@@ -209,6 +209,14 @@ End-to-end workflow: [../README.md#workflow](../README.md#workflow).
 - Timeout: 1 s per `md.l` (≤ 30 words ≈ 50 ms at 115200; reuses `hw_probe.md`); a timeout or exception stops the run (recover with `./dev.py stock`).
 - Output: Markdown table, `tmp/hidden_probe-<label>.json`. Log: `tmp/logs/hidden_probe.log`.
 
+### hidden_write_probe.py
+
+- Owner-approved write probes (#68): `snapshot`/`diff` (whole 64 KiB switch window, read-only), `chipinfo`, `efuse` (read sequence only: CMD + ADDR, RWOP 0), `chipmode <n>`, `tables` (read command on free table codes, data regs pre-filled `0xA5A5A5A5`), `dmy` (dummy-bit r/w test).
+- Writes only to an allowlist of volatile switch-core regs; refuses eFuse WDATA, RWOP=1, PLL/AFE 0xE200-0xE2FF. Each write journaled (addr, old, new, readback) and restored at the end.
+- A free table code whose EXEC never clears locks that controller until power cycle: one code per boot (`--ctl CTRL_0 --codes 10`).
+- Timeout: 1 s per console command (a 0x100-word `md.l` ≈ 0.32 s at 115200); expiry = hang, recover with `./dev.py stock`.
+- Run: `./dev.py hidden-write-probe <cmd>` at our prompt (`ramload uboot-mainline --from-flash --stock-clocks`). Output `tmp/hidden/hwp-<cmd>-<label>.json`. Log: `tmp/logs/hidden_write_probe.log`.
+
 ### sfp_decode_host_test.py
 
 - Builds the U-Boot SFP decoder (`uboot-port/board/tplink/tl-st1008f/sfp/`) on the host with shim headers.

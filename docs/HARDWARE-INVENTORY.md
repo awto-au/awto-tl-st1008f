@@ -71,7 +71,7 @@ Abbreviations: Y = yes, N = no, `-` = not applicable. Addresses are KSEG1 (`0xb8
 | External watchdog / reset line (GPIO21) | GPIO | DTS `linux,wdt-gpio` toggle 1.2 s; low = board reset (#18) | N | `switch_reset()` drives it low on mode change [BIN] | `gpio-wdt` (always-running) | refused low / node disabled (#18) | - |
 | Reset control | `RST_GLB_CTRL_0` `0xbb00000c`: SW_CHIP_RST bit 0, NIC/queue/SerDes/switch resets, CHIP_RST_EN, WD_RST_EN; status `RST_GLB_STS_0-3` (chip / watchdog reset status) [SW]; `RST_OUT` pin [DS §6.11] | - | SPEC | SPEC | switch reset at CPU-port init ("RESETTING 9300") [OWRT log] | `reset` not implemented / `syscon-reboot` `0x0c` value 1 [ML] | **high**: `reset` in our U-Boot; reset-cause readout |
 | Thermal sensor | Y, `0xbb000060-0x70` [SW]; off at power-on [LIVE [hardware.md](hardware.md)] | - | N | N (#13) | `realtek-thermal`, trip 105 °C | `rtk temp` / N | - (used) |
-| eFuse / OTP | `EFUSE_ACCESS_*` `0xbb00c698-0xc6a4`, 8-bit address, 16-bit data, indirect [SW] | content unknown | N SPEC | N SPEC | N | N | low: ID / calibration words SPEC |
+| eFuse / OTP | `EFUSE_ACCESS_*` `0xbb00c698-0xc6a4`, 8-bit address, 16-bit data, indirect [SW]. Autoloaded at reset (`CTRL_DONE` = 1 at power-up); loaded copies: `MAC_EFUSE_CTRL` `0xc6fc` = `0x0003fffe` (CHIP_MODE 14, read-only), `CALIB_CTRL_2-4` `0xc6ac` = `033c03f1 81308128 00000188`, `CODE_PROTECT_STATE` `0xc7c8` = 0 (no EJTAG-disable / key fuses) [LIVE 2026-10-12, #68] | - | N | N | N | `./dev.py hidden-write-probe efuse` (read sequence only) | low: SW read path returns 0 for all 256 words with `EFUSE_ACCESS_EN` = 0; enable value unknown (#68) |
 | Crypto engine | Y [DS Fig. 1 "Crypto Engine"; strap `EN_DECRYPT` = flash decrypt, §6.12]; `IPSEC_*` `0xb800c000`, `IP_EN_CTRL` bit 10, GIMR `SECURITY_IE` bit 22 [SOC]. Algorithms SPEC (SDK test code is for RTL865x/8686: DES/3DES/AES, MD5/SHA1 HMAC) | flash is plaintext; strap default 0 [DS] | N | N | N | N | low: legacy ciphers only; no ChaCha/GCM SPEC |
 | GDMA / bus traffic generator | `LX0/1/2_GDMA_CTRL` `0xb8144000`/`0xb800a000`/`0xb8018000` + BTG regs [SOC]; enables `IP_EN_CTRL` 8/9, `NEW_IP_EN_CTRL` 6-10 (GDMA0-6; regs for 3 only); GIMR `BTG_IE` bit 12. Not in DS: SPEC | - | N | N | N | N | low-medium: memcpy/memset/checksum offload in U-Boot; bus load generator for DDR tests SPEC |
 | Pinmux | `0xbb000200/204/3a0`, `0xbb00c600`, `0xbb00cc00` [OWRT] | - | Y | Y | Y | read-only (`reg-diff`) | - |
@@ -80,7 +80,7 @@ Abbreviations: Y = yes, N = no, `-` = not applicable. Addresses are KSEG1 (`0xb8
 
 | Block | RTL9303 | Board | Stock U-Boot | Stock Linux | OpenWrt | Ours (U-Boot / mainline) | Value if enabled |
 |---|---|---|---|---|---|---|---|
-| Chip ID | `MODEL_NAME_INFO` `0xbb000004` = `0x93030001` [LIVE [hardware.md](hardware.md)]; `CHIP_INFO` `0x08` needs an enable write [SW] | - | Y | Y | "RTL9303 rev B" | read / N | - |
+| Chip ID | `MODEL_NAME_INFO` `0xbb000004` = `0x93030001` [LIVE [hardware.md](hardware.md)]; `CHIP_INFO` `0x08` with `CHIP_INFO_EN` = 0xA: `0x100a6487` = RL_VID 1, MCID 0, RL_ID `0x6487` [LIVE 2026-10-12, #68] | - | Y | Y | "RTL9303 rev B" | read / N | - |
 | 10G MACs | 8 (MAC0-7) [DS Fig. 1] = SoC ports 0, 8, 16, 20, 24-27 [OWRT DTS] | 8 SFP+ cages | Y | Y | Y (DSA `lan1-8`) | `network on`, MAC force, isolation / N | - |
 | SerDes | 12 indices [OWRT log]; balls: S0 (SGMII, external CPU) + S2-S9 (10GBASE-R) [DS §6.5-6.6]; S1/S10/S11 no balls SPEC | S2-S9 = cages 1-8; S0 unused (DS: pull low via 1 kΩ) | Y | Y | `realtek-otto-pcs` | `network on`, `sdsreg` / N | - |
 | CPU port / NIC DMA | port 28, internal NIC [DS §7.24]; `DMA_IF_*` `0xbb00e000..` [SW]; 32 CPU-port queues [DS §2] | - | `swnic_send` [BIN] | `RTNIC` | `rtl838x_eth`: 2 of 32 RX rings, TX ring 16 (#60) | N (Ethernet stage) / N | high: #60 (used, under-used) |
@@ -106,5 +106,5 @@ Abbreviations: Y = yes, N = no, `-` = not applicable. Addresses are KSEG1 (`0xb8
 ## Probe coverage
 
 - `scripts/hw_probe.py` reads one or more ID/ctrl words of every block with a known address above; gated blocks (GDMA, crypto, SPI-NAND/ECC) only when their enable bit is set, or with `--gated`.
-- Not read (side effects or need a write first): UART RBR/IIR/LSR/MSR, SPI `SFDR`, `GISR`, switch `ISR_GLB`, NIC `DMA_IF_INTR_STS`, `EFUSE_RDATA`, MIB counters, MAC link status, SerDes indirect regs. PCIe/SATA controllers: no balls, address unknown.
+- Not read (side effects or need a write first): UART RBR/IIR/LSR/MSR, SPI `SFDR`, `GISR`, switch `ISR_GLB`, NIC `DMA_IF_INTR_STS`, MIB counters, MAC link status, SerDes indirect regs. PCIe/SATA controllers: no balls, address unknown.
 - CP0 Config words: not readable with `md`; values above from the `bench` command output (console log).
