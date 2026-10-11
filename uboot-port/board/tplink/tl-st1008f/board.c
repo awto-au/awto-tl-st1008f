@@ -45,12 +45,6 @@ const char *st1008f_mode_name(int mode)
 	return mode >= 1 && mode <= 3 ? mode_name[mode - 1] : "invalid";
 }
 
-int board_init(void)
-{
-	rtk_presence_pins_gpio();	/* undo stock network on's SPI pinmux (ramload flows, #29) */
-	return 0;
-}
-
 /* boot_mode from the switch; chainloaded from flash: bootsel.c picks the image + passes the mode (#73) */
 int board_late_init(void)
 {
@@ -59,6 +53,8 @@ int board_late_init(void)
 	int mode = st1008f_boot_mode(&pins);
 	char m[3] = { 'M', '0' + (mode ? mode : 1), 0 };
 
+	/* undo stock network on's SPI pinmux (ramload flows, #29); board_init() is not called: BOARD_INIT=n */
+	rtk_presence_pins_gpio();
 	if (chained)
 		__raw_writel(0, CHAIN_MARK_ADDR);
 	if (!mode)

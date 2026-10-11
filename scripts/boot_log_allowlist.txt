@@ -106,6 +106,7 @@ tplink-st1008f-mode mode-switch: SFP power: \d+ mW declared, budget \d+ mW  # SF
 tplink-st1008f-mode mode-switch: SFP declared total \d+\.\d W back within budget \d+\.\d W  # budget check: back under after a warning (#30)
 sfp sfp-p[1-8]: module FS +SFP-10GSR-85 +rev +sn \S+ +dc \d+  # SFP+ module detected and ID EEPROM read
 sfp sfp-p[1-8]: please wait, module slow to respond  # sfp core retries the ID read; seen on empty cages, see triage
+pinctrl-single 1b0003a0\.pinmux: 32 pins, size 4  # SPI_CTRL1 pinmux: GPIO3-7 back from switch-core SPI = cage presence (#29)
 i2c-gpio i2c(_gpio|-expander): using lines 535 \(SDA\) and 534 \(SCL\)  # bit-banged I2C bus for the PCA9538 expander
 futex hash table entries: 512 (\(16384 bytes on 1 NUMA nodes, total 16 KiB, linear\)\.|\(order: 2, 16384 bytes, linear\))  # futex sizing
 mem auto-init: stack:(off|all\(zero\)), heap alloc:off, heap free:off  # kernel hardening config
