@@ -232,6 +232,13 @@ def cmd_mode_watch(extra: list[str]) -> int:
     return _script("mode_watch.py", extra)
 
 
+@command("CPU-path NAT/routing throughput, one-armed over lan1 VLANs 991/992 (docs/NAT-OPS.md)",
+         args="setup | mode nat|nat-ft|route|route-ft | run|local [--secs N] [-P N] [--reverse] "
+              "[--udp MBPS --len B] | status | teardown", kind="hardware")
+def cmd_nat_bench(extra: list[str]) -> int:
+    return _script("nat_bench.py", extra)
+
+
 @command("dump pinmux/GPIO/I2C registers at the live prompt, or diff two dumps (#51)",
          args="capture <label> | compare <a> <b>", kind="check")
 def cmd_reg_diff(extra: list[str]) -> int:
