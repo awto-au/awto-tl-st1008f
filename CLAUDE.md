@@ -2,6 +2,7 @@
 
 - Follow the user's global agent rules (terse docs, scripts in `./scripts/` in Python, logs in `./tmp/logs/`, ISO 8601, aggressive timeouts).
 - Public repo: never commit anything from `private/`; no host paths or secrets in tracked files. IPs, MACs and SFP serials are fine (owner decision 2026-10-10: meaningless here) — do not redact them.
+- **House LAN IPs come from the registry:** `awto-dan` repo (private, clone alongside this one) -> `docs/network/ip-registry.toml`, rules in `docs/network/README.md`. Blocks `st1008f-1` = `.48-.55`, `st1008f-2` = `.56-.63`. Never ping-scan for a free IP; never static inside the DHCP pool `.100-.179`. Static values: `/24`, gateway/DNS `.254`, domain `dnt.com.au`.
 
 ## Entry point: `./dev.py`
 
@@ -29,6 +30,7 @@
 ## Hazards
 
 - **Cage loop:** two cages to the same switch with both lasers on = broadcast storm. Light one cage only (`rtk i2c write 8 1 0xfe`); unplug other fibres before `bootm` OpenWrt.
+  - **Happened for real 2026-10-10:** house LAN down intermittently from 15:16+11:00, SG2008P Gi1/0/6 `OSW_DET_LOOP`+`OSW_PB` ~20x over 20 h, dropping TrueNAS/HASS/OC200/selwyn each time. First alert 9 min after the 1000 MHz overclock commit; flash held OpenWrt 25.12.4, so every reboot re-bridged. Tracked awto-terminal#56. **Do not leave OpenWrt in flash while any cage is fibred to the house LAN.**
 - **Copper loopback (2026-10-10): cages 3 ↔ 7 are cabled to each other (two GLC-T 1000BASE-T).** GLC-T ignores TX-disable (A0 options = 0), so lasers cannot stop it. Stock U-Boot sets cages to 10G (no 1G link); OpenWrt brings lan3-7 up as SGMII → in-switch loop: never boot OpenWrt there without bridge STP (#19). Use it as the Ethernet self-test path (TX cage 3, RX cage 7).
 - No flash writes: no `saveenv`, `savesys`, `setsys`, `upgrade*`, `*force`, `flerase`, `sf write/erase/update`.
 - `rtk network on` once per boot, before any GPIO/I2C `rtk` command (before it they hang the console; recover with `./dev.py stock`).
