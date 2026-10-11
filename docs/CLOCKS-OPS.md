@@ -31,6 +31,13 @@ How to run and verify clock changes. Facts (registers, formulas, measured result
 - DDR: record the UART marks (`M S P X D` then `C`/`F`), `MPMR0 in SR` (expect 2 in bits 29:28) and `exit` (0), DMCR polls left, routine time. If 600 hangs: retry once with `--nosr`, note the last mark.
 - DDR: no `rtk network on` / Ethernet traffic in the same boot before the change (switch DMA must be idle): load ours with `--from-flash`. That boot has no SerDes config and cage 8 reads empty (#51), so `rtk_port` / `sfp_a0` checks fail there.
 - DDR 650 is not a default yet: one pass so far; needs a soak (Linux load) first.
+- DDR above 650, isolating a failing bin (start at 650: `./dev.py mem-clock 650 --nosr`; every probe returns to it): `./dev.py mem-tap-sweep` then
+  - `once --mhz 650 --extra cl11`: CL 11 / CWL 8 at 650. Bad → the CL 11 config; good → the clock.
+  - `mpcr --mhz 675`: SDK PLL rows (#56).
+  - `field --mhz 675 --reg b8001050 --fields 28:24,20:16 --values 0-31`: DIDER DQS0/1 read-enable taps (#49).
+  - `dqshift --mhz 675 --values -8-8`: all DQ read taps shifted.
+  - `field --mhz 675 --reg b8001500 --fields 20:16,12:8 --values 0-31`: DACCR DQS group taps.
+  - Add `--extra "mpcr A B C"` to combine with a PLL row. Pass = `canary 0 bad`; result per setting in `tmp/logs/mem_tap_sweep.log` + CSV. Stops on `probe FAIL` (not back cleanly) or a hang.
 - DDR above 650: `--from-flash` runs the U-Boot stored in flash; it must be a build with the 675-800 bins (older builds answer `no bin`). A canary failure reverts to the previous bin, MRS included; a hang = power cycle.
 
 ## Recovery

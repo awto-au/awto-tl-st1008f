@@ -3,7 +3,7 @@
  * MEM (DDR3) clock change, copied to SRAM and I-cache locked by `clocks set mem` (docs/CLOCKS.md (b)).
  * Position independent, no stack, no cached access: I/O via KSEG1, state in the SRAM block (ddr_sram.h).
  * a0 = KSEG1 address of the block. v0 = status (DST_*). UART marks: M S P [R] X D then C (canary ok)
- * or F; R = MRS block done (DSF_MRS sets only).
+ * or F; R = MRS block done (DSF_MRS sets only). Probe: C, then the revert sequence S P [R] X D.
  */
 #include <asm/regdef.h>
 #include "ddr_sram.h"
@@ -53,13 +53,14 @@ otto_ddr_sram:
 	sw	v0, DP_CAN_BAD(s0)
 	sw	v1, DP_CAN_OFF(s0)
 	sw	a2, DP_CAN_VAL(s0)
+	sw	a3, DP_CAN_XOR(s0)
 	beqz	v0, 1f
 	 nop
 	ori	s5, s5, DST_CANARY
 	li	a1, 'F'
 	bal	putc
 	 nop
-	addiu	s6, s0, DP_OLD		/* revert to the set read before the change */
+3:	addiu	s6, s0, DP_OLD		/* revert to the set read before the change */
 	bal	change
 	 nop
 	sw	v0, DP_REV_CODE(s0)
@@ -74,6 +75,11 @@ otto_ddr_sram:
 1:	li	a1, 'C'
 	bal	putc
 	 nop
+	lw	t0, DP_PROBE(s0)	/* probe: measure only, always go back */
+	beqz	t0, out
+	 nop
+	b	3b
+	 ori	s5, s5, DST_PROBE
 out:	sw	s5, DP_STATUS(s0)
 	mtc0	s7, $16, 7
 	ehb
@@ -149,7 +155,17 @@ change:
 	sw	t0, 0x240(s3)
 	sw	zero, 0x248(s3)		/* MPCR5/6 = 0 (SDK defaults) */
 	sw	zero, 0x24c(s3)
-	sync
+	lw	t1, DS_NREG(s6)		/* PHY overrides while clk_oe = 0 (SDK writes DCSDCR so) */
+	addiu	t2, s6, DS_REG
+8:	beqz	t1, 9f
+	 nop
+	lw	t0, 0(t2)
+	lw	t3, 4(t2)
+	sw	t3, 0(t0)
+	addiu	t2, t2, 8
+	b	8b
+	 addiu	t1, t1, -1
+9:	sync
 	li	a1, 5
 	bal	delay
 	 nop
@@ -311,7 +327,7 @@ dmcr_idle:
 	jr	ra
 	 move	v0, zero
 
-/* v0 = canary mismatches; v1 = first bad offset, a2 = its value */
+/* v0 = canary mismatches; v1 = first bad offset, a2 = its value, a3 = OR of (read ^ expected) */
 canary:
 	lw	t0, DP_CAN_ADDR(s0)
 	lw	t1, DP_CAN_WORDS(s0)
@@ -320,6 +336,7 @@ canary:
 	move	t3, zero
 	li	v1, -1
 	move	a2, zero
+	move	a3, zero
 1:	beqz	t1, 4f
 	 nop
 	lw	t4, 0(t0)
@@ -330,7 +347,9 @@ canary:
 	addiu	t3, t3, 4
 	b	1b
 	 addiu	t1, t1, -1
-3:	bnez	v0, 2b
+3:	xor	t6, t4, t5
+	or	a3, a3, t6
+	bnez	v0, 2b
 	 addiu	v0, v0, 1
 	move	v1, t3
 	b	2b

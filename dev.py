@@ -153,6 +153,13 @@ def cmd_mem_clock(extra: list[str]) -> int:
     return _script("mem_clock_step.py", extra)
 
 
+@command("DDR3 probe sweep: `clocks set mem <MHz> nosr probe ...` per setting, canary-bad count each (#48 #49 #56)",
+         args="field|dqshift|mpcr|once --mhz N [--reg A --fields 28:24,20:16 --values 0-31] [--extra OPTS]",
+         kind="hardware")
+def cmd_mem_tap_sweep(extra: list[str]) -> int:
+    return _script("mem_tap_sweep.py", extra)
+
+
 @command("turn bridge STP on in the flash OpenWrt config, from RAM-booted OpenWrt (#43)",
          args="(run after `ramload openwrt`)", kind="hardware")
 def cmd_openwrt_flash_stp(extra: list[str]) -> int:

@@ -273,7 +273,7 @@ Stock runs it from SRAM with the routine's I-cache lines locked (`0x9f000240`, r
 4. Same step, before any output: UART divisor = round(LX / 16 / baud): 115200 -> 111 (114,958 baud, -0.2 %); write LCR DLAB, DLL/DLM, LCR. Update the ns16550 `plat->clock` (read once at probe) or U-Boot's next `setenv baudrate` uses the old LX.
 5. Scales with LX: UART, otto timer + watchdog (Linux), I2C SCL (SPEC), LX bus masters. Not: CPU, DDR, SPI (NOR has its own divider).
 
-### (b) DDR clock at runtime, DRAM kept — `clocks set mem <MHz> [nosr] force` (#39)
+### (b) DDR clock at runtime, DRAM kept — `clocks set mem <MHz> [nosr] [probe] [cl11] [dtr0 X] [mpcr A B C] [dqshift N] [reg ADDR VAL]... force` (#39)
 
 Implemented in `board/tplink/tl-st1008f/ddr_sram.S` (routine) and `clocks.c` `mem_set()` (C side).
 
@@ -286,12 +286,23 @@ Measured 2026-10-11 (our U-Boot from flash, no `rtk network on`):
 
 - PM_MODE = 2 is not a usable self-refresh entry on this controller. `nosr` changes the clock with DRAM idle but not in SR (no DLL reset; outside JEDEC); passed every check so far.
 
+Measured 2026-10-11, MRS bins (`nosr`, CPU 1000 MHz, our U-Boot; second 675 run from flash, no `rtk network on`):
+
+| Step | Result |
+|---|---|
+| 650 → 500 → 650 (DRAM CL 9 → 7 → 9 via MRS) | PASS both ways, marks `MSPRXDC` |
+| 650 → 675 (CL 11 / CWL 8 / WR 12, 600 PLL row, 600 PHY taps) | **FAIL** twice: canary 260 and 247 / 1024 bad at 675, first word (+0x0) bad; revert to 650 clean (`MSPRXDFSPRXD`), highmem 0 errors after |
+
+- The revert restored the canary without rewriting it: the data written at 650 survived 675 → the failure is on the read side at 675 (read capture, read latency or command/address), not writes. Switch DMA ruled out (no `rtk network on`).
+- Experiment options (built, untested) to separate the causes: `cl11` (CL 11 / CWL 8 / WR 12 at 650; CWL 8 at tCK 1.54 ns is outside the datasheet table, p.15), `mpcr` (other SDK PLL rows), `reg` / `dqshift` (PHY read taps), `dtr0` (raw DTR0), `probe` (always revert, report the canary). The canary line also gives the OR of (read ^ expected): which bits/lanes fail.
+
 C side, before the routine:
 
 1. Bin = stock DTR bin (650, 600, 550, 500, 450, 400, 350, 300) or ours (675-800, table above). PLL row per bin [SRC] `cg_mem.c:32-43`; 650+ = 600 row + NCODE (SPEC). DTR2 = ((MHz x tRFC_ns / 1000 + 5) << 20) | base, tRFC by die size from DCR (4 Gbit: 260 ns) [BIN].
 2. MR0/MR2 for the target and the live set from their DTR0 (SPL rule). Different → `DSF_MRS` on both sets (the revert also re-issues MRS); `nosr` only.
 3. Refuse: no bin (above 800); DTR0 outside the SPL MR table; tRFC > 255; MRS with the self-refresh method; MEM crossing CPU or LX (CMUCR SE_DRAM bits would change, [SRC] `cg_mem.c:54-55`) → 800 needs CPU > 800 MHz; DCR not one x16 die.
 4. Prints every register it will write (old -> new), MRS words included.
+   - Overrides: `cl11` = DTR0 CL/tWR/CWL/CAS_PHY fields `bb7....a` on the bin's DTR0; `dtr0` replaces DTR0; `mpcr` replaces MPCR0-2 (NCODE from the bin); `reg` = up to 4 PHY registers (DIDER/DDPDR0-1 `b8001050..58`, `b8001500..15c4`); `dqshift N` = every DACDQ_IDX_RR/FR (`b8001510/50` + 4 x DQ) cur_tap 12:8 + N, clamped 0..31. Register overrides are written right after MPCR0-3 with `clk_oe` = 0; the revert set holds the values read before the call.
 5. Canary: 1024 words (offset ^ seed) written uncached into a fresh heap buffer after `flush_dcache_range` on it.
 6. Map SRAM (stock window, as (a)), copy routine to `0x9f004000`, I-cache fetch-and-lock; parameter block at `0xbf004800` (uncached SRAM; layout `ddr_sram.h`). Wait UART TEMT.
 7. D-cache index write-back-invalidate of every line (Config1 geometry), as the last step before the call: no dirty line can be evicted while DRAM is in self-refresh. The routine makes no cached access.
@@ -302,12 +313,12 @@ Routine (SRAM, no stack, KSEG1 I/O only; UART marks `M S P [R] X D` then `C`/`F`
 2. DMCR `0xb800101c` bit 31 = 0 (bounded poll) else status 1, nothing written.
 3. Clock going up: DTR0/1/2 written first (every 650 field >= the 600 field: valid at 600 too), DMCR rewritten unchanged = DTR latch [SRC] `boot0412/memctl.c:2044`; poll bit 31 else status 2, PLL untouched.
 4. Self-refresh: MPMR0 `0xb8001040` PM_MODE 29:28 = 2 (SPEC encoding, see register map), read back into the block; 1 us. `nosr`: DMCR DIS_DRAM_REF 24 = 1 instead (DRAM unclocked-but-not-in-SR: violates JEDEC, no DLL reset on exit; fallback only).
-5. MEM PLL = SDK `cg_mem_pll_init` [SRC] `cg_mem.c:60-73`: MPCR4 `clk_oe` = 0, 200 us; MPCR0-3; MPCR5 = MPCR6 = 0; 5 us; `clk_oe` = `0x3f`; 200 us. CMUCR not touched (refused in C if it would change).
+5. MEM PLL = SDK `cg_mem_pll_init` [SRC] `cg_mem.c:60-73`: MPCR4 `clk_oe` = 0, 200 us; MPCR0-3; MPCR5 = MPCR6 = 0; register overrides (`DS_NREG` pairs); 5 us; `clk_oe` = `0x3f`; 200 us. CMUCR not touched (refused in C if it would change).
    - `DSF_MRS` sets only, refresh still off: DTR0-2 + latch; DMCR MRS MR2 (CWL), MR0 + DLL reset (A8), each with the busy poll; wait tDLLK; MRS MR3 0 (DMCR left as stock, so later DMCR rewrites re-issue only MR3). MR order = SDK `fpga/memcntlr_setup.c:818` (2, 3, 1, 0). The DMCR busy poll keeps bit 24. The DTR latch at 600/650 already re-issues MR3 with DRAM live and passed: the controller handles the bank state for an MRS (SPEC: no explicit precharge-all).
 6. Exit: PM_MODE = 0 (read back), 10 us (tXSDLL 512 clk = 0.8 us at 650). DRAM DLL resets itself on SR exit (JESD79-3); DRAM CL 9 / CWL 7 / WR 10 stay legal to 666 MHz, so no MRS.
 7. PHY FIFO pointer clear: DACCR `0xb8001500` bit 4 0 -> 1, bit 5 = 1 [SRC] `soc/dram_gen4/memcntlr_setup.c:647-651`.
 8. Clock going down (no `DSF_MRS`): DTRs + latch now (status 4 on timeout).
-9. Canary read back uncached. Mismatch → status `0x10`, the same sequence back to the set read before the change, canary again (`0x20` good / `0x40` still bad).
+9. Canary read back uncached; count, first bad word and OR of (read ^ expected) stored. Mismatch → status `0x10`, the same sequence back to the set read before the change, canary again (`0x20` good / `0x40` still bad). `probe`: a good canary also reverts (status `0x80`); C reports the count and passes only if back cleanly.
 
 Bounds and waits:
 

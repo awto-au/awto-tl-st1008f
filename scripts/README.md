@@ -254,6 +254,12 @@ Desk-only; no switch access. Needs `tmp/openwrt` (sparse clone of openwrt, `targ
 - Purpose: DDR3 clock ladder at the mainline prompt (#39): `clocks set mem <MHz> force` per bin (self-refresh, MEM PLL, DTRs from SRAM), then `clocks` decode, `crc32` + `md` of a 16 MiB region copied before the first change (contents kept), `highmem test` (256 MiB). Stops at the first fail or hang.
 - Run: `./dev.py mem-clock 600 650 [--nosr]` (600 first = stock values through the new sequence); above 650: `./dev.py mem-clock 650 675 700 725 750 775 800 --nosr` (MRS bins, CPU 1000 first). Log: `tmp/logs/mem_clock_step.log`.
 
+### mem_tap_sweep.py
+
+- Purpose: isolate a failing DDR bin (#48 #49 #56): one `clocks set mem <MHz> nosr probe ... force` per setting (change, canary at the new clock, always revert), logs canary bad / 1024, XOR of bad bits, first bad word.
+- Modes: `field` (PHY register fields = each value), `dqshift` (all DQ read taps + n), `mpcr` (SDK PLL rows), `once` (`--extra` only). Stops on `probe FAIL` or a hang.
+- Run: `./dev.py mem-tap-sweep field --mhz 675 --reg b8001050 --fields 28:24,20:16 --values 0-31`; recipes in [../docs/CLOCKS-OPS.md](../docs/CLOCKS-OPS.md). Log: `tmp/logs/mem_tap_sweep.log`; table `tmp/mem_tap_sweep-<YYYYMMDD-HHMMSS>.csv`.
+
 ### uimage_std_magic.py
 
 - Purpose: copy an OpenWrt Realtek-magic (`0x93030000`) uImage with the standard magic `0x27051956` for mainline `bootm`; header CRC recomputed, payload untouched.

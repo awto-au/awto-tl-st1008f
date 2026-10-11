@@ -63,7 +63,7 @@ static int dram_mrs(u32 dtr0, u32 *mr0, u32 *mr2)
 
 static void ddr(u32 mem_khz)
 {
-	u32 mcr = R(0xb8001000), dcr = R(0xb8001004), mr0, mr2;
+	u32 mcr = R(0xb8001000), dcr = R(0xb8001004), mr0, mr2, i;
 	u32 d0 = R(0xb8001008), d1 = R(0xb800100c), d2 = R(0xb8001010);
 	/* DTR fields hold clocks - 1 (Realtek DRAM gen2 memcntlr_setup.c; CWL matches JEDEC) */
 	u32 cl = F(d0, 31, 28) + 1, wr = F(d0, 27, 24) + 1, cwl = F(d0, 23, 20) + 1;
@@ -95,6 +95,12 @@ static void ddr(u32 mem_khz)
 	printf("ddr3 phy: DCSDCR0-3 %08x %08x %08x %08x DWDMOR %08x DWDQSOR %08x\n",
 	       R(0xb80015b0), R(0xb80015b4), R(0xb80015b8), R(0xb80015bc), R(0xb80015c0),
 	       R(0xb80015c4));
+	/* read DQ delay: DACDQ_IDX_RR/FR 0xb8001510/50 + 4 x DQ, cur_tap 12:8 (memcntlr_reg.h) */
+	printf("ddr3 dq: RR0 %08x FR0 %08x DCDQMR %08x; cur tap rise/fall DQ0-15:", R(0xb8001510),
+	       R(0xb8001550), R(0xb8001590));
+	for (i = 0; i < 16; i++)
+		printf(" %u/%u", F(R(0xb8001510 + 4 * i), 12, 8), F(R(0xb8001550 + 4 * i), 12, 8));
+	puts("\n");
 	printf("mem pll: MPCR0-6 %08x %08x %08x %08x %08x %08x %08x\n", R(0xb8000234),
 	       R(0xb8000238), R(0xb800023c), R(0xb8000240), R(0xb8000244), R(0xb8000248),
 	       R(0xb800024c));
@@ -254,11 +260,28 @@ static u32 dp_get(u32 off)
 	return R(SRAM_PARAM + off);
 }
 
-static void put_set(u32 base, const u32 *mpcr, u32 d0, u32 d1, u32 d2, u32 flags, u32 mhz)
+/* `clocks set mem` request: bin + experiment overrides (docs/CLOCKS.md (b), #48 #49 #56) */
+struct mem_req {
+	u32 mhz, method, probe, cl11, dtr0, mpcr_set, mpcr[3], nreg, reg[DS_REG_MAX][2];
+};
+
+/* PHY registers an override may touch: DIDER + DDPDR0/1, DACCR .. DWDQSOR */
+static bool phy_reg_ok(u32 a)
+{
+	return !(a & 3) && ((a >= 0xb8001050 && a <= 0xb8001058) || (a >= 0xb8001500 && a <= 0xb80015c4));
+}
+
+static void put_set(u32 base, const u32 *mpcr, u32 d0, u32 d1, u32 d2, u32 flags, u32 mhz,
+		    const struct mem_req *q, bool old)
 {
 	u32 mr0 = 0, mr2 = 0;
 	int i;
 
+	dp_set(base + DS_NREG, q->nreg);	/* old set: the values read now = revert */
+	for (i = 0; i < q->nreg; i++) {
+		dp_set(base + DS_REG + 8 * i, q->reg[i][0]);
+		dp_set(base + DS_REG + 8 * i + 4, old ? R(q->reg[i][0]) : q->reg[i][1]);
+	}
 	dram_mrs(d0, &mr0, &mr2);	/* checked by the caller when DSF_MRS is set */
 	for (i = 0; i < 4; i++)
 		dp_set(base + DS_MPCR0 + 4 * i, mpcr[i]);
@@ -272,7 +295,11 @@ static void put_set(u32 base, const u32 *mpcr, u32 d0, u32 d1, u32 d2, u32 flags
 }
 
 /* docs/CLOCKS.md (b): DDR3 self-refresh, MEM PLL, DTRs, from SRAM; DRAM contents kept */
-static int mem_set(u32 mhz, u32 method)
+/* CL 11 / CWL 8 / WR 12 fields of the 675-800 bins: DTR0 CL 31:28, tWR 27:24, CWL 23:20, CAS_PHY 3:0 */
+#define DTR0_CLW_MASK	0xfff0000f
+#define DTR0_CL11	0xbb70000a
+
+static int mem_set(const struct mem_req *q)
 {
 	static const u16 trfc_ns[] = { 90, 110, 160, 260, 350 };	/* 512 Mbit .. 8 Gbit die */
 	const struct mem_bin *b = NULL;
@@ -281,7 +308,7 @@ static int mem_set(u32 mhz, u32 method)
 	u32 (*fn)(u32);
 	u32 old_mpcr[4], d0 = R(0xb8001008), d1 = R(0xb800100c), d2 = R(0xb8001010);
 	u32 dcr = R(0xb8001004), cur, die, dtr2, up, st, i, seed, bad = 0, *buf, *can;
-	u32 mr0, mr2, omr0, omr2, flags;
+	u32 mr0, mr2, omr0, omr2, flags, mhz = q->mhz, method = q->method, ndtr0, mpcr[4], rev;
 	ulong t0;
 
 	for (i = 0; i < ARRAY_SIZE(mem_bins); i++)
@@ -293,9 +320,13 @@ static int mem_set(u32 mhz, u32 method)
 		       mhz);
 		return CMD_RET_FAILURE;
 	}
+	ndtr0 = q->dtr0 ? q->dtr0 : q->cl11 ? (b->dtr0 & ~DTR0_CLW_MASK) | DTR0_CL11 : b->dtr0;
+	memcpy(mpcr, b->mpcr, sizeof(mpcr));
+	if (q->mpcr_set)
+		memcpy(mpcr, q->mpcr, sizeof(q->mpcr));	/* MPCR0-2; NCODE (MPCR3) from the bin */
 	/* DRAM CL/CWL/WR (MR0/MR2) change -> MRS + DLL reset in the routine; refresh-off method only */
-	if (dram_mrs(b->dtr0, &mr0, &mr2) || dram_mrs(d0, &omr0, &omr2)) {
-		printf("clocks: DTR0 %08x / live %08x outside the SPL MR table\n", b->dtr0, d0);
+	if (dram_mrs(ndtr0, &mr0, &mr2) || dram_mrs(d0, &omr0, &omr2)) {
+		printf("clocks: DTR0 %08x / live %08x outside the SPL MR table\n", ndtr0, d0);
 		return CMD_RET_FAILURE;
 	}
 	flags = (mr0 != omr0 || mr2 != omr2) ? DSF_MRS : 0;
@@ -345,7 +376,8 @@ static int mem_set(u32 mhz, u32 method)
 		printf("clocks: MRS after the PLL: DMCR MR2 %08x -> %08x, MR0 %08x -> %08x + DLL reset "
 		       "(0x100), %u us tDLLK, MR3 %08x; same back on revert\n", omr2, mr2, omr0, mr0,
 		       DIV_ROUND_UP(512 * 125, mhz * 100), DMCR_MR(3));
-	printf("clocks: write 0xb8001008 DTR0 %08x -> %08x\n", d0, b->dtr0);
+	printf("clocks: write 0xb8001008 DTR0 %08x -> %08x%s\n", d0, ndtr0,
+	       q->dtr0 ? " (override)" : q->cl11 ? " (cl11)" : "");
 	printf("clocks: write 0xb800100c DTR1 %08x -> %08x\n", d1, b->dtr1);
 	printf("clocks: write 0xb8001010 DTR2 %08x -> %08x\n", d2, dtr2);
 	printf("clocks: write 0xb800101c DMCR %08x (rewrite: DTR latch), poll bit 31\n", R(0xb800101c));
@@ -357,17 +389,21 @@ static int mem_set(u32 mhz, u32 method)
 	printf("clocks: write 0xb8000244 MPCR4 %08x clk_oe 5:0 = 0, 200 us\n", R(0xb8000244));
 	for (i = 0; i < 4; i++)
 		printf("clocks: write 0x%08x MPCR%u %08x -> %08x%s\n", 0xb8000234 + 4 * i, i,
-		       old_mpcr[i], b->mpcr[i], mhz >= 650 ? " (SPEC)" : "");
-	printf("clocks: write 0xb8000248/24c MPCR5/6 %08x %08x -> 0, 5 us, clk_oe = 0x3f, 200 us\n",
-	       R(0xb8000248), R(0xb800024c));
+		       old_mpcr[i], mpcr[i], q->mpcr_set && i < 3 ? " (override)" :
+		       mhz >= 650 ? " (SPEC)" : "");
+	printf("clocks: write 0xb8000248/24c MPCR5/6 %08x %08x -> 0\n", R(0xb8000248), R(0xb800024c));
+	for (i = 0; i < q->nreg; i++)
+		printf("clocks: write 0x%08x %08x -> %08x (override, clk_oe = 0)\n", q->reg[i][0],
+		       R(q->reg[i][0]), q->reg[i][1]);
+	puts("clocks: 5 us, clk_oe = 0x3f, 200 us\n");
 	printf("clocks: write 0xb8001500 DACCR %08x bit 4 0 -> 1, bit 5 = 1 (PHY FIFO pointer clear)\n",
 	       R(0xb8001500));
-	printf("clocks: canary %u words at %p, revert to the current set on mismatch\n",
-	       CANARY_WORDS, can);
+	printf("clocks: canary %u words at %p, revert to the current set on mismatch%s\n",
+	       CANARY_WORDS, can, q->probe ? " and after it (probe)" : "");
 
 	fn = sram_load(&w, otto_ddr_sram, otto_ddr_sram_end);
-	put_set(DP_NEW, b->mpcr, b->dtr0, b->dtr1, dtr2, flags ?: up ? DSF_DTR_FIRST : 0, mhz);
-	put_set(DP_OLD, old_mpcr, d0, d1, d2, flags ?: up ? 0 : DSF_DTR_FIRST, cur);
+	put_set(DP_NEW, mpcr, ndtr0, b->dtr1, dtr2, flags ?: up ? DSF_DTR_FIRST : 0, mhz, q, false);
+	put_set(DP_OLD, old_mpcr, d0, d1, d2, flags ?: up ? 0 : DSF_DTR_FIRST, cur, q, true);
 	dp_set(DP_METHOD, method);
 	dp_set(DP_LOOPS_US, DIV_ROUND_UP(c.cpu_khz, 2000));	/* 2 cycles per loop */
 	dp_set(DP_CAN_ADDR, (u32)(ulong)can);
@@ -375,6 +411,7 @@ static int mem_set(u32 mhz, u32 method)
 	dp_set(DP_CAN_SEED, seed);
 	for (i = DP_STATUS; i < DP_SAVE; i += 4)
 		dp_set(i, 0);
+	dp_set(DP_PROBE, q->probe);
 	uart_drain();
 	t0 = timer_get_us();
 	dcache_wbinv_all();	/* last: no dirty line may be evicted into a DRAM in self-refresh */
@@ -382,9 +419,12 @@ static int mem_set(u32 mhz, u32 method)
 	t0 = timer_get_us() - t0;
 	printf("\nclocks: routine %lu us, status 0x%02x, DMCR polls left %u, MPMR0 in SR %08x exit %08x\n",
 	       t0, st, dp_get(DP_DMCR_POLLS), dp_get(DP_MPMR0_SR), dp_get(DP_MPMR0_EXIT));
-	if (st & DST_CANARY)
-		printf("clocks: canary %u bad at the new clock (first +0x%x = %08x), revert code %u\n",
-		       dp_get(DP_CAN_BAD), dp_get(DP_CAN_OFF), dp_get(DP_CAN_VAL), dp_get(DP_REV_CODE));
+	/* one parseable line per attempt (scripts/mem_tap_sweep.py) */
+	if (st & (DST_CANARY | DST_PROBE))
+		printf("clocks: canary %u bad at the new clock, xor %08x, first +0x%x = %08x want %08x, "
+		       "revert code %u\n", dp_get(DP_CAN_BAD), dp_get(DP_CAN_XOR), dp_get(DP_CAN_OFF),
+		       dp_get(DP_CAN_VAL), dp_get(DP_CAN_OFF) ^ seed, dp_get(DP_REV_CODE));
+	rev = dp_get(DP_REV_CODE);
 	sram_unload(&w);
 	for (i = 0; i < CANARY_WORDS; i++)
 		bad += can[i] != ((4 * i) ^ seed);
@@ -392,6 +432,12 @@ static int mem_set(u32 mhz, u32 method)
 	otto_clocks_read(&c);
 	printf("clocks: mem now %u kHz, DTR0 %08x DTR1 %08x DTR2 %08x, canary %u bad\n", c.mem_khz,
 	       R(0xb8001008), R(0xb800100c), R(0xb8001010), bad);
+	if (q->probe) {
+		/* probe passes when it is back on the old set with good data; the result is the count */
+		st = (st & ~(DST_CANARY | DST_PROBE | DST_REV_OK)) | rev;
+		printf("clocks: probe %s\n", st || bad ? "FAIL (not back cleanly)" : "OK");
+		return st || bad ? CMD_RET_FAILURE : 0;
+	}
 	if (st || bad) {
 		printf("clocks: mem set FAIL (%s)\n",
 		       (st & DST_CODE) == DST_BUSY ? "controller busy, nothing changed" :
@@ -442,10 +488,11 @@ static int refi_set(void)
 
 static int fast_set(void)
 {
+	struct mem_req q = { .mhz = FAST_MEM_MHZ, .method = 1 };
 	int ret = cpu_set(FAST_E208, FAST_E210, 0);
 
 	if (!ret)
-		ret = mem_set(FAST_MEM_MHZ, 1);
+		ret = mem_set(&q);
 	if (!ret)
 		ret = refi_set();
 	if (ret)
@@ -461,6 +508,57 @@ static int fast_set(void)
 	return 0;
 }
 
+#define CLI_REG_MAX	4	/* command line < 240 chars (console) */
+
+/* <MHz> [nosr] [probe] [cl11] [dtr0 <hex>] [mpcr <m0> <m1> <m2>] [dqshift <n>] [reg <a> <v>]... */
+static int mem_cmd(int n, char *const v[])
+{
+	struct mem_req q = { .mhz = dectoul(v[0], NULL) };
+	int i, dqs = 0, shift = 0;
+
+	for (i = 1; i < n; i++) {
+		if (!strcmp(v[i], "nosr")) {
+			q.method = 1;
+		} else if (!strcmp(v[i], "probe")) {
+			q.probe = 1;
+		} else if (!strcmp(v[i], "cl11")) {
+			q.cl11 = 1;
+		} else if (!strcmp(v[i], "dtr0") && i + 1 < n) {
+			q.dtr0 = hextoul(v[++i], NULL);
+		} else if (!strcmp(v[i], "mpcr") && i + 3 < n) {
+			q.mpcr_set = 1;
+			q.mpcr[0] = hextoul(v[++i], NULL);
+			q.mpcr[1] = hextoul(v[++i], NULL);
+			q.mpcr[2] = hextoul(v[++i], NULL);
+		} else if (!strcmp(v[i], "dqshift") && i + 1 < n && !dqs) {
+			dqs = 1;
+			shift = simple_strtol(v[++i], NULL, 10);
+		} else if (!strcmp(v[i], "reg") && i + 2 < n && q.nreg < CLI_REG_MAX) {
+			q.reg[q.nreg][0] = hextoul(v[++i], NULL);
+			q.reg[q.nreg][1] = hextoul(v[++i], NULL);
+			if (!phy_reg_ok(q.reg[q.nreg][0])) {
+				printf("clocks: reg %08x: PHY overrides only (b8001050..58, b8001500..15c4)\n",
+				       q.reg[q.nreg][0]);
+				return CMD_RET_FAILURE;
+			}
+			q.nreg++;
+		} else {
+			printf("clocks: mem option '%s' unknown or incomplete (max %u reg)\n", v[i],
+			       CLI_REG_MAX);
+			return CMD_RET_USAGE;
+		}
+	}
+	/* dqshift: every DQ's trained read tap (DACDQ_IDX_RR/FR cur_tap 12:8) + shift, clamped 0..31 */
+	for (i = 0; dqs && i < 32; i++) {
+		u32 a = (i < 16 ? 0xb8001510 : 0xb8001550) + 4 * (i % 16), r = R(a);
+		int t = clamp((int)F(r, 12, 8) + shift, 0, 31);
+
+		q.reg[q.nreg][0] = a;
+		q.reg[q.nreg++][1] = (r & ~GENMASK(12, 8)) | t << 8;
+	}
+	return mem_set(&q);
+}
+
 static int do_clocks(struct cmd_tbl *cmdtp, int flag, int argc, char *const argv[])
 {
 	struct otto_clocks c;
@@ -472,9 +570,8 @@ static int do_clocks(struct cmd_tbl *cmdtp, int flag, int argc, char *const argv
 	if (argc > 1) {
 		if (argc < 5 || strcmp(argv[1], "set") || strcmp(argv[argc - 1], "force"))
 			return CMD_RET_USAGE;
-		/* clocks set mem <MHz> [nosr] force */
 		if (!strcmp(argv[2], "mem"))
-			return mem_set(dectoul(argv[3], NULL), argc > 5 && !strcmp(argv[4], "nosr"));
+			return mem_cmd(argc - 4, argv + 3);
 		/* clocks set cpu <e208> <e210> [relock 0|1] force  (values: scripts/clock_calc.py) */
 		if (argc == 5 && !strcmp(argv[2], "lx"))
 			return lx_set(dectoul(argv[3], NULL));
@@ -509,7 +606,7 @@ static int do_clocks(struct cmd_tbl *cmdtp, int flag, int argc, char *const argv
 	return 0;
 }
 
-U_BOOT_CMD(clocks, 7, 0, do_clocks, "show CPU/LX/SPI/MEM clocks and DDR3 timings; set CPU/MEM PLL",
+U_BOOT_CMD(clocks, 24, 0, do_clocks, "show CPU/LX/SPI/MEM clocks and DDR3 timings; set CPU/MEM PLL",
 	   "\n  rates decoded from the PLL registers; docs/CLOCKS.md\n"
 	   "clocks fast  - CPU 1000 MHz, DDR 650 MHz, tREFI 7.1 us, DRAM controller prefetch (SPI left alone)\n"
 	   "clocks set cpu <e208> <e210> [relock 0|1] force\n"
@@ -518,7 +615,11 @@ U_BOOT_CMD(clocks, 7, 0, do_clocks, "show CPU/LX/SPI/MEM clocks and DDR3 timings
 	   "clocks set mem <MHz> [nosr] force\n"
 	   "  - DDR3 clock to a bin (800..675 step 25: CL 11 CWL 8 via MRS, nosr only; 650 600 550 ...),\n"
 	   "    DRAM kept: self-refresh (nosr: refresh off), MEM PLL, DTRs [, MRS + DLL reset], from\n"
-	   "    SRAM; reverts if a canary reads back wrong");
+	   "    SRAM; reverts if a canary reads back wrong\n"
+	   "  experiment options (before force): probe (always revert, report canary), cl11\n"
+	   "    (CL 11 / CWL 8 / WR 12 at this clock), dtr0 <hex>, mpcr <m0> <m1> <m2>,\n"
+	   "    dqshift <n> (all 32 DQ read taps + n),\n"
+	   "    reg <PHY addr> <val> (up to 4; DIDER/DDPDR, DACCR..DWDQSOR; written with clk_oe = 0)");
 
 /* Kernel DTB gets the live rates: OpenWrt rtl930x.dtsi uses fixed clocks + /cpus/frequency */
 static void fdt_set_rate(void *blob, const char *path, const char *prop, u32 hz)
