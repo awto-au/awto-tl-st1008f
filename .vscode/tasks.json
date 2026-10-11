@@ -1,0 +1,14 @@
+{
+  "version": "2.0.0",
+  "tasks": [
+    {
+      "label": "ST1008 console",
+      "detail": "Follow the switch console log (written by scripts/switch_console_daemon.py)",
+      "type": "shell",
+      "command": "tail -n 200 -F ${workspaceFolder}/private/serial/st1008-console.log",
+      "isBackground": true,
+      "problemMatcher": [],
+      "presentation": { "reveal": "always", "panel": "dedicated", "focus": false, "clear": true }
+    }
+  ]
+}
