@@ -16,10 +16,6 @@
 #include "rtk.h"
 #include "sfp/sfp.h"
 
-#define EXP_BUS		8	/* i2c alias of the laser expander bus */
-#define EXP_ADDR	0x38
-#define EXP_OUT		1	/* TCA9534A: 0 in, 1 out, 2 polarity, 3 config (1 = input) */
-#define EXP_CFG		3
 #define SFP_A0		0x50
 #define SFP_A2		0x51
 #define SFP_PHY		0x56	/* copper module PHY (SFF-8472 has no address; Linux sfp.c) */

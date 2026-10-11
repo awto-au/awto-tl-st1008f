@@ -8,6 +8,7 @@
 
 #include <command.h>
 #include <env.h>
+#include <i2c.h>
 #include <time.h>
 #include <linux/delay.h>
 #include <vsprintf.h>
@@ -480,6 +481,16 @@ static void led_config(void)
 	}
 }
 
+/* stock mac_park_tx_disable 0x83f6f710 (end of mac_led_config): expander cfg 0xff, out 0xff = all lasers off */
+static void park_tx_disable(void)
+{
+	struct udevice *dev = rtk_chip(EXP_BUS, EXP_ADDR);
+	u8 v = 0xff;
+
+	if (!dev || dm_i2c_write(dev, EXP_CFG, &v, 1) || dm_i2c_write(dev, EXP_OUT, &v, 1))
+		printf("laser expander not responding: lasers not parked\n");
+}
+
 /* ---- chip construct (dal_longan_construct table, stock 0x83fa3718) ---- */
 
 static void construct(void)
@@ -506,6 +517,7 @@ static void construct(void)
 			sw_w(MAC_FORCE(CPU_PORT), CPU_FORCE);
 		if (!strcmp(rtcore[i], "  MAC init (unit 0)")) {	/* stock mac_driver_init order */
 			led_config();
+			park_tx_disable();
 			sw_rmw(SMI_MAC_TYPE, SMI_MAC_TYPE_M, 0);
 		}
 	}

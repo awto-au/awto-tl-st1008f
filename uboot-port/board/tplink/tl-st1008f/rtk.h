@@ -42,6 +42,11 @@ bool rtk_port_exists(unsigned int port);
 struct udevice;
 struct gpio_desc;
 struct udevice *rtk_chip(int bus, int addr);
+
+#define EXP_BUS		8	/* i2c alias of the laser expander bus */
+#define EXP_ADDR	0x38
+#define EXP_OUT		1	/* TCA9534A: 0 in, 1 out, 2 polarity, 3 config (1 = input) */
+#define EXP_CFG		3
 int rtk_gpio_line(int pin, struct gpio_desc *d);
 
 /* stock `Usage:` block, returns CMD_RET_FAILURE */
