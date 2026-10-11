@@ -91,3 +91,45 @@ earlier versions of the reference docs, and the original tracking issue. Referen
 | GPIO/I2C `rtk` commands always hang | reproducible hangs | Hangs only before SDK init |
 | Need bit-bang to reach the PCA9534 | `rtk i2c` hung on that bus | PCA9534 is pre-registered as `rtk i2c` device 8 |
 | YMODEM RAM-boot | upstream procedure | `NAK on sector` on this adapter; TFTP replaced it |
+
+## 2026-10-10: mainline U-Boot, storm proof, overclock
+
+One line per result; detail in the linked docs/issues. Owner decisions: [DECISIONS.md](DECISIONS.md).
+
+- US-48 (gen 1) NAT question (side task): firmware v7.5.15 unpacked (`scripts/ubnt_fw_unpack.py`, extract in `private/unifi-us48/`): BCM53344 + BCM56150 (Hurricane2), 52 ports, kernel 3.6.5 has conntrack but no NAT targets → no NAT. UNVR ruled out as NAT box (one port). Issue draft dropped.
+- Quick wins: SFP ID + DDM from stock `rtk i2c` (#11); USB host present but not wired (#5 closed); mode switch read live (#8).
+- Storm proof: stock OpenWrt RAM boot bridged lan1/2/8 without STP → host bcast+mcast 5 → 13,354 pps in ~80 s, `eth0: Ring contention` and hang at 253 s; STP from first boot blocks it (US-48 sends no BPDUs). `storm_watch.py` trip lowered 50k → 2000 pps (#19).
+- PL2303 RX stalls after a power cut (`urb stopped: -32`): daemon restart before power-on.
+- Linux 7.3-rc6 groundwork agent: upstream already boots the SoC to a console; DSA/NIC/PCS missing; real blocker = phylink PCS series `737-01..08`. First boot: GPIO21 wdt node reset the board → disabled; GPIO21 = reset line (#16, #18).
+- Strict allowlist boot-log checker (#28, #29); power budget values shown borrowed (#30).
+- Mainline U-Boot v2026.07 stage 0 boots via `./dev.py ramload uboot-mainline`; `dev.py` becomes the single entry point. Stages: GPIO, I2C master + laser expander, SFP decode (ethtool port), all 8 cages read; serials shown.
+- Serial: every divisor to 10.94 MBd works on stock and ours; PL2303 clone runs fast; long lines drop chars (#31, #32).
+- `rtk` parity: 62/62 stock forms match, hidden verbs documented, flash writers refused (#34). 512 MiB via `highmem`. Flash found to hold OpenWrt 25.12.4 (sysupgrade 2026-10-08); kept (#36).
+- Clocks decoded (CPU 800, LX 175, SPI 25.52, DDR 600); clock provider derives all rates from PLLs. CPU overclock: 1000 MHz passes the full suite, 1066.7 hangs (#38).
+- 15:12: OpenWrt RAM-booted from our U-Boot at 1 GHz without confirmed STP looped via cages 3↔7; the watcher's single relay request timed out → house LAN alerts for ~20 h (SG2008P `OSW_DET_LOOP`) until the relay was cut 2026-10-11 11:38 (#43, awto-terminal#56).
+
+## 2026-10-11: chain boot, fastest settings, NAT, 7.3 network port
+
+- Storm fixes: `kill()` downs lan* over serial then retries the relay; STP step silences kmsg, cuts power on failure. Flash OpenWrt proven loop-safe (STP saved) (#43 closed).
+- Static addresses from the house registry: switch `.48`, host `.30`, relay `.49` (claimed).
+- Chain boot option A live: our U-Boot in `jffs2-log`, stock `bootcmd` chainloads it, `clocks fast`, flash OpenWrt (#47 closed). Owner approval "a to write".
+- VS Code: "ST1008 console" task + own "run task by name" extension (`tools/vscode-run-task/`).
+- Flash speed: U-Boot to 122.5 MHz; Linux corrupts at 122.5 and JFFS2 fails at 102.1 → Linux SPI stays stock (#50).
+- DRAM: writes stuck at 237 MB/s regardless of clocks = miss-latency bound; MCR `ip_ref`/`dp_ref` prefetch (off in stock) → write +68 %, read +49 % (#52). OpenWrt patch `300-04` (#53); DRAM theory-vs-measured review → [DRAM.md](DRAM.md).
+- DDR 650 via `nosr` (self-refresh method hangs); fastest power-up set CPU 1000 / DDR 650 / tREFI 7.09 µs / prefetch → writes 433, reads 460 MB/s. `300-05` CPU frequency from PLL (#55). DRAM = Zentel A3T4GF40BBF-HP. DDR 675-725 tried, unstable → 650 stays (#48).
+- U-Boot port finished in one pass: stage 4 `rtk network on` from SDK + stock RE (`0xca04` SMI MAC type fix), ports up without stock (#51 closed); Linux SFP mode table; #31/#33/#35/#41 closed; stock LED profile copied (#9).
+- Mode switch measured one-hot (pin 17 not stuck; earlier reads wrong); vendor `rtk.ko` logic ported to Linux (`300-06`, #64); #8 closed.
+- Hybrid-NAT chat filed (#63, full archive in a comment). Old `awto-st1008f` repo moved to the wastebasket; web refs carried to `sources/README.md`.
+- Minimal 7.3 kernel (417 options) boots to an initramfs shell; hardware inventory (#62).
+- Fast NAT (#65): OpenWrt 6.18 NAT + flowtable 243-248 Mbit/s TCP; IPv6 ASIC-routed 9.08 Gbit/s at 0 % CPU; 2.5G IPv4 NAT not reachable on the CPU; clock sensitivity = compute-bound. No hardware NAT (#58), none hidden (#68). Datasheet read in full (#69); firewall bypass on ASIC routing (#66).
+- OpenWrt realtek drivers ported to 7.3; port-node lookup bug (`port@N` in the mode-switch node) fixed; 7.3 beats 6.18 on NAT. NIC path `300-12` (doorbell, reclaim, ring 128): TCP ~350 Mbit/s, UDP 1400 B ~750 Mbit/s (#60). HIGHMEM kept + `300-13`; 512 MiB in Linux (#27).
+
+## 2026-10-12: parking, hidden hardware, default-boot plan
+
+- Work parked in issues (#72); SMP default (untested boot); `300-14` parked; SPG `rtk spg` parked on `parked/spg-wip` (#70).
+- Hidden-register probes: CHIP_MODE read-only, no free table has memory, no hidden NAT; eFuse left unread (#68, #75). SDK leftovers (#74), SDK feature map (#76), newer SDK 4.0.2 found (ours = 3.6.9) ([SDK-SOURCES.md](SDK-SOURCES.md)).
+- #59 on-link + default-route offload (`300-17`), per-family `l3_default_v4/v6`, opt-in, untested on hardware.
+- SerDes test tools `rtk sds` (PRBS31 0 errors, eye scan) ([SDS-TOOLS.md](SDS-TOOLS.md)); crypto engine 25/25 KATs, AES-128 ~29 MB/s ([CRYPTO.md](CRYPTO.md), #78); bus scan finds nothing undocumented ([BUS-SCAN.md](BUS-SCAN.md), #77 closed).
+- LED snake + latched error/fallback/panic patterns (`300-16`); watchdog (`300-15`).
+- Default-boot plan: OpenWrt on 7.3 + 6.18 recovery, 22 + 7 MiB, local OpenWrt build (#73). Standing flash-write approval except stock U-Boot area.
+- Doc audit of the whole session: [DECISIONS.md](DECISIONS.md) created; gaps filled (hardware.md modules + network identity, NAT ceiling, SPG status, scripts README).

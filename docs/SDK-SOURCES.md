@@ -37,6 +37,8 @@ Every public Realtek switch SDK ("rtk-ms-sdk") drop found, its version and wheth
 - No public drop newer than 4.0.2.55154. `[SDK_4.2.0]` / `[SDK_3.6.10]` tags in the GP3000 phy-only tree prove later releases exist.
 - No GPL from Hasivo, XikeStor, Horaco, ONTi (`github.com/carlosz1986/mod_hasivo_switch_firmware` = stock-firmware tooling). TP-Link China (ST1008F/ST5008F) publishes no GPL.
 - GitHub code search (`dal_longan`, `RT_VERSION_SDK`, `[SDK_3.9`, `[SDK_4.`, `rtk-ms-sdk`) finds only the repos above plus OpenWrt/LEDE forks.
+- Realtek developer portal (online.realtek.com), 2026-10-12: registration page opened for the owner to fill in. Activation needs a Realtek contact person; switch SDK documents are usually NDA-only, so approval is not expected. Outcome: pending (owner).
+- No public RTL9300 register file, developer guide or SDK API guide; substitutes = SDK register table (`scripts/sdk_regdump.py`) and the RTL9310 developer guide (same NIC bit layout). [DATASHEET-AUDIT.md](DATASHEET-AUDIT.md).
 
 ## 4.0.2.55154 vs 3.6.9.55156 (DMS-1250), Longan only
 

@@ -19,8 +19,12 @@ Catalogue of RTL9303 hardware that the datasheet omits, the SDK leaves unused, o
 - **What:** per-port line-rate traffic generator, `SPG_*` regs, `SMART_PACKET_GENERATOR` feature (Longan only)
 - **Evidence:** GPL diag driver; absent from DS
 - **Measured:** `SPG_GLB_CTRL/TX_GRP_CTRL/GLOBAL_STS` 0x7AB0 = 0 (idle) [LIVE]
-- **Use:** port/link stress test without a host; cage-loop test traffic
+- **Use:** port/link stress test without a host; cage-loop test traffic; 10G test traffic for the all-port test (#22) without a second 10G host
 - **Risk:** transmits frames: storm risk on the house LAN
+- **Capability (SDK):** 2 streams per port; frame template, count, length sweep, incrementing MACs, payload pattern (zero/incr/decr/fix/repeat), optional bad CRC, inter-packet gap (rate), per-port sent counters. Not in either datasheet; stock never uses it.
+- **Status:** `rtk spg status|load|start|stop` written, builds, **untested**; parked on branch `parked/spg-wip` (`daa0cc8`), not on `main`. Test: `./dev.py spg-test stage1|stage2|stage3` (read-only → 1000 frames on a dark cage → ≤ 1000 frames out of cage 1 to the host).
+- **Safety in code:** `rtk network on` first; 8 cage ports only; count 1-100000 mandatory; lit cage (laser on, MAC link, copper/DAC, RX light, unreadable) refused unless `allow-lit`, then count ≤ 1000; broadcast/multicast DA refused; plan printed before sending; auto-stop on done or 1.25× expected time; runs > 10 s refused.
+- **Open:** do frames leave the port directly or enter the switch (then our loop guard sends them only to the CPU)? IPG unit (bytes assumed)? does stop reset the counter / done flag?
 
 ### `ROUTER_SMAC_SEL` + 48-bit SMAC (#68)
 - **What:** ECO knob: `DMY_REG1_PKT_ENCAP` 0xCF0C bit 16 + SMAC[47:32], `DMY_REG0_PKT_ENCAP` 0xCE20 SMAC[31:0]; SDK never references it

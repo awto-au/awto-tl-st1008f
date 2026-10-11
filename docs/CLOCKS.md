@@ -168,10 +168,10 @@ Source tags: **[SRC]** GPL file:line (`dms1250/` = `sources/rtk-dms1250/`, `xgs1
 
 | Clock | Rated max | Board allows | We run | Why the gap |
 |---|---|---|---|---|
-| CPU | 800 MHz ([DS] p.1 "up to 800MHz") | no core-voltage control known (DVDDL 1.1 V +-5 %, [DS] Table 16); passive heatsink, 73 °C idle (hardware.md) | 800 | stock; above = overclock, procedure (a) |
+| CPU | 800 MHz ([DS] p.1 "up to 800MHz") | no core-voltage control known (DVDDL 1.1 V +-5 %, [DS] Table 16); passive heatsink, 73 °C idle (hardware.md) | 1000 (`clocks fast`, every power-up via the chain) | 1050 passes the timer test, 1066.7 hangs; 1000 has the full suite + Linux load |
 | LX | not stated; SPL accepts 133-204 MHz | UART divisor scales | 175 | stock default; 204 is inside the SPL window |
-| DDR3 clock | [DS] 8.3 "up to 800MHz (DDR3-1600)"; [DS] Table 25 fCK typ 600 MHz; SPL PLL table max 600, DTR/PHY to 650 | DRAM Zentel A3T4GF40BBF-HP = DDR3-1866 (933 MHz) | 600 power-on; 650 via `clocks fast`; 675-800 bins implemented (MRS), untested | 800 = controller rating and field limit; above 650 needs MR0/MR2 (CL 11 / CWL 8) |
-| DDR3 timings | A3T4GF40BBF-HP: 13-13-13 at 933 MHz; tRCD/tRP 13.91 ns | — | stock: DRAM CL 9 CWL 7 tRCD/tRP 15 ns, tREFI 3.84 us | stock bin; tREFI at 2x rate costs ~3 % bandwidth (SPEC) |
+| DDR3 clock | [DS] 8.3 "up to 800MHz (DDR3-1600)"; [DS] Table 25 fCK typ 600 MHz; SPL PLL table max 600, DTR/PHY to 650 | DRAM Zentel A3T4GF40BBF-HP = DDR3-1866 (933 MHz) | 600 power-on; 650 via `clocks fast`; 675-800 bins implemented (MRS): 675/700 unstable, 725 hangs (#48) | 800 = controller rating and field limit; above 650 needs MR0/MR2 (CL 11 / CWL 8) |
+| DDR3 timings | A3T4GF40BBF-HP: 13-13-13 at 933 MHz; tRCD/tRP 13.91 ns | — | stock bin (DRAM CL 9 CWL 7 tRCD/tRP 15 ns); `clocks fast`: 650 bin + tREFI 4608 clk = 7.09 us | tREFI 7.09 us = normal (≤ 85 °C) rate; DDR3 has no readable temperature |
 | SPI SCK | 133 MHz FAST_READ (W25Q256JV) | U-Boot bit-exact to 122.5 MHz (153.1 corrupts); Linux to 102.1 MHz | 25.5 MHz under Linux; 122.5 MHz in U-Boot without Linux | Linux JFFS2 CRC errors at 102.1 MHz (#50) |
 | UART | LX / 16 = 10.94 MBd | host adapter (#32) | 115200 or `--fast` | host side |
 
@@ -294,6 +294,12 @@ Measured 2026-10-11, MRS bins (`nosr`, CPU 1000 MHz, our U-Boot; second 675 run 
 | 650 → 675 (CL 11 / CWL 8 / WR 12, 600 PLL row, 600 PHY taps) | **FAIL** twice: canary 260 and 247 / 1024 bad at 675, first word (+0x0) bad; revert to 650 clean (`MSPRXDFSPRXD`), highmem 0 errors after |
 
 - The revert restored the canary without rewriting it: the data written at 650 survived 675 → the failure is on the read side at 675 (read capture, read latency or command/address), not writes. Switch DMA ruled out (no `rtk network on`).
+- Isolation runs (2026-10-11, `mem-tap-sweep`, #48):
+  - 650 with `cl11` (CL 11 / CWL 8 / WR 12): 0 errors → CL 11 is not the cause.
+  - 675 failure = one data line (DQ4) captured late; a `dqshift` (read taps earlier) fixes it: 675 and 700 then pass CRC and the 256 MiB highmem test.
+  - 675 and 700 still hang under `bench` heavy writes (650 completes the same bench) → write side needs tuning too.
+  - 725 hangs during the clock change itself.
+  - Gain ≤ 2 % (latency-bound). Decision: 650 stays ([DECISIONS.md](DECISIONS.md)); a speed passes only if `bench` completes too.
 - Experiment options (built, untested) to separate the causes: `cl11` (CL 11 / CWL 8 / WR 12 at 650; CWL 8 at tCK 1.54 ns is outside the datasheet table, p.15), `mpcr` (other SDK PLL rows), `reg` / `dqshift` (PHY read taps), `dtr0` (raw DTR0), `probe` (always revert, report the canary). The canary line also gives the OR of (read ^ expected): which bits/lanes fail.
 
 C side, before the routine:

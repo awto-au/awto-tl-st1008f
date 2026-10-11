@@ -47,7 +47,7 @@ Facts only. How to run the measurements: [CLOCKS-OPS.md](CLOCKS-OPS.md). Registe
 | Lever | Expected gain | Cost / risk |
 |---|---|---|
 | Linux `memcpy` uses `pref` (CPU_MIPS32_R2 selects CPU_HAS_PREFETCH; 16 PREF sites in `arch/mips/lib/memcpy.S`); Linux `memset` has none (write-allocate path, helped by MCR prefetch); userspace libc copies: not checked | `memset` up to the `pref 30` figure | kernel `memset.S` change (upstream) |
-| tREFI 3.84 → 7.8 µs (normal-temperature refresh) | ≈ 3.5 % of DRAM time; ≈ 0 in practice (access is latency-bound, bus mostly idle) | **decided: keep stock.** DDR3 has no readable temperature (only DDR4/LPDDR do); the SoC sensor peaked at 75 °C under load, heatsink off |
+| tREFI 3.84 → 7.8 µs (normal-temperature refresh) | ≈ 3.5 % of DRAM time; ≈ 0 in practice (access is latency-bound, bus mostly idle) | **decided: 7.09 µs (4608 clk at 650) in `clocks fast`** (owner: fastest settings, 2026-10-11; first decided keep-stock, superseded). DDR3 has no readable temperature (only DDR4/LPDDR do); the SoC sensor peaked at 75 °C under load, heatsink off |
 | Tighter timings for a DDR3-1866 part at 600-650 MHz (CL, tRCD, tRP) | a few ns of the 30-45 ns DRAM part only | MRS path exists (675+ bins); no 600/650 tight bin defined |
 | Unexplained MCR bits: `ocp0_frq_slower` 9 = 1, `ocp0/1_rbf_f_dis` 5/6 = 1, `sync_ocp0_dram` 0 = 0 | possibly the 65-80 ns bus/controller overhead | unknown semantics (#52) |
 | DDR above 650 MHz | ≤ a few % (600 → 650 moved every test ≤ 4 %) | 675-800 implemented (CL 11 / CWL 8 via MRS), untested; PHY taps and PLL loop settings SPEC (#48, #49) |

@@ -178,6 +178,14 @@ Same boot and topology as "NIC path" (DDR 600, CPU 1 GHz, UP, `300-12`). `./dev.
 - With one 34Kc pipeline at 1 GHz, that leaves about **3.2 µs (3200 cycles) per packet for RX + NAT + TX**. Measured today: 22-31 µs with the flowtable (GRO on); RX alone is about 9 µs and TX alone 17-25 µs.
 - No L2 cache; a random cached miss costs 109 ns (CLOCKS.md). DMA is non-coherent, so every packet header is a cache miss after invalidate.
 - 2 Gbit/s down-only (ACKs up) still needs about 250 kpps.
+- Realistic ceiling for this CPU (estimates, 2026-10-11, not measured):
+  - lean Linux forward + flowtable on MIPS ≈ 5-8k instructions ≈ 7-12 µs per packet at 1 GHz;
+  - ~20-40 cache lines touched per packet × 110 ns miss ≈ 2-4 µs;
+  - → ~80-140 kpps ≈ **1-1.7 Gbit/s** at 1500 B; sanity check: MT7621 (880 MHz, 2 cores) does ~0.9-1 Gbit/s software NAT + flowtable on all cores;
+  - expected NIC driver cost ~3-5 µs per packet vs 17-25 µs measured (GRO off) → the 3-5x gap is per-packet overhead, not NAT (NAT costs nothing measurable over plain routing).
+- 2.5G IPv4 NAT through the CPU is not reachable; 2.5G+ belongs to IPv6 routed in the ASIC.
+- Driver-cost hypotheses listed 2026-10-11 and how they resolved: uncached descriptor rings (open, cached RX descriptors not tried); per-packet MMIO over LX (ruled out: LX +17 % = no gain); IRQ per packet (open); full-buffer cache maintenance (ruled out: sync/map cover the frame length only); TX ring 16 + doorbell per packet (fixed in `300-11`/`300-12`, the 29 µs doorbell poll was an RTL838x workaround).
+- CPU port 28 is internal (`PHY_INTERFACE_MODE_INTERNAL`, DMA to RAM, no SerDes): the driver's `MAC_1000FD` cap and `0xCA8C` SPD_SEL = 1G are labels unless the ASIC paces port-28 egress to SPD_SEL. Untested: the 10G (`0x227`) / 2.5G (`0x22F`) A/B was skipped (owner, 2026-10-11) until the CPU path nears 1 Gbit/s; flash OpenWrt has no `/dev/mem`. The power-on SPD_SEL value is unread (only read after the stock loader, which writes other bits of `0xCA8C`).
 - A driver rewrite gaining 3-4x (not measured) would give about 0.6-0.9 Gbit/s, and needs perf data first.
 
 ## What can and cannot leave the CPU

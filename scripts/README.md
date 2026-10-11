@@ -101,6 +101,9 @@ End-to-end workflow: [../README.md#workflow](../README.md#workflow).
 - Purpose: watch a host NIC's rx broadcast+multicast rate (`ethtool -S`) and cut the switch relay (`switch_power.py off`) on a storm. Unicast/iperf ignored.
 - Run: `scripts/storm_watch.py [--nic enp7s0] [--abs-pps 2000] [--duration 900] [--observe --hold 3]`.
 - Log: `tmp/logs/storm_watch.log`.
+- Guard mode (`--guard`, singleton, lock `tmp/storm_guard.lock`): started automatically by `./dev.py` for every hardware command; exits 10 min after the last `dev.py`. Never start by hand.
+- Sampling: 1 s, ETHTOOL_GSTATS ioctl (no subprocess).
+- On trip (`kill()`): first take every `lan*` down over the serial console (a storm cannot block it), then relay off with retries every 0.5 s (×120) until confirmed. Added after 2026-10-10, when a single relay request timed out during the storm (#19, #43).
 - Notes: trip = max(abs, 20× 3 s baseline) for 2 samples (0.5 s). A loop through OpenWrt's default bridge ramps slowly (13k pps at ~+80 s) and hangs the CPU port (`Ring contention`) by ~+250 s.
 
 ### st1008_sfp_ddm.py
@@ -444,3 +447,20 @@ Desk-only; no switch access. Needs `tmp/openwrt` (sparse clone of openwrt, `targ
 - `sdk_leftovers_scan.py`: offline scan of Realtek SDK trees + stock/managed firmware for debug/test/disabled features; output `tmp/sdk_leftovers/scan.json`, log `tmp/logs/sdk_leftovers_scan.log`; `--decompile` adds a Ghidra pass (private/). Results: docs/SDK-LEFTOVERS.md, #74.
 - `sdk_feature_map.py`: offline map of every Longan `dal_mapper_t` slot (impl / phy / unavail vs Mango/8390/8380), stock `rtk.ko` and ST5008F `core` callers, register/table feature groups vs SDK/OpenWrt/ours references; output `tmp/sdk_feature_map/`, log `tmp/logs/sdk_feature_map.log`; `--write-doc` refreshes docs/SDK-FEATURE-MAP.md. #76.
 - `sdk_version_scan.py`: `scan TREE...` = Realtek SDK release (`RT_VERSION_SDK`, dir name, highest API tag), chip families, Longan dal/chipdef/NIC presence (real vs 0-byte stub); `diff OLD NEW` = Longan-relevant diff (chipdef, feature flags, rtk API + Applicable, system/drv functions, prebuilt `dal_longan_*.o` symbols, hw profiles). Log `tmp/logs/sdk_version_scan.log`. Results: docs/SDK-SOURCES.md, #76.
+
+## Session tools 2026-10-10..12 (clocks, chain boot, Linux checks, editor)
+
+- `uboot_mainline_test.py` (`./dev.py uboot-test [check...]`): on-board checks at the `st1008f-mainline #` prompt; regex per command within a stated cap; `timer` = `sleep N` timed host-side (±3 %); `reset`, `cr_idle` explicit only. Exit 0 = all pass. Log `tmp/logs/uboot_mainline_test.log`.
+- `flash_speed_step.py` (`./dev.py flash-speed`): SPI-NOR SFCR divider ladder in U-Boot; whole-chip `crc32` must equal the stock-divider baseline; stops and restores on mismatch. Read-only. Log `tmp/logs/flash_speed_step.log`. Results: docs/CLOCKS.md.
+- `spi_linux_ladder.py` (`./dev.py spi-linux [D:CODE ...]`): fastest SPI clock Linux reads correctly; per step our U-Boot sets SFCR/NOR code and boots RAM OpenWrt, then `md5sum` of the 29 MiB `firmware` mtdblock vs the stock-speed baseline. Read-only. Log `tmp/logs/spi_linux_ladder.log`. #50.
+- `openwrt_rootfs_hash.py`: aggregate md5 of every file under /bin /sbin /lib /usr of the running flash OpenWrt + SQUASHFS error count → `tmp/rootfs-hash/<label>.json`; compares clock/controller settings. #50, #52.
+- `openwrt_static_ip.py`: set the running OpenWrt to its registry address (`192.168.25.48/24`, gw/DNS `.254`) with `uci commit`. Superseded for the default boot by DHCP + static fallback (docs/DECISIONS.md).
+- `openwrt_patch_check.py`: apply OpenWrt 300-02/03 + `openwrt/patches/*` to `arch/mips/generic` in `tmp/linux-v7.3`, compile `board-realtek.o`, restore. Superseded by `./dev.py build-kernel`. #53.
+- `uboot_chain_install.py` (`./dev.py uboot-chain-install [--overwrite]`): our U-Boot → flash `jffs2-log` from the running flash OpenWrt (checks unmounted + blank unless `--overwrite`; host HTTP → `wget`, md5 both ends; `mtd write`; read-back md5). Log `tmp/logs/uboot_chain_install.log`. #47.
+- `uboot_chain_env.py` (`./dev.py uboot-chain-env test|apply|revert|boot`): stock `bootcmd` for the chain (marker `0xa5a51008` @ `0xa0f80000`; `cp.b 0x94200000 0x81000000 0x80000; go 0x81000000`); `test` types it without saving; `boot` follows a normal power-up to flash OpenWrt. Log `tmp/logs/uboot_chain_env.log`. #47.
+- `reg_diff.py` (`./dev.py reg-diff capture <label> [--serdes] | compare <a> <b>`): `md.l` register ranges at the live prompt (pinmux/GPIO/I2C; `--serdes` adds MAC/SMI/LED ranges + `rtk sdsdump all`), per-word diff with field hints. Read-only. Log `tmp/logs/reg_diff.log`. #51, #9.
+- `nat_clock_variants.py` (`./dev.py nat-clock-variants base|cpu800|ddr600|nopref|lx204|table`): boot flash OpenWrt from our U-Boot with one clock change vs `clocks fast`, run the nat-bench set; `table` summarises `tmp/logs/nat_bench.jsonl`. Log `tmp/logs/nat_clock_variants.log`. #65.
+- `mode_watch.py` (`./dev.py mode-watch`, VS Code task "ST1008 mode watch"): SSH to the running OpenWrt, stream gpio 17/18/19 every 1 s, print pins, vendor pattern and position on change. Log `tmp/logs/mode_watch.log`. #8, #64.
+- `vscode_run_task.py install|run <name>|console`: run a VS Code workspace task by name from the shell via our extension `tools/vscode-run-task/` (`vscode-insiders://awto.run-task/run?name=<label>`; runs only tasks in the open workspace's `tasks.json`). `console` starts "ST1008 console" and checks a real `tail -F` appeared. Log `tmp/logs/vscode_run_task.log`.
+  - `.vscode/tasks.json`: "ST1008 console" (`tail -n 200 -F private/serial/st1008-console.log`, runs on folder open; needs "allow automatic tasks" once), "ST1008 ssh" (`ssh root@192.168.25.48`), "ST1008 mode watch".
+  - A "run any command by URI" variant was not built (blocked as an RCE surface); third-party "Commands Executor" rejected for the same reason.

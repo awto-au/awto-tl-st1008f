@@ -12,14 +12,50 @@ Narrative & dead ends: see [HISTORY.md](HISTORY.md). Evidence paths under `priva
 - Saved env: `boardmodel=RTL9303_8XGE`, `bootcmd=boota`, `bootdelay=1`, `baudrate=115200`, `ipaddr=192.168.0.100`, `serverip=192.168.0.145`.
   - `ethaddr` is the Realtek OUI with placeholder NIC bytes (not a unique factory MAC). `printsys` → `Invalid system information`; no unique MAC location found.
 - UART: 115200 8N1, U-Boot and stock Linux alike.
-- SFP modules tested: two 10GBASE-SR (OpenWrt reads both as FS `SFP-10GSR-85`). No SFP vendor lock found in SDK source, the loader, or the sibling `cli_server`.
+- SFP modules: no vendor lock found in SDK source, the loader, or the sibling `cli_server`. Fitted set below.
 - Partition map: [stock-flash-layout.json](stock-flash-layout.json); `flshow` output: [../artifacts/uboot-flshow.txt](../artifacts/uboot-flshow.txt).
 - Board photos: [photos/README.md](photos/README.md).
+
+### Fitted SFP modules (2026-10-10, all 8 cages; our U-Boot `rtk sfp`)
+
+| Cage | Module | Serial | Media |
+|---|---|---|---|
+| 1 | FS SFP-10GSR-85 | F2140097682 | 10GBASE-SR, DDM |
+| 2 | FS SFP-10GSR-85 | F2140098879 | 10GBASE-SR, DDM |
+| 3 | Cisco-Finisar GLC-T 8.0 | MTC106630 | 1000BASE-T |
+| 4 | Cisco-Finisar GLC-SX-MM 6.0 | H33A663 | 1000BASE-SX |
+| 5 | Cisco-NEO PTB3370553CN0CS1 | NDG20040529 | 1G 1310 nm SMF, DDM |
+| 6 | FS SFP-10GSR-85 | F2031577643 | 10GBASE-SR, DDM |
+| 7 | Cisco-Finisar GLC-T 8.0 | MTC106627 | 1000BASE-T |
+| 8 | FS SFP-10GSR-85 | F2140097683 | 10GBASE-SR, DDM |
+
+- All 8 pass both EEPROM checksums and declare power level 1 (≤ 1 W).
+- GLC-T: no DDM, no TX-disable (laser bit has no effect), connector byte `0x07` (LC) is wrong for RJ45, made 2007-08-17, Marvell 88E1111 PHY at 0x56; EEPROM emulated by an MCU that stretches the clock → reads need 50 kHz and a few seconds after power-on.
+- GLC-SX-MM: binary fields space-padded (bytes 3-19, 36-39, 64-65); `rtk sfp` zeroes them. Connector byte says "Fibre Channel Style 2 copper" (vendor error, reported as-is).
+- PTB3370553: no compliance code (described from rate/wavelength/reach); vendor `rtk.ko` classes it "unknown media"; on 2026-10-12 it had RX signal, no link, symbol-error counter saturated ([SDS-TOOLS.md](SDS-TOOLS.md)).
+- Cage 1 fibre = house LAN uplink. Cages 3 ↔ 7 copper cable removed 2026-10-11.
+
+## Network identity
+
+- **No factory MAC.** Stock `printsys` → `Invalid system information`; stock env `ethaddr` was a Realtek-OUI placeholder (#36).
+- **Base MAC `16:b0:46:e9:0d:c0`:** saved in `u-boot-env` `ethaddr` by the 2026-10-08 `sysupgrade`; locally administered (bit 1 of the first byte set) = randomly generated, not TP-Link assigned. Used by flash OpenWrt and our 7.3 kernel (nvmem layout on `u-boot-env`). Stock leaves the switch MAC registers at `00:e0:4c:00:00:00`.
+- **Management address** (owner, 2026-10-12): DHCP client + static fallback `192.168.0.1/24`; house LAN reserves `192.168.25.48` (registry block `st1008f-1` = `.48`-`.55`). Today's flash OpenWrt: static `.48/24` on bridge `switch.1`, gateway/DNS `.254`. [DECISIONS.md](DECISIONS.md).
+- **Lab hosts** (registry): host `enp7s0` TFTP server `192.168.25.30` (static NM entry + DHCP reservation); power relay (ESPHome "Office Bench Lights", no metering) claimed `.49` in the registry, was at `.138` in the DHCP pool, router reservation pending (owner).
+- **Managed-switch convention** (applies when routing goes live):
+  - one base MAC per box; management interface, ports and VLAN interfaces share it (base+1… only for extra MACs such as VRRP);
+  - the ASIC holds an L2 entry for its own MAC pointing at the CPU port (frames to the switch trap to the CPU; broadcast/ARP copied);
+  - one management IP on the management VLAN (VLAN 1 untagged); IPv6 by SLAAC;
+  - routing mode: one SVI (L3 interface) per VLAN, all sharing one router MAC held in the RTL9303 router-MAC table; VRRP virtual MACs go in the same table (SDK hardware VRRP, [SDK-FEATURE-MAP.md](SDK-FEATURE-MAP.md));
+  - firewall for ASIC-routed traffic = ACLs (#66).
 
 ## UART
 
 - Header silkscreen `DH GND RX TX`. `DH` function unknown; leave it and adapter VCC disconnected.
 - 3.3 V TTL. Adapter TX → board RX, adapter RX → board TX, common GND. No RS-232 levels, no 5 V TX.
+- Max rate = LX / 16 = 10.9375 MBd (divisor 1). Every integer divisor passes byte-exact on stock U-Boot and ours (2026-10-10, #32); ours ~9 % slower in chars/s at the top rate. The datasheet and TP-Link manual give no UART clock or limit.
+  - Host adapter PL2303 (`067b:2303`, clone) runs faster than its requested rate (request 5.13 M → 10.94 M actual); scripts sweep the host request per rate (`tmp/serial-cal.json`).
+  - Above ~3.6 MBd chars/s fall below line rate (one-char-at-a-time output + USB adapter).
+  - Long command lines drop characters (no flow control): scripts send in chunks, check the echo, then send CR (#31).
 - Autoboot: `Hit Esc key to stop autoboot`, `bootdelay=1` → one ESC byte gives `RTL9300#`. Window is ~1 s; use the console daemon's auto-catch (`scripts/switch_console_daemon.py`).
 - PL2303 adapter: `tio` drops it when stdin is not a terminal; pyserial (the daemon) holds it.
 
@@ -146,6 +182,8 @@ Source: static RE of stock `rtk.ko` (TP-Link additions, `TP_CHKPATTERN` thread).
 - Stock decode separates all three positions (measured above). Pins 18/19 alone do too.
 
 ### Boot policy (our U-Boot, #46)
+
+- Owner decision 2026-10-12 changes the meanings (implementation in progress, #73): M1 = switch mode (bridge + STP), M2 = isolated management, M3 = recovery image with isolated management. The text below is the current build. [DECISIONS.md](DECISIONS.md).
 
 - `board_late_init` reads DAT bits 17-19 twice, 30 ms apart (stock settle), decodes pins 18/19 only: 1/1 = M1, 0/1 = M2, 1/0 = M3. Both low or the two reads differ = invalid -> M1.
 - Prints `Mode:  Mx <name>, pins 17/18/19 = a/b/c`; sets env `boot_mode=Mx`, `bootcmd_m1=clocks fast; bootm 0xb4300000`.
