@@ -36,7 +36,7 @@ Bytes transferred = \d+ \([0-9a-f]+ hex\)  # tftpboot done
 \#\# Checking Image at 84f00000 \.\.\.  # iminfo / bootm image check
 \#\# Booting kernel from Legacy Image at 84f00000 \.\.\.  # bootm
 \s+Legacy image found  # iminfo / bootm
-\s+Image Name:\s+(MIPS OpenWrt Linux-\d+\.\d+\.\d+|mainline ST1008F)  # iminfo image names we build
+\s+Image Name:\s+(MIPS OpenWrt Linux-\d+\.\d+(\.\d+)?(-rc\d+)?|mainline ST1008F)  # iminfo image names we build
 \s+Created:\s+20\d\d-\d\d-\d\d\s+\d+:\d\d:\d\d UTC  # iminfo build time
 \s+Image Type:\s+MIPS Linux Kernel Image \(lzma compressed\)  # iminfo; type pinned
 \s+Data Size:\s+\d+ Bytes = [0-9.]+ MB  # iminfo
@@ -220,6 +220,11 @@ vth_set_bin = \d+  # SerDes RX calibration debug print
 
 [mainline]
 Linux version 7\.\d+\.\d+(-rc\d+)?(-dirty)? \(.*\) #\d+ .*  # our mainline build (tmp/linux-v7.3)
+Linux version 7\.\d+(\.\d+)?(-rc\d+)? \(\w+@\w+\) \(mips-openwrt-linux-musl-gcc \(OpenWrt GCC [0-9.]+ toolchain-[0-9a-f]+\) [0-9.]+, GNU ld \(GNU Binutils\) [0-9.]+\) #0 SMP( PREEMPT)? [A-Z][a-z]{2} [A-Z][a-z]{2} +\d+ \d\d:\d\d:\d\d 20\d\d  # OpenWrt-on-7.3 banner, local build (#73)
+Serial: 8250/16550 driver, 2 ports, IRQ sharing disabled  # serial driver, OpenWrt-on-7.3 config (#73)
+jffs2: version 2\.2\. \(NAND\) \(SUMMARY\)  © 2001-2006 Red Hat, Inc\.  # jffs2 init, OpenWrt-on-7.3 config (#73)
+hwmon hwmon\d: temp1_input not attached to any thermal zone  # OpenWrt-on-7.3: realtek thermal hwmon without a zone binding (#73)
+- generating board file -  # OpenWrt preinit (first boot of an initramfs)
 RTL930x DRAM controller prefetch on \(MCR [0-9a-f]{8}\)  # openwrt/patches/300-04 (#53)
 highmem kernel with > 256 MB RAM, adapt SoC memory mapping  # OpenWrt 300-02 zone-3 remap
 Realtek RTL9303 rev B \(6487\) SoC with 512 MB  # OpenWrt 300-02 SoC detection
@@ -366,7 +371,7 @@ Load address: 0x81000000  # tftpboot of uboot-mainline.bin
 
 [uboot-mainline]
 \#\# Booting kernel from Legacy Image at 84f00000 \.\.\.  # `ramload uboot-mainline --then`: bootm from ours
-\s+Image Name:\s+(MIPS OpenWrt Linux-\d+\.\d+\.\d+|mainline ST1008F)  # bootm header: images we build
+\s+Image Name:\s+(MIPS OpenWrt Linux-\d+\.\d+(\.\d+)?(-rc\d+)?|mainline ST1008F)  # bootm header: images we build
 \s+Image Type:\s+MIPS Linux Kernel Image \(lzma compressed\)  # bootm header; type pinned
 \s+Data Size:\s+\d+ Bytes = [0-9.]+ MiB  # bootm header
 \s+Load Address: 80100000  # bootm header; load address pinned

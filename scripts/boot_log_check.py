@@ -102,11 +102,34 @@ def stage_of(text: str, current: str) -> str:
         return "uboot-mainline"
     if "Linux version" in text:
         if "openwrt" in text.lower():
-            return "openwrt"
+            # OpenWrt userspace on our 7.x port (#73): [openwrt] + [mainline] rules
+            return "openwrt-mainline" if re.search(r"Linux version [7-9]\.", text) else "openwrt"
         if re.search(r"Linux version [7-9]\.|Linux version 6\.(1[3-9]|[2-9]\d)", text):
             return "mainline"
         return "stock"
     return current
+
+
+# OpenWrt userspace console lines a kernel printk can cut in two on SMP (#73): fragments are skipped
+CUT_MSGS = ("Press the [f] key and hit [enter] to enter failsafe mode",
+            "Press the [1], [2], [3] or [4] key and hit [enter] to select the debug level",
+            "Please press Enter to activate this console.", "- generating board file -")
+MID_TS = re.compile(r"\[\s*\d+\.\d{6}\]")
+
+
+def unsplice(boot):
+    """Split a kernel line printed into the middle of another; drop known userspace fragments."""
+    for n, raw in boot:
+        m = MID_TS.search(raw, 1)
+        if m and not raw.startswith("[TX ") and not raw.startswith("[daemon]"):
+            head, raw = raw[:m.start()], raw[m.start():]
+            h = DAEMON_TS.sub("", head).strip()
+            if h and not any(h in c for c in CUT_MSGS):
+                yield n, head
+        t = raw.strip()
+        if t and not KERNEL_TS.match(t) and any(t in c and c != t for c in CUT_MSGS):
+            continue
+        yield n, raw
 
 
 def check_boot(boot, allow, show_ok: bool):
@@ -117,7 +140,7 @@ def check_boot(boot, allow, show_ok: bool):
     typed, last_typed = "", ""  # send_checked types in chunks: one [TX] line per chunk, Enter alone
     interactive = False
     skipping = False  # between [daemon] note interactive-begin/-end (script command output)
-    for n, raw in boot:
+    for n, raw in unsplice(boot):
         if raw.startswith("[daemon] note interactive-"):
             skipping = raw.rstrip().endswith("begin")
             continue
@@ -150,7 +173,8 @@ def check_boot(boot, allow, show_ok: bool):
             continue
         if not is_uboot and TRACE.fullmatch(text):
             continue
-        rules = allow.get(stage, []) + (allow.get("linux", []) if not is_uboot else [])
+        secs = ["openwrt", "mainline"] if stage == "openwrt-mainline" else [stage]
+        rules = [r for sec in secs for r in allow.get(sec, [])] + (allow.get("linux", []) if not is_uboot else [])
         hit = next(((r, k) for p, r, k in rules if p.fullmatch(text)), None)
         denied = bool(DENY.search(text))
         if hit is None:

@@ -43,8 +43,8 @@ def ensure_server_ip() -> None:
                        check=True, timeout=5)  # local netlink; 5 s names a sudo prompt hang
         log(f"host {SERVER_NIC}: added {SERVER_IP}/24")
 
-# OpenWrt console-ready line; a kernel printk can land inside it ("Please[ 12.6] procd: - init -\n press ...")
-OW_READY = r"Please(?:\[[^\n]*\n)*\s?press Enter to activate"
+# OpenWrt console-ready line; a kernel printk can land anywhere inside it ("Please press Ent[ 12.6] procd: ...\n")
+OW_READY = r"(?:\[[^\n]*\n)?".join(re.escape(c) for c in "Please press Enter to activate")
 
 IMAGES = {
     # name: (file, load addr, start cmd, done marker, cap s)
