@@ -1,0 +1,55 @@
+From: Dan <dan@awto.au>
+Subject: [PATCH] realtek: rtl930x: enable DRAM controller prefetch
+
+The RTL930x DRAM controller has instruction and data prefetch enables in
+MCR (0x18001000) bits 23 (IP_REF) and 22 (DP_REF). The bootloader leaves
+both off and nothing in Linux turns them on. The Realtek SDK only enables
+them in its DRAM test (clear, then set).
+
+Measured on a TL-ST1008F v2 (RTL9303, DDR3-1200, CPU 800 MHz), cached
+memset 64 MiB 237.6 -> 382.9 MB/s, cached sequential read 291.4 ->
+366.4 MB/s; 256 MiB pattern test clean; rootfs read-back unchanged.
+
+Set them from the RTL930x early quirk hook, before memory sizing.
+
+--- a/arch/mips/generic/board-realtek.c
++++ b/arch/mips/generic/board-realtek.c
+@@ -27,6 +27,9 @@
+ #define RTL9300_UMSAR3			0x1330
+ #define RTL9300_O0DOR2			0x4220
+ #define RTL9300_O0DMAR2			0x4224
++#define RTL9300_MCR			0x1000
++#define RTL9300_MCR_IPREF		BIT(23)
++#define RTL9300_MCR_DPREF		BIT(22)
+ 
+ #define RTL931X_DRAM_CONFIG		0x14304c
+ 
+@@ -228,6 +231,20 @@
+ 	soc_info.memory_size = 1 << bits;
+ }
+ 
++/*
++ * The DRAM controller's instruction/data prefetch (MCR IP_REF/DP_REF) is left off by the
++ * bootloader. With it on, cached reads and writes stop waiting on one line fill at a time.
++ * Same enable sequence as the Realtek DRAM test: clear, then set.
++ */
++static void __init rtl930x_apply_quirks(void)
++{
++	u32 mcr = soc_r32(RTL9300_MCR) & ~(RTL9300_MCR_IPREF | RTL9300_MCR_DPREF);
++
++	soc_w32(mcr, RTL9300_MCR);
++	soc_w32(mcr | RTL9300_MCR_IPREF | RTL9300_MCR_DPREF, RTL9300_MCR);
++	__sync();
++}
++
+ static void rtl930x_prepare_highmem(void)
+ {
+ 	if ((soc_info.memory_size <= 256 * 1024 * 1024) ||
+@@ -408,6 +425,7 @@
+ 	.model_info_reg = RTL93XX_MODEL_NAME_INFO,
+ 	.family = RTL9300_FAMILY_ID,
+ 	.cpu_port = RTL930X_CPU_PORT,
++	.apply_quirks = rtl930x_apply_quirks,
+ 	.read_details = rtl93xx_read_details,
+ 	.get_memory = realtek_get_system_memory,
+ 	.prepare_highmem = rtl930x_prepare_highmem,
