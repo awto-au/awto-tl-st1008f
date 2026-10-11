@@ -146,6 +146,15 @@ End-to-end workflow: [../README.md#workflow](../README.md#workflow).
 - Run: `analyzeHeadless private/ghidra <project> -process loader.bin -postScript TraceLoader.java <out.c> <addr>[=exact_name] ...`
 - Output: the `.c` file given as the first script argument (keep it in `private/ghidra/`; vendor-code decompilation is not published).
 
+### vendor_nic_decompile.py, ghidra/DecompileMatching.java
+- Purpose: Ghidra headless decompile of the TL-ST5008F v2 1.2.0 CPU-NIC code: `core` functions matching a regex (NIC, CPU port, rate limits, RX threads) + `rtcore.ko`/`ethdriver.ko`/`mgntPort.ko` in full. Feeds `docs/VENDOR-NIC-TUNING.md`.
+- Run: `scripts/vendor_nic_decompile.py [st5008f-core|st5008f-core-extra|st5008f-rtcore|...]` (`core` takes ~3.5 min).
+- Output: `private/ghidra/vendor-nic/<name>.c` (not published). Log: `tmp/logs/vendor_nic_decompile.log`.
+
+### vendor_nic_values.py
+- Purpose: find the RTL9300 NIC ring-size tables (tx[2] + rx[32] uint32) in vendor ELF data sections.
+- Run: `scripts/vendor_nic_values.py <elf> ...`. Log: `tmp/logs/vendor_nic_values.log`.
+
 ### ghidra/DumpBytes.java
 - Purpose: print the memory-block map and raw bytes at given addresses of a loaded program (reads initialised `.data`/`.rodata` tables the decompiler shows only as `DAT_`).
 - Run: `analyzeHeadless private/ghidra <proj> -process <bin> -noanalysis -readOnly -postScript DumpBytes.java <out.txt> <addr>:<nbytes> ...`
