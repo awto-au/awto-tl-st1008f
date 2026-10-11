@@ -247,6 +247,12 @@ def cmd_rteth_ftrace(extra: list[str]) -> int:
     return _script("rteth_ftrace.py", extra)
 
 
+@command("rteth NIC-path before/after suite on mainline 7.3: boot | run --tag T [--runs 3] | table [T ...] (#60 #65)",
+         args="boot | run --tag T [--runs N] [--only L ...] | table [T ...]", kind="hardware")
+def cmd_nic_bench(extra: list[str]) -> int:
+    return _script("nic_path_bench.py", extra)
+
+
 @command("CPU-path cost vs clocks: boot flash OpenWrt from ours with one clock change, run the nat-bench set (#65)",
          args="base|cpu800|ddr600|nopref|lx204|all|table [--bench-only]", kind="hardware")
 def cmd_nat_clock_variants(extra: list[str]) -> int:

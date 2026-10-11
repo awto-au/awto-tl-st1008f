@@ -298,6 +298,16 @@ Desk-only; no switch access. Needs `tmp/openwrt` (sparse clone of openwrt, `targ
 - Run: `./dev.py rteth-ftrace [--depth N] [--roots f,g] [--load "--secs 3 -P 4"]` after `nat-bench setup` + `mode`.
 - Notes: tracer overhead inflates every number (all functions keep the mcount hook); use the split, not the absolute µs. Depth >= 2 overruns the buffer: per-call averages stay valid. Raw: `tmp/rteth_ftrace/`; log `tmp/logs/rteth_ftrace.log`.
 
+### nic_path_bench.py
+- Purpose: before/after suite for rteth driver changes on the mainline 7.3 kernel (#60, #65).
+- Run: `./dev.py nic-bench boot [--no-ramload]`; `./dev.py nic-bench run --tag T [--runs 3] [--only L ...]`; `./dev.py nic-bench table [T ...]`.
+- Suite (NAT + flowtable): TCP P4; UDP 1400 B at 600/700/900 Mbit/s offered (overload curve); UDP 64 B at 100 Mbit/s offered. Rows in `tmp/logs/nat_bench.jsonl` (label `nic-*`, tag T); qdisc drops per test in `tmp/logs/nic_path_bench.jsonl`; log `tmp/logs/nic_path_bench.log`.
+- Notes: house LAN, one cage; run `./dev.py storm-watch` alongside. `fwd kpps` = eth0 TX pps.
+
+### patch_from_tree.py
+- Purpose: regenerate the diff body of a patch on existing files (e.g. `300-12` on `rtl838x_eth.[ch]`) from the edited `tmp/linux-v7.3`; keeps the patch header.
+- Run: copy the files as the earlier patches leave them to an orig dir first, then `python3 scripts/patch_from_tree.py openwrt/patches/<patch> --orig-dir <dir> <tree paths>`. Log: `tmp/logs/patch_from_tree.log`.
+
 ### patch_refresh.py
 - Purpose: rewrite the new-file hunks of an `openwrt/patches/*.patch` from the patched tree (`tmp/linux-v7.3`) after editing a file the patch creates (e.g. the 300-06 mode-switch driver).
 - Run: `python3 scripts/patch_refresh.py openwrt/patches/<patch> [--tree DIR]`. Log: `tmp/logs/patch_refresh.log`.

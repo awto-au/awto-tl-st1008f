@@ -1,0 +1,350 @@
+Subject: realtek: rteth (rtl838x_eth) NIC path: RTL930x doorbell, TX reclaim, overload (#60 #65)
+
+Measured: docs/NAT.md "NIC path" and #60/#65 (per step, 3 runs each).
+- TX doorbell (RTL930x only): one writel_relaxed of a cached DMA_IF_CTRL per kick; no read-poll,
+  regmap lock or ktime. SDK r9300_nicTxFetch_set writes the field without a poll; the poll stays
+  for RTL838x/839x/931x (empty-read workaround), now in rteth_83xx_tx_kick.
+- TX stats per ring under the txq lock + ndo_get_stats64; tx_lock only guards the RMW doorbell.
+- TX reclaim: napi_consume_skb (skb cache, direct page_pool recycle) instead of dev_consume_skb_any.
+- Overload collapse fix: TX got one ring per RX poll (reclaim only at poll start, 1G CPU port):
+  - reclaim inline in xmit when the ring is full, stop the queue only if still full;
+  - TX ring 32 -> 128 (two polls of frames), wake at 16 free;
+  - doorbell at least every 16 frames of an xmit_more batch (fraglist GRO segments).
+- Generic parts (reclaim, ring size, kick batch) apply to all families; only RTL930x is tested.
+---
+--- a/drivers/net/ethernet/realtek/rtl838x_eth.c
++++ b/drivers/net/ethernet/realtek/rtl838x_eth.c
+@@ -14,9 +14,11 @@
+ #include <linux/sched.h>
+ #include <linux/slab.h>
+ #include <linux/of.h>
++#include <linux/of_address.h>
+ #include <linux/of_net.h>
+ #include <linux/of_mdio.h>
+ #include <linux/module.h>
++#include <linux/netpoll.h>
+ #include <linux/phylink.h>
+ #include <linux/pkt_sched.h>
+ #include <linux/regmap.h>
+@@ -468,6 +470,14 @@
+ 			     offsetof(struct rteth_tx_data, ring));
+ }
+ 
++static void rteth_930x_cache_dma_if_ctrl(struct rteth_ctrl *ctrl)
++{
++	u32 val;
++
++	regmap_read(ctrl->map, ctrl->cfg->dma_if_ctrl, &val);
++	ctrl->dma_if_ctrl_val = val & ~GENMASK(3, 0); /* TX_*_FETCH, TX_*_BUSY */
++}
++
+ /*
+  * Three limits bound the frames exchanged with the CPU port, and each family spreads them
+  * over registers of its own, whose length fields are named after the block holding them:
+@@ -504,6 +514,7 @@
+ 			   GENMASK(27, 14) | GENMASK(13, 0),
+ 			   FIELD_PREP(GENMASK(27, 14), len) | FIELD_PREP(GENMASK(13, 0), len));
+ 	regmap_clear_bits(ctrl->map, ctrl->cfg->dma_if_ctrl, RTETH_RX_TRUNCATE_EN_93XX);
++	rteth_930x_cache_dma_if_ctrl(ctrl);
+ }
+ 
+ static void rteth_931x_set_max_packet_length(struct rteth_ctrl *ctrl, int len)
+@@ -564,6 +575,7 @@
+ {
+ 	/* Enable DMA */
+ 	regmap_set_bits(ctrl->map, ctrl->cfg->dma_if_ctrl, ctrl->cfg->tx_rx_enable);
++	rteth_930x_cache_dma_if_ctrl(ctrl);
+ 
+ 	/* Restart TX/RX to CPU port, enable CRC checking */
+ 	regmap_set_bits(ctrl->map, ctrl->cfg->mac_l2_port_ctrl, 0x3 | BIT(4));
+@@ -602,12 +614,16 @@
+ 		}
+ 		tx_info->send_count = 0;
+ 		tx_info->clean_count = 0;
++		tx_info->kick_count = 0;
+ 		netdev_tx_reset_queue(netdev_get_tx_queue(ctrl->dev, r));
+ 	}
+ }
+ 
+-/* Caller holds the txq lock. Reports completions to BQL, wakes a stopped queue. */
+-static void rteth_reclaim_tx_ring(struct rteth_ctrl *ctrl, int r)
++/*
++ * Caller holds the txq lock. Reports completions to BQL, wakes a stopped queue.
++ * budget: 0 from netpoll, else NAPI/softirq context (napi_consume_skb: skb cache, direct recycle).
++ */
++static void rteth_reclaim_tx_ring(struct rteth_ctrl *ctrl, int r, int budget)
+ {
+ 	struct rteth_tx_info *tx_info = &ctrl->tx_info[r];
+ 	struct netdev_queue *txq = netdev_get_tx_queue(ctrl->dev, r);
+@@ -625,7 +641,7 @@
+ 				 tx_info->skb[i]->len, DMA_TO_DEVICE);
+ 		pkts++;
+ 		bytes += tx_info->skb[i]->len;
+-		dev_consume_skb_any(tx_info->skb[i]);
++		napi_consume_skb(tx_info->skb[i], budget);
+ 		tx_info->skb[i] = NULL;
+ 		tx_info->clean_count++;
+ 	}
+@@ -639,7 +655,7 @@
+ /* True while a TX queue is stopped with frames still owned by the hardware: there is no
+  * TX-done interrupt, so the RX NAPI poll keeps polling until they drain.
+  */
+-static bool rteth_reclaim_tx_rings(struct rteth_ctrl *ctrl)
++static bool rteth_reclaim_tx_rings(struct rteth_ctrl *ctrl, int budget)
+ {
+ 	bool pending = false;
+ 
+@@ -654,7 +670,7 @@
+ 		txq = netdev_get_tx_queue(ctrl->dev, r);
+ 
+ 		__netif_tx_lock(txq, smp_processor_id());
+-		rteth_reclaim_tx_ring(ctrl, r);
++		rteth_reclaim_tx_ring(ctrl, r, budget);
+ 		pending |= netif_xmit_stopped(txq) &&
+ 			   ctrl->tx_info[r].send_count != ctrl->tx_info[r].clean_count;
+ 		__netif_tx_unlock(txq);
+@@ -740,6 +756,7 @@
+ 		ctrl->tx_data[r].ring[RTETH_TX_RING_SIZE - 1] |= RTETH_RING_WRAP;
+ 		ctrl->tx_info[r].send_count = 0;
+ 		ctrl->tx_info[r].clean_count = 0;
++		ctrl->tx_info[r].kick_count = 0;
+ 	}
+ 
+ 	if (highmem)
+@@ -1122,14 +1139,42 @@
+ 	return -ENOENT;
+ }
+ 
++/*
++ * Issue send for 1 or 2 triggers. On some SoCs (especially RTL838x) there is a known bug, where
++ * the hardware sometimes reads empty values from the register. Work around that with a poll
++ * that checks if TX/RX is enabled in the register.
++ */
++static void rteth_83xx_tx_kick(struct rteth_ctrl *ctrl, int ring)
++{
++	u32 val;
++
++	spin_lock(&ctrl->tx_lock);
++	if (regmap_read_poll_timeout(ctrl->map, ctrl->cfg->dma_if_ctrl,
++				     val, val & ctrl->cfg->tx_rx_enable, 0, 5000))
++		netdev_warn_once(ctrl->dev, "DMA interface ctrl register read failed\n");
++
++	regmap_write(ctrl->map, ctrl->cfg->dma_if_ctrl, val | RTETH_TX_TRIGGER(ctrl, ring));
++	spin_unlock(&ctrl->tx_lock);
++}
++
++/*
++ * RTL930x: TX_*_FETCH self-clear and no other bit changes while the queues run (SDK
++ * r9300_nicTxFetch_set: plain field write, no poll), so one MMIO write of the cached value.
++ */
++static void rteth_930x_tx_kick(struct rteth_ctrl *ctrl, int ring)
++{
++	writel_relaxed(ctrl->dma_if_ctrl_val | RTETH_TX_TRIGGER(ctrl, ring),
++		       ctrl->base + ctrl->cfg->dma_if_ctrl);
++}
++
+ static int rteth_start_xmit(struct sk_buff *skb, struct net_device *dev)
+ {
+-	int port, val, slot, len = skb->len, ring = skb_get_queue_mapping(skb);
++	int port, slot, len = skb->len, ring = skb_get_queue_mapping(skb);
+ 	struct netdev_queue *txq = netdev_get_tx_queue(dev, ring);
+ 	struct rteth_ctrl *ctrl = netdev_priv(dev);
+ 	struct rteth_tx_info *tx_info = &ctrl->tx_info[ring];
+ 	struct sk_buff **packet_skb;
+-	bool kick;
++	bool kick, full;
+ 	struct rteth_frag *frag;
+ 	dma_addr_t packet_dma;
+ 
+@@ -1160,7 +1205,7 @@
+ 	}
+ 
+ 	if (unlikely(*packet_skb))
+-		rteth_reclaim_tx_ring(ctrl, ring);
++		rteth_reclaim_tx_ring(ctrl, ring, 0);
+ 
+ 	*packet_skb = skb;
+ 	frag->len = len;
+@@ -1179,31 +1224,25 @@
+ 	tx_info->send_count++;
+ 	wmb();
+ 
+-	if (tx_info->send_count - tx_info->clean_count == RTETH_TX_RING_SIZE)
+-		netif_tx_stop_queue(txq);
+-
+-	/* BQL; doorbell only at the end of an xmit_more batch or when the queue stopped */
+-	kick = __netdev_tx_sent_queue(txq, skb->len, netdev_xmit_more());
+-
+-	spin_lock(&ctrl->tx_lock);
++	/* BQL; doorbell at the end of an xmit_more batch, every KICK_BATCH, full ring, stopped queue */
++	full = tx_info->send_count - tx_info->clean_count == RTETH_TX_RING_SIZE;
++	kick = __netdev_tx_sent_queue(txq, skb->len, netdev_xmit_more()) || full ||
++	       tx_info->send_count - tx_info->kick_count >= RTETH_TX_KICK_BATCH;
+ 
+ 	if (kick) {
+-		/*
+-		 * Issue send for 1 or 2 triggers. On some SoCs (especially RTL838x) there is a known
+-		 * bug, where the hardware sometimes reads empty values from the register. Work around
+-		 * that with a poll that checks if TX/RX is enabled in the register.
+-		 */
+-		if (regmap_read_poll_timeout(ctrl->map, ctrl->cfg->dma_if_ctrl,
+-					     val, val & ctrl->cfg->tx_rx_enable, 0, 5000))
+-			netdev_warn_once(dev, "DMA interface ctrl register read failed\n");
++		ctrl->cfg->tx_kick(ctrl, ring);
++		tx_info->kick_count = tx_info->send_count;
++	}
+ 
+-		regmap_write(ctrl->map, ctrl->cfg->dma_if_ctrl, val | RTETH_TX_TRIGGER(ctrl, ring));
++	/* reclaim here, not only at the next poll: else TX gets one ring per RX poll (#60) */
++	if (full) {
++		rteth_reclaim_tx_ring(ctrl, ring, netpoll_tx_running(dev) ? 0 : 1);
++		if (tx_info->send_count - tx_info->clean_count == RTETH_TX_RING_SIZE)
++			netif_tx_stop_queue(txq);
+ 	}
+ 
+-	dev->stats.tx_packets++;
+-	dev->stats.tx_bytes += len - ETH_FCS_LEN;
+-
+-	spin_unlock(&ctrl->tx_lock);
++	tx_info->packets++;
++	tx_info->bytes += len - ETH_FCS_LEN;
+ 
+ 	/* no TX-done IRQ: let the RX NAPI poll reclaim and wake the stopped queue */
+ 	if (netif_xmit_stopped(txq))
+@@ -1380,7 +1419,7 @@
+ 	int work_done, ring = rx_q->id;
+ 	bool tx_pending;
+ 
+-	tx_pending = rteth_reclaim_tx_rings(ctrl);
++	tx_pending = rteth_reclaim_tx_rings(ctrl, budget);
+ 
+ 	work_done = rteth_hw_receive(ctrl->dev, ring, budget);
+ 	if (tx_pending)
+@@ -1587,7 +1626,19 @@
+ 	return ds->ops->port_setup_tc(ds, dp->index, type, type_data);
+ }
+ 
++static void rteth_get_stats64(struct net_device *dev, struct rtnl_link_stats64 *stats)
++{
++	struct rteth_ctrl *ctrl = netdev_priv(dev);
++
++	netdev_stats_to_stats64(stats, &dev->stats);
++	for (int r = 0; r < RTETH_TX_RINGS; r++) {
++		stats->tx_packets += READ_ONCE(ctrl->tx_info[r].packets);
++		stats->tx_bytes += READ_ONCE(ctrl->tx_info[r].bytes);
++	}
++}
++
+ static const struct net_device_ops rteth_netdev_ops = {
++	.ndo_get_stats64	= rteth_get_stats64,
+ 	.ndo_open		= rteth_open,
+ 	.ndo_stop		= rteth_stop,
+ 	.ndo_change_mtu		= rteth_change_mtu,
+@@ -1637,6 +1688,7 @@
+ 	.set_hol		= rteth_83xx_set_hol,
+ 	.set_max_packet_length	= rteth_838x_set_max_packet_length,
+ 	.set_rx_mode		= rteth_838x_set_rx_mode,
++	.tx_kick		= rteth_83xx_tx_kick,
+ 	.rx_csum_mask		= BIT(3),
+ };
+ 
+@@ -1676,6 +1728,7 @@
+ 	.set_max_packet_length	= rteth_839x_set_max_packet_length,
+ 	.setup_notify_buffer	= rteth_839x_setup_notify_buffer,
+ 	.set_rx_mode		= rteth_839x_set_rx_mode,
++	.tx_kick		= rteth_83xx_tx_kick,
+ 	.rx_csum_mask		= BIT(3),
+ };
+ 
+@@ -1715,6 +1768,7 @@
+ 	.set_hol		= rteth_93xx_set_hol,
+ 	.set_max_packet_length	= rteth_930x_set_max_packet_length,
+ 	.set_rx_mode		= rteth_930x_set_rx_mode,
++	.tx_kick		= rteth_930x_tx_kick,
+ 	.rx_csum_mask		= BIT(4),
+ };
+ 
+@@ -1754,6 +1808,7 @@
+ 	.set_hol		= rteth_93xx_set_hol,
+ 	.set_max_packet_length	= rteth_931x_set_max_packet_length,
+ 	.set_rx_mode		= rteth_931x_set_rx_mode,
++	.tx_kick		= rteth_83xx_tx_kick,
+ 	.rx_csum_mask		= BIT(4),
+ };
+ 
+@@ -1803,6 +1858,11 @@
+ 	}
+ }
+ 
++static void rteth_iounmap(void *base)
++{
++	iounmap(base);
++}
++
+ static int rteth_probe(struct platform_device *pdev)
+ {
+ 	struct page_pool_params pp_params = {
+@@ -1842,6 +1902,14 @@
+ 	if (IS_ERR(ctrl->map))
+ 		return PTR_ERR(ctrl->map);
+ 
++	/* the syscon's registers again (no region request: syscon holds it), for the doorbell */
++	ctrl->base = of_iomap(dn->parent, 0);
++	if (!ctrl->base)
++		return dev_err_probe(&pdev->dev, -ENOMEM, "cannot map switch registers\n");
++	err = devm_add_action_or_reset(&pdev->dev, rteth_iounmap, ctrl->base);
++	if (err)
++		return err;
++
+ 	/* Allocate buffer memory */
+ 	ctrl->membase = dmam_alloc_coherent(&pdev->dev, sizeof(struct notify_b),
+ 					    (void *)&dev->mem_start, GFP_KERNEL);
+--- a/drivers/net/ethernet/realtek/rtl838x_eth.h
++++ b/drivers/net/ethernet/realtek/rtl838x_eth.h
+@@ -195,10 +195,14 @@
+ 
+ #define RTETH_RX_RING_SIZE			128
+ #define RTETH_RX_RINGS				2
+-/* SDK value (#16); was 16 */
+-#define RTETH_TX_RING_SIZE			32
++/* two RX polls of forwarded frames: the 1G CPU port drains a poll's burst slower than the
++ * next poll arrives (#60); was 16, SDK 32
++ */
++#define RTETH_TX_RING_SIZE			128
+ /* free slots before a stopped TX queue is woken */
+-#define RTETH_TX_WAKE_THRESH			4
++#define RTETH_TX_WAKE_THRESH			16
++/* doorbell at least every this many frames of an xmit_more batch, so the DMA starts early */
++#define RTETH_TX_KICK_BATCH			16
+ #define RTETH_TX_RINGS				2
+ #define RTETH_TX_TRIGGER(ctrl, ring)		((0x16 >> ring) & ctrl->cfg->tx_trigger_mask)
+ 
+@@ -272,6 +276,9 @@
+ struct rteth_tx_info {
+ 	unsigned int		send_count;  /* skbs handed to the hardware */
+ 	unsigned int		clean_count; /* skbs released after completion */
++	unsigned int		kick_count;  /* send_count at the last doorbell */
++	unsigned long		packets;     /* under the txq lock (xmit) */
++	unsigned long		bytes;
+ 	struct sk_buff		*skb[RTETH_TX_RING_SIZE];
+ };
+ 
+@@ -320,6 +327,10 @@
+ 	struct rteth_tx_info	tx_info[RTETH_TX_RINGS];
+ 	struct rteth_tx_data	*tx_data;
+ 	struct work_struct	reset_work;
++	/* switch block, for the lockless RTL930x doorbell */
++	void __iomem		*base;
++	/* DMA_IF_CTRL with the fetch and busy bits clear (RTL930x) */
++	u32			dma_if_ctrl_val;
+ };
+ 
+ struct rteth_cfg {
+@@ -360,6 +371,7 @@
+ 	void (*setup_notify_buffer)(struct rteth_ctrl *ctrl);
+ 	void (*update_counter)(struct rteth_ctrl *ctrl, int ring, int released);
+ 	void (*set_rx_mode)(struct net_device *dev);
++	void (*tx_kick)(struct rteth_ctrl *ctrl, int ring);
+ 	u32 rx_csum_mask;
+ };
+ 

@@ -5,11 +5,11 @@ Target: NAT near 2.5 Gbit/s (owner ISP: NBN HFC ~2 Gbit/s down). Issue: "Fast NA
 ## Verdict
 
 - IPv4 NAT runs only on the CPU path: the ASIC has no IP/port rewrite (#58).
-  - Best measured, with the nftables software flowtable: OpenWrt 6.18 **248 Mbit/s** TCP NAT, UDP 1400 B 39.7 kpps (about 445 Mbit/s); our mainline 7.3 (DDR 600) **up to 328 Mbit/s** TCP NAT, UDP 1400 B 51 kpps (600 Mbit/s, 0 % loss). See "Mainline 7.3".
+  - Best measured, with the nftables software flowtable: OpenWrt 6.18 **248 Mbit/s** TCP NAT, UDP 1400 B 39.7 kpps (about 445 Mbit/s); our mainline 7.3 (DDR 600) with `300-12` **348-358 Mbit/s** TCP NAT, UDP 1400 B **65 kpps** (about 750 Mbit/s at 900 offered, no collapse), UDP 64 B 70 kpps. See "Mainline 7.3" and "NIC path (`300-12`)".
   - 2.5 Gbit/s needs about 10x less CPU per packet than today. Not reachable on this CPU.
   - The per-packet cost scales with the CPU clock and barely with DDR or LX (see "Clock sensitivity"): the CPU path is compute-bound.
 - IPv6 needs no NAT and is routed by the ASIC at **9.08 Gbit/s with 0 % CPU**. This is the fast path; clients prefer IPv6 when it is offered (see "IPv6 fast path").
-- CPU port speed setting (1G) is not the limit. Every CPU path measured tops out below 700 Mbit/s.
+- CPU port speed (1G) is not the throughput limit: 65 kpps x 1400 B is about 750 Mbit/s each way. Its drain time per RX poll is why the TX ring needs 128 slots (#60, "NIC path").
 
 ## Measured (2026-10-11)
 
@@ -103,17 +103,39 @@ Conditions:
 - 7.3 with fraglist GRO beats OpenWrt 6.18 on every forwarding row: TCP NAT +7-37 %, UDP +36-38 %, RX-only +41-44 %. TX-only is level.
 - No-flowtable rows are not comparable: the initramfs has no fw4 ruleset, OpenWrt runs every packet through it.
 - At 800 MHz (stock clocks, gro-list off): NAT + flowtable TCP 199.5, UDP 1400 B 25.6 kpps fwd; local TCP RX 277 / TX 212.
-- Overload collapse: past about 51 kpps (UDP 1400 B at 700-900 Mbit/s offered) forwarding falls to 31.7 kpps. RX NAPI starves TX: eth0 qdisc drops + requeues, no driver `rx_dropped`. Same with gro-list off at 600 offered (#60).
+- The rows above are `300-11` only. Overload collapse (UDP 1400 B at 700/900 offered fell to 47/32 kpps) is fixed by `300-12`: see "NIC path".
 - TCP P4 differs between two boots of the same image (323-328 vs 256-274, retransmits 1400 vs 3000); P1 matched (291 vs 286). Cause not isolated.
+
+### NIC path (`300-12`, 2026-10-12)
+
+Same boot and topology as above (DDR 600, CPU 1 GHz, HIGHMEM=y). `./dev.py nic-bench run`, 3 runs per step, one boot per step; rows tagged `nic-*` in `tmp/logs/nat_bench.jsonl`. Cells: min-max of 3. `fwd kpps` = eth0 TX. `ns/pkt` = busy VPE time per eth0 RX packet.
+
+| Step | TCP P4 Mbit/s | UDP 1400 @600 kpps | @700 kpps (loss %) | @900 kpps (loss %) | UDP 64 B kpps | ns/pkt UDP 64 B |
+|---|---|---|---|---|---|---|
+| base (`300-11`) | 302-307 | 50.9-51.1 | 45.7-46.8 (21-23) | 31.3-32.1 (58-59) | 55.8-56.6 | 16690-16841 |
+| 1: RTL930x doorbell (cached `writel`, no poll/lock/ktime) | 318-321 | 50.9-51.0 | 47.7-48.1 (19-20) | 32.0-32.3 (58) | 61.0-62.0 | 15366-15407 |
+| 2a: `napi_consume_skb`, reclaim in xmit when full | 347-359 | 50.9-51.1 | 59.4-59.5 (0) | 40.4-44.4 (41-45) | 68.7-69.1 | 13579-13866 |
+| 2b: TX ring 128, kick every 16 of a batch | 351-354 | 50.9-51.0 | 59.4-59.5 (0) | 64.9-65.2 (14-15) | 70.0-70.4 | 13559-13618 |
+| 3: TX from the RX page pool (no `dma_map`) - reverted | 351-360 | 50.9-51.1 | 59.4 (0) | 63.8-65.3 (14-17) | 70.0-70.5 | 13523-13594 |
+| final (`300-12` = 2b) | **348-358** | 50.9 | **59.4-59.6 (0)** | **64.5-65.3 (14-15)** | **69.5-70.5** | 13580-13705 |
+| experiment: final + `HIGHMEM` off (not committed) | 369-380 | 50.9-51.1 | 59.4-59.5 (0) | 70.6-71.1 (7) | 74.5-75.9 | 12558-12700 |
+
+- UDP 1400 B at 600 offered is offered-limited (51 kpps in = out); 900 offered is the saturated 1400 B number.
+- Overload: eth0 qdisc drops at 900 offered 790-810 k per run (base) -> 0 (2b, final). Excess now drops in the NIC RX ring (no CPU spent), RX pps = TX pps.
+- Cause of the collapse: reclaim ran only at the start of each RX poll; a poll's burst of 1400 B frames takes longer on the 1G CPU port than one ring holds, so TX got at most one 32-slot ring per 64-frame RX poll (RX 63 k : TX 32 k).
+- Step 3 removed `dma_map`/`unmap` for forwarded frames (page pool mapped bidirectional, `dma_sync_single_for_device` only): no measurable gain, reverted. The cache writeback itself stays.
+- `HIGHMEM=y` costs 5-9 %: every `dma_sync` goes through `kmap_atomic` and `page_address()` is out of line, while the HighMem zone is empty (256 MiB in the DTS). Trade-off with the second 256 MiB (#27).
+- Final, other paths (1 run each): pktgen TX 1400 / 64 B 49.1 / 64.7 kpps (base 37.7-40.0 / 60.8); rxdrop 137 / 165 kpps (base 133 / 162); CPU-terminated TCP RX / TX 300 / 261 Mbit/s (base 295 / 238).
+- Final: no driver warnings; BQL limits 133400 / 89798 B on tx-0 / tx-1 after the suite; qdisc requeues 30 over the whole suite.
 
 ### Where the NIC time goes (`./dev.py rteth-ftrace`, 1 GHz, NAT + flowtable TCP)
 
 - `function_graph` keeps the mcount hook on every function, so all times are inflated (load drops to 50-90 Mbit/s); use the split.
-- Depth 1, per packet: `rteth_poll_rx` 25.8 µs (637 µs per poll, ~25 frames), `rteth_start_xmit` 18.9 µs. Untraced total: 25 µs per forwarded packet (VPE-ns/pkt).
-- `rteth_start_xmit` children (depth 3, per call, inflated): `regmap_read` + `regmap_write` 29 µs per kick, kicks on 58 % of packets (doorbell: `regmap_read_poll_timeout` + write, each with a regmap spinlock and `ktime_get`); `dma_map_page_attrs` 10.6 µs.
-- TX reclaim per packet: `dev_kfree_skb_any_reason` 11.8 µs, `dma_unmap_page_attrs` 5.6 µs.
-- RX per packet (depth 2): `gro_receive_skb` 6.4, `page_pool_alloc_frag` 2.9, `napi_build_skb` 2.6, `__dma_sync_single_for_cpu` 2.2, `decode_tag` 1.8 µs; the rest is `rteth_poll_rx` itself (ring + uncached descriptor access).
-- Candidates (#60): doorbell by direct MMIO without the poll (RTL838x workaround), skb free batching (`napi_consume_skb`), fewer DMA-map calls.
+- `rteth_start_xmit` per call (depth 1): 18.9 µs (`300-11`) -> 14.0 µs (`300-12`).
+- Doorbell: `regmap_read_poll_timeout` + `regmap_write` 29 µs per kick on 58 % of packets (`300-11`) -> `rteth_930x_tx_kick` 1.6 µs per kick (mostly tracer cost of one call).
+- TX reclaim per packet: `dev_kfree_skb_any` 11.8 + `dma_unmap` 5.6 µs (`300-11`) -> `rteth_reclaim_tx_ring` 8.2 µs including `napi_consume_skb` and unmap.
+- Remaining split per RX packet, `300-12`, depth 2 (µs, inflated): `dma_map_page_attrs` 4.3 (TX writeback; under it `kmap_local` + `r4k_dma_cache_wback_inv`), TX reclaim 4.2, `gro_receive_skb` 3.3, `page_pool_alloc_frag` 1.4, `napi_build_skb` 1.3, `__dma_sync_single_for_cpu` 1.1 (a no-op on the 34Kc: `cpu_needs_post_dma_flush` false), `is_vmalloc_addr` 1.0, `decode_tag` 0.9, `create_tx_header` 0.8, `tx_kick` 0.8, `eth_type_trans` 0.8, `page_address` 0.7 (HIGHMEM), `enable_rx_irq` 0.7.
+- `rteth_poll_rx` self time: ring + uncached descriptor reads (about 8 single loads per frame). Cached descriptors would need per-line invalidation of a ring shared with the NIC (false sharing on the 4-byte ring entries): not done.
 
 ## Clock sensitivity (2026-10-11, `./dev.py nat-clock-variants`)
 

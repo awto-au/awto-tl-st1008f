@@ -175,6 +175,7 @@ Built with `./dev.py build-kernel` (GCC 16.2); booted 2026-10-12 with IP traffic
 | `300-09` | Kconfig/Makefile hooks: forward-ports of `700`, `716`, `721`, `730`, `806`, `808` |
 | `300-10` | 7.3 API fixes on the copied files |
 | `300-11` | rteth TX: 32-slot ring, BQL, xmit_more doorbell (owner input, #65) |
+| `300-12` | rteth NIC path: RTL930x lockless doorbell, `napi_consume_skb` reclaim, overload fix (128-slot TX ring, reclaim in xmit, kick batch) (#60, #65) |
 
 ### 6.18 -> 7.3 drift fixes (one line each; details in the patch headers)
 
@@ -211,11 +212,14 @@ Built with `./dev.py build-kernel` (GCC 16.2); booted 2026-10-12 with IP traffic
 - `ethernet` gets `nvmem-cells = <&macaddr_uboot 0>` from a `u-boot,env` nvmem layout on `u-boot-env`: eth0 = env `ethaddr` (`16:b0:46:e9:0d:c0`, same as the flash OpenWrt bridge). Stock `rtk network on` leaves the switch MAC registers at `00:e0:4c:00:00:00`.
 - Not carried: OpenWrt `gpio-keys` (replaced by the mode switch, 300-06); `#thermal-sensor-cells` on SFP nodes + `sfp-thermal` zone (provider not in 7.3 or the ported set); GPIO21 watchdog stays disabled.
 
-### CPU-port NIC (`300-11`)
+### CPU-port NIC (`300-11`, `300-12`)
 
-- TX ring 16 -> 32 slots (SDK value); RX unchanged (NAPI, page_pool, 2 rings x 128).
-- BQL; doorbell only at the end of an `xmit_more` batch or when the queue stops.
-- No TX-done IRQ: reclaim runs in the RX NAPI poll, now also while the queue is stopped; xmit schedules NAPI when it stops a queue; the poll repolls while a stopped queue has frames owned by hardware.
+- RX unchanged (NAPI, page_pool, 2 rings x 128).
+- TX ring 128 slots (16 upstream, SDK 32): holds two RX polls of forwarded frames; with 32 the 1G CPU port drained one ring per poll and forwarding collapsed under overload (#60).
+- BQL; doorbell at the end of an `xmit_more` batch, every 16 frames of a batch, on a full ring, or when the queue stops.
+- Doorbell on RTL930x: one `writel_relaxed` of a cached `DMA_IF_CTRL` (fetch/busy bits clear), no read-poll, regmap lock or `ktime`. SDK `r9300_nicTxFetch_set` writes the field without a poll. Other families keep the RTL838x read-poll + RMW under `tx_lock`.
+- No TX-done IRQ: reclaim runs at the start of each RX NAPI poll and inline in xmit when the ring is full (queue stops only if still full); `napi_consume_skb` (skb cache, direct page_pool recycle). xmit schedules NAPI when it stops a queue; the poll repolls while a stopped queue has frames owned by hardware.
+- TX packet/byte counters per ring under the txq lock (`ndo_get_stats64`).
 - CPU port MAC force register (`0xbb00ca8c`, power-up 0x217 = 1G): left as the driver sets it.
 
 ### Safety defaults (house LAN; loop of 2026-10-10)
@@ -299,7 +303,7 @@ Method: `scripts/openwrt_patch_status.py` (series order; reverse-apply = upstrea
 | `arch/mips/include/asm/mach-rtl-otto/*` | ported | verbatim |
 | `drivers/clk/realtek/*`, `include/dt-bindings/clock/rtl83xx-clk.h` | dropped | see `318` |
 | `drivers/net/dsa/rtl83xx/*` (incl. `l3.c` v4+v6 routing offload, `l2`, `tc`, `pie`, `qos`, `lag`, `mirror`, `stp`, `vlan`, `debugfs`) | ported | verbatim + `300-10` |
-| `drivers/net/ethernet/realtek/rtl838x_eth.[ch]` | ported | verbatim + `300-11` |
+| `drivers/net/ethernet/realtek/rtl838x_eth.[ch]` | ported | verbatim + `300-11` + `300-12` |
 | `drivers/net/ethernet/realtek/rtl960x_gmac.[ch]` | dropped | other SoC |
 | `drivers/net/mdio/mdio-realtek-otto.c`, `mdio-realtek-otto-serdes.c` | ported | verbatim |
 | `drivers/net/mdio/mdio-realtek-otto-rtl960x.c` | dropped | other SoC |

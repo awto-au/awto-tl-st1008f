@@ -133,7 +133,7 @@ Read value `0x06400000`, taken 2026-10-11 at the U-Boot prompt with the NIC idle
 | RX_TRUNCATE_EN | 6 | 0 | Enables the truncation (`dal_longan_switch_cpuPktTruncateEnable_set`) | SDK sets it with len 0x640 | cleared | none for NAT: a forwarded packet needs its payload for TX. Header-only RX suits only copy-to-CPU (sFlow, mirror-to-CPU) where the ASIC forwards the original |
 | TX_EN | 5 | 0 | TX DMA enable | 1 at NIC init | 1 (`tx_rx_enable` 0x30) | - |
 | RX_EN | 4 | 0 | RX DMA enable | 1 | 1 | - |
-| TX_HIGH_FETCH | 3 | 0 | Doorbell, TX ring 1 (high). Self-clearing; the NIC then reads descriptors whose OWN bit is set (9310 DG §11.1.2, Table 11-2) | RMW per packet | read-poll + write per packet | doorbell batching (`xmit_more`) saves one uncached read + one write per packet in bursts (#60); MMIO cost not measured |
+| TX_HIGH_FETCH | 3 | 0 | Doorbell, TX ring 1 (high). Self-clearing; the NIC then reads descriptors whose OWN bit is set (9310 DG §11.1.2, Table 11-2) | RMW per packet | `300-12`: one write of a cached value per kick, no read-poll | read-poll + regmap lock + `ktime` -> one `writel`: UDP 64 B forwarding +9 % (NAT.md "NIC path", #60) |
 | TX_LOW_FETCH | 2 | 0 | Doorbell, TX ring 0 (low); higher ring ID = higher priority | same | same (mask `GENMASK(3,2)`) | same |
 | TX_HIGH_BUSY | 1 | 0 | TX ring 1 DMA busy, "for debugging" (RO) | polled | - | - |
 | TX_LOW_BUSY | 0 | 0 | TX ring 0 DMA busy, "for debugging" (RO) | polled | - | - |
@@ -153,7 +153,7 @@ Read value `0x06400000`, taken 2026-10-11 at the U-Boot prompt with the NIC idle
 | Register | Addr | Fields | Purpose | SDK / stock | OWRT | Effect on µs/pkt |
 |---|---|---|---|---|---|---|
 | `DMA_IF_RX_BASE_DESC_ADDR_CTRL` [32] / `_CUR_` | 0xDF00 / 0xDF80 | ADDR | RX ring base / current descriptor | 32 rings | 2 rings | - |
-| `DMA_IF_TX_BASE_DESC_ADDR_CTRL` [2] / `_CUR_` | 0xE000 / 0xE008 | ADDR | TX ring base (low, high) | 2 x 32 | 2 x 16 | - |
+| `DMA_IF_TX_BASE_DESC_ADDR_CTRL` [2] / `_CUR_` | 0xE000 / 0xE008 | ADDR | TX ring base (low, high) | 2 x 32 | 2 x 128 (`300-12`; OpenWrt 16) | ring size is set by the WRAP bit only; 128 fixed the overload collapse (#60) |
 | `DMA_IF_INTR_RX_RUNOUT_MSK/STS` | 0xE010 / 0xE01C | 1 bit per ring | Ring-full IRQ | all on | per ring | - |
 | `DMA_IF_INTR_RX_DONE_MSK/STS` | 0xE014 / 0xE020 | 1 bit per ring | RX IRQ, one per packet when unmasked; **no count or timer field** | all on, hard IRQ | NAPI masks while polling | none at saturation: NAPI already polls with the IRQ masked |
 | `DMA_IF_INTR_TX_DONE_MSK/STS` | 0xE018 / 0xE024 | TX_DONE[1:0], TX_ALL_DONE[3:2] | TX completion IRQ per ring | on | off (lazy reclaim) | small: earlier page_pool recycling |
@@ -202,7 +202,7 @@ Read value `0x06400000`, taken 2026-10-11 at the U-Boot prompt with the NIC idle
   - Per-CPU-queue scheduling and rate limits.
   - These isolate traffic classes; they do not raise throughput.
 - The 20-23 µs per packet is CPU-side work: descriptor handling, uncached MMIO, cache invalidate and writeback, skb/page_pool. No register removes it. The fast path Realtek built is the ASIC pipeline (L3 + PIE), not the NIC.
-- Fixes stay in the driver (#60): `xmit_more` batching, TX ring 32, BQL, and the trap-reason ring map. Plus profiling in the 7.3 port.
+- Fixes stay in the driver (#60): `xmit_more` batching, BQL, `300-12` (lockless doorbell, TX ring 128, reclaim in xmit; NAT.md "NIC path"), and the trap-reason ring map.
 - Optional SoC delayed-interrupt test, low expected gain.
 
 ## Ranked: unused features worth enabling

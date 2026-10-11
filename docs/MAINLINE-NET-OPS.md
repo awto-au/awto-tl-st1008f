@@ -43,6 +43,7 @@ cat /sys/kernel/debug/sfp-p1/state   # tx_disable: 0 now
 - Host side: `ping 192.168.25.48`, `iperf3 -c 192.168.25.48` after `iperf3 -s -D` on the switch.
 - NAT bench: `./dev.py nat-bench setup|mode|run|local|pktgen|rxdrop` detect the mainline shell (no `switch` bridge): SVIs are `lan1.991`/`lan1.992`, no fw4, `ip_forward` set by `setup`.
 - NIC path timing: `./dev.py rteth-ftrace --depth 1|2|3` (after `nat-bench setup` + `mode nat-ft`).
+- Driver before/after: `./dev.py nic-bench boot` (ramload at 1 GHz + `port-up 1` + `nat-bench setup` + `mode nat-ft`), `./dev.py nic-bench run --tag T` (3 runs: TCP P4, UDP 1400 B at 600/700/900, UDP 64 B), `./dev.py nic-bench table T1 T2`.
 - Tagged test instead of the house VLAN: `port-up 1 10.99.1.1/24 991`, host netns `natlan` on `enp7s0.991` = 10.99.1.2 (same VLAN as [NAT-OPS.md](NAT-OPS.md)); `ping 10.99.1.2`.
 - 10G optics: if no link at 10G, record `ethtool lan1` + `dmesg` tail; PCS calibration is the known risk (#16 stage 5).
 
