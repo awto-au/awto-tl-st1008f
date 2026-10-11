@@ -1,6 +1,6 @@
 # Default boot: OpenWrt on our 7.3 kernel, recovery OpenWrt fallback (#73)
 
-Design + code 2026-10-12 (modes: owner 2026-10-12); nothing run on the board. Every flash write needs owner approval. Steps: [DEFAULT-BOOT-OPS.md](DEFAULT-BOOT-OPS.md).
+Design + code 2026-10-12 (modes: owner 2026-10-12); nothing run on the board. Flash writes: standing approval except the stock U-Boot area (CLAUDE.md). Steps: [DEFAULT-BOOT-OPS.md](DEFAULT-BOOT-OPS.md).
 
 ## Goal and constraints
 
