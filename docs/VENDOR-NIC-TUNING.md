@@ -57,20 +57,26 @@ Question (#60): do the vendor's managed RTL9303 boxes run a faster CPU network p
 
 ## What this rules out
 
-- No hidden vendor CPU-port speed setting: SPD_SEL is never written by SDK, ST1008F or ST5008F. Its reset value under stock is still unread (read `0xbb00ca8c` at the stock prompt).
+- No hidden vendor CPU-port speed setting: SPD_SEL is never written by SDK, ST1008F or ST5008F. After the stock loader (no `rtk network on`) `0xbb00ca8c` reads `0x217` = 1G (2026-10-11). The loader (`0x83f67548`) writes bits 9/8/7/1/0 of it, so this is not the raw reset value; 1G is consistent with the hardware default but unmeasured (needs a read before the stock loader).
 - No hardware interrupt coalescing exists to copy.
 - No vendor ring depth larger than OpenWrt's.
 - No vendor use of the second VPE.
 
 ## Ranked: what to adopt (feeds #60, #16)
 
-Gains are estimates, none measured. Baseline: ~8.5 kpps forwarded, ~75–110 µs CPU per packet, VPE1 idle.
+Gains below are the pre-measurement estimates. Measured outcome per item: [NAT.md](NAT.md) "NIC path" and [MAINLINE-PORT.md](MAINLINE-PORT.md) section 9.
+
+Status (2026-10-12):
+- Item 1: RPS onto VPE1 measured worse on 6.18 (213 → 128 Mbit/s NAT + flowtable). SMP 7.3: eth0 on CPU1 ≈ UP, no gain (MAINLINE-PORT section 9). TX completion on VPE1 (`300-14` `tx_cpu`): not measured.
+- Item 2: done and exceeded: `300-11` (ring 32, BQL, xmit_more) then `300-12` (ring 128, lockless doorbell, reclaim in xmit): UDP 64 B 55.8 → 70 kpps, TCP NAT 302 → 358 Mbit/s.
+- Items 3, 4: not done.
+- Item 5: SPD_SEL A/B deferred until the CPU path nears 1 Gbit/s (owner, 2026-10-11).
 
 1. **Use VPE1 (SMP kernel + RPS, or second RX ring's NAPI on VPE1 via the multi-parent irqchip).** No vendor precedent; the only idle compute. Expected 1.2–1.6x pps on MIPS MT (shared pipeline, gain from hiding uncached-MMIO and cache-miss stalls). Highest value.
 2. **TX ring 32 per ring (SDK value) + `xmit_more` doorbell batching + BQL.** SDK depth is 2x OpenWrt; batching is not in any vendor code but removes one uncached read+write per packet under bursts. Expected: fewer `NETDEV_TX_BUSY` requeues; single-digit to ~15 % at burst load.
 3. **Trap reason → ring map** via the SDK's named `QM_RSN2CPUQID` fields (`dal_longan_trap_mgmtFrameQueue_set`): ARP/STP/LACP/BPDU on a high ring, routed/NAT traffic on another, NAPI per ring. No throughput gain; keeps the control plane alive when routed traffic saturates the CPU. Pair with item 4.
 4. **Optional CPU protection, ST5008F style but high limit:** EGBW port 28 in packet mode at ~1.25x the measured max CPU pps (e.g. ~25 kpps), or per-reason meters. Protects against storms (#43 loop). Not a throughput gain; do not copy the 600 pps value.
-5. **CPU port SPD_SEL:** no vendor code writes it; after the stock loader it reads 1G (`0x217`; stock writes bits 9/8/7/1/0 only). Raw reset value unread (needs a pre-loader read); if it is 10G (4), test OpenWrt without forcing 1G (0x217 → keep SPD_SEL). Gain unknown; ASIC limiters on port 28 already measured off.
+5. **CPU port SPD_SEL:** no vendor code writes it; after the stock loader it reads 1G (`0x217`; stock writes bits 9/8/7/1/0 only). Raw reset value unread (needs a pre-loader read); test 10G (4) / 2.5G (5) instead of forcing 1G. Gain unknown; ASIC limiters on port 28 already measured off.
 6. **Keep OpenWrt's RX design** (NAPI, page_pool, 2 × 128): ahead of every vendor build. Do not port the SDK's hard-IRQ `netif_rx` or the ST5008F user-space thread.
 
 Refs: #60 #16 #7 #15 #43.
