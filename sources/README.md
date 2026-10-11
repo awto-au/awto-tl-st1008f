@@ -16,3 +16,15 @@ Downloaded vendor documents. `*.pdf` is gitignored; this manifest is tracked.
 - URL: https://www.winbond.com/resource-files/w25q256jv%20spi%20revg%2008032017.pdf
 - Revision: W25Q256JV, Publication Release Date August 03, 2017 (Rev G).
 - Good copy: 92 pages; contains "Clock frequency for Read Data instruction (03h)" (50 MHz) and "133MHz Standard/Dual/Quad SPI clocks". The board's flash is JEDEC EF4019 (JV/FV class); die variant not confirmed.
+
+## Web references (live pages, not downloaded)
+
+Carried over from the retired `awto-st1008f` notes repo (2026-08-18).
+
+| Topic | URL | Notes |
+|---|---|---|
+| Review + teardown (v1) | https://www.servethehome.com/cheapest-10gbe-8-port-switch-tp-link-tl-st1008f-review/ | 2022-06-26; internal photos, RTL9303 ID, power draw. v1 unit |
+| Hardware wiki (v2) | https://techinfodepot.shoutwiki.com/wiki/TP-LINK_TL-ST1008F_v2 | component inventory, serial/JTAG, U-Boot flash walkthrough |
+| OpenWrt device page | https://openwrt.org/inbox/toh/tp-link/tl-st1008f_1.0 | ToH entry |
+| RTL93xx SoC notes | https://www.svanheule.net/switches/rtl93xx | clock/bus/memory map, register layout |
+| Installation manual | https://www.manualslib.com/manual/3622336/Tp-Link-Tl-St1008f.html | not downloaded |
