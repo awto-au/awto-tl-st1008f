@@ -167,6 +167,28 @@ Source tags: **[SRC]** GPL file:line (`dms1250/` = `sources/rtk-dms1250/`, `xgs1
 - DT consumers to switch from fixed clocks: `cpu@0/1 clocks`, `uart0/1`, `timer@3200` (otto timer), watchdog, `i2c@36c/@388`, `/cpus frequency` (or make 300-02 read the clock).
 - Until then: U-Boot `ft_board_setup` patches the fixed-clock values.
 
+## Defaults (ramload uboot-mainline)
+
+- CPU 1000 MHz (`e208 0x3a8`, /3) + SPI-NOR /2 = 76.6 MHz (SFCR[31:29] = 0), applied after `go`; `--stock-clocks` keeps 800 MHz + /6. LX stays 175 MHz (204 MHz works but no measured gain).
+- uboot-test 40/40 at these defaults (2026-10-11).
+
+## Benchmarks (`./dev.py bench`, 2026-10-11, mainline U-Boot, heatsink off)
+
+| Test | 800/175/600 stock | 1000 CPU | + SPI 76.6 MHz | + LX 204 |
+|---|---|---|---|---|
+| cpu_loop Mops/s | 72.7 | 90.9 (+25 %) | 90.9 | 90.9 |
+| crc_l1 MB/s | 100.0 | 125.0 (+25 %) | 125.0 | 125.0 |
+| mem_write MB/s | 237.7 | 237.7 (0) | 237.7 | 237.7 |
+| mem_read MB/s | 298.8 | 336.3 (+13 %) | 336.3 | 336.3 |
+| memcpy MB/s | 158.2 | 163.8 (+4 %) | 163.8 | 163.8 |
+| mem_read_uc MB/s | 54.7 | 60.7 (+11 %) | 60.7 | 60.7 |
+| flash_uc MB/s | 2.0 | 2.0 | 4.8 (+138 %) | 4.8 |
+| flash_c MB/s | 5.0 | 5.0 | 13.9 (+177 %) | 13.9 |
+
+- DRAM writes are bound by DDR3-1200 itself: only the DDR clock (#39) moves them.
+- SPI ladder: /6 25.5 MHz 16.7 s whole chip, /4 38.3 MHz 11.9 s, /2 76.6 MHz 7.0 s; CRC identical at each. Next: NOR source divider e220[16:13] (122.5 MHz at code 3, rated 133), then dual/quad read.
+- LX 204.2 MHz (`clocks set lx 4 force`): console, I2C/SFP/DDM, lasers, sf, highmem, timer all pass; no bench test depends on LX.
+
 ## CPU overclock: measured (2026-10-10, mainline U-Boot RAM-loaded, heatsink off, stock core voltage)
 
 - `clocks set cpu <e208> <e210> [relock] force`: stock sequence from SRAM with the lines I-cache locked (`clocks_sram.S`). Relock = `e200` bit 30 (chip `0x93030001`, bit 4 = 0). SRAM/UMSAR window remapped for the call, restored after.

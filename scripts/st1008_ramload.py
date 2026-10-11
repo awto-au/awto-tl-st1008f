@@ -235,6 +235,24 @@ def openwrt_stp(con: Console) -> None:
     log("  OpenWrt bridge STP on")
 
 
+FAST_CPU_E208 = "0x3a8"  # 1000 MHz with DIVN2 /3: uboot-test 40/40 + 15 min Linux load (#38)
+SFCR, SFCR_D_FAST = 0xB8001200, 0  # SPI /2 = 76.6 MHz, whole-chip CRC verified (#32)
+
+
+def fast_clocks(con: Console, e208: str) -> None:
+    con.note("interactive-begin")  # command output, not boot output (boot_log_check skips it)
+    con.run(f"clocks set cpu {e208} 0x6b439e13 0 force",
+            r"clocks: locked after \d+ polls\r?\nst1008f-mainline # ", 2, f"cpu pll {e208}")
+    _, out = con.run(f"md.l {SFCR:x} 1", r"b8001200: ([0-9a-f]{8})[^\n]*\r?\nst1008f-mainline # ", 1,
+                     "SFCR")
+    v = int(re.search(r"b8001200: ([0-9a-f]{8})", out).group(1), 16)
+    con.run(f"mw.l {SFCR:x} {(v & 0x1fffffff) | (SFCR_D_FAST << 29):08x}", r"st1008f-mainline # ", 1,
+            "SPI /2")
+    _, out = con.run("clocks", r"(?s)mem \d+ MHz.*st1008f-mainline # ", 1, "clocks")
+    con.note("interactive-end")
+    log("  " + ", ".join(re.findall(r"^(?:cpu|spi) [\d.]+ MHz", out, re.M)))
+
+
 def main() -> int:
     ap = argparse.ArgumentParser(description=__doc__.splitlines()[0])
     ap.add_argument("image", choices=sorted(IMAGES) + ["stock"],
@@ -243,10 +261,12 @@ def main() -> int:
     ap.add_argument("--no-cycle", action="store_true", help="already at the stock RTL9300# prompt")
     ap.add_argument("--fast", type=int, nargs="?", const=1, metavar="DIV",
                     help="uboot-mainline: switch console to 10.9375 MBd/DIV after boot (default 1)")
+    ap.add_argument("--stock-clocks", action="store_true",
+                    help="uboot-mainline: keep stock CPU 800 MHz + SPI /6 (default: 1 GHz + SPI /2, #38/#32)")
     ap.add_argument("--then", choices=["openwrt"],
                     help="uboot-mainline: also TFTP OpenWrt (std magic) to 0x84f00000, bootm it from ours")
     ap.add_argument("--cpu", metavar="E208",
-                    help="with --then: CPU PLL before bootm, e.g. 0x3a8 = 1000 MHz (/3, docs/CLOCKS.md)")
+                    help="uboot-mainline: CPU e208 for /3 (default 0x3a8 = 1000 MHz; docs/CLOCKS.md)")
     ap.add_argument("--no-network", action="store_true", help="rtk network on already done this boot")
     a = ap.parse_args()
 
@@ -275,12 +295,9 @@ def main() -> int:
                        capture_output=True, text=True, timeout=30)  # local file scan, <2 s
     sys.stdout.write(r.stdout)
     log(f"boot_log_check exit {r.returncode} ({['CLEAN', 'UNKNOWN', 'ERRORS'][min(r.returncode, 2)]})")
+    if a.image == "uboot-mainline" and not a.stock_clocks:
+        fast_clocks(con, a.cpu or FAST_CPU_E208)
     if a.then == "openwrt":
-        if a.cpu:
-            con.run(f"clocks set cpu {a.cpu} 0x6b439e13 0 force",
-                    r"clocks: locked after \d+ polls\r?\nst1008f-mainline # ", 2, f"cpu pll {a.cpu}")
-            _, out = con.run("clocks", r"(?s)mem \d+ MHz.*st1008f-mainline # ", 1, "clocks")
-            log("  " + re.search(r"cpu [\d.]+ MHz", out).group(0))
         ow = IMAGES["openwrt"]
         con.run(f"bootm 0x{ow[1]:08x}", ow[3], ow[4], "OpenWrt via mainline bootm")
         openwrt_stp(con)

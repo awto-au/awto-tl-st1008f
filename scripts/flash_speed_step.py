@@ -35,7 +35,7 @@ def log(msg: str) -> None:
 
 
 def sfcr(con: Console) -> int:
-    _, out = con.run(f"md.l {SFCR:x} 1", r"b8001200: ([0-9a-f]{8})" + PROMPT, 1, "SFCR")
+    _, out = con.run(f"md.l {SFCR:x} 1", r"b8001200: ([0-9a-f]{8})[^\n]*" + PROMPT, 1, "SFCR")
     return int(re.search(r"b8001200: ([0-9a-f]{8})", out).group(1), 16)
 
 
