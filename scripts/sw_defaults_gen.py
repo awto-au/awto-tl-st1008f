@@ -10,8 +10,13 @@
 - Output: shared/rtl930x-sw/rtl930x_sw_defaults.h (generated: offset, mask, value per RMW, in order).
 - Inputs: tmp/datasheet-audit/sdk/longan/rtk_longan_reg_list.c + _regField_list.c (`sdk_regdump.py --fetch`).
 - Log: tmp/logs/sw_defaults_gen.log (every op with its resolved address).
+- Each row carries a purpose (cpu / perf / policy, see purpose()); `--verdict COLD [--ours L]` writes the
+  per-row table (no-op vs a cold capture, else purpose) to tmp/sw_defaults_verdict.md; `--drop-noop COLD`
+  regenerates without the no-op rows. COLD = reg_diff --window label taken before any network on.
 """
 
+import argparse
+import json
 import re
 import sys
 from pathlib import Path
@@ -250,9 +255,30 @@ def dal_bootloader():
     return ops
 
 
-def emit(regs, name, doc, ops):
+# Purpose of a write (our reading; the on-board bisect with env rtk_sw_defaults decides):
+#   cpu = CPU port / NIC traffic path, perf = loss or throughput (flow control, bursts, EEE, errata),
+#   policy = vendor feature default with no expected effect on an isolated mgmt port.
+CATS = {"cpu": 1, "perf": 2, "policy": 4}
+CPU_REGS = ("EGBW_CTRL", "EGBW_CPU_Q_MAX_LB_CTRL", "QM_CPUQID2QID_CTRL", "QM_CPUQID2XGQID_CTRL",
+            "FC_CPU_Q_EGR_DROP_THR", "FC_CPU_Q_EGR_FORCE_DROP_CTRL", "MAC_L2_CPU_PORT_CTRL",
+            "L2_UNKN_UC_FLD_PMSK", "L2_BC_FLD_PMSK")
+CPU_PORT_REGS = ("EGBW_PORT_CTRL", "SCHED_PORT_ALGO_CTRL", "FC_PORT_EGR_DROP_CTRL", "FC_PORT_THR_SET_SEL",
+                 "VLAN_PORT_IGR_FLTR", "VLAN_PORT_PB_VLAN", "L2_PORT_DABLK_CTRL", "L2_PORT_SABLK_CTRL")
+PERF_PREFIX = ("FC_", "ETE_FC_", "SWRED_", "SC_P_", "EGBW_", "TRIG_AUTO_RECOVER_", "DMY_REG0_CHIP_MISC_R",
+               "EEE_CTRL", "MAC_FORCE_MODE_CTRL")
+
+
+def purpose(reg, i1):
+    if reg in CPU_REGS or (reg in CPU_PORT_REGS and i1 == CPU):
+        return "cpu"
+    return "perf" if reg.startswith(PERF_PREFIX) else "policy"
+
+
+def rows_of(regs, name, ops):
+    """[[addr, mask, val, purpose, names]] in order; consecutive same-word same-purpose writes merged."""
     rows, prev = [], None
     for reg, f, v, i1, i2 in ops:
+        cat = purpose(reg, i1)
         addr, mask, pos = resolve(regs, reg, f, i1, i2)
         val = (v << pos) & mask
         if val != v << pos:
@@ -261,31 +287,91 @@ def emit(regs, name, doc, ops):
         if addr == 0x000C and mask & 0x7F:  # RST_GLB_CTRL_0 [6:0] = reset triggers incl. SW_CHIP_RST
             raise SystemExit(f"{reg}.{f}: refusing a write to a reset trigger bit")
         log(f"{name}: {reg}{idx}.{f} = {v:#x} -> {addr:#06x} mask {mask:#010x} val {val:#010x}")
-        if prev and prev[0] == addr:  # consecutive RMWs of one word: same result as one
+        if prev and prev[0] == addr and prev[3] == cat:  # consecutive RMWs of one word = one RMW
             prev[1] |= mask
             prev[2] = (prev[2] & ~mask) | val
-            prev[3].append(f"{reg}{idx}.{f}")
+            prev[4].append(f"{reg}{idx}.{f}")
         else:
-            prev = [addr, mask, val, [f"{reg}{idx}.{f}"]]
+            prev = [addr, mask, val, cat, [f"{reg}{idx}.{f}"]]
             rows.append(prev)
-    body = "\n".join(f"\t{{ 0x{a:04x}, 0x{m:08x}, 0x{v:08x} }},\t/* {', '.join(n)[:80]} */" for a, m, v, n in rows)
-    return f"/* {doc} ({len(ops)} SDK field writes) */\nstatic const struct rtl930x_sw_rmw {name}[] = {{\n{body}\n}};\n"
+    return rows
+
+
+def cold_word(cold, addr):
+    w = cold.get(f"{0xBB000000 + addr:08x}")
+    return None if w is None else int(w, 16)
+
+
+def emit(regs, name, doc, ops, cold=None):
+    rows = rows_of(regs, name, ops)
+    kept = [r for r in rows if not (cold and cold_word(cold, r[0]) is not None
+                                    and cold_word(cold, r[0]) & r[1] == r[2])]
+    body = "\n".join(f"\t{{ 0x{a:04x}, 0x{m:08x}, 0x{v:08x}, RTL930X_SW_{c.upper()} }},\t/* {', '.join(n)[:72]} */"
+                     for a, m, v, c, n in kept)
+    note = f", {len(rows) - len(kept)} no-op rows dropped" if cold else ""
+    return (f"/* {doc} ({len(ops)} SDK field writes{note}) */\n"
+            f"static const struct rtl930x_sw_rmw {name}[] = {{\n{body}\n}};\n")
+
+
+def load_capture(label):
+    return json.loads((ROOT / f"tmp/reg_diff-{label}.json").read_text())
+
+
+def verdict(regs, cold_label, ours_label=None):
+    """Per row: no-op (cold reset value already there) or its purpose; with `ours`, whether it held."""
+    cold = load_capture(cold_label)
+    ours = load_capture(ours_label) if ours_label else {}
+    out = ["| Row | Purpose | Cold -> table | Verdict |", "|---|---|---|---|"]
+    counts = {}
+    for name, ops in (("construct", construct_default()), ("dal", dal_bootloader())):
+        for a, m, v, c, n in rows_of(regs, name, ops):
+            w = cold_word(cold, a)
+            if w is None:
+                vd = "no cold read"
+            elif w & m == v:
+                vd = "no-op"
+            else:
+                vd = c
+                o = cold_word(ours, a)
+                if o is not None and o & m != v:
+                    vd += " (not held after ours)"
+            key = vd.split(" (")[0]
+            counts[key] = counts.get(key, 0) + 1
+            more = f" +{len(n) - 1}" if len(n) > 1 else ""
+            cv = f"{w & m:#x}" if w is not None else "-"
+            out.append(f"| `{a:#06x}` {name}: {n[0]}{more} | {c} | {cv} -> {v:#x} | {vd} |")
+    path = ROOT / "tmp/sw_defaults_verdict.md"
+    path.write_text("\n".join(out) + "\n\n" + ", ".join(f"{k}: {v}" for k, v in sorted(counts.items())) + "\n")
+    log(f"verdict -> {path.relative_to(ROOT)}: {counts}")
+    return 0
 
 
 def main() -> int:
+    ap = argparse.ArgumentParser(description=__doc__.splitlines()[0])
+    ap.add_argument("--drop-noop", metavar="COLD", help="reg_diff label of a cold --window capture (before any "
+                    "network on): leave out rows that only rewrite the reset value")
+    ap.add_argument("--verdict", metavar="COLD", help="write tmp/sw_defaults_verdict.md instead of the header")
+    ap.add_argument("--ours", metavar="LABEL", help="with --verdict: capture after our network on")
+    a = ap.parse_args()
     regs = load()
     if not regs:
         sys.exit(f"no SDK register tables in {SDK}: run scripts/sdk_regdump.py --fetch")
     LOG.write_text("")
+    if a.verdict:
+        return verdict(regs, a.verdict, a.ours)
+    cold = load_capture(a.drop_noop) if a.drop_noop else None
+    src = f" No-op rows vs cold capture `{a.drop_noop}` dropped." if cold else ""
     text = ("/* SPDX-License-Identifier: GPL-2.0-only */\n"
             "/* Generated by scripts/sw_defaults_gen.py from the Realtek SDK (GPL-2.0); do not edit.\n"
-            " * RTL9303_8XGE switch defaults of stock `rtk network on` (#80). Apply in order: RMW. */\n"
+            f" * RTL9303_8XGE switch defaults of stock `rtk network on` (#80). Apply in order: RMW.{src} */\n"
             "#ifndef _RTL930X_SW_DEFAULTS_H\n#define _RTL930X_SW_DEFAULTS_H\n\n"
-            "struct rtl930x_sw_rmw { u16 off; u32 mask; u32 val; };\n\n"
+            "/* row purpose; env rtk_sw_defaults picks which apply (rtk_net.c) */\n"
+            + "".join(f"#define RTL930X_SW_{k.upper()}\t{v}\n" for k, v in CATS.items())
+            + "\nstruct rtl930x_sw_rmw { u16 off; u32 mask; u32 val; u8 cat; };\n\n"
             + emit(regs, "rtl930x_sw_construct", "\"Chip Construct\": dal_longan_construct_default_init",
-                   construct_default())
+                   construct_default(), cold)
             + "\n" + emit(regs, "rtl930x_sw_dal", "\"Mgmt_dev init\": dal_longan_init, bootloader build",
-                          dal_bootloader())
+                          dal_bootloader(), cold)
             + "\n#endif\n")
     OUT.parent.mkdir(parents=True, exist_ok=True)
     OUT.write_text(text)

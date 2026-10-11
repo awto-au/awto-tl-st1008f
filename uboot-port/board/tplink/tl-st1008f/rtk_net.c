@@ -28,6 +28,23 @@ static inline void rtl930x_sw_wr(void *ctx, u32 off, u32 v)
 
 #include "rtl930x_sw.h"
 
+/* env rtk_sw_defaults: all (default) | none | list of cpu,perf,policy (#80 bisect of the stock defaults) */
+static unsigned int sw_defaults_cats(void)
+{
+	const char *e = env_get("rtk_sw_defaults");
+	unsigned int c = 0;
+
+	if (!e || !strcmp(e, "all"))
+		return RTL930X_SW_CPU | RTL930X_SW_PERF | RTL930X_SW_POLICY;
+	if (strstr(e, "cpu"))
+		c |= RTL930X_SW_CPU;
+	if (strstr(e, "perf"))
+		c |= RTL930X_SW_PERF;
+	if (strstr(e, "policy"))
+		c |= RTL930X_SW_POLICY;
+	return c;
+}
+
 /* SDK rt_serdesMode_t values (= `macsds set` list index) */
 enum { M_DISABLE = 1, M_10GR = 2, M_SGMII = 8, M_1000BX = 10, M_100BX = 11, M_HISGMII = 23,
        M_2500BX = 26, M_END = 47 };
@@ -524,7 +541,7 @@ static void construct(void)
 		"  SMI protocol probe (unit 0)", "  PHY probe (unit 0)", "  Chip Construct (unit 0)",
 		"    Chip Construct",
 	};
-	unsigned int s, i, n;
+	unsigned int s, i, n, rows;
 	const struct sds_cfg *t;
 
 	for (i = 0; i < ARRAY_SIZE(rtcore); i++) {	/* stock banner and step order */
@@ -537,7 +554,7 @@ static void construct(void)
 			sw_rmw(SMI_MAC_TYPE, SMI_MAC_TYPE_M, 0);
 		}
 	}
-	RTL930X_SW_APPLY(NULL, rtl930x_sw_construct);	/* "Chip Construct": SDK default_init */
+	rows = RTL930X_SW_APPLY(NULL, rtl930x_sw_construct, sw_defaults_cats());	/* SDK default_init */
 	printf("    Disable PHY Polling\n");
 	sw_rmw(SMI_POLL_CTRL, 0x0fffffff, 0);
 	mdelay(3);
@@ -573,7 +590,8 @@ static void construct(void)
 	for (s = 2; s <= 9; s++)
 		dfw(s, 0, 4, 2, 2, 1);		/* phy_9300_init: fiberNwayForceLink */
 	printf("  Mgmt_dev init (unit 0) \n");
-	RTL930X_SW_APPLY(NULL, rtl930x_sw_dal);	/* bootloader dal_longan_init: port, l2, eee, stack */
+	rows += RTL930X_SW_APPLY(NULL, rtl930x_sw_dal, sw_defaults_cats());	/* bootloader dal_longan_init */
+	printf("rtk: switch defaults %u rows (env rtk_sw_defaults=%s)\n", rows, env_get("rtk_sw_defaults") ?: "all");
 	constructed = true;
 }
 

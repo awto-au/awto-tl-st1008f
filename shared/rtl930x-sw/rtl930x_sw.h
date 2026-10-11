@@ -12,19 +12,25 @@
 #define RTL930X_SW_RST_GLB_CTRL_0	0x000c
 #define  RTL930X_SW_RST_TRIGGERS	0x7f	/* [6:0] self-clearing resets incl. SW_CHIP_RST: never written as 1 */
 
-static inline void rtl930x_sw_apply(void *ctx, const struct rtl930x_sw_rmw *t, unsigned int n)
+/* rows whose purpose bit (RTL930X_SW_CPU/PERF/POLICY) is in `cats`; returns rows written */
+static inline unsigned int rtl930x_sw_apply(void *ctx, const struct rtl930x_sw_rmw *t, unsigned int n,
+					    unsigned int cats)
 {
-	unsigned int i;
+	unsigned int i, done = 0;
 	u32 v;
 
 	for (i = 0; i < n; i++) {
+		if (!(t[i].cat & cats))
+			continue;
+		done++;
 		v = rtl930x_sw_rd(ctx, t[i].off) & ~t[i].mask;
 		if (t[i].off == RTL930X_SW_RST_GLB_CTRL_0)
 			v &= ~RTL930X_SW_RST_TRIGGERS;
 		rtl930x_sw_wr(ctx, t[i].off, v | t[i].val);
 	}
+	return done;
 }
 
-#define RTL930X_SW_APPLY(ctx, table)	rtl930x_sw_apply(ctx, table, sizeof(table) / sizeof((table)[0]))
+#define RTL930X_SW_APPLY(ctx, table, cats)	rtl930x_sw_apply(ctx, table, sizeof(table) / sizeof((table)[0]), cats)
 
 #endif

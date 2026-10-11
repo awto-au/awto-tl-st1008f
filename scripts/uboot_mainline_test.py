@@ -500,10 +500,16 @@ def main() -> int:
     ap = argparse.ArgumentParser(description=__doc__.splitlines()[0])
     ap.add_argument("checks", nargs="*", default=[*CHECKS, "gpio", "sfp_a0", "sfp_all", "ddm", "laser", "sf_read",
                                                  "i2c_scan", "sfp_phy", "fdt_clocks", "timer"])
+    ap.add_argument("--sw-defaults", metavar="CATS",
+                    help="before the checks: setenv rtk_sw_defaults CATS (none | all | cpu,perf,policy); takes "
+                         "effect at this boot's first network on, so use on a fresh boot (#80 bisect)")
     a = ap.parse_args()
     con = Console()
     # presence probe: a command with a known reply (a bare CR once got no reply at all)
     con.run("echo PROMPT_OK", r"\r?\nPROMPT_OK" + PROMPT, 1, "mainline prompt present")
+    if a.sw_defaults:
+        con.run(f"setenv rtk_sw_defaults {a.sw_defaults}; echo SWD_OK", r"SWD_OK" + PROMPT, 1, "rtk_sw_defaults")
+        log(f"rtk_sw_defaults = {a.sw_defaults}")
     special = {"timer": timer, "gpio": gpio, "sfp_a0": sfp_a0, "sfp_all": sfp_all, "ddm": ddm_sane, "laser": laser,
                "sf_read": sf_read, "reset": reset, "i2c_scan": i2c_scan, "sfp_phy": sfp_phy,
                "fdt_clocks": fdt_clocks, "cr_idle": cr_idle, "network": network, "net": net}
