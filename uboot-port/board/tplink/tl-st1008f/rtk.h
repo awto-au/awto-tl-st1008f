@@ -89,6 +89,11 @@ int rtk_sfp_iface(int cage, const char **why);	/* enum rtk_if, -1 = no module / 
 
 /* cmd_rtk.c: A0 bytes 0-95 with the read fallbacks and the Cisco space-padding fix-up */
 int rtk_sfp_read_id(int cage, u8 *id);
+int rtk_sfp_read_a2(int cage, u8 *a2);	/* A2 bytes 0-127, 0 = ok */
+int rtk_sfp_present(int cage);		/* MOD-DEF0: 1 present, 0 absent, -1 no GPIO */
+
+/* rtk_spg.c: Smart Packet Generator (#70, docs/SPG.md) */
+int rtk_spg(int argc, char *const argv[]);
 
 /* rtk_ours.c: commands that do not exist on the stock loader */
 int rtk_port_status(int argc, char *const argv[]);

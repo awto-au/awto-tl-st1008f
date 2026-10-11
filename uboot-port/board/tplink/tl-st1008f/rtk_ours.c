@@ -156,6 +156,7 @@ int rtk_ours_help(void)
 	       "  rtk port [status]                          per cage: module, laser, SerDes, link, LED\n"
 	       "  rtk sdsdump [sds|all]                      SerDes register dump (reg_diff.py)\n"
 	       "  rtk mode                                   M1/M2/M3 switch position\n"
-	       "  rtk temp                                   on-die temperature (enables the meter)\n");
+	       "  rtk temp                                   on-die temperature (enables the meter)\n"
+	       "  rtk spg status|load|start|stop [off]       packet generator, capped bursts (#70)\n");
 	return 0;
 }

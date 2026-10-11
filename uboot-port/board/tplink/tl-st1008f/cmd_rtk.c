@@ -347,6 +347,20 @@ static int sfp_present(int cage)
 	return !gpio_get_ops(d.dev)->get_value(d.dev, d.offset);
 }
 
+int rtk_sfp_present(int cage)
+{
+	return sfp_present(cage);
+}
+
+/* A2 (0x51) bytes 0-127 with the same read fallbacks as A0 */
+int rtk_sfp_read_a2(int cage, u8 *a2)
+{
+	struct udevice *dev = rtk_chip(cage - 1, SFP_A2);
+	int mode;
+
+	return !dev || sfp_read(dev, 0, a2, 128, &mode) ? -1 : 0;
+}
+
 /* Facts the generic decode gets wrong or omits for known module families. */
 static void sfp_notes(const u8 *id)
 {
@@ -611,6 +625,8 @@ static int do_rtk(struct cmd_tbl *cmdtp, int flag, int argc, char *const argv[])
 		return rtk_mode(argc, argv);
 	if (is(argv, 1, "temp"))
 		return rtk_temp(argc, argv);
+	if (is(argv, 1, "spg"))
+		return rtk_spg(argc, argv);
 	if (is(argv, 1, "sdsdump"))
 		return rtk_sdsdump(argc, argv);
 	if (is(argv, 1, "help-ours"))
@@ -687,6 +703,8 @@ U_BOOT_CMD(rtk, 16, 0, do_rtk, "rtk     - Realtek commands\n",
 	   "        - M1/M2/M3 front switch position (GPIO 17-19)\n"
 	   "rtk temp\n"
 	   "        - on-die temperature (enables the thermal meter if off)\n"
+	   "rtk spg status | load .. | start .. | stop [off]\n"
+	   "        - Smart Packet Generator, capped bursts on dark cage ports (#70; rtk spg = usage)\n"
 	   "rtk help-ours\n"
 	   "        - one-line list of the above\n"
 	   "hidden stock verbs (work here, absent from stock help): port enable|disable <port>,\n"
