@@ -51,7 +51,19 @@ cat /sys/kernel/debug/sfp-p1/state   # tx_disable: 0 now
 
 - `bridge link` -> empty; `ip -d link show lan1` -> no `master`.
 - `storm-watch` silent; SG2008P log has no `OSW_DET_LOOP`.
-- Cages 3 and 7 (GLC-T copper, cabled to each other) stay down: never `port-up` both, and never bridge without `stp_state 1`.
+- Cages 3 ↔ 7 are not cabled (2026-10-11). If GLC-T modules are ever cabled there again (they ignore TX-disable): never `port-up` both, never bridge without `stp_state 1`.
+
+## SMP: IRQ routing and latency (#73)
+
+```
+./dev.py build-kernel                 # SMP (default); --up = one VPE; --latency = timerlat + irqsoff tracers
+./dev.py irq-check snap A             # per-CPU /proc/interrupts + effective affinity over SSH
+./dev.py irq-check diff A B
+./dev.py irq-check pin eth0 2         # NIC IRQ to CPU1 (needs 300-18; without it the NIC goes dead)
+./dev.py irq-check latency L [--secs S] [--load]
+```
+
+- Results: [MAINLINE-PORT.md](MAINLINE-PORT.md) section 9.
 
 ## Recover
 
