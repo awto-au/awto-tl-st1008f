@@ -82,6 +82,19 @@ From the OpenWrt v2 DTS (`SWITCH_PORT_SFP(p,l,s,c,g)` = SoC port, label, SerDes,
   - OpenWrt realtek: no `ehci`/`usb` node in `rtl930x.dtsi` or any RTL9303 DTS; the only "usb" strings are the GPIO18 `usb_led` pinmux (reused as I2C SDA/mode switch on other boards).
   - Not tested: any rework to the BGA balls (F4/G4) — no pads, impractical.
 
+## Bus devices (full scan, #77)
+
+Read-only scan 2026-10-12 (`./dev.py bus-scan`, details: [BUS-SCAN.md](BUS-SCAN.md)). No device beyond those listed exists on any scanned bus.
+
+- I2C MST1 SDA0-7 (cage N = SDA N-1), 0x08-0x77 at 100 + 50 kHz: only the fitted module.
+  - 0x50 ID EEPROM (all cages); 0x51 DDM (SR/SX/PTB modules); 0x56 88E1111 PHY (GLC-T copper).
+- Expander bus (bit-bang SCL GPIO22 / SDA GPIO23): only 0x38 TCA9534A. No temp sensor, RTC, EEPROM or PMIC.
+- I2C MST2: not scanned (SCL1 = GPIO17 = mode switch); idle (CTRL2 `0x5003`).
+- SPI-NOR controller: CS0 = W25Q256 (JEDEC `ef 40 19`); CS1 reads `ff`, nothing attached.
+- Switch-core SPI master (`SPI_CTRL1` `0xbb0003a0` = `0035e000`): GPIO3-5 muxed as SPI, no CS routed, idle; never driven (pins = cage-presence lines).
+- MAC EEPROM autoload (`0xbb00c6e4..`): runs at every reset; STS NOEEPROM 0 / COMPL 1 / VALID_FAIL 1 → something answers (likely cage-1 SFP EEPROM on the shared SDA), content rejected, nothing loaded.
+- I2C/SPI slave register interface (`0xbb000360-0368`): 0, unused.
+
 ## Mode switch (stock firmware)
 
 Source: static RE of stock `rtk.ko` (TP-Link additions, `TP_CHKPATTERN` thread). Addresses = Ghidra VA of `rtk.ko` (ELF symbol value = VA - 0x14290). Issue #8.
