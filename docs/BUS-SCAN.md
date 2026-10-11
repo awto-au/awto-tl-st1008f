@@ -59,4 +59,6 @@ No undocumented devices (`unknown I2C devices: 0`). Raw: `tmp/bus_scan-77.json`.
 - MAC EEPROM autoload: NOEEPROM 0, EEPROM_COMPL 1, VALID_FAIL 1: the reset-time download gets an answer (likely cage-1 SFP EEPROM on the shared SDA) and rejects it; nothing loaded.
 - I2C/SPI slave (0x360-0x368): 0, unused.
 - I2C MST2: idle (CTRL2 0x5003); never scanned (SCL = GPIO17 = mode switch).
+- `GPIO_SEL_CTRL` `0x200`: slave-SPI CS/SDO select = 31 (unused); GPIO18/19 as GPIO (mode switch).
+- `SPI_CTRL1` `CLK_DIV` 7.
 

@@ -8,7 +8,7 @@ Every API slot and hardware feature group the Realtek SDK compiles for the RTL93
 
 ## Sources
 
-- **[GPL]** `github.com/reyalo/Realtek` `sources/rtk-xgs1210` (SDK 3.7.0) = primary; `rtk-dms1250` (3.8.0) = diff. Sparse clone needs `include/{rtk,dal,hal}`, `src/{rtk,dal,hal/common}`, `system/include/hwp`, `src/app/diag_v2`.
+- **[GPL]** `github.com/reyalo/Realtek` `sources/rtk-xgs1210` (SDK 3.7.0) = primary; `rtk-dms1250` (release 3.6.9.55156, API tags to 3.8.0; [SDK-SOURCES.md](SDK-SOURCES.md)) = diff. Newest public drop 4.0.2.55154 adds no Longan register/table (#76). Sparse clone needs `include/{rtk,dal,hal}`, `src/{rtk,dal,hal/common}`, `system/include/hwp`, `src/app/diag_v2`.
 - olliver `realtek_sdk` 3.5.0: not on disk (env `OLLIVER_SDK` unset); not used.
 - **[STOCK]** TL-ST1008F `rtk.ko` (relocatable, symbols): call graph from relocations.
 - **[MGD]** ST5008F v2 1.2.0 `core` (user-mode SDK, stripped, 33651 `.dynsym`): call graph from `jal` targets.
@@ -26,7 +26,7 @@ Every API slot and hardware feature group the Realtek SDK compiles for the RTL93
 ## Counts
 
 - 1409 API slots; Longan: 796 impl + 7 partial + 87 phy-only = 890 usable; 519 unavail. Mango 1050, RTL8390 700, RTL8380 594.
-- SDK 3.8.0 (DMS-1250) adds 1 Longan slot (`port_phySds_set`); no slot removed.
+- DMS-1250 tree (3.6.9.55156, API tags 3.8.0) adds 1 Longan slot (`port_phySds_set`); no slot removed.
 - No Longan slot is a pure stub; `Applicable:` doc lines in `src/rtk/*.c` agree with the mapper (0 slots documented for 9300 but unavail).
 - Modules with no Longan implementation: OpenFlow (73), MPLS (29), BPE/802.1BR (27), tunnel (17), VXLAN (9), EEE-plus (2), time/PTP (22, phy-only).
 - 1308 registers, 35 tables, 59 feature groups. SDK names 426 registers (DAL 378); OpenWrt touches ~139, ours ~37. All 35 tables are used by the SDK.
@@ -118,12 +118,12 @@ Ranked by value to this board (CPU offload, routing, monitoring, robustness). "N
 
 - `MAC_EEPROM_DOWN_LOAD_CNTRL` 0xC6E4 (`SCK_FREQ_SEL`, `EEEPOM_VALID`), `_STS` 0xC6E8 (`NOEEPROM`, `EEPROM_COMPL`, `EEPROM_VALID_FAIL`), `_MAC/SERDES/PHY/GROUP_MAC_POS` 0xC6EC-0xC6F8.
 - Reset-time register load from a serial EEPROM (unmanaged-switch mode). Not in the DS, no SDK code.
-- Board: CPU-managed; `_STS` (read-only) shows whether an autoload EEPROM is present. Not probed.
+- Board: CPU-managed. Measured 2026-10-12 (#77): `_STS` NOEEPROM 0, EEPROM_COMPL 1, VALID_FAIL 1 = the download runs at every reset, something answers (likely the cage-1 SFP EEPROM on the shared SDA), content rejected, nothing loaded ([BUS-SCAN.md](BUS-SCAN.md)).
 
 ### 12. I2C slave register interface
 
 - `MAC_IF_CTRL` 0x360, `MAC_SLV_I2C_CTRL` 0x364 (`CFG_SDA_DLY`, `I2C_DATA_ENDIAN_SEL`), `MAC_SLV_TIMEOUT` 0x368.
-- External-CPU register access over I2C; the DS documents only the SPI slave (#69 row 3). None here.
+- External-CPU register access over I2C; the DS documents only the SPI slave (#69 row 3). None here: 0x360-0x368 read 0 (2026-10-12, #77).
 
 ### 13. SMI PHY-register checker
 
@@ -145,6 +145,7 @@ Ranked by value to this board (CPU offload, routing, monitoring, robustness). "N
 - SKU gating: none for features. One `rtl9300_capacityInfo` for RTL9301/9301H/9302A-F/9303. DAL chip-ID checks select only port map, SerDes TX parameters, FC threshold model and stacking e2e FC (`dal_longan_construct.c`, `_sds.c`, `_stack.c`). Consistent with #68 (CHIP_MODE read-only).
 - `partial` slots: `mcast_group_create/destroy`, `mcast_nextHop_*` (IP group types only), `l2_conflictAddr_get`, `eee_portEnable_set` (port-type dependent).
 - [STOCK] vendor callers: SFP media/autoneg/admin/FC (`tpSfpSetType`, `tpSfpElecSetType`, `tp_flowctrl_init`), jumbo (`adPortJumboInit`), OAM PDU trap (`adPortOAMInit`), power-on LED blink (`tp_led_powerOn_blink`), SerDes eye/LEQ utilities, `_rt_test_*` hooks. `rtk_port_10gMedia_set` and `phySdsEyeParam_*` go through `dal_phy`.
+- Flow-control port defaults (#82): [MGD] sets pause-on allowed pages 100 per front port, `LIMIT_PAUSE_EN` 0, CPU max packet length 12000 (static RE of `core`, [MANAGED-FEATURES.md](MANAGED-FEATURES.md#flow-control-cpu-port-82-60)). OpenWrt / ours do not set them; reset values and values under OpenWrt / ours unread.
 - [MGD] uses: L3 22 APIs (intf, nexthop, host, route, router MAC, VRRP), PBR (`drvPbr*`), sFlow + RSPAN, ACL 11 + PIE 8, meters, storm control, port/queue egress shaping, CPU egress rate mode, attack prevention, MSTP, LAG, IGMP/MLD + IPMC, ERPS/MRP (software CCM), SerDes eye params, 802.1X.
 
 ## Capacity (`rtl9300_capacityInfo`, all RTL930x SKUs)

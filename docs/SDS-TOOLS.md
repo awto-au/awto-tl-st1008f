@@ -99,6 +99,11 @@ TX eye after `rtk network on`:
 - 10GR cages: pre 0, main 12, post 0.
 - 1G cages: main 16.
 - Impedance field: 8 on cages 1/3/5/7, 0 on 2/4/6/8.
+- Neither the SDK default table (`sds_cfg_rtl9303_80G`) nor the ST5008F per-cage overrides: [MANAGED-FEATURES.md](MANAGED-FEATURES.md) "Board secrets" (#25).
+
+Unexplained event (2026-10-12, first full test run): cage 1's latched receive link (4/1.2) read 0 once in a ~12 s window covering PRBS, loopback, Ctrl-C and txeye on other cages. Each step re-tested alone (eye, PRBS, loopback on cages 2/6, txeye, Ctrl-C): no drop. The test now clears the latch right before the eye scan; later runs show no drop. Far-end blip possible, not proven.
+
+Found while porting: `rtk sdsreg get <x> <sds> <page>` (one argument short) dereferenced a NULL argv and crashed our U-Boot (TLB load exception); now prints the stock parameter error (`rtk_stock.c`).
 
 ## Not done
 

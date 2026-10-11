@@ -1,6 +1,6 @@
 # Realtek SDK leftovers (RTL930x)
 
-Facts only. Source: `scripts/sdk_leftovers_scan.py` over the GPL SDK trees (rtk-xgs1210 3.7.0, DMS-1250 3.8.0, olliver 3.5.0), stock ST1008F and managed ST5008F v2 extracts. Output `tmp/sdk_leftovers/scan.json`. Issue: #74.
+Facts only. Source: `scripts/sdk_leftovers_scan.py` over the GPL SDK trees (rtk-xgs1210 3.7.0, DMS-1250 3.6.9.55156 (API tags to 3.8.0; [SDK-SOURCES.md](SDK-SOURCES.md)), olliver 3.5.0), stock ST1008F and managed ST5008F v2 extracts. Output `tmp/sdk_leftovers/scan.json`. Issue: #74.
 
 | Item | Where | What it is | Use on this board | Risk |
 |---|---|---|---|---|
