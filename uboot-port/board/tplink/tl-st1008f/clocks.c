@@ -358,24 +358,18 @@ static int mem_set(u32 mhz, u32 method)
 	return 0;
 }
 
-/* measured defaults (docs/CLOCKS.md): CPU 1000 MHz (/3), SPI 122.5 MHz (SFCR /2, NOR code 3) */
+/* `clocks fast` = CPU 1000 MHz (/3) only. SPI 122.5 MHz is U-Boot-only: Linux reads flash
+ * through the PIO path and got SQUASHFS errors with it (#50) */
 #define FAST_E208	0x3a8
 #define FAST_E210	0x6b439e13
-#define SFCR_REG	0xb8001200
-#define FAST_NOR_CODE	3	/* 2450 / 10 = 245 MHz NOR -> 122.5 MHz SPI; code 2 (153 MHz) corrupts */
 
 static int fast_set(void)
 {
 	int ret = cpu_set(FAST_E208, FAST_E210, 0);
 
-	if (ret)
-		return ret;
-	__raw_writel(R(SFCR_REG) & 0x1fffffff, (void __iomem *)SFCR_REG);	/* SPI = NOR / 2 */
-	__raw_writel((R(PLL_E220) & ~GENMASK(16, 13)) | (FAST_NOR_CODE << 13),
-		     (void __iomem *)PLL_E220);
-	__asm__ __volatile__("sync");
-	puts("clocks: fast = cpu 1000 MHz, spi 122.5 MHz\n");
-	return 0;
+	if (!ret)
+		puts("clocks: fast = cpu 1000 MHz (spi unchanged)\n");
+	return ret;
 }
 
 static int do_clocks(struct cmd_tbl *cmdtp, int flag, int argc, char *const argv[])
@@ -428,7 +422,7 @@ static int do_clocks(struct cmd_tbl *cmdtp, int flag, int argc, char *const argv
 
 U_BOOT_CMD(clocks, 7, 0, do_clocks, "show CPU/LX/SPI/MEM clocks and DDR3 timings; set CPU/MEM PLL",
 	   "\n  rates decoded from the PLL registers; docs/CLOCKS.md\n"
-	   "clocks fast  - measured defaults: CPU 1000 MHz, SPI 122.5 MHz\n"
+	   "clocks fast  - CPU 1000 MHz (measured default; SPI left alone)\n"
 	   "clocks set cpu <e208> <e210> [relock 0|1] force\n"
 	   "  - CPU PLL from SRAM (stock sequence); relock 0 = e200 bit 30 (default), 1 = e220 bit 17\n"
 	   "clocks set lx <code 2..5> force  - LX = 2450 / (2 x (code + 2)) MHz; 5 = stock 175\n"

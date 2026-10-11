@@ -240,10 +240,15 @@ SFCR, SFCR_D_FAST = 0xB8001200, 0  # SPI = NOR clock / 2
 E220, NOR_CODE_FAST = 0xBB00E220, 3  # NOR 245 MHz -> SPI 122.5 MHz (rated 133); 153 MHz corrupts (#32)
 
 
-def fast_clocks(con: Console, e208: str) -> None:
+def fast_clocks(con: Console, e208: str, spi: bool = True) -> None:
     con.note("interactive-begin")  # command output, not boot output (boot_log_check skips it)
     con.run(f"clocks set cpu {e208} 0x6b439e13 0 force",
             r"clocks: locked after \d+ polls\r?\nst1008f-mainline # ", 2, f"cpu pll {e208}")
+    if not spi:
+        _, out = con.run("clocks", r"(?s)mem \d+ MHz.*st1008f-mainline # ", 1, "clocks")
+        con.note("interactive-end")
+        log("  " + ", ".join(re.findall(r"^(?:cpu|spi) [\d.]+ MHz", out, re.M)))
+        return
     _, out = con.run(f"md.l {SFCR:x} 1", r"b8001200: ([0-9a-f]{8})[^\n]*\r?\nst1008f-mainline # ", 1,
                      "SFCR")
     v = int(re.search(r"b8001200: ([0-9a-f]{8})", out).group(1), 16)
@@ -310,7 +315,8 @@ def main() -> int:
     sys.stdout.write(r.stdout)
     log(f"boot_log_check exit {r.returncode} ({['CLEAN', 'UNKNOWN', 'ERRORS'][min(r.returncode, 2)]})")
     if a.image == "uboot-mainline" and not a.stock_clocks:
-        fast_clocks(con, a.cpu or FAST_CPU_E208)
+        # fast SPI only when Linux will not run: under Linux it corrupted squashfs reads (#50)
+        fast_clocks(con, a.cpu or FAST_CPU_E208, spi=not (a.then or a.chain_test))
     if a.then == "openwrt":
         ow = IMAGES["openwrt"]
         con.run(f"bootm 0x{ow[1]:08x}", ow[3], ow[4], "OpenWrt via mainline bootm")
