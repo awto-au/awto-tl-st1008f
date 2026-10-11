@@ -165,6 +165,12 @@ def cmd_openwrt_static_ip(extra: list[str]) -> int:
     return _script("openwrt_static_ip.py", extra)
 
 
+@command("U-Boot bench (CPU/cache/DRAM/flash MB/s): run <label> | compare [label ...]",
+         args="run <label> | compare [label ...]", kind="check")
+def cmd_bench(extra: list[str]) -> int:
+    return _script("bench.py", extra)
+
+
 @command("run the rtk command list on stock and on our U-Boot, diff (see scripts/rtk_parity.py)",
          args="capture --side stock|ours | compare | both [--state] [--slow]", kind="check")
 def cmd_rtk_parity(extra: list[str]) -> int:

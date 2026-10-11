@@ -220,18 +220,17 @@ def openwrt_stp(con: Console) -> None:
     con.run("", OW_PROMPT, 3, "OpenWrt shell")  # 'Please press Enter'; prompt within ~1 s
     # kernel lines (SerDes calibration) interleave with replies and broke the check 2026-10-10
     con.run("dmesg -n 1", OW_PROMPT, 1, "console loglevel 1")
-    for _ in range(10):  # bridge appears when netifd brings `switch` up; 10 x 1 s
-        try:
-            con.run("echo 1 > /sys/class/net/switch/bridge/stp_state", OW_PROMPT, 1, "stp on")
-            con.run("cat /sys/class/net/switch/bridge/stp_state", r"\n1\r?\n" + OW_PROMPT, 1,
-                    "stp_state = 1")
-            break
-        except SystemExit:
-            time.sleep(1)
-    else:
+    # bridge appears when netifd runs (~27 s uptime; shell is up at ~14 s): wait ON the board,
+    # set STP within 1 s of it existing. Cap 30 s = 13 s expected x ~2 for a slow netifd.
+    con.run("B=/sys/class/net/switch/bridge", OW_PROMPT, 1, "bridge path")
+    try:
+        con.run("until [ -d $B ];do sleep 1;done;echo 1 >$B/stp_state", OW_PROMPT, 30, "stp on")
+        con.run("cat $B/stp_state", r"\n1\r?\n" + OW_PROMPT, 1, "stp_state = 1")
+    except SystemExit:
+        con.send("\x03")
         con.send("for p in /sys/class/net/lan*; do ip link set ${p##*/} down; done")
         power("off")
-        raise SystemExit("FAIL: bridge STP not enabled after 10 s: lan* down + relay off (#19)")
+        raise SystemExit("FAIL: bridge STP not enabled in 30 s: lan* down + relay off (#19)")
     con.run("uci set network.switch.stp='1'; uci commit network", OW_PROMPT, 2, "stp persistent")
     log("  OpenWrt bridge STP on")
 
