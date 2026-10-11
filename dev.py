@@ -269,6 +269,13 @@ def cmd_nic_bench(extra: list[str]) -> int:
     return _script("nic_path_bench.py", extra)
 
 
+@command("per-CPU IRQ routing + latency on mainline 7.3 over SSH: snap/diff/pin, timerlat+irqsoff (#73)",
+         args="snap L | diff A B | pin NAME MASK | latency L [--secs S] [--load]  (latency: build-kernel --latency)",
+         kind="hardware")
+def cmd_irq_check(extra: list[str]) -> int:
+    return _script("irq_check.py", extra)
+
+
 @command("CPU-path cost vs clocks: boot flash OpenWrt from ours with one clock change, run the nat-bench set (#65)",
          args="base|cpu800|ddr600|nopref|lx204|all|table [--bench-only]", kind="hardware")
 def cmd_nat_clock_variants(extra: list[str]) -> int:
@@ -337,7 +344,8 @@ def cmd_build_uboot(extra: list[str]) -> int:
 
 
 @command("build mainline Linux (SMP: both VPEs) and wrap it as tmp/tftp/mainline.bin",
-         args="[--dtb-only] [--up] [--no-highmem]  (--up: one VPE, A/B #16; --no-highmem: 256 MiB reference #27)",
+         args="[--dtb-only] [--up] [--no-highmem] [--latency]  (--up: one VPE, A/B #16; --no-highmem: 256 MiB "
+              "reference #27; --latency: irqsoff/timerlat tracers #73)",
          kind="build")
 def cmd_build_kernel(extra: list[str]) -> int:
     rc = _script("mainline_build_check.py", extra)
@@ -345,7 +353,7 @@ def cmd_build_kernel(extra: list[str]) -> int:
         return rc
     sys.path.insert(0, str(SCRIPTS))
     from mainline_build_check import out_dir
-    b = out_dir("--no-highmem" in extra, "--up" in extra)
+    b = out_dir("--no-highmem" in extra, "--up" in extra, "--latency" in extra)
     return _script("mainline_uimage.py", ["--vmlinux", str(b / "vmlinux"), "--dtb",
                    str(b / "arch/mips/boot/dts/realtek/tplink-tl-st1008f-v2.dtb")])
 

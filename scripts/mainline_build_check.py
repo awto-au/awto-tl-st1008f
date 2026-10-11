@@ -7,10 +7,11 @@ Derived tree state, rebuilt each run (patched files reset via git, copied/create
 - OWRT_VERBATIM patches-6.18, OWRT_FILES from files-6.18, then openwrt/patches/*.patch (ours and
   forward-ports, 300-04..). Status of every OpenWrt patch/file: docs/MAINLINE-PORT.md.
 - DTS + dts Makefile line; allnoconfig + mainline/st1008f-v2.config (MT SMP, both VPEs: default)
-  (+ st1008f-v2-up.config with --up, + st1008f-v2-nohighmem.config with --no-highmem) + generated
+  (+ st1008f-v2-up.config with --up, + st1008f-v2-nohighmem.config with --no-highmem,
+  + st1008f-v2-latency.config with --latency) + generated
   initramfs fragment (mainline_initramfs.py); olddefconfig; fail if a fragment option did not
   survive (a later fragment wins); build vmlinux + dtb at nice 19, -j8 max.
-- Out dir: tmp/build-mips[-nohighmem][-up] (out_dir(); dev.py build-kernel uses the same).
+- Out dir: tmp/build-mips[-nohighmem][-up][-lat] (out_dir(); dev.py build-kernel uses the same).
 """
 import argparse
 import os
@@ -112,8 +113,9 @@ def check_fragments(config: Path, fragments: list[Path]) -> list[str]:
     return [f"{ln}  (got {have.get(k, 'not set')})" for k, (v, ln) in want.items() if have.get(k) != v]
 
 
-def out_dir(no_highmem: bool, up: bool) -> Path:
-    return ROOT / ("tmp/build-mips" + ("-nohighmem" if no_highmem else "") + ("-up" if up else ""))
+def out_dir(no_highmem: bool, up: bool, lat: bool = False) -> Path:
+    return ROOT / ("tmp/build-mips" + ("-nohighmem" if no_highmem else "") + ("-up" if up else "")
+                   + ("-lat" if lat else ""))
 
 
 def run(cmd, cwd):
@@ -137,8 +139,10 @@ def main():
     ap.add_argument("--up", action="store_true", help="merge mainline/st1008f-v2-up.config (one VPE; A/B, #16)")
     ap.add_argument("--no-highmem", action="store_true",
                     help="merge mainline/st1008f-v2-nohighmem.config (256 MiB reference, #27)")
+    ap.add_argument("--latency", action="store_true",
+                    help="merge mainline/st1008f-v2-latency.config (irqsoff/timerlat tracers; not for benches, #73)")
     a = ap.parse_args()
-    a.out = a.out or str(out_dir(a.no_highmem, a.up))
+    a.out = a.out or str(out_dir(a.no_highmem, a.up, a.latency))
     os.nice(19)  # owner: builds yield to interactive host work
     tree, out = Path(a.tree), Path(a.out)
     LOG.parent.mkdir(parents=True, exist_ok=True)
@@ -161,7 +165,8 @@ def main():
         sys.exit("allnoconfig failed, see log")
     frags = [ROOT / "mainline/st1008f-v2.config",
              *([ROOT / "mainline/st1008f-v2-up.config"] if a.up else []),
-             *([ROOT / "mainline/st1008f-v2-nohighmem.config"] if a.no_highmem else []), mainline_initramfs.build()]
+             *([ROOT / "mainline/st1008f-v2-nohighmem.config"] if a.no_highmem else []),
+             *([ROOT / "mainline/st1008f-v2-latency.config"] if a.latency else []), mainline_initramfs.build()]
     merge = tree / "scripts/kconfig/merge_config.sh"
     if run([str(merge), "-m", "-O", str(out), str(out / ".config"), *map(str, frags)], tree):
         sys.exit("merge_config failed, see log")
