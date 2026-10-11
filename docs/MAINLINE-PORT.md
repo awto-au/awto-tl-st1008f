@@ -1,6 +1,6 @@
 # Mainline Linux port (issue #16)
 
-Goal: Linux 7.x mainline-based kernel driving the 8 SFP+ ports of the TL-ST1008F v2 (RTL9303). Desk analysis 2026-10-10; network driver port built 2026-10-11 ([section 7](#7-openwrt-realtek-network-drivers-on-73-delivered-2026-10-11)). Nothing here has run on the switch yet; bring-up: [MAINLINE-NET-OPS.md](MAINLINE-NET-OPS.md).
+Goal: Linux 7.x mainline-based kernel driving the 8 SFP+ ports of the TL-ST1008F v2 (RTL9303). Desk analysis 2026-10-10; network driver port built 2026-10-11 ([section 7](#7-openwrt-realtek-network-drivers-on-73-delivered-2026-10-11)); first boots and IP traffic on lan1 2026-10-12 ([First boots](#first-boots-16)); SMP [section 9](#9-smp-interrupt-routing-throughput-latency-73-60-16). Bring-up: [MAINLINE-NET-OPS.md](MAINLINE-NET-OPS.md).
 
 ## Baselines
 
@@ -92,7 +92,7 @@ Classes: UP = already upstream; TRIV = trivial rebase; API = needs API rework (n
 | 2 | Board DTS | TRIV | `mainline/tplink-tl-st1008f-v2.dts`; needs a `tplink,tl-st1008f-v2` entry in `realtek-rtl.yaml` to pass `dtbs_check` (not run: no `dtschema`) |
 | 3 | SFP core, I2C SMBus block quirks, MOD_DEF0/TX-disable GPIOs, PCA9534 | UP | `sfp.c` + 7.1/7.2 I2C patches merged |
 | 4 | RAM above 256 MiB (board has 512 MiB in two banks) | TRIV | `300-02` HIGHMEM zone remap applies strict on 7.3; not upstream. DTS declares both banks (`0x0` + `0x20000000`, 256 MiB each): MemTotal 508264 kB, `./dev.py mem-stress` fill-verify of 432 MiB 0 errors (#27). `300-13`: lowmem fast paths for the HIGHMEM per-packet cost |
-| 5 | Kernel image wrapper for stock U-Boot | unknown | OpenWrt uses uImage magic `0x93030000`; stock U-Boot has no FDT, so DTB must be appended (`MIPS_RAW_APPENDED_DTB`). Wrapper tool not written |
+| 5 | Kernel image wrapper for stock U-Boot | done | uImage magic `0x93030000` (stock) / `0x27051956` (ours); stock U-Boot has no FDT, so the DTB is appended (`MIPS_RAW_APPENDED_DTB`). `scripts/mainline_uimage.py` |
 | 6 | MIPS `mach-rtl-otto` headers + `300-01..03` | TRIV | `300-01` fuzz on Kconfig |
 | 7 | DSA core hooks: `DSA_TAG_PROTO_RTL_OTTO`, `DSA_MAX_PORTS`, trapped flag | API (small) | Tag number 32 to 36; `DSA_MAX_PORTS` 12 to 32; `722` touches `dst_metadata.h`. Out-of-tree only; `700`/`722` are the upstream-hostile part |
 | 8 | Phylink fwnode PCS provider series (`737-01..08` of a 12-patch series, ~60 KB) | API | `phylink_config` WoL fields moved context; not merged in 7.3. DSA `dsa.c` uses `fill_available_pcs`/`num_possible_pcs`/`pcs_interfaces`; PCS driver uses `fwnode_pcs_provider`. Largest non-driver dependency; upstream status of the series not verified |
@@ -116,12 +116,12 @@ Upstream-hostile items to carry out-of-tree: #7 (`700`, `722`), #8 until merged,
 
 - `mainline/tplink-tl-st1008f-v2.dts`: includes mainline `rtl930x.dtsi`; compatible `tplink,tl-st1008f-v2`, `realtek,rtl9302-soc` (the board matcher in `board-realtek.c` keys on the latter).
   - Uses only upstream bindings: `uart0`, `spi0` + `jedec,spi-nor` + fixed partitions (same layout as OpenWrt), `i2c0` (`realtek,rtl9303-i2c`, `realtek,scl = <0>`, channels 0..7 = one SDA per cage), mode switch on gpio0 17..19 (`tplink,st1008f-mode-switch`, our patch 300-06, #64; was `gpio-keys`), `i2c-gpio` + `nxp,pca9534` @0x38 (SCL GPIO22, SDA GPIO23), 8x `sff,sfp` (MOD-DEF0 gpio0 0..7, TX-disable expander pins 0..7), `linux,wdt-gpio` on GPIO21, `realtek,rtl9303-switch` compatible.
-  - Switch ports, CPU port, PCS/SerDes, table, thermal, LED set: section 7. Still omitted: 2nd RAM bank.
+  - Switch ports, CPU port, PCS/SerDes, table, thermal, LED set: section 7. Both RAM banks: gap #4.
   - SFP I2C left at the controller default; SFF-8472 module EEPROM is a 100 kHz interface, so default is the rated max.
 - `mainline/st1008f-v2.config`: complete board config on `allnoconfig` (no `32r2_defconfig`): MIPS32r2 BE UP, HIGHMEM, 8250 OF console + earlycon, GPIO otto + PCA953X, I2C rtl9300 + i2c-gpio, `MFD_SYSCON`, mode switch (300-06), watchdog, SPI + MTD SPI-NOR + OF parts, NET/INET/PACKET/UNIX, PHYLIB/SFP/MDIO rtl9300, initrd (xz), devtmpfs, debugfs, SysRq. `MODULES`, IPv6, wireless, VT, input off.
   - `scripts/mainline_build_check.py` fails and lists every fragment line that `olddefconfig` drops.
   - Size (2026-10-11, incl. initramfs): 939 `=y` / raw 15.28 MB / `mainline.bin` 5.46 MB on `32r2_defconfig` -> 417 `=y` / raw 6.74 MB / 2.60 MB.
-  - `RTL930X` enabled with the network port (section 7); MT SMP (2 VPEs) is the opt-in `--smp` fragment.
+  - `RTL930X` enabled with the network port (section 7); MT SMP (2 VPEs) is the default, `--up` the A/B build (section 7 "Config and size").
 - 300-06 Kconfig: mode switch `select PHYLINK` + `select SFP` (nothing else selects `PHYLINK` without a MAC driver).
 - `mainline_uimage.py` refuses kernel+DTB over 16 MiB (our U-Boot `SYS_BOOTM_LEN`; stock's limit unrecorded).
 
@@ -141,24 +141,24 @@ Upstream-hostile items to carry out-of-tree: #7 (`700`, `722`), #8 until merged,
 - `/sys/module/spi_realtek_rtl/parameters/dirmap`: 0 PIO, 1 uncached window, 2 cached (default); read per call.
 - A/B: `./dev.py spi-dirmap-test` (dd time + md5 of `firmware` per mode).
 - Build check (2026-10-10, `scripts/mainline_build_check.py`): `dtc` clean (0 warnings), `vmlinux` links (ELF32 MSB MIPS32r2, text 12.1 MB), DTB 6.7 KB. Not booted; `dtbs_check` not run.
-- Stage-0 gate (issue #16): serial boot, `i2c-rtl9300` / `gpio-realtek-otto` / `realtek_otto_wdt` / SPI-NOR probe. Needs the image wrapper (#5) and a switch session.
+- Stage-0 gate (issue #16): serial boot, `i2c-rtl9300` / `gpio-realtek-otto` / `realtek_otto_wdt` / SPI-NOR probe. Passed 2026-10-10 ([First boots](#first-boots-16)).
+- On hardware (2026-10-11/12, #61): the self-check fails on every 7.3 boot (`dirmap: window != PIO at 0x0 (SFCR2 0xbbc14a00), using PIO`), so reads stay PIO; cause open (DT window `0x14000000` vs the U-Boot-verified `0xb4000000`, compare byte order, 4-byte-address assumption). Allowlisted `known #61`.
 
 ## 5. Next steps (dependency order)
 
-1. Boot the section-7 kernel per [MAINLINE-NET-OPS.md](MAINLINE-NET-OPS.md): probe order, `ip link`, one cage, ping, no loop.
-2. 10GBASE-R link on one cage (PCS calibration, issue #16 stage 5); then NAT bench (`docs/NAT-OPS.md` flow, adapted to the initramfs tools).
-3. Profile the CPU-port NIC path (#65): perf counters + function_graph are in the config; a `perf` binary is not (no pinned build, see section 7).
-4. Try `--smp` (VPE1: RPS, second RX ring NAPI).
-5. Step 2 (separate task): full OpenWrt userspace on 7.3 via a buildroot kernel bump; generic-patch dependencies listed in section 8.
+Done 2026-10-12: boot, one cage at 10G, NAT bench ([NAT.md](NAT.md) "Mainline 7.3"), NIC profiling by ftrace (#67), SMP (section 9), OpenWrt userspace on 7.3 ([OPENWRT-BUILD.md](OPENWRT-BUILD.md) step 2).
+
+1. 10GBASE-R on the other cages (PCS calibration, issue #16 stage 5).
+2. SMP-safe doorbell + TX completion on VPE1 (`300-14`, parked, #60).
+3. `mtdsplit` forward-port for a 7.3 flash image ([OPENWRT-BUILD.md](OPENWRT-BUILD.md)).
 
 ## 6. Not determined
 
-- Runtime behaviour of any out-of-tree driver on 7.3 (nothing was booted).
 - Upstream state of the phylink fwnode PCS series and of a Realtek DSA submission on netdev (net-next/lore not searched).
 - Whether the OTTO MDIO fork can be replaced by mainline `mdio-realtek-rtl9300` + `031-25..34`.
-- Whether mainline `MACH_REALTEK_RTL` needs `MIPS_CPU_SCACHE` for RTL930x (OpenWrt selects it, mainline does not).
-- Pinmux assumptions: board DTS sets none; SDA/SCL, SPI and GPIO muxing rely on U-Boot state.
-- `dtbs_check` result; U-Boot image wrapper.
+- Pinmux: the DTS sets only the cage-presence pins (section 7 DTS); I2C SDA/SCL and other muxing rely on U-Boot state.
+- `dtbs_check` result.
+- Answered: `MIPS_CPU_SCACHE` not needed (no L2, section 10); image wrapper = `scripts/mainline_uimage.py`.
 
 ## 7. OpenWrt realtek network drivers on 7.3 (delivered 2026-10-11)
 
@@ -196,14 +196,14 @@ Built with `./dev.py build-kernel` (GCC 16.2); booted 2026-10-12 with IP traffic
 | Build | `=y` | kernel raw | `mainline.bin` (LZMA) |
 |---|---|---|---|
 | Before (main, 2026-10-11 22:52) | 417 | 6,739,744 B | 2,597,955 B |
-| After, default (UP) | 573 | 11,502,624 B (initramfs xz 1,649,584 B inside) | 4,586,227 B |
-| After, `--smp` | 600 | not wrapped | - |
+| After, UP (now `--up`) | 573 | 11,502,624 B (initramfs xz 1,649,584 B inside) | 4,586,227 B |
+| After, SMP (now default) | 600 | not wrapped | - |
 
 - Bootm limit 16 MiB raw (`mainline_uimage.py`): 4.9 MiB headroom.
 - Fragment additions: `RTL930X`, `IPV6`, `BRIDGE` (+ VLAN filtering), `VLAN_8021Q`, `ETHERNET`, `NET_RTL838X`, `NET_DSA` + `RTL83XX` + `TAG_RTL_OTTO`, `REALTEK_OTTO_TABLE`, `PCS_RTL_OTTO`, `FWNODE_PCS`, `MDIO_REALTEK_OTTO(+_SERDES)`, `PHYLINK`, `MDIO_SMBUS`, `MARVELL_PHY` (GLC-T copper SFPs), netfilter/nf_tables/NAT/masq/ct/flowtable (inet, v4, v6), `NET_SCHED` + ingress + flower + gact + mirred, `PERF_EVENTS` + `HW_PERF_EVENTS`, `FUNCTION_TRACER` + `FUNCTION_GRAPH_TRACER` + `DYNAMIC_FTRACE`, `THERMAL_OF` + `REALTEK_THERMAL`, `NVMEM` + `NVMEM_LAYOUT_U_BOOT_ENV` (MAC), `COMPAT_32BIT_TIME` (BusyBox 1.31 is pre-time64 musl: without it `ping` fails `clock_gettime(MONOTONIC)`), `HIGH_RES_TIMERS`, `NET_PKTGEN`, `NF_TABLES_NETDEV` (nat-bench pktgen / rxdrop).
 - `MDIO_REALTEK_RTL9300` off: OpenWrt's `mdio-realtek-otto` binds the same `realtek,rtl9301-mdio`, and the DSA driver waits for its buses (`rtldsa_mdio_loaded()`).
 - The DSA driver still builds all four SoC backends (838x/839x/930x/931x) and l3/pie/tc/qos/lag/mirror: they share files with the 930x code; trimming is a refactor, not done.
-- `--smp` (`mainline/st1008f-v2-smp.config`): `SMP`, `MIPS_MT_SMP`, `NR_CPUS=2`, `RPS`, `XPS`. Builds warning-free; default stays UP.
+- SMP is the default (owner 2026-10-12): `SMP`, `MIPS_MT_SMP`, `NR_CPUS=2`, `RPS`, `XPS` in `mainline/st1008f-v2.config`. `--up` merges `mainline/st1008f-v2-up.config` (one VPE, A/B). Other variants: `--no-highmem` (256 MiB reference, #27), `--latency` (timerlat + irqsoff tracers, section 9). Out dirs `tmp/build-mips[-nohighmem][-up]`.
 
 ### DTS (`mainline/tplink-tl-st1008f-v2.dts`)
 
@@ -211,8 +211,9 @@ Built with `./dev.py build-kernel` (GCC 16.2); booted 2026-10-12 with IP traffic
 - Children from OpenWrt `rtl930x.dtsi`: `ethernet` (`realtek,rtl9301-eth`, IRQ 24, fixed-link 1G), `mdio-serdes`, `pcs` (SerDes 0-11), `table`, `thermal`; `led_set` node and a `cpu-thermal` zone at root.
 - Ports: cage N = `lanN`. Switch port / SerDes: 0/2, 8/3, 16/4, 20/5, 24/6, 25/7, 26/8, 27/9; CPU port 28. `phy-mode = "1000base-x"`, `managed = "in-band-status"`, `sfp = <&sfp(N-1)>` (OpenWrt `SWITCH_PORT_SFP`).
 - Mainline `mdio-controller@ca00` + 4 buses enabled with the OTTO compatible added; no PHYs on them.
-- 1-cell interrupts: 7.3 `irq-realtek-rtl` uses `irq_domain_xlate_onecell` (OpenWrt DTS has 2 cells).
-- Mode-switch children are `cage@N`, not `port@N`: rtl83xx `rtldsa_ports_probe()` walks every node named `port` in the tree (`for_each_node_by_name`). Named `port@0`, the mode switch's reg-0 child cleared `has_pcs` of switch port 0 (lan1), so lan1 was never added to the CPU port's isolation mask: no traffic to the CPU, `Port node N has neither pcs-handle nor phy-handle` x8 (#16).
+- Interrupt controller overridden to 2 cells, parents IP2-6, outputs as OpenWrt (section 9; the mainline dtsi's 1-cell routing hangs SMP).
+- Mode-switch children are `cage@N`, not `port@N`: rtl83xx `rtldsa_ports_probe()` walks every node named `port` in the tree (`for_each_node_by_name`). Named `port@0`, the mode switch's reg-0 child cleared `has_pcs` of switch port 0 (lan1), so lan1 was never added to the CPU port's isolation mask: no traffic to the CPU, `Port node N has neither pcs-handle nor phy-handle` x8 (#16). Only lan1 was hit (other switch ports are 8..27). Upstream candidate (rtl83xx bug, #73).
+- `pinmux@1b0003a0` (`pinctrl-single`, nodes as OpenWrt `rtl930x.dtsi`), `&gpio0` `pinctrl-0` = disable-spi0, -cs1, -cs0: GPIO3-5 back to GPIO. Stock `rtk network on` muxes them to the switch-core SPI master (`SPI_CTRL1` `0035e000`), so empty cages 4-6 read MOD-DEF0 "present" and the SFP state machine logged `failed to read EEPROM: -EIO` (#29). `CONFIG_PINCTRL_SINGLE=y`. Boot line `pinctrl-single 1b0003a0.pinmux: 32 pins, size 4`.
 - `ethernet` gets `nvmem-cells = <&macaddr_uboot 0>` from a `u-boot,env` nvmem layout on `u-boot-env`: eth0 = env `ethaddr` (`16:b0:46:e9:0d:c0`, same as the flash OpenWrt bridge). Stock `rtk network on` leaves the switch MAC registers at `00:e0:4c:00:00:00`.
 - Not carried: OpenWrt `gpio-keys` (replaced by the mode switch, 300-06); `#thermal-sensor-cells` on SFP nodes + `sfp-thermal` zone (provider not in 7.3 or the ported set); GPIO21 watchdog stays disabled.
 
@@ -224,13 +225,13 @@ Built with `./dev.py build-kernel` (GCC 16.2); booted 2026-10-12 with IP traffic
 - Doorbell on RTL930x: one `writel_relaxed` of a cached `DMA_IF_CTRL` (fetch/busy bits clear), no read-poll, regmap lock or `ktime`. SDK `r9300_nicTxFetch_set` writes the field without a poll. Other families keep the RTL838x read-poll + RMW under `tx_lock`.
 - No TX-done IRQ: reclaim runs at the start of each RX NAPI poll and inline in xmit when the ring is full (queue stops only if still full); `napi_consume_skb` (skb cache, direct page_pool recycle). xmit schedules NAPI when it stops a queue; the poll repolls while a stopped queue has frames owned by hardware.
 - TX packet/byte counters per ring under the txq lock (`ndo_get_stats64`).
-- CPU port MAC force register (`0xbb00ca8c`, power-up 0x217 = 1G): left as the driver sets it.
+- CPU port MAC force register (`0xbb00ca8c`): left as the driver sets it. Reads `0x217` (SPD_SEL 1G) after the stock loader; the raw power-on value is unread and no vendor code writes SPD_SEL (#60).
 
 ### Safety defaults (house LAN; loop of 2026-10-10)
 
 - `/init` configures no network: every `lanN` and `eth0` stay down; no bridge exists.
 - DSA setup (`rtldsa_93xx_setup`) isolates every port: port N forwards only to itself; `port_enable` adds the CPU port only. Port-to-port forwarding needs a Linux bridge.
-- Lasers: Linux touches them only through the SFP state machine. `sfp` asserts TX-disable at probe (expander pin N-1 high = laser off) and releases it when `lanN` goes up. GLC-T copper modules (cages 3 and 7, cabled to each other) ignore TX-disable.
+- Lasers: Linux touches them only through the SFP state machine. `sfp` asserts TX-disable at probe (expander pin N-1 high = laser off) and releases it when `lanN` goes up. GLC-T copper modules ignore TX-disable (cages 3 ↔ 7 not cabled since 2026-10-11; re-cabled they loop inside the switch).
 - `/usr/sbin/port-up <cage> [addr/len] [vid]` brings up one `lanN` (+ optional VLAN subif and address); refuses while another `lanN` is up or any bridge exists. It also sets `rx-gro-list on` (eth0 + lanN, as OpenWrt) and starts dropbear (root, blank password, like the flash OpenWrt) for `nat-bench`.
 - A bridge made by hand needs `stp_state 1`: STP is off by default in Linux bridges.
 - Before the drivers probe, the switch runs whatever U-Boot left: `./dev.py ramload` runs stock `rtk network on` (one cage lit, `--cage N`) and the ASIC forwards until `rtldsa_93xx_setup` isolates the ports.
@@ -239,11 +240,40 @@ Built with `./dev.py build-kernel` (GCC 16.2); booted 2026-10-12 with IP traffic
 
 - `rtk network on` is not needed by the drivers: eth, PCS/SerDes, MDIO polling, table access and L2 setup are programmed by Linux.
 - CPU-port MAC: from the U-Boot env via nvmem (DTS above); the switch MAC registers U-Boot leaves are only the fallback.
-- Pinmux: DTS sets none; I2C SDA/SCL, SPI and GPIO muxing rely on U-Boot state (as before).
+- Pinmux: DTS sets only GPIO3-7 (cage presence, #29); I2C SDA/SCL and other muxing rely on U-Boot state.
+
+### Initramfs tools
+
+- nft 1.1.1, iperf3 3.17.1, ethtool 6.11, tc/ip 6.11, dropbear: OpenWrt 24.10.7 `mips_24kc` packages, sha256 pinned. tracefs mounted.
+
+### First boots (#16)
+
+Stage 0, 2026-10-10 (RAM boot from stock U-Boot, stage-0 DTS/config): reached rootfs mount. Checker findings:
+- `Failed to request irq 7 (timer)` x2: CP0 timer IRQ; fixed by the 2-cell intc (section 9).
+- gpio-keys `BTN_0..2` with `EV_SW`: `input_set_capability: invalid code` WARN x3; fixed (EV_KEY), node since replaced by the mode-switch driver.
+- `gpio-wdt` on GPIO21 reset the board at probe (GPIO21 low = board reset): node disabled (#18).
+- `Kernel command line: earlycon earlycon`: `CONFIG_CMDLINE` + DT `bootargs` both add it.
+
+Network, 2026-10-12 (commit b02ed5f; 1 GHz via our U-Boot and 800 MHz via stock):
+- host ↔ switch ping 0 % loss, ARP both ways, SSH.
+- iperf3 host ↔ switch, untagged lan1, CPU 800 MHz: host→switch 329 Mbit/s, switch→host 272 Mbit/s.
+- `./dev.py check-log`: 0 UNKNOWN / 0 ERROR on the kernel part of both boot paths.
+- Allowlisted, same as OpenWrt 6.18 on this board:
+  - `eth0: Failed to create a device link to DSA switch`: eth node is a child of the switch node.
+  - `lower interface lanN not found` + `fib_add() failed`: `l3.c` offloads routes only on bridge/VLAN uppers; a standalone port stays on the CPU path.
+  - `sfp-p4: unknown connector id 0x03`: GLC-SX-MM EEPROM.
+- NAT / NIC numbers: [NAT.md](NAT.md) "Mainline 7.3".
+
+### Profiling (#67)
+
+- Kernel side in: `PERF_EVENTS`, `HW_PERF_EVENTS` (34K: 2 32-bit counters), `FUNCTION_TRACER`, `FUNCTION_GRAPH_TRACER`, `DYNAMIC_FTRACE`.
+- No `perf` binary: OpenWrt 24.10.7 publishes no realtek / `mips_24kc` `perf` package; the host cross gcc (`mips64-linux-gnu-`) is kernel-only (no libc).
+- Used instead: ftrace `function_graph` via `./dev.py rteth-ftrace` (`scripts/rteth_ftrace.py`, over SSH under `nat-bench` load); per-function split in [NAT.md](NAT.md).
+- `function_graph` limits: every function keeps its mcount hook, load drops from ~320 to 50-90 Mbit/s and absolute µs inflate (depth-1 roots sum ~45 µs/pkt vs 25 µs untraced); `funcgraph-irqs` must stay on (off: NAPI polls run from irq exit are missed, only ~35 % of xmit calls seen); depth ≥ 2 overruns a 16 MiB buffer in 3 s (per-call averages stay valid).
+- CP0 perf IRQ: with the 2-cell intc the PMU gets irq 7 (`Performance counters: mips/34K PMU enabled, 2 32-bit counters ... irq 7`) and the timer conflict is gone; sampling (`perf record`) still untested.
 
 ### Not done here
 
-- `perf` userspace (#67): OpenWrt 24.10.7 publishes no `perf` package for realtek, and the host cross toolchain has no libc. Kernel side (perf events, 34K counters, function_graph) is in. Whether the CP0 perf-counter IRQ is wired on this platform (needed for sampling) is unchecked.
 - `generic/pending-6.18/700`, `701` (nft flowtable device events, ignore `EOPNOTSUPP` on offload): apply on 7.3, not applied; software flowtables do not need them.
 - Results of the first boots: [NAT.md](NAT.md) "Mainline 7.3"; operations: [MAINLINE-NET-OPS.md](MAINLINE-NET-OPS.md).
 
@@ -338,6 +368,8 @@ Measured 2026-10-12, mainline 7.3-rc6, `ramload uboot-mainline --then mainline-k
 - `vsmp_init_secondary()` (non-GIC) unmasks only IP0/1/6/7 on VPE1: CPU1's otto timer never ticks; boot hangs at the first CPU1-bound sleep (console hand-over `synchronize_srcu`, after `bootconsole [early0] disabled`). Independent of preempt mode and CPU clock.
 - Board DTS: 2-cell intc, parents IP2-6, outputs as OpenWrt `rtl930x.dtsi` (timers on output 4 = IP6, UART 1, switch 2, NIC 3). IP7 (CP0 timer/perf) not claimed.
 - Same DTS for OpenWrt-on-7.3 (the 7.3 OpenWrt build uses it).
+- OpenWrt's own `rtl930x.dtsi` already uses the 2-cell intc with timers on IP6: why 6.x SMP works.
+- After the fix (1 GHz, one 10G SR in cage 1), CPU1 timer IRQs tick on every image: mainline 7.3 SMP 3/3 boots to shell; OpenWrt-on-7.3 SMP to shell, STP 1, lan1 up 10G; OpenWrt 6.18 local to shell, STP 1, lan1 up.
 
 ### IRQ affinity (`300-18`, `./dev.py irq-check`)
 - Before 300-18: default `smp_affinity` 3 -> effective 3; GIMR enabled on both VPEs, but VPE1 has IP2-5 masked, so only CPU0 takes eth0/UART/switch IRQs. ERR count unchanged under load (2).
@@ -369,3 +401,12 @@ timerlat per CPU, 10 s idle / 12 s under nic-bench tcp-P4. irqsoff = max IRQs-of
 - The CPU running the NIC softirq sees ms-scale timer IRQ and thread latency under load (NAPI/softirq); the other VPE stays at ~0.1 ms IRQ / ~0.5 ms thread max.
 - SMP idle IRQ latency is about 2x UP (two VPEs share one pipeline).
 - irqsoff worst: `__schedule`->`finish_task_switch` (rcu_sched, idle) and `_raw_spin_lock_irqsave` in ksoftirqd (load).
+
+### Parked 300-14 (both-ring doorbell + TX NAPI) on SMP, 2026-10-12
+Same conditions as above, 300-18, eth0 on CPU1, one run each. 300-14 stays parked: it lowers throughput.
+
+| 300-14 setting | tcp-P4 Mbit/s | udp1400-900 kpps | udp64 kpps |
+|---|---|---|---|
+| without 300-14 | 334 | 59.3 | 67.9 |
+| `tx_cpu=-1` (inline reclaim) | 290 | 53.6 | 60.6 |
+| `tx_cpu=0` (TX NAPI on CPU0) | 146 | 24.8 | 26.4 |
