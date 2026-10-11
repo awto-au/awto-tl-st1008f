@@ -169,7 +169,7 @@ Read value `0x06400000`, taken 2026-10-11 at the U-Boot prompt with the NIC idle
 | `MAC_L2_CPU_PORT_CTRL` | 0xC70C | INTF_P28_SEL 1, CPU_PORT 0 | Port 28 = internal NIC or external CPU interface (SPEC) | default | default | none |
 | `MAC_L2_CPU_TAG_ID_CTRL` | 0xC710 | CPU_TAG_ID[15:0] | CPU-tag identifier | default | default | none |
 | `MAC_L2_CPU_MAX_LEN_CTRL` | 0xA3A0 | CPU_PORT_TX_MAX_LEN[13:0] | Largest frame the switch hands to the CPU | - | MTU + overhead | none |
-| `MAC_FORCE_MODE_CTRL(28)` | 0xCA8C | SPD_SEL etc. | `0x217` = 1G at power-up (#60) | untouched | 0x217 | none measured; every CPU path is below 250 Mbit/s |
+| `MAC_FORCE_MODE_CTRL(28)` | 0xCA8C | SPD_SEL etc. | `0x217` (1G) after the stock loader, raw reset value unread (#60) | untouched | 0x217 | none measured; every CPU path is below 250 Mbit/s |
 | `QM_RSN2CPUQID_CTRL_0..8` | 0xA344-A364 | 5-bit queue per reason (ARP_REQ_REP, DHCP, ND, L3 traps, NORMAL_FWD, ...) | Trap reason to CPU queue (= RX ring) | reset map | `reason % 2` | none; control-plane isolation (#60 item 3) |
 | `QM_FLAG2CPUQID_CTRL_0/1` | 0xA368 / 0xA36C | 5-bit queue per flag (NEW_SA, ACL_HIT, MIR_HIT, L2/L3_ERR, ATK_TYPE, ...) | Flag to CPU queue, not used by OpenWrt | reset | reset | none |
 | `QM_CPUQID2QID_CTRL` / `QM_CPUQID2XGQID_CTRL` [32] | 0xA324 / 0xA334 | QID[2:0] / QID[3:0] | CPU queue to internal egress queue of port 28 | reset | reset | none |

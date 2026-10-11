@@ -70,7 +70,7 @@ Gains are estimates, none measured. Baseline: ~8.5 kpps forwarded, ~75–110 µs
 2. **TX ring 32 per ring (SDK value) + `xmit_more` doorbell batching + BQL.** SDK depth is 2x OpenWrt; batching is not in any vendor code but removes one uncached read+write per packet under bursts. Expected: fewer `NETDEV_TX_BUSY` requeues; single-digit to ~15 % at burst load.
 3. **Trap reason → ring map** via the SDK's named `QM_RSN2CPUQID` fields (`dal_longan_trap_mgmtFrameQueue_set`): ARP/STP/LACP/BPDU on a high ring, routed/NAT traffic on another, NAPI per ring. No throughput gain; keeps the control plane alive when routed traffic saturates the CPU. Pair with item 4.
 4. **Optional CPU protection, ST5008F style but high limit:** EGBW port 28 in packet mode at ~1.25x the measured max CPU pps (e.g. ~25 kpps), or per-reason meters. Protects against storms (#43 loop). Not a throughput gain; do not copy the 600 pps value.
-5. **CPU port SPD_SEL:** vendors leave it at reset. Read the stock reset value; if it is 10G (4), test OpenWrt without forcing 1G (0x217 → keep SPD_SEL). Gain unknown; ASIC limiters on port 28 already measured off.
+5. **CPU port SPD_SEL:** no vendor code writes it; after the stock loader it reads 1G (`0x217`; stock writes bits 9/8/7/1/0 only). Raw reset value unread (needs a pre-loader read); if it is 10G (4), test OpenWrt without forcing 1G (0x217 → keep SPD_SEL). Gain unknown; ASIC limiters on port 28 already measured off.
 6. **Keep OpenWrt's RX design** (NAPI, page_pool, 2 × 128): ahead of every vendor build. Do not port the SDK's hard-IRQ `netif_rx` or the ST5008F user-space thread.
 
 Refs: #60 #16 #7 #15 #43.
