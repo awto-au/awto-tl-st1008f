@@ -94,17 +94,45 @@ From the OpenWrt v2 DTS (`SWITCH_PORT_SFP(p,l,s,c,g)` = SoC port, label, SerDes,
 - v2 DTS `led_set0`: set 0 = 1G/100M/10M, set 1 = 2.5G, set 2 = 10G, each LINK + ACT, active-high.
 - Activity is combined RX+TX (no directional indicator in the HW engine). Richer scheme: issue "per-port LEDs".
 
+## SFP power
+
+- **No per-cage limits.** Our DTS sets `maximum-power-milliwatt = <2000>` on all 8 cages (SFF-8472's top level; Linux treats anything ≥ 2.0 W as 2.0 W). #30.
+  - Replaced OpenWrt's borrowed split (cages 1/8 = 2.9 W, 2/3/6/7 = 1.5 W, 4/5 = 2.0 W): a level-3 (2.0 W) module stayed in level 1 in cages 2/3/6/7, so behaviour depended on the cage.
+  - Split origin: XikeStor's "≤ 2.9 W per port, ≤ 15.8 W total" for *their* SKS8300-8X (OpenWrt commit 0dc0b98295), copied unchanged across RTL9303 8×SFP+ DTS files. Nothing from TP-Link.
+- **Board budget check instead (warn only, never blocks or disables a module).**
+  - Budget default **16.0 W** = 24 W input (PSU 12 V 2 A) − board draw (SoC/DRAM/regulators, est. 6-8 W, unmeasured). Same as 8 × 2.0 W.
+  - Unknown: 3.3 V SFP rail(s) and regulator rating on this PCB; real board draw. Set the budget from an input-power measurement (idle, then per module) when one exists. #30.
+- **Counted power per module** (same rules in U-Boot and Linux):
+  - A0 byte 64: bit 5 → level 3 = 2.0 W; else bit 1 → level 2 = 1.5 W; else level 1 = 1.0 W. Linux `sfp.c` also gates these on byte 94 (SFF-8472 rev ≥ 10.2 / 11.4) and needs DDM (byte 92 bit 6) to switch levels; the count ignores those gates (a module may draw its declared level regardless).
+  - Copper modules cannot declare > 2.0 W, so they are raised to a datasheet table (max of declared and table):
+
+| Module (how detected) | Counted | Source |
+|---|---|---|
+| 1000BASE-T (byte 6 bit 3, or RJ45 `0x22` + rate < 2.5G) | 1.2 W | FS SFP-GE-T: 350 mA × 3.47 V |
+| 2.5GBASE-T (byte 36 `0x1e`, or RJ45 + rate 2.5-9.9G) | 2.0 W | FS SFP-2.5G-T: "< 2 W" |
+| 5G/10GBASE-T (byte 36 `0x16`/`0x1c`/`0x1d`, or RJ45 + rate ≥ 10G) | 3.0 W | FS SFP-10G-T-30: 3.0 W max |
+
+  - Datasheets: [sources/README.md](../sources/README.md).
+  - Present but EEPROM unreadable: 1.0 W in Linux (power level 1, as `sfp.c` leaves it). U-Boot counts only modules whose EEPROM answers (MOD-DEF0 can read present on an empty cage, #29).
+  - GLC-T declares level 1 and has connector byte `0x07` (not RJ45), so it is counted 1.2 W via byte 6.
+- **U-Boot** (`rtk_sfppower.c`):
+  - `rtk sfp power`: per cage counted W + source, then total vs budget.
+  - `rtk network on` and `rtk port` print `rtk: SFP power X.X W declared by N modules, budget 16.0 W (env sfp_budget_mw)`.
+  - Over budget: `rtk: WARNING: SFP declared total X.X W > budget 16.0 W (board input 24 W) (#30)` (fails `check-log` until reviewed).
+  - Budget: env `sfp_budget_mw` (mW, default 16000).
+- **Linux** (mode-switch driver, `openwrt/patches/300-06`; in our 7.3 kernel and the OpenWrt build):
+  - Recomputed on every insert/remove (500 ms poll). Info line on every change of the total; `dev_warn` once on going over (`SFP declared total X.X W > budget 16.0 W (board input 24 W)`), info when back under.
+  - sysfs on the `mode-switch` platform device: `power_total_mw`, `power_cage_mw` (8 values, cage 1 first, 0 = empty), `power_budget_mw` (rw, re-checks at once).
+  - Module param `power_budget_mw` (built-in: `tplink_st1008f_mode.power_budget_mw=` on the kernel command line).
+  - debugfs `st1008f-mode-switch/state`: total + per-port `power_mw` and source.
+
 ## Other GPIO / I2C
 
 - SFP data I2C = `i2c_mst1`, SDA0-7 = GPIO9-16. SDK formula per SoC port: `scl_pin = 8 + 9*(port/4)`, `sda_pin = port/2`, `interface = 1-(port/4)`, 8-bit reg, random read. EEPROM `0x50`, DOM `0x51`.
   - Verified from stock U-Boot (after `rtk network on`): cage N = `rtk i2c init hw <id> 0 <N-1> 8 <0x50|0x51> 0 0` (7-bit addr, intf 0, sda = N-1). `0xa0` or intf 1 → `FAIL (-1)`.
   - DDM readable from U-Boot: `scripts/st1008_sfp_ddm.py` (issue #11).
-- Per-cage `maximum-power-milliwatt` in the OpenWrt DTS (logged `sfp sfp-pN: Host maximum power`): cages 1/8 = 2.9 W, 2/3/6/7 = 1.5 W, 4/5 = 2.0 W. **Not a measured property of this board.**
-  - Origin: XikeStor told users of *their* SKS8300-8X "≤2.9 W per port, ≤15.8 W total" (OpenWrt commit 0dc0b98295). The per-cage split sums to 15.8 W but no source gives a reason for which cage gets what; it is copied unchanged across RTL9303 8×SFP+ DTS files (XikeStor SKS8300/8310, Vimin, NicGiga, SiriVision, TP-Link). Nothing from TP-Link.
-  - Linux effect is small: `sfp.c` only knows SFF-8472 levels 1.0 / 1.5 / 2.0 W (`sfp_module_parse_power`); host max only decides whether a module declaring 1.5 or 2.0 W may leave power level 1. 2.9 W ≡ 2.0 W. Only the 1.5 W cages (2/3/6/7) differ: a level-3 (2.0 W) module stays in level 1 there.
-  - Modules drawing >2 W (10GBASE-T copper) cannot declare it in SFF-8472; the DTS numbers do not protect anything for them.
-  - Real limit unknown: 3.3 V SFP rail(s) and their regulator rating on this PCB, against the 12 V 2 A (24 W) input. Treat per-cage values as unverified until the rail is identified.
-  - USB EHCI (`0xb8021000`, little-endian regs): readable at the U-Boot prompt without hanging; at reset: halted, CONFIGFLAG 0, PORTSC1 `0x2000` (port power off, no connect, companion-owned). Issue #5.
+- SFP power: [SFP power](#sfp-power).
+- USB EHCI (`0xb8021000`, little-endian regs): readable at the U-Boot prompt without hanging; at reset: halted, CONFIGFLAG 0, PORTSC1 `0x2000` (port power off, no connect, companion-owned). Issue #5.
 - TX-disable: expander @ `0x38` on an `i2c-gpio` bus, SCL GPIO22 / SDA GPIO23 (`delay-us = 2`). Pin N = cage N+1, **active-high**.
   - Part is a TI TCA9534A (svanheule.net); "PCA9534" in these docs = same register map. The `A` variant's base address `0x38` matches.
 - 3-position mode switch M1/M2/M3 on gpio0 pins 17/18/19. OpenWrt v2 DTS: `gpio-keys` (`BTN_0/1/2`, EV_SW, active-low, 50 ms debounce); our mainline DTS: the mode-switch driver ("Linux driver (#64)" below). Stock behaviour: see "Mode switch (stock firmware)" below.

@@ -90,6 +90,11 @@ int rtk_sfp_iface(int cage, const char **why);	/* enum rtk_if, -1 = no module / 
 /* cmd_rtk.c: A0 bytes 0-95 with the read fallbacks and the Cisco space-padding fix-up */
 int rtk_sfp_read_id(int cage, u8 *id);
 
+/* rtk_sfppower.c: declared module power vs board budget (#30); warn only */
+int rtk_sfp_power_mw(const u8 *id, const char **why);
+int rtk_sfp_budget_mw(void);
+int rtk_sfp_power_sum(bool verbose);	/* prints total (+ per cage), WARNING if over; mW */
+
 /* rtk_ours.c: commands that do not exist on the stock loader */
 int rtk_port_status(int argc, char *const argv[]);
 int rtk_mode(int argc, char *const argv[]);

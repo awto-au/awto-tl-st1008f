@@ -641,6 +641,7 @@ static void network_on(void)
 		if (ret)	/* e.g. 0xf00d: 1G next to a 2.5G pair partner (shared ring PLL) */
 			printf("rtk: cage %d media %d: FAIL (0x%x)\n", c, m, ret);
 	}
+	rtk_sfp_power_sum(false);	/* total vs budget, WARNING if over (#30); before Err: scripts wait on it */
 	printf("Err:0x%x:FAIL (0x%x)\n", 0xf030, 0xf030);	/* stock: CPU port has no PHY driver */
 	iso_guard();
 	net_on = true;

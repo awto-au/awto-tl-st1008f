@@ -65,6 +65,16 @@ Exist, not downloaded:
 - Revision: W25Q256JV, Publication Release Date August 03, 2017 (Rev G).
 - Good copy: 92 pages; contains "Clock frequency for Read Data instruction (03h)" (50 MHz) and "133MHz Standard/Dual/Quad SPI clocks". The board's flash is JEDEC EF4019 (JV/FV class); die variant not confirmed.
 
+## Copper SFP power datasheets (FS, fetched 2026-10-12, #30)
+
+Counted power for copper modules (they cannot declare > 2.0 W in SFF-8472): [docs/hardware.md](../docs/hardware.md#sfp-power).
+
+| File | URL | Good copy: pages, bytes, must contain |
+|---|---|---|
+| fs-sfp-ge-t-datasheet.pdf | https://resource.fs.com/mall/resource/sfp-ge-t-1000base-t-datasheet.pdf | 9, 1,634,171; "Supply Current" 350 mA max, "1.05W Typical" |
+| fs-sfp-2.5g-t-datasheet.pdf | https://resource.fs.com/mall/file/datasheet/2.5g--t-transceiver-datesheet.pdf | 13, 1,180,513; "Power Dissipation ＜2W", 450 mA max |
+| fs-sfp-10g-t-30-datasheet.pdf | https://resource.fs.com/mall/resource/sfp-10g-t-30-data-sheet.pdf | 11, 2,400,636; "3.0W max power", 900 mA max |
+
 ## Web references (live pages, not downloaded)
 
 Carried over from the retired `awto-st1008f` notes repo (2026-08-18).

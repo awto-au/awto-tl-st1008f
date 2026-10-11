@@ -79,6 +79,7 @@ Full stock `rtk` parity inventory, registers and parity harness: [RTK-COMMANDS.m
 - `rtk pinGet <pin>` (non-claiming read), `rtk pinSet <pin> <0|1> [force]` (GPIO21 low needs `force`).
 - - `rtk laser [status|<cage>|none|all force]`, `rtk boardmodel`.
 - `rtk sfp`: all cages, summary only (presence, checksums, compact DDM line). `rtk sfp <cage>`: summary + `--- ethtool decode ---`. `rtk sfp <cage> brief`: summary only. `rtk sfp <cage> raw`: hexdump A0/A2 (128 B each).
+- `rtk sfp power`: counted power per cage + total vs budget (warn only, #30). Rules: [hardware.md](hardware.md#sfp-power).
 - `rtk sfp <cage> phy [reg]`: copper module PHY at 0x56; each 16-bit reg = two 1-byte reads of the same reg (MSB, then LSB), as Linux `mdio-i2c` SMBus. A 2-byte block read returns LSB `0xff` (master has no clock stretching). ID1 first: read as `0x4101` = byte order off by one → one extra byte read re-aligns. Each byte: up to 5 tries 1 ms apart.
 - Decoder: `board/tplink/tl-st1008f/sfp/` = ethtool 7.1 (`6b7b16e`) `sfpid.c`, `sfpdiag.c`, `sff-common.c`, `module-common.c` (GPL-2.0); printf output, no JSON, integer fixed point (no FPU). Rx external-cal polynomial per SFF-8472 (upstream omits r^2..r^4). Host check: `scripts/sfp_decode_host_test.py`.
 - `rtk network on`: not yet (no Ethernet driver; stage 4).

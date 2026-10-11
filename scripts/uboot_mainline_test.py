@@ -60,6 +60,9 @@ CHECKS["boot_mode"] = ("printenv boot_mode bootcmd_m1",
 CHECKS["rtk_led"] = ("rtk led show", r"engine (serial|off), latch (off|error|fallback)", 1)
 CHECKS["rtk_led_snake"] = ("rtk led snake 10 1", r"snake: 10 ms/step, counted laps; Ctrl-C stops", 1)
 CHECKS["rtk_temp"] = ("rtk temp", r"temp: \d+ C \(since enable: min \d+, max \d+\)", 1)
+# 8 ID reads, worst case ~50 ms each (clock-stretch fallbacks) -> 0.4 s; cap 1 s (#30)
+CHECKS["sfp_power"] = ("rtk sfp power", r"cage 8: [^\n]*\r?\nrtk: SFP power \d+\.\d W declared by \d+ modules?, "
+                       r"budget \d+\.\d W \(env sfp_budget_mw\)\r?\n", 1)
 # after stock `rtk network on` every cage is forced 10GBASE-R (WDIG reg 9, #42)
 CHECKS["rtk_port"] = ("rtk port", r"(?s)cage 1 \(port 0, sds 2\): [^\n]*sds 10GBASE-R \(0x1a\).*cage 8 \(port 27, sds 9\): ", 3)
 CHECKS["refuse_boardid"] = ("rtk boardid 5", r"refused: stock does setenv", 1)

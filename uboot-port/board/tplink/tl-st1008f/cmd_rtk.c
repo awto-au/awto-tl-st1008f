@@ -384,6 +384,7 @@ static int sfp_one(int cage, bool full)
 	static const char *const rmode[] = { "", " [50 kHz: module clock-stretches]",
 					     " [byte-wise: module clock-stretches]" };
 	u8 id[96], dm[128];
+	const char *why;
 	int mode, pres = sfp_present(cage);
 	bool cc_base, cc_ext, padded, ddm_ok = false;
 
@@ -414,8 +415,9 @@ static int sfp_one(int cage, bool full)
 	       padded ? ", NON-COMPLIANT (0x20 padding in binary fields, treated as 0)" : "",
 	       id[3], id[4], id[5], id[6], id[7], id[8], id[9], id[10]);
 	/* SFF-8472 byte 64: bit 1 = power level 2 declared, bit 5 = level 3 (Linux sfp.c) */
-	printf("  power level %s declared\n",
-	       plevel[(id[64] & 0x02 ? 1 : 0) | (id[64] & 0x20 ? 2 : 0)]);
+	printf("  power level %s declared, %d mW counted (%s; `rtk sfp power`)\n",
+	       plevel[(id[64] & 0x02 ? 1 : 0) | (id[64] & 0x20 ? 2 : 0)],
+	       rtk_sfp_power_mw(id, &why), why);
 	sfp_notes(id);
 	if (!(id[92] & 0x40)) {
 		printf("  ddm   not implemented (A0 byte 92 = 0x%02x)\n", id[92]);
@@ -509,6 +511,10 @@ static int do_rtk_sfp(int argc, char *const argv[])
 {
 	int c;
 
+	if (argc >= 2 && !strcmp(argv[1], "power")) {
+		rtk_sfp_power_sum(true);
+		return 0;
+	}
 	if (argc >= 3 && !strcmp(argv[2], "phy"))
 		return sfp_phy(dectoul(argv[1], NULL), argc >= 4 ? (int)hextoul(argv[3], NULL) : -1);
 	if (argc >= 3 && !strcmp(argv[2], "raw"))
@@ -681,6 +687,8 @@ U_BOOT_CMD(rtk, 16, 0, do_rtk, "rtk     - Realtek commands\n",
 	   "--- TL-ST1008F additions (not in stock help) ---\n"
 	   "rtk laser [status | <cage> | none | all force]\n"
 	   "        - SFP TX enable via the TCA9534A; one cage at a time unless forced\n"
+	   "rtk sfp power\n"
+	   "        - declared power per cage + total vs budget (env sfp_budget_mw, default 16000)\n"
 	   "rtk sfp [cage [raw | brief | phy [reg] | mode]]\n"
 	   "        - module EEPROM + DDM: presence, checksums, ethtool-style decode;\n"
 	   "          phy: copper module PHY (0x56) regs 0-3, 0x11;\n"

@@ -104,6 +104,7 @@ int rtk_port_status(int argc, char *const argv[])
 		port_line(c, have ? exp : NULL);
 	if (!have)
 		printf("laser expander not responding\n");
+	rtk_sfp_power_sum(false);
 	return 0;
 }
 
@@ -152,6 +153,7 @@ int rtk_ours_help(void)
 	printf("rtk commands not on the stock loader:\n"
 	       "  rtk laser [status|<cage>|none|all force]   TX enable (one cage by default)\n"
 	       "  rtk sfp [cage [raw|brief|mode]]            module EEPROM/DDM decode, Linux interface\n"
+	       "  rtk sfp power                              declared power per cage, total vs budget\n"
 	       "  rtk sfp <cage> phy [reg]                   copper module PHY (0x56) registers\n"
 	       "  rtk port [status]                          per cage: module, laser, SerDes, link, LED\n"
 	       "  rtk sdsdump [sds|all]                      SerDes register dump (reg_diff.py)\n"

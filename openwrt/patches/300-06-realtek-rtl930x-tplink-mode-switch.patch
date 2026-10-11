@@ -48,8 +48,18 @@ Deviations from stock:
 - The first pattern and media pass run in probe, so the boot log carries
   the decisions.
 
+SFP power budget (warn only, never blocks a module):
+- Per insert: declared power from ID EEPROM byte 64 (level 1/2/3 =
+  1.0/1.5/2.0 W); copper modules raised to a datasheet table (1000BASE-T
+  1.2 W, 2.5GBASE-T 2.0 W, 5G/10GBASE-T 3.0 W); unreadable = 1.0 W.
+- Total of all cages vs power_budget_mw (default 16000 = 24 W input
+  minus estimated board draw): dev_warn once when it goes over, info when
+  back under, info on every change of the total.
+- sysfs (device): power_total_mw, power_cage_mw (8 values),
+  power_budget_mw (rw); module param power_budget_mw.
+
 debugfs: /sys/kernel/debug/st1008f-mode-switch/state (pins, pattern,
-per-port class, action, netdev, result).
+power total, per-port class, action, netdev, result, power).
 
 DT (replaces the gpio-keys M1/M2/M3 node, which would hold the pins):
 
@@ -74,7 +84,7 @@ diff --git a/drivers/platform/mips/Kconfig b/drivers/platform/mips/Kconfig
 index fb4ac4b08..2a5c39e83 100644
 --- a/drivers/platform/mips/Kconfig
 +++ b/drivers/platform/mips/Kconfig
-@@ -37,4 +37,15 @@ config LS2K_RESET
+@@ -37,4 +37,16 @@ config LS2K_RESET
  	help
  	  Loongson-2K1000 Reset Controller driver.
  
@@ -87,7 +97,8 @@ index fb4ac4b08..2a5c39e83 100644
 +	help
 +	  Reads the TL-ST1008F v2 3-position mode switch (GPIO 17-19) like the
 +	  stock firmware and applies its 1G/2.5G speed pattern to 1G and 2.5G
-+	  SFP modules. 10G modules are not touched.
++	  SFP modules. 10G modules are not touched. Also sums the power
++	  every fitted module declares and warns over a budget.
 +
  endif # MIPS_PLATFORM_DEVICES
 diff --git a/drivers/platform/mips/Makefile b/drivers/platform/mips/Makefile
@@ -104,7 +115,7 @@ new file mode 100644
 index 000000000..131e3e101
 --- /dev/null
 +++ b/drivers/platform/mips/tplink-st1008f-mode.c
-@@ -0,0 +1,664 @@
+@@ -0,0 +1,795 @@
 +// SPDX-License-Identifier: GPL-2.0-only
 +/*
 + * TP-Link TL-ST1008F v2: 3-position mode switch, ported from the stock rtk.ko
@@ -146,6 +157,17 @@ index 000000000..131e3e101
 +/* ours: removal = 2 failed I2C probes in a row (vendor reads MOD-DEF0, see #29) */
 +#define ST_REMOVE_MISSES	2
 +
++/* SFP power budget (#30): warn only, never blocks. Rules: docs/hardware.md "SFP power". */
++#define ST_BOARD_INPUT_MW	24000	/* PSU 12 V 2 A */
++#define ST_CU_1G_MW		1200	/* FS SFP-GE-T: 350 mA x 3.47 V */
++#define ST_CU_2G5_MW		2000	/* FS SFP-2.5G-T: "< 2 W" */
++#define ST_CU_10G_MW		3000	/* FS SFP-10G-T-30: 3.0 W max (also 5GBASE-T) */
++
++/* 24 W input - est. 6-8 W board draw (unmeasured) */
++static unsigned int power_budget_mw = 16000;
++module_param(power_budget_mw, uint, 0644);
++MODULE_PARM_DESC(power_budget_mw, "SFP declared-power budget in mW (warn only)");
++
 +/* tpSfpGetType classes; also the rtk_port_10gMedia_t id the vendor sets */
 +enum {
 +	ST_CLS_NONE = 0,	/* no event, or EEPROM read error */
@@ -174,6 +196,8 @@ index 000000000..131e3e101
 +	bool present;			/* vendor: !DAT_0004cc9c ("was absent") */
 +	int misses;
 +	bool elec;			/* tpSfpIsElec: "SFP-T" at EEPROM 120 */
++	unsigned int power_mw;		/* counted toward the budget; 0 = empty */
++	const char *power_why;
 +	int cls;			/* class from the last insert */
 +	u8 pat;				/* per-port byte from sfpPatternSet: 1 or 2 */
 +	int media;			/* vendor media id logged for the decision */
@@ -197,6 +221,8 @@ index 000000000..131e3e101
 +	int v[ST_NPINS];
 +	int pattern;			/* 0 until the first latch */
 +	struct st_port port[ST_NPORTS];
++	unsigned int power_total_mw;	/* last total logged */
++	bool power_over;		/* warned, not yet back under */
 +};
 +
 +/* custom_judge_pattern_mode (rtk.ko 0x0020c240), verbatim */
@@ -508,6 +534,55 @@ index 000000000..131e3e101
 +	p->res = res > 0 ? 0 : res;
 +}
 +
++/* Declared power: A0 byte 64 level bits, raised for copper modules (cannot declare > 2.0 W) */
++static unsigned int st_power_mw(const u8 *id, const char **why)
++{
++	unsigned int mw = id[64] & BIT(5) ? 2000 : id[64] & BIT(1) ? 1500 : 1000, cu = 0;
++	u8 ecc = id[36];
++
++	*why = "declared";
++	if (ecc == 0x16 || ecc == 0x1c || ecc == 0x1d)	/* 10GBASE-T SFI/SR, 5GBASE-T */
++		cu = ST_CU_10G_MW;
++	else if (ecc == 0x1e)				/* 2.5GBASE-T */
++		cu = ST_CU_2G5_MW;
++	else if (id[2] == 0x22)				/* RJ45: size by nominal rate */
++		cu = id[12] >= 100 ? ST_CU_10G_MW : id[12] >= 25 ? ST_CU_2G5_MW : ST_CU_1G_MW;
++	else if (id[6] & BIT(3))			/* 1000BASE-T */
++		cu = ST_CU_1G_MW;
++	if (cu > mw) {
++		*why = "copper table";
++		mw = cu;
++	}
++	return mw;
++}
++
++static unsigned int st_power_total(struct st_ms *ms)
++{
++	unsigned int i, mw = 0;
++
++	for (i = 0; i < ST_NPORTS; i++)
++		mw += ms->port[i].present ? ms->port[i].power_mw : 0;
++	return mw;
++}
++
++/* log the total on change; warn once on crossing the budget, info when back under */
++static void st_power_check(struct st_ms *ms)
++{
++	unsigned int total = st_power_total(ms), budget = READ_ONCE(power_budget_mw);
++
++	if (total != ms->power_total_mw)
++		dev_info(ms->dev, "SFP power: %u mW declared, budget %u mW\n", total, budget);
++	ms->power_total_mw = total;
++	if (total > budget && !ms->power_over)
++		dev_warn(ms->dev, "SFP declared total %u.%u W > budget %u.%u W (board input %u W)\n",
++			 total / 1000, total % 1000 / 100, budget / 1000, budget % 1000 / 100,
++			 ST_BOARD_INPUT_MW / 1000);
++	else if (total <= budget && ms->power_over)
++		dev_info(ms->dev, "SFP declared total %u.%u W back within budget %u.%u W\n",
++			 total / 1000, total % 1000 / 100, budget / 1000, budget % 1000 / 100);
++	ms->power_over = total > budget;
++}
++
 +/* tpSfpGetType presence + insert/outsert, then tpSfpSetType per event */
 +static void st_media_pass(struct st_ms *ms)
 +{
@@ -541,6 +616,7 @@ index 000000000..131e3e101
 +				p->cls = ST_CLS_OUT;
 +				p->act = ST_ACT_NONE;
 +				p->media = 0;
++				p->power_mw = 0;
 +			}
 +			continue;
 +		}
@@ -554,9 +630,13 @@ index 000000000..131e3e101
 +		} else {
 +			p->cls = st_classify(ms, i, id);
 +		}
++		p->power_mw = p->cls == ST_CLS_NONE ? 1000 : st_power_mw(id, &p->power_why);
++		if (p->cls == ST_CLS_NONE)	/* unread: power level 1, as sfp.c leaves it */
++			p->power_why = "unread";
 +		st_decide(ms, i);
 +	}
 +
++	st_power_check(ms);
 +	rtnl_lock();
 +	for (i = 0; i < ST_NPORTS; i++)
 +		st_apply(ms, i);
@@ -622,20 +702,80 @@ index 000000000..131e3e101
 +	seq_printf(s, "pins 17/18/19 = %d/%d/%d\n", ms->v[0], ms->v[1], ms->v[2]);
 +	seq_printf(s, "pattern = %d\n", ms->pattern);
 +	seq_printf(s, "position (pins 18/19, U-Boot rtk mode) = %s\n", st_position(ms));
-+	seq_puts(s, "port cage pat present class elec media action netdev result note\n");
++	seq_printf(s, "power: %u mW declared, budget %u mW%s\n", st_power_total(ms),
++		   READ_ONCE(power_budget_mw), ms->power_over ? " (OVER)" : "");
++	seq_puts(s, "port cage pat present class elec media action netdev result power_mw power_src note\n");
 +	for (i = 0; i < ST_NPORTS; i++) {
 +		struct st_port *p = &ms->port[i];
 +
 +		if (!p->i2c)
 +			continue;
-+		seq_printf(s, "%d %d %d %d %d %d %d %s %s %d %s\n", i, i + 1, p->pat,
++		seq_printf(s, "%d %d %d %d %d %d %d %s %s %d %u %s %s\n", i, i + 1, p->pat,
 +			   p->present, p->cls, p->elec, p->media, st_act_name[p->act],
-+			   p->ifname[0] ? p->ifname : "-", p->res, p->note ?: "-");
++			   p->ifname[0] ? p->ifname : "-", p->res, p->present ? p->power_mw : 0,
++			   p->present ? p->power_why : "-", p->note ?: "-");
 +	}
 +	mutex_unlock(&ms->lock);
 +	return 0;
 +}
 +DEFINE_SHOW_ATTRIBUTE(st_state);
++
++static ssize_t power_total_mw_show(struct device *dev, struct device_attribute *attr, char *buf)
++{
++	struct st_ms *ms = dev_get_drvdata(dev);
++	unsigned int mw;
++
++	mutex_lock(&ms->lock);
++	mw = st_power_total(ms);
++	mutex_unlock(&ms->lock);
++	return sysfs_emit(buf, "%u\n", mw);
++}
++static DEVICE_ATTR_RO(power_total_mw);
++
++/* per cage 1-8, space separated; 0 = empty */
++static ssize_t power_cage_mw_show(struct device *dev, struct device_attribute *attr, char *buf)
++{
++	struct st_ms *ms = dev_get_drvdata(dev);
++	int i, n = 0;
++
++	mutex_lock(&ms->lock);
++	for (i = 0; i < ST_NPORTS; i++)
++		n += sysfs_emit_at(buf, n, "%u%c", ms->port[i].present ? ms->port[i].power_mw : 0,
++				   i == ST_NPORTS - 1 ? '\n' : ' ');
++	mutex_unlock(&ms->lock);
++	return n;
++}
++static DEVICE_ATTR_RO(power_cage_mw);
++
++static ssize_t power_budget_mw_show(struct device *dev, struct device_attribute *attr, char *buf)
++{
++	return sysfs_emit(buf, "%u\n", READ_ONCE(power_budget_mw));
++}
++
++static ssize_t power_budget_mw_store(struct device *dev, struct device_attribute *attr,
++				     const char *buf, size_t len)
++{
++	struct st_ms *ms = dev_get_drvdata(dev);
++	unsigned int v;
++	int ret = kstrtouint(buf, 0, &v);
++
++	if (ret)
++		return ret;
++	WRITE_ONCE(power_budget_mw, v);
++	mutex_lock(&ms->lock);
++	st_power_check(ms);
++	mutex_unlock(&ms->lock);
++	return len;
++}
++static DEVICE_ATTR_RW(power_budget_mw);
++
++static struct attribute *st_attrs[] = {
++	&dev_attr_power_total_mw.attr,
++	&dev_attr_power_cage_mw.attr,
++	&dev_attr_power_budget_mw.attr,
++	NULL
++};
++ATTRIBUTE_GROUPS(st);
 +
 +static void st_release(struct st_ms *ms)
 +{
@@ -693,6 +833,7 @@ index 000000000..131e3e101
 +	ms->dev = dev;
 +	for (i = 0; i < ST_NPINS; i++)
 +		ms->v[i] = -1;	/* no sample yet: judges as 3 */
++	ms->power_total_mw = UINT_MAX;	/* first pass logs the total */
 +	ms->pins = devm_gpiod_get_array(dev, NULL, GPIOD_IN);
 +	if (IS_ERR(ms->pins))
 +		return dev_err_probe(dev, PTR_ERR(ms->pins), "mode pins\n");
@@ -763,6 +904,7 @@ index 000000000..131e3e101
 +	.driver = {
 +		.name = "tplink-st1008f-mode",
 +		.of_match_table = st_of_match,
++		.dev_groups = st_groups,
 +	},
 +};
 +module_platform_driver(st_driver);

@@ -5,6 +5,7 @@ Index of owner decisions, newest first. One line each: date (AEDT), decision, li
 ## 2026-10-12
 
 - **SFP power: no per-cage limits.** Every cage 2000 mW (SFF-8472 max; OpenWrt's borrowed 2.9/1.5/2.0 W split made modules fail in cages 2/3/6/7). Instead sum the power all fitted modules declare and warn if over the board budget. #30.
+- **SFP power budget:** default 16 W = 24 W input (12 V 2 A) − est. 6-8 W board draw (unmeasured); copper modules counted from a datasheet table; warn only, never block. Configurable (U-Boot env `sfp_budget_mw`, Linux `power_budget_mw`). [hardware.md](hardware.md#sfp-power), #30.
 - **README stays high-level:** no pins, register values or measurements; link to docs/. [README.md](../README.md).
 - README headline: Linux 7.3 port + OpenWrt tracking + default boot, mode-switch table, improvements vs stock/OpenWrt, comparison with managed ST5008F. [README.md](../README.md).
 - **Flash writes: standing approval** except the stock U-Boot area: never write `0x0`-`0xDFFFF` (`LOADER`/`u-boot`); `u-boot-env` only via `./dev.py uboot-chain-env apply|revert`; `jffs2-log`, `jffs2-cfg`, `firmware`, `recovery` writable without asking. Supersedes the 2026-10-11 "no flash writes except approved flows" entries. [CLAUDE.md](../CLAUDE.md), #73.
@@ -79,7 +80,7 @@ Index of owner decisions, newest first. One line each: date (AEDT), decision, li
 - Good mainline U-Boot port first, then the latest Linux. U-Boot path = mainline U-Boot (v2026.07) chainloaded from stock, built from a `uboot-port/` scaffold in this repo (UNVR pattern), not the clean-room `uboot/` and not a branch of the empty `awto-uboot` fork. [UBOOT-MAINLINE.md](UBOOT-MAINLINE.md), #23.
 - Every hardware/build/test flow scripted behind `./dev.py`; no hand-typed console sequences. [CLAUDE.md](../CLAUDE.md).
 - Strict allowlist boot-log checker for U-Boot and Linux boots. `scripts/boot_log_check.py`, #28.
-- Per-cage SFP power values are borrowed and unverified; documented as such. #30.
+- Per-cage SFP power values are borrowed and unverified; documented as such. **Superseded by** 2026-10-12 "SFP power: no per-cage limits". #30.
 - IPs, MACs and SFP serials are fine in this public repo; post issues/comments here directly (no approval step). Host paths, secrets and `private/` still excluded.
 - All uncommitted files in the repo belong to this work; sort them out (commit or remove).
 - Quick wins (#11, #8, #5) before the benchmark.

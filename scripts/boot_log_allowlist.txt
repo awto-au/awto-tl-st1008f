@@ -99,9 +99,11 @@ Creating 6 MTD partitions on "spi0\.0":  # SPI NOR partition table
 0x000000100000-0x000000200000 : "jffs2-cfg"  # partition map
 0x000000200000-0x000000300000 : "jffs2-log"  # partition map
 0x000000300000-0x000002000000 : "firmware"  # partition map
-sfp sfp-p[2367]: Host maximum power 1\.5W  # DTS maximum-power-milliwatt (borrowed vendor figure, see docs/hardware.md)
-sfp sfp-p[45]: Host maximum power 2\.0W  # DTS maximum-power-milliwatt (borrowed vendor figure, see docs/hardware.md)
-sfp sfp-p[18]: Host maximum power 2\.9W  # DTS maximum-power-milliwatt (borrowed vendor figure, see docs/hardware.md)
+sfp sfp-p[2367]: Host maximum power 1\.5W  # OpenWrt stock DTS per-cage split (flash OpenWrt until rebuilt; docs/hardware.md SFP power)
+sfp sfp-p[1-8]: Host maximum power 2\.0W  # DTS maximum-power-milliwatt: our DTS 2000 mW on every cage (#30)
+sfp sfp-p[18]: Host maximum power 2\.9W  # OpenWrt stock DTS per-cage split (flash OpenWrt until rebuilt; docs/hardware.md SFP power)
+tplink-st1008f-mode mode-switch: SFP power: \d+ mW declared, budget \d+ mW  # SFP power total on change (300-06, #30); over budget = separate dev_warn line, not allowlisted
+tplink-st1008f-mode mode-switch: SFP declared total \d+\.\d W back within budget \d+\.\d W  # budget check: back under after a warning (#30)
 sfp sfp-p[1-8]: module FS +SFP-10GSR-85 +rev +sn \S+ +dc \d+  # SFP+ module detected and ID EEPROM read
 sfp sfp-p[1-8]: please wait, module slow to respond  # sfp core retries the ID read; seen on empty cages, see triage
 i2c-gpio i2c(_gpio|-expander): using lines 535 \(SDA\) and 534 \(SCL\)  # bit-banged I2C bus for the PCA9538 expander
@@ -384,6 +386,7 @@ Boot:  (legacy|prompt) \(no image in recovery slot: single-image boot as before\
 Boot:  primary \(attempt 1/2 \(cold boot or confirmed\)\)  # default boot (#73): last primary boot confirmed or power-up
 Boot:  fallback \(mode switch M3\)  # default boot (#73): owner selected recovery
 Boot:  (fallback|prompt) \(stock env st1008f_boot=(fallback|prompt)\)  # default boot (#73): owner-set env flag
+rtk: SFP power \d+\.\d W declared by \d+ modules?, budget \d+\.\d W \(env sfp_budget_mw\)  # `rtk network on`/`rtk port` SFP power total (#30); over budget adds a WARNING line (not allowlisted)
 wdt: on, \d+ ms \(prescale [0-3], \d+ x \d+ ms ticks at lx 175000 kHz\), SoC reset on expiry  # bootsel arms the SoC watchdog before bootm (#73)
 
 [mainline]
