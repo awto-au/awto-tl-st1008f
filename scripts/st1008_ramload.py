@@ -235,12 +235,17 @@ def openwrt_stp(con: Console) -> None:
     try:
         con.run("until [ -d $B ];do sleep 1;done;echo 1 >$B/stp_state", OW_PROMPT, 30, "stp on")
         con.run("cat $B/stp_state", r"\n1\r?\n" + OW_PROMPT, 1, "stp_state = 1")
+        # 2 s (sysfs unit 1/100 s) = bridge minimum: ports forward ~4 s after STP on, not 2 x 8 s
+        con.run("echo 200 >$B/forward_delay", OW_PROMPT, 1, "forward_delay 2 s", checked=True)
     except SystemExit:
         con.send("\x03")
         con.send("for p in /sys/class/net/lan*; do ip link set ${p##*/} down; done")
         power("off")
         raise SystemExit("FAIL: bridge STP not enabled in 30 s: lan* down + relay off (#19)")
-    con.run("uci set network.switch.stp='1'; uci commit network", OW_PROMPT, 2, "stp persistent")
+    # BusyBox wraps lines > 60 chars and breaks the echo check: short commands
+    con.run("S=network.switch", OW_PROMPT, 1, "uci section", checked=True)
+    con.run("uci set $S.stp='1'; uci set $S.forward_delay='2'", OW_PROMPT, 1, "stp uci", checked=True)
+    con.run("uci commit network; sync", OW_PROMPT, 2, "stp persistent", checked=True)
     log("  OpenWrt bridge STP on")
 
 
