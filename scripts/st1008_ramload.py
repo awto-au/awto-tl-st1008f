@@ -151,9 +151,9 @@ def power(op: str) -> None:
 
 def console_view() -> None:
     """Owner watches the console via the VS Code task 'ST1008 console' (.vscode/tasks.json)."""
-    r = subprocess.run(["pgrep", "-f", "tail -n 200 -F .*st1008-console.log"], capture_output=True,
-                       timeout=2)  # local process scan, instant
-    log("console view: running" if r.returncode == 0 else
+    r = subprocess.run(["pgrep", "-a", "-x", "tail"], capture_output=True, text=True,
+                       timeout=2)  # local process scan, instant; -x: real tail, not a mention of it
+    log("console view: running" if "st1008-console.log" in r.stdout else
         "console view NOT running: VS Code -> Run Task -> 'ST1008 console' (or reopen the folder)")
 
 
