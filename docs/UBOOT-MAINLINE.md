@@ -124,6 +124,7 @@ st1008f-mainline #
 - Flash: Winbond EF4019 = `w25q256` entry, 32 MiB, 1x I/O. Config: `DM_SPI`, `SPI_FLASH`, `SPI_FLASH_WINBOND`, `CMD_SF`, MTD; no `SPI_FLASH_BAR`; `SPI_FLASH_UNLOCK_ALL` off; `ENV_IS_NOWHERE` kept.
 - Address mode: stock leaves the flash in **4-byte mode** (the mmio window spans 32 MiB on it). A 3-byte READ reads `(addr<<8)|0xff`: `sf read` at 0x100 returned flash 0x100ff. U-Boot therefore runs 4-byte (sends EN4B `0xB7`, harmless: already set).
 - Read-only guard is in the driver (CMD_SF has no Kconfig to drop writes): opcode allowlist RDID, RDSR/2/3, READ/FAST_READ (3B and 4B `0x13`/`0x0c`), RDSFDP, RDEAR, WRDI, EN4B. EX4B `0xE9` refused (mmio needs 4-byte mode). WREN held back, only sent before WREAR. Program/erase/WRSR print `refused: no flash writes (opcode 0x..)`, return -EPERM; the flash never sees a WREN for them.
+- #81 stock-area gate (same refusal path, extra line): program/erase whose start address is in 0x0-0xFFFFF (LOADER + both env sectors; our U-Boot never writes the env), plus chip erase, WRSR1/2/3 and block lock/unlock (`0x98 0x7e 0x39 0x36`), print a `refused (#81): ...` line first (`0x.. is in stock LOADER+env 0x0-0xfffff (opcode 0x..)`). Address decoded from the spi-mem opcode+address buffer (3 or 4 bytes). Stays if the opcode allowlist ever admits writes. Test: `refuse_sf_stock` (`sf erase 0xff000 0x1000`, env2: outside the host gate, so it reaches the driver).
 - mmio window: `claim_bus` sets SFCR RBO|WBO and deasserts CS; `release_bus` restores SFCR/SFCSR. `crc32 0xb4000000 ...` after `sf` matches.
 - SPI clock: driver never writes the divider (`set_speed` is a no-op); `clocks set`/`clocks` own it. SFCR `0x5fc00244` = SPI_CLK_DIV 2 → SCK = NOR 153.125 / 6 = 25.52 MHz ([CLOCKS.md](CLOCKS.md)).
 
@@ -134,7 +135,7 @@ st1008f-mainline #
 
 - Read throughput (2026-10-10, commit after dda6fff, 1x I/O, stock divider): mmio `crc32` of 32 MiB 16.6 s (~2.0 MB/s); `sf read` 32 MiB 22.6 s (~1.5 MB/s).
 - RDY wait limit per 32-bit word = 32 SCK x 1.25 + 1 us from the clock provider, per claim (3 us at 25.52 MHz); expiry prints limit and elapsed.
-- Checks: `sf_probe`, `sf_read` (first and last 64 KiB: `sf read` crc32 == mmio crc32), `refuse_sf_write|erase|update`. All pass on the board.
+- Checks: `sf_probe`, `sf_read` (first and last 64 KiB: `sf read` crc32 == mmio crc32), `refuse_sf_write|erase|update` (all pass on the board), `refuse_sf_stock` (#81, not yet run on the board).
 - Full chip 2026-10-10: `sf read` and mmio both CRC32 `671232ac`. Differs from the 2026-10-08 backup (`dd984f95`): `firmware` now holds OpenWrt 25.12.4 (sysupgrade 2026-10-08) and env `ethaddr` changed (#36).
 
 ## Sources for later stages (GPL-2.0, attribute on port)

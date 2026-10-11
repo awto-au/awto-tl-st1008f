@@ -19,6 +19,7 @@ import time
 from pathlib import Path
 
 sys.path.insert(0, str(Path(__file__).resolve().parent))
+import flash_guard  # noqa: E402
 from st1008_ramload import OW_PROMPT, SERVER_IP, SWITCH_IP, TFTP_ROOT, Console  # noqa: E402
 
 ROOT = Path(__file__).resolve().parent.parent
@@ -51,6 +52,8 @@ def main() -> int:
     if len(data) > PART_SIZE:
         log(f"FAIL: image larger than {PART} ({PART_SIZE:#x})")
         return 1
+    flash_guard.check_mtd(PART, "uboot-chain-install")  # #81, before any console command
+    flash_guard.check_range(0x200000, len(data), "uboot-chain-install")
     con = Console()
     sh(con, "dmesg -n 1")
     n = re.search(rf'mtd(\d+): 00100000 00010000 "{PART}"', sh(con, "cat /proc/mtd", r"mtd0:")).group(1)

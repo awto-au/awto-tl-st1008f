@@ -20,6 +20,13 @@ End-to-end workflow: [../README.md#workflow](../README.md#workflow).
 - Output: `private/serial/st1008-console.log` (`--log` to change); `tail -f` it. Socket and pid in `$XDG_RUNTIME_DIR/tio-st1008.daemon.{sock,pid}`.
 - Ops: `send`, `break` (real UART BREAK), `break_cmd` (BREAK + SysRq byte), `baud`, `read`, `status`, `policy`, `dump_range` (bulk `md.b` parsed inside the daemon), `quit`.
 - Notes: `tio` drops the PL2303 when stdin is not a terminal; pyserial holds it. Policy `hold` stays at `RTL9300#`.
+- Flash gate (#81): `send` (each completed line, chunked typing included) and `policy` pass `flash_guard.check_cmd`; a refused line gets Ctrl-C on the board and an error reply. Takes effect on daemon restart.
+
+### flash_guard.py
+- Purpose: host gate, no flash write overlapping stock LOADER 0x0-0xDFFFF (#81). `check_range`, `check_mtd` (unknown names and mtd0 refused), `check_cmd` (sf/mtd/flashcp/dd/redirects/cp/mw/erase into the flash window/upgrade/*force/sysupgrade), `dtb_problem` (partition@0 `read-only` in a built DTB).
+- Callers: `Console.send`/`send_checked` (st1008_ramload.py), the daemon, and up front in `uboot_chain_install`, `uboot_chain_env apply|revert`, `default_boot install|revert|check`.
+- Run: `./dev.py flash-guard` (= `--selftest`) or `./dev.py flash-guard "<cmd>" ...`. Log `tmp/logs/flash_guard.log`.
+- Limits: `cp`/`mw` checked on literal addresses only (`$vars` pass; in `sf` they are refused); interactive char-by-char typing is checked per completed line.
 
 ### switch_console.py
 - Purpose: client for the daemon; one request per invocation, prints what the switch replied.

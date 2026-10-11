@@ -364,6 +364,12 @@ def cmd_check_log(extra: list[str]) -> int:
     return _script("boot_log_check.py", extra)
 
 
+@command("host flash-write gate (#81): selftest, or check console lines (refuses writes over 0x0-0xDFFFF)",
+         args="[--selftest | \"<cmd>\" ...]", kind="check")
+def cmd_flash_guard(extra: list[str]) -> int:
+    return _script("flash_guard.py", extra or ["--selftest"])
+
+
 # ---- meta ------------------------------------------------------------------
 @command("machine-readable command list (for agents)", kind="meta")
 def cmd_describe(_extra: list[str]) -> int:

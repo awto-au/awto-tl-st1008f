@@ -5,7 +5,8 @@
  *
  * Read-only by construction: only the opcodes in opcode_ok() reach the flash, and WREN is
  * only ever sent as part of WREAR (extended address register, volatile). Anything else
- * (program, erase, WRSR) is refused. The controller state is restored on release_bus so
+ * (program, erase, WRSR) is refused; one aimed at 0x0-0xFFFFF (stock LOADER + env) names #81.
+ * The controller state is restored on release_bus so
  * the memory-mapped window (0xb4000000) keeps working after `sf` use.
  * CS1 (ball E1, nothing known attached): ID/status/SFDP reads only (`busscan spi 1`, #77).
  */
@@ -46,6 +47,9 @@
 #define OP_EN4B		0xb7	/* volatile mode bit; stock leaves the flash in 4-byte mode */
 #define OP_READ_4B	0x13
 #define OP_FAST_READ_4B	0x0c
+
+/* #81 gate: stock LOADER 0x0-0xDFFFF + env 0xE0000-0xFFFFF; our U-Boot never writes the env */
+#define STOCK_END	0x100000
 
 /* RDY wait: one 4-byte word = 32 SCK x1.25, SCK from the clock provider (docs/CLOCKS.md),
  * +1 us for timer_get_us() granularity. Set per claim_bus; expiry logs limit and elapsed. */
@@ -150,6 +154,30 @@ static bool opcode_ok(u8 op)
 	}
 }
 
+/*
+ * Program/erase start from the opcode+address buffer (spi-mem: one BEGIN xfer, 3 or 4 address
+ * bytes; EAR only adds high bits). -1 = whole-chip/protection op or odd shape (counts as stock),
+ * -2 = not a write.
+ */
+static long write_addr(u8 op, const u8 *b, int len)
+{
+	switch (op) {
+	case 0x02: case 0x20: case 0x52: case 0xd8:	/* PP, SE 4K, BE 32K, BE 64K */
+	case 0x12: case 0x21: case 0x5c: case 0xdc:	/* 4-byte-address forms */
+		if (len == 4)
+			return b[1] << 16 | b[2] << 8 | b[3];
+		if (len == 5)
+			return (long)get_unaligned_be32(b + 1);
+		return -1;
+	case 0xc7: case 0x60:				/* chip erase */
+	case 0x01: case 0x31: case 0x11:		/* WRSR1/2/3: block-protect bits */
+	case 0x98: case 0x7e: case 0x39: case 0x36:	/* global/individual block unlock/lock */
+		return -1;
+	default:
+		return -2;
+	}
+}
+
 /* CS1: unknown slave, so no mode-changing opcodes (EN4B, WREN/WREAR, WRDI) either */
 static bool opcode_ok_cs1(u8 op)
 {
@@ -219,6 +247,14 @@ static int rtl_spi_xfer(struct udevice *dev, unsigned int bitlen, const void *do
 			if (ret)
 				return ret;
 		} else if (!opcode_ok(op)) {
+			long a = write_addr(op, dout, len);
+
+			if (a == -1)
+				printf("refused (#81): opcode 0x%02x (chip erase/protection) covers stock LOADER+env 0x0-0x%x\n",
+				       op, STOCK_END - 1);
+			else if (a >= 0 && a < STOCK_END)
+				printf("refused (#81): 0x%lx is in stock LOADER+env 0x0-0x%x (opcode 0x%02x)\n",
+				       a, STOCK_END - 1, op);
 			printf("refused: no flash writes (opcode 0x%02x)\n", op);
 			p->wren = false;
 			p->deny = !(flags & SPI_XFER_END);

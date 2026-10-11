@@ -18,6 +18,7 @@ import time
 from pathlib import Path
 
 sys.path.insert(0, str(Path(__file__).resolve().parent))
+import flash_guard  # noqa: E402
 from st1008_ramload import ROOT, SOCK, Console, openwrt_stp, power, restart_daemon  # noqa: E402
 
 LOG = ROOT / "tmp/logs/uboot_chain_env.log"
@@ -77,6 +78,9 @@ def main() -> int:
     a = ap.parse_args()
     if a.mode == "boot":
         return boot()
+    if a.mode in ("apply", "revert"):  # stock saveenv: env 0xE0000 + env2 0xF0000 (#81)
+        flash_guard.check_range(0xE0000, 0x20000, f"uboot-chain-env {a.mode}")
+        flash_guard.check_cmd(CHAIN)
     to_stock()
     con = Console()
     if a.mode == "test":

@@ -29,6 +29,7 @@ import zlib
 from pathlib import Path
 
 sys.path.insert(0, str(Path(__file__).resolve().parent))
+import flash_guard  # noqa: E402
 from st1008_ramload import OW_PROMPT, SERVER_IP, TFTP_ROOT, Console  # noqa: E402
 from uboot_chain_env import set_policy  # noqa: E402
 
@@ -79,6 +80,8 @@ def check_image(name: str) -> list[str]:
         dtb = kern[kern.rfind(b"\xd0\x0d\xfe\xed"):]  # appended DTB = last FDT magic
         bad += [f"{fname}: kernel DTB lacks {m[:-1].decode()!r} (not the split layout)"
                 for m in DTB_MARKS if m not in dtb]
+        if p := flash_guard.dtb_problem(dtb):
+            bad.append(f"{fname}: {p}")
     except lzma.LZMAError as e:
         bad.append(f"{fname}: LZMA {e}")
     log(f"  {fname}: {len(img)} B, slot {slot} B, {'OK' if not bad else 'BAD'}")
@@ -203,6 +206,9 @@ def cmd_check(_a) -> int:
 
 
 def cmd_install(a) -> int:
+    _, off, slot = IMAGES[a.what]
+    flash_guard.check_range(off, slot, f"default-boot install {a.what}")  # #81
+    flash_guard.check_mtd("firmware" if a.what == "primary" else a.what, "default-boot install")
     plan(a.what)
     if not a.approved:
         log(f"refused: flash writes need {APPROVAL} (owner approval, CLAUDE.md hazards)")
@@ -239,6 +245,7 @@ def cmd_install(a) -> int:
 
 
 def cmd_revert(a) -> int:
+    flash_guard.check_range(0x300000, 0x1d00000, "default-boot revert firmware")  # #81
     plan("revert")
     if not a.approved:
         log(f"refused: flash writes need {APPROVAL}")

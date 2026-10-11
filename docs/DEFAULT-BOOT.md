@@ -48,6 +48,7 @@ Design + code 2026-10-12 (modes: owner 2026-10-12); nothing run on the board. Fl
 - Recovery budget: upstream 25.12.4 initramfs = 5,383,940 B; 7 MiB leaves ~1.6 MiB.
 - Primary budget: OpenWrt 6.18 kernel 3.19 MiB + squashfs 2.25 MiB today; the 7.3 kernel without initramfs is ~2.9 MB LZMA (ours, fewer drivers) → expect ~6 MiB image, ~16 MiB overlay.
 - Build: `openwrt/default-boot/0001-realtek-tl-st1008f-v2-recovery-slot.patch` (DTS `firmware` 0x1600000 + `recovery` + reserved-memory; `IMAGE_SIZE := 22528k`), applied to the local buildroot for both images.
+- `u-boot` (LOADER) stays `read-only` in the split layout: upstream DTS has it, patch 0001 leaves partition@0 alone. `default-boot check`/`install` refuse an image whose DTB lacks it, and every install/revert range goes through `scripts/flash_guard.py` first (#81).
 - Hazard: an upstream image (29 MiB layout) booted from this flash grows its overlay over `recovery`. Only images built with patch 0001 go on this flash; RAM-booting upstream initramfs images is fine (they mount nothing from flash unless asked).
 
 ## Images
