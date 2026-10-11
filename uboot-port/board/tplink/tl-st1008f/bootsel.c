@@ -72,7 +72,7 @@ static bool slot_ok(ulong off, ulong size, char *name)
 }
 
 /* Value of `var` in the stock env (CRC-checked copy), or NULL */
-static char *stock_env(const char *var, char *out, int len)
+char *st1008f_stock_env(const char *var, char *out, int len)
 {
 	u8 *e = malloc(STOCK_ENV_SIZE);
 	u32 crc, want;
@@ -164,7 +164,7 @@ static int decide(int mode, char *why, int len, bool count)
 		snprintf(why, len, "mode switch M3");
 		return SEL_FALLBACK;
 	}
-	stock_env(FLAG_VAR, flag, sizeof(flag));
+	st1008f_stock_env(FLAG_VAR, flag, sizeof(flag));
 	if (!strcmp(flag, "prompt") || !strcmp(flag, "fallback")) {
 		snprintf(why, len, "stock env %s=%s", FLAG_VAR, flag);
 		return strcmp(flag, "prompt") ? SEL_FALLBACK : SEL_PROMPT;
@@ -228,7 +228,7 @@ static int do_bootsel(struct cmd_tbl *cmdtp, int flag, int argc, char *const arg
 	       slot_ok(PRIMARY_OFF, PRIMARY_SIZE, name) ? name : "no valid uImage");
 	printf("fallback 0x%07x: %s\n", FALLBACK_OFF,
 	       slot_ok(FALLBACK_OFF, FALLBACK_SIZE, name) ? name : "no valid uImage");
-	printf("stock env %s: %s\n", FLAG_VAR, stock_env(FLAG_VAR, f, sizeof(f)) ?: "(unset)");
+	printf("stock env %s: %s\n", FLAG_VAR, st1008f_stock_env(FLAG_VAR, f, sizeof(f)) ?: "(unset)");
 	printf("record: %s, attempts %u (max %u)\n", rec_valid() ? "valid" : "invalid", rec_attempts(),
 	       MAX_ATTEMPTS);
 	printf("wdt ctrl: %08x\n", __raw_readl((void __iomem *)(WDT + 8)));

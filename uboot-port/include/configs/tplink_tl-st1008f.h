@@ -11,7 +11,11 @@
  * rates (div 6..1) so error is 0 on our side; the host adapter rounds to its own grid. */
 #define CFG_SYS_BAUDRATE_TABLE	{ 9600, 19200, 38400, 57600, 115200, 230400, 460800, 921600, \
 				  1822916, 2187500, 2734375, 3645833, 5468750, 10937500 }
-/* boardmodel: stock default, `rtk boardmodel` reads it; led_boot: rtk_led.c boot snake */
-#define CFG_EXTRA_ENV_SETTINGS	"boardmodel=RTL9303_8XGE\0" "led_boot=snake\0"
+/* boardmodel: stock default, `rtk boardmodel` reads it; led_boot: rtk_led.c boot snake.
+ * Net (#80): ethport = mgmt cage; IPs = st1008f-1-mgmt / TFTP host (awto-dan ip-registry.toml). */
+#define CFG_EXTRA_ENV_SETTINGS	"boardmodel=RTL9303_8XGE\0" "led_boot=snake\0" \
+				"ethport=1\0" "autoload=no\0" "ipaddr=192.168.25.48\0" \
+				"netmask=255.255.255.0\0" "gatewayip=192.168.25.254\0" \
+				"serverip=192.168.25.30\0"
 
 #endif

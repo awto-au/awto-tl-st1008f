@@ -581,7 +581,7 @@ static int iso_set(int port, u32 pmask)
 }
 
 /* our loop guard: front ports forward to nothing but the CPU port (cage loop #19) */
-static void iso_guard(void)
+void rtk_iso_guard(void)
 {
 	int i;
 
@@ -644,7 +644,7 @@ static void network_on(void)
 	}
 	rtk_sfp_power_sum(false);	/* total vs budget, WARNING if over (#30); before Err: scripts wait on it */
 	printf("Err:0x%x:FAIL (0x%x)\n", 0xf030, 0xf030);	/* stock: CPU port has no PHY driver */
-	iso_guard();
+	rtk_iso_guard();
 	net_on = true;
 	mdelay(2000);	/* stock: link-status settle */
 	if (io_err) {

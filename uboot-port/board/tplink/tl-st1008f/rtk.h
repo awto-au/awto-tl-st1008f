@@ -90,6 +90,7 @@ int rtk_macsds_apply(unsigned int sds, unsigned int mode);
 int rtk_port_isolation(int argc, char *const argv[]);
 int rtk_sdsdump(int argc, char *const argv[]);
 bool rtk_net_is_on(void);
+void rtk_iso_guard(void);	/* cages forward to the CPU port only (cage loop #19) */
 const char *rtk_media_name(int port);
 
 /* rtk_sfpmode.c: SerDes interface Linux would pick for the module (sfp-bus.c, sfp.c quirks) */
@@ -129,5 +130,7 @@ const char *st1008f_mode_name(int mode);
 
 /* bootsel.c: chained-boot selection primary/fallback (#73); sets bootcmd */
 int st1008f_bootsel(int mode);
+/* value of `var` in the stock flash env (CRC-checked), or NULL */
+char *st1008f_stock_env(const char *var, char *out, int len);
 
 #endif

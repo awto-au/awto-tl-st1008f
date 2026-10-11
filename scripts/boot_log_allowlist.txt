@@ -388,7 +388,12 @@ Starting kernel \.\.\.  # bootm handoff
 U-Boot 2026\.07(-dirty)? \([A-Z][a-z]{2} +\d+ 20\d\d - \d\d:\d\d:\d\d [+-]\d{4}\)  # mainline U-Boot banner, pinned to v2026.07 (uboot-port/)
 Model: TP-Link TL-ST1008F v2\.0  # DTS model pinned
 DRAM:  256 MiB  # stage 0 maps 256 MiB (second bank not linear); pinned
-Core:  23 devices, 10 uclasses, devicetree: separate  # DM: root, clock provider, 2 simple-bus, serial, gpio, gpio-keys+3, i2c master+8 SFP buses, i2c-gpio+expander, spi+nor flash; a change shows up here
+Core:  24 devices, 11 uclasses, devicetree: separate  # DM: root, clock provider, 2 simple-bus, serial, gpio, gpio-keys+3, i2c master+8 SFP buses, i2c-gpio+expander, spi+nor flash, CPU-port NIC (#80); a change shows up here
+Net:   eth0: ethernet@df00  # rtl930x_eth CPU-port NIC (#80); MAC from stock env ethaddr (a random-MAC warning is not allowlisted)
+rtl930x-eth: switch not set up, running `rtk network on`  # first eth start without stock network on (#80)
+rtl930x-eth: NIC reset \d+ us  # first eth start: NIC + CPU queue reset, self-clear time (#80)
+rtl930x-eth: cage [1-8] \(port \d+\) only, link (up|down)  # eth start: mgmt cage lit, others dark (#80)
+Using ethernet@df00 device  # net command header (#80)
 Loading Environment from <NULL>\.\.\. OK  # ENV_IS_NOWHERE: RAM-only env, no flash
 (In|Out|Err):\s+serial  # console on ns16550 UART0
 Mode:  M1 switch, pins 17/18/19 = [01]/1/1  # mode switch boot policy (#46): pins 18/19 decode; pin 17 open (#8)

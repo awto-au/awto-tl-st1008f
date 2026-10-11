@@ -493,7 +493,7 @@ Desk-only; no switch access. Needs `tmp/openwrt` (sparse clone of openwrt, `targ
 
 ## Session tools 2026-10-10..12 (clocks, chain boot, Linux checks, editor)
 
-- `uboot_mainline_test.py` (`./dev.py uboot-test [check...]`): on-board checks at the `st1008f-mainline #` prompt; regex per command within a stated cap; `timer` = `sleep N` timed host-side (±3 %); `reset`, `cr_idle` explicit only. Exit 0 = all pass. Log `tmp/logs/uboot_mainline_test.log`.
+- `uboot_mainline_test.py` (`./dev.py uboot-test [check...]`): on-board checks at the `st1008f-mainline #` prompt; regex per command within a stated cap; `timer` = `sleep N` timed host-side (±3 %); `reset`, `cr_idle`, `network`, `net` explicit only; `net` (#80) = ping gateway, dhcp, tftp + wget (CRC32 vs host), netconsole line. Exit 0 = all pass. Log `tmp/logs/uboot_mainline_test.log`.
 - `flash_speed_step.py` (`./dev.py flash-speed`): SPI-NOR SFCR divider ladder in U-Boot; whole-chip `crc32` must equal the stock-divider baseline; stops and restores on mismatch. Read-only. Log `tmp/logs/flash_speed_step.log`. Results: docs/CLOCKS.md.
 - `spi_linux_ladder.py` (`./dev.py spi-linux [D:CODE ...]`): fastest SPI clock Linux reads correctly; per step our U-Boot sets SFCR/NOR code and boots RAM OpenWrt, then `md5sum` of the 29 MiB `firmware` mtdblock vs the stock-speed baseline. Read-only. Log `tmp/logs/spi_linux_ladder.log`. #50.
 - `openwrt_rootfs_hash.py`: aggregate md5 of every file under /bin /sbin /lib /usr of the running flash OpenWrt + SQUASHFS error count → `tmp/rootfs-hash/<label>.json`; compares clock/controller settings. #50, #52.

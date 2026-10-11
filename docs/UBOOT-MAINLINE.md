@@ -27,7 +27,7 @@ Runs on the board: first boot 2026-10-10 (18 s from power-off to prompt via `ram
 | UART byte lane | `reg-offset = <0xfffffffd>` | data is in bits 31:24 = byte 0; U-Boot's BE ns16550 accesses byte `(1<<shift)-1` = 3; -3 cancels it. `CONFIG_NS16550_DYNAMIC` would be cleaner but does not compile on mips (`inb(u8 *)`) |
 | Timer | CP0 Count, board `get_tbclk()` = CPU PLL / 2, read each call | follows a runtime CPU change; `uboot-test timer` checks it against the host clock |
 | Env | `CONFIG_ENV_IS_NOWHERE`, `BOOTDELAY=-1` (stay at prompt) | no flash |
-| Commands | md mw cp cmp go bootm printenv setenv version echo itest sleep fdt dm help run | `saveenv`, `ELF`, flash and net commands disabled |
+| Commands | md mw cp cmp go bootm printenv setenv version echo itest sleep fdt dm help run; net: dhcp ping tftpboot wget fastboot (udp) | `saveenv`, `ELF`, flash writes disabled |
 | `reset` | prints `reset: not implemented (stage 0)`, returns | GPIO21 low = board reset (stock `rtk.ko`), deliberately not driven; SoC chip-reset register not yet RE'd |
 | Kernel decompress | `CONFIG_LZMA`, `SYS_BOOTM_LEN=0x1000000` | OpenWrt uImages are LZMA |
 | DTB | `OF_SEPARATE`, appended to `u-boot.bin` | one flat file for `go` |
@@ -122,7 +122,8 @@ st1008f-mainline #
 - SPI-NOR read-only (stage 3, verified on the board 2026-10-10; see [SPI-NOR](#spi-nor-stage-3-read-only)).
 - Chained-boot selection primary / recovery (`bootsel`, attempt record in RAM, SoC watchdog): [DEFAULT-BOOT.md](DEFAULT-BOOT.md) (#73); not run on the board.
 - SerDes bring-up + `rtk network on` without stock (#51, [Stage 4](#stage-4-network-on-without-stock-51)).
-- Not: Ethernet (CPU-port NIC, #80), flash env, reset (next: switch-core `+0x0c` write 1 = `syscon-reboot` per Linux DTS), interrupts (polled console only), second RAM bank for Linux handover ([highmem](#ram-above-256-mib-highmem-32)), second hardware thread.
+- Ethernet: CPU-port NIC ([Ethernet](#ethernet-80)).
+- Not: flash env, reset (next: switch-core `+0x0c` write 1 = `syscon-reboot` per Linux DTS), interrupts (polled console only), second RAM bank for Linux handover ([highmem](#ram-above-256-mib-highmem-32)), second hardware thread.
 - `bootm`: accepts the standard uImage magic `0x27051956` and the Realtek `0x93030000` (stock-style images, flash OpenWrt), so `bootm 0xb4300000` boots the flash OpenWrt (#47).
 
 ## 64-bit divide (`__udivdi3`, #33)
@@ -186,6 +187,38 @@ Implementation: [RTK-COMMANDS.md](RTK-COMMANDS.md#stage-4-network-on-10g-macsds-
 - Checks: `sf_probe`, `sf_read` (first and last 64 KiB: `sf read` crc32 == mmio crc32), `refuse_sf_write|erase|update` (all pass on the board), `refuse_sf_stock` (#81, not yet run on the board).
 - Full chip 2026-10-10: `sf read` and mmio both CRC32 `671232ac`. Differs from the 2026-10-08 backup (`dd984f95`): `firmware` now holds OpenWrt 25.12.4 (sysupgrade 2026-10-08) and env `ethaddr` changed (#36).
 
+## Ethernet (#80)
+
+- Driver: `board/tplink/tl-st1008f/rtl930x_eth.c`, DM_ETH, node `ethernet@df00` (`realtek,rtl9301-eth`). Polled, no IRQ. Built, not yet run on the board.
+- Stack: legacy U-Boot net (`NET_LEGACY`): `dhcp`, `ping`, `tftpboot`, `wget` (HTTP only; HTTPS needs lwIP + mbedTLS), netconsole (`nc`), `fastboot udp` (RAM download only: `FASTBOOT_FLASH` off, buffer `0x84f00000` 32 MiB).
+- Size: `u-boot.bin` 444153 B with net (375 KiB before); build fails above the 512 KiB chain copy (`CHAIN_COPY_MAX`).
+- Env defaults: `ethport=1` (mgmt cage), `ipaddr=192.168.25.48` (st1008f-1-mgmt), `serverip=192.168.25.30`, `gatewayip=192.168.25.254`, `netmask=255.255.255.0`, `autoload=no`. MAC: stock flash env `ethaddr` (same as Linux nvmem); random MAC + warning if absent.
+- Debug: `ethstat` (ring indices, drop counters, last RX tag, NIC registers); `setenv ethrxany 1` accepts frames from every cage.
+
+| Item | Value | Source / why |
+|---|---|---|
+| Rings | RX ring 0: 32 x 1664 B; TX ring 0: 4 x 1664 B; RX rings 1-31 + TX ring 1 -> one CPU-owned null entry | stock left all 32 RX rings armed in its own memory; null entry = NIC never writes there |
+| Descriptor | 32 B header (buf, size, more/offset, len, 10 x u16 CPU tag); ring entry = phys(header) \| OWN(0) \| WRAP(1) | OpenWrt `rtl838x_eth` |
+| Memory | headers via KSEG1 (uncached); buffers cached: flush before TX, invalidate after RX and before re-arm | non-coherent DMA |
+| RX accounting | `DMA_IF_RX_RING_SIZE` ring 0 = 32; write 1 to `RX_RING_CNTR` per released frame | queue manager drops at the limit otherwise (RX runout) |
+| Reason map | all `QM_RSN2CPUQID` / `FLAG2CPUQID` fields -> ring 0 | one ring polled |
+| Frame limit | `MAC_L2_CPU_MAX_LEN` = 1600 | one frame = one descriptor; no `MORE` chains |
+| CPU port | `MAC_FORCE(28)` = 0x217 (link, 1G); `L2_UNKN_UC_FLD_PMSK` += port 28 | stock + OpenWrt values |
+| TX | CPU tag: FWD_TYPE physical, BP_FLTR + BP_STP + BP_VLAN_EGR, DPM = `ethport` cage port only | never flooded; bit layout SDK `nic_rtl9300.h` |
+| RX filter | frames whose tag rx port != `ethport` port dropped (`rx other-port`) | isolated cages still reach the CPU |
+| Start (first) | no network on yet (CPU force bits clear) -> our `rtk network on`; NIC + queue reset (`RST_GLB_CTRL_0` bits 1-2, never bit 0 = chip reset); rings; laser of `ethport` only | once per boot |
+| Start (every) | `rtk_iso_guard` (cages -> CPU only); DMA RX/TX on; CPU port MAC on | stock network on does not isolate |
+| Stop | wait for TX fetch, then DMA + CPU port MAC off | netconsole sends one frame and halts |
+
+| Wait | Limit | Basis | On expiry |
+|---|---|---|---|
+| NIC reset self-clear | 62.5 ms | SDK `r9300_swQueRst_set` fixed 50 ms, x1.25 | start fails, prints limit + register |
+| Settle before/after reset | 100 ms each, once per boot | OpenWrt `rteth_nic_reset` (no measurement) | - |
+| TX slot free | 115 us | Linux 17-23 us per packet incl. DMA ([DATASHEET-AUDIT.md](DATASHEET-AUDIT.md)), 4 slots, x1.25 | frame dropped, logged, `tx timeout` counted |
+
+- Tests: `./dev.py uboot-test net` (ping gateway, dhcp, tftp + wget CRC32 vs host, netconsole line received on the host). Explicit only.
+- Open: our-own `rtk network on` path (chain boot) does not run the SDK VLAN/STP/L2 defaults ([RTK-COMMANDS.md](RTK-COMMANDS.md)); RX there depends on chip reset values. Stock-ramload path has stock's.
+
 ## Sources for later stages (GPL-2.0, attribute on port)
 
 | Stage | Driver | Take from |
@@ -203,7 +236,7 @@ Stage 0 uses none of them.
 1. ~~GPIO~~ done. ~~I2C + lasers + SFP DDM~~ done.
 2. `reset` via switch-core `0xbb00000c` = 1 (Linux `syscon-reboot`); 512 MiB (#32).
 3. ~~SPI-NOR read-only~~ built (below); `saveenv` stays out.
-4. RTL930x CPU-port Ethernet + SerDes 10GBASE-R; DM_ETH; `rtk network on`.
+4. ~~RTL930x CPU-port Ethernet + SerDes 10GBASE-R; DM_ETH; `rtk network on`~~ built (#80 phase 1); web failsafe = #80 phase 2.
 5. lwIP + iperf (lwiperf) for wire-speed tests.
 6. `hwtest` commands in the style of awto-unvr `docs/uboot-hw-test-suite.md`.
 7. DDR SPL from the RE'd preloader sequence (#23). Replacing the stock SPL/payload in flash is out: `0x0`-`0xDFFFF` is never written (#47, #81).

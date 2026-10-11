@@ -29,10 +29,12 @@ LOG = ROOT / "tmp/logs/build_uboot_mainline.log"
 TAG = "v2026.07"
 DEFCONFIG = "tplink_tl-st1008f_ram_defconfig"
 CROSS = "mips64-linux-gnu-"
-# Full clean build (CCACHE_DISABLE=1, -j30, 2026-10-10): 4 s. x1.5 (1 s timer granularity) = 6 s.
+# Full clean build with net (#80, nice 19, -j30, 2026-10-12): 6 s. x1.25 rounded up = 8 s.
 # Applies per make call; on expiry make is killed and logged with elapsed time.
-BUILD_TIMEOUT_S = 6
+BUILD_TIMEOUT_S = 8
 TAIL_LINES = 40
+# stock bootcmd copies this much from flash 0x200000 to 0x81000000 (scripts/uboot_chain_env.py, #47)
+CHAIN_COPY_MAX = 0x80000
 
 # scaffold rel-path -> tree rel-path
 FILES = {
@@ -179,6 +181,11 @@ def build(cross: str) -> int:
     if rc or not binp.exists():
         log("BUILD FAILED")
         return rc or 1
+    size = binp.stat().st_size
+    if size > CHAIN_COPY_MAX:
+        log(f"BUILD FAILED: u-boot.bin {size} bytes > chain copy {CHAIN_COPY_MAX:#x}")
+        return 1
+    log(f"size: {size} bytes, {CHAIN_COPY_MAX - size} below the {CHAIN_COPY_MAX:#x} chain copy")
     TFTP.mkdir(parents=True, exist_ok=True)
     shutil.copy2(binp, TFTP / "uboot-mainline.bin")
     shutil.copy2(BUILDDIR / "u-boot", TFTP / "uboot-mainline.elf")
