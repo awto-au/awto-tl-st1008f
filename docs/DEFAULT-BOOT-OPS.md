@@ -1,6 +1,6 @@
 # Default boot: operations
 
-Design and facts: [DEFAULT-BOOT.md](DEFAULT-BOOT.md). Issue #73. Steps 4, 6, 8, the env-flag test and revert write flash: each needs an explicit owner OK.
+Design and facts: [DEFAULT-BOOT.md](DEFAULT-BOOT.md). Issue #73. Steps 4, 6, 8 and revert write flash under the standing approval (owner 2026-10-12; never `0x0`-`0xDFFFF`). The env-flag test writes `u-boot-env` outside `uboot-chain-env`: needs an explicit owner OK. Every write range passes `scripts/flash_guard.py` first (#81).
 
 ## Preconditions
 

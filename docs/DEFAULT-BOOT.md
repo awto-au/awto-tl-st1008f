@@ -23,6 +23,37 @@ Design + code 2026-10-12 (modes: owner 2026-10-12); nothing run on the board. Fl
 
 - The installed OpenWrt cannot stay as the fallback bit for bit: its DTS gives `firmware` all 29 MiB and its overlay owns everything after the squashfs, so any second image there gets overwritten by JFFS2 writes and GC.
 
+## Power-up chain
+
+Chain-load from stock (#47 option A, live since 2026-10-11, fd16464).
+
+- Stock env (`./dev.py uboot-chain-env apply`, one `saveenv`, 0.7 s):
+  - `bootcmd_stock=boota`
+  - `bootcmd=mw.l 0xa0f80000 0xa5a51008; cp.b 0x94200000 0x81000000 0x80000; go 0x81000000` (marker, copy 512 KiB of `jffs2-log` from the mmio window, run).
+  - `bootdelay=1` kept: stock's 1 s Esc window is the only serial path in if our U-Boot or its env breaks; `bootdelay=0` dropped (owner 2026-10-12, #81; [UBOOT-REFERENCE.md](UBOOT-REFERENCE.md#boot-timing-before-the-countdown-81)).
+- Our U-Boot: `./dev.py uboot-chain-install` → `jffs2-log` (mtd4, 0x200000-0x2fffff, unmounted by OpenWrt; overlay is `rootfs_data`); blank check before the first write, read-back md5 checked. Image must stay ≤ 512 KiB (the `cp.b` length).
+- Marker `0xa5a51008` @ `0xa0f80000` (cleared on read) = chained boot → autoboot; RAM-loaded (no marker) = prompt.
+- Our U-Boot accepts the Realtek uImage magic, so `bootm 0xb4300000` boots the flash OpenWrt directly.
+- Timing (2026-10-11, `uboot-chain-env boot`, real power cycle): ours up 2.4 s after power-on; `clocks fast` (CPU 1 GHz) 1.1 s later; flash OpenWrt console 23.2 s later; bridge STP on. Re-verified 2026-10-11T21:30+11:00.
+- SPI stays at stock 25.5 MHz in this chain: 122.5 MHz corrupted squashfs reads under Linux (#50).
+- Stock U-Boot does chain-load only (#81): every flow is to work as if stock never ran, with no dependency on stock `rtk network on` (#80, #51).
+- Undo: `./dev.py uboot-chain-env revert` (`bootcmd=boota`). Interrupting the stock countdown still gives the stock prompt.
+- Options not taken (#47): B = replace the stock U-Boot payload in `u-boot`, keeping the stock SPL (must match the SPL's hard-coded copy length `0xc1c78`; a bad write bricks without an external programmer); C = own SPL (DDR/PLL init), needed for DDR overclock at boot. Both write `0x0`-`0xDFFFF`, which is banned.
+
+## Stock U-Boot area protection (#81)
+
+Layered gates against writing `0x0`-`0xDFFFF` (stock LOADER):
+
+- U-Boot SPI driver (0c8e150): refuses program/erase starting in `0x0`-`0xFFFFF`, chip erase, WRSR1/2/3, block lock/unlock ([UBOOT-MAINLINE.md](UBOOT-MAINLINE.md#spi-nor-stage-3-read-only)).
+- DTS: mainline `tplink-tl-st1008f-v2.dts` has every partition `read-only`; upstream OpenWrt DTS has `u-boot` and `u-boot-env2` `read-only`, `u-boot-env` writable (`fw_setenv` needs it). Checked in the built DTBs (mainline 7.3, `openwrt-ours-initramfs`, upstream `openwrt-initramfs`).
+- `scripts/flash_guard.py` (`./dev.py flash-guard` selftest, 59/59):
+  - `check_range`: refuses any overlap with `0x0`-`0xDFFFF`, empty or off-chip ranges.
+  - `check_mtd`: refuses unknown names and mtd0 (upstream, stock-label and split layouts).
+  - `check_cmd`: `sf write/update/erase`, OpenWrt `mtd write/erase/-e`, `flashcp`, `flash_erase`, `dd of=`, `> /dev/mtd`, rw `mount` of an mtd, U-Boot `cp`/`mw`/`erase` into the flash window, `flerase`, `upgrade loader|rom`, `*force`, `sysupgrade`, `fw_setenv`, `saveenv`.
+  - Called by `Console.send`/`send_checked`, by the console daemon on every completed line (refused line → Ctrl-C on the board + error reply; `policy` op too), and up front in `uboot-chain-install`, `uboot-chain-env`, `default-boot install|revert`.
+  - Limit: U-Boot `$vars` in `cp`/`mw` are not resolved; in `sf` they are refused (fails closed).
+- Open: W25Q256 status-register block protect (BP/TB) for the bottom region. Power-of-two granularity also covers the env sectors, so it is last, once the env is final.
+
 ## Where the images live: options
 
 | Option | Layout | For | Against |
@@ -136,6 +167,10 @@ Owner decision 2026-10-12 (#73, #46). M2 used to mean "stop at the U-Boot prompt
 ### Mode switch hardware
 
 - Stock meaning (`rtk.ko`, our 300-06 driver): speed pattern for 1G/2.5G modules (M2 = cages 1-4 1G, 5-8 2.5G); M3 = pattern 3. 10G optics and copper modules are untouched. Boot/isolation meanings are on top; the speed pattern still applies under both images.
+- Runtime switch moves under the 300-06 driver (2026-10-11T23:25+11:00, 7.3 minimal kernel 8914a2d, RAM boot, #64): boot M1 pattern 1 (pins 0/1/1); M2 pattern 2 (1/0/1), split works (cage 3 GLC-T media 2, cage 7 GLC-T `will not set because of unmatched pattern`); M3 pattern 3 (1/1/0), both GLC-T refused; back to M1 pattern 1. 10G modules unaffected; no reset, no oops.
+  - Mid-travel M1 → M2 reads 1/1/1 (no pin grounded between detents) → a full re-apply at pattern 3 (stock would reset the switch here). No debounce beyond the stock 30 ms settle; open (#64).
+  - Classification (M1 smoke boot, 80ab8df): GLC-SX-MM (1G) is classed `10G fiber insert` / media 5 (its EEPROM sets 10G compliance bits; same as stock); PTB3370553 matches no vendor class → media 7, untouched.
+  - Speed changes themselves not yet tested (need switch netdevs).
 
 ## Config (primary and recovery)
 
