@@ -15,6 +15,19 @@
 #include "rtk.h"
 #include "rtk_sds_tables.h"
 
+/* switch defaults core (shared/rtl930x-sw, copied at build): ctx unused */
+static inline u32 rtl930x_sw_rd(void *ctx, u32 off)
+{
+	return sw_r(off);
+}
+
+static inline void rtl930x_sw_wr(void *ctx, u32 off, u32 v)
+{
+	sw_w(off, v);
+}
+
+#include "rtl930x_sw.h"
+
 /* SDK rt_serdesMode_t values (= `macsds set` list index) */
 enum { M_DISABLE = 1, M_10GR = 2, M_SGMII = 8, M_1000BX = 10, M_100BX = 11, M_HISGMII = 23,
        M_2500BX = 26, M_END = 47 };
@@ -514,7 +527,7 @@ static void construct(void)
 	unsigned int s, i, n;
 	const struct sds_cfg *t;
 
-	for (i = 0; i < ARRAY_SIZE(rtcore); i++) {	/* stock banner; RTCORE/L2 defaults not run */
+	for (i = 0; i < ARRAY_SIZE(rtcore); i++) {	/* stock banner and step order */
 		printf("%s\n", rtcore[i]);
 		if (!strcmp(rtcore[i], "  NIC probe (unit 0)"))
 			sw_w(MAC_FORCE(CPU_PORT), CPU_FORCE);
@@ -524,6 +537,7 @@ static void construct(void)
 			sw_rmw(SMI_MAC_TYPE, SMI_MAC_TYPE_M, 0);
 		}
 	}
+	RTL930X_SW_APPLY(NULL, rtl930x_sw_construct);	/* "Chip Construct": SDK default_init */
 	printf("    Disable PHY Polling\n");
 	sw_rmw(SMI_POLL_CTRL, 0x0fffffff, 0);
 	mdelay(3);
@@ -559,6 +573,7 @@ static void construct(void)
 	for (s = 2; s <= 9; s++)
 		dfw(s, 0, 4, 2, 2, 1);		/* phy_9300_init: fiberNwayForceLink */
 	printf("  Mgmt_dev init (unit 0) \n");
+	RTL930X_SW_APPLY(NULL, rtl930x_sw_dal);	/* bootloader dal_longan_init: port, l2, eee, stack */
 	constructed = true;
 }
 

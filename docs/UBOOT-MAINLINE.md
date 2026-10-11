@@ -221,7 +221,8 @@ Implementation: [RTK-COMMANDS.md](RTK-COMMANDS.md#stage-4-network-on-10g-macsds-
 | TX slot free | 115 us | Linux 17-23 us per packet incl. DMA ([DATASHEET-AUDIT.md](DATASHEET-AUDIT.md)), 4 slots, x1.25 | frame dropped, logged, `tx timeout` counted |
 
 - Tests: `./dev.py uboot-test net` (ping gateway, dhcp, tftp + wget CRC32 vs host, netconsole line received on the host). Explicit only.
-- Open: our-own `rtk network on` path (chain boot) does not run the SDK VLAN/STP/L2 defaults ([RTK-COMMANDS.md](RTK-COMMANDS.md)); RX there depends on chip reset values. Stock-ramload path has stock's.
+- Switch defaults (#80, owner: work as if stock never ran): our `rtk network on` now writes stock's SDK init too, from `shared/rtl930x-sw/` ([RTK-COMMANDS.md](RTK-COMMANDS.md#stage-4-network-on-10g-macsds-port-isolation)). Proof pending: `reg-diff --window` stock vs ours on a cold boot.
+- Primary test path: `./dev.py uboot-chain-install`, then `./dev.py ramload uboot-mainline --from-flash` (stock only copies ours; no stock network on), then `./dev.py uboot-test net`.
 
 ## Sources for later stages (GPL-2.0, attribute on port)
 

@@ -54,6 +54,8 @@ DIRS = {
 # repo rel-path -> tree rel-path: OS-independent cores shared with the Linux patches (#83); copied, never edited
 SHARED = {
     "shared/rtl930x-nic/rtl930x_nic.h": "board/tplink/tl-st1008f/rtl930x_nic.h",
+    "shared/rtl930x-sw/rtl930x_sw.h": "board/tplink/tl-st1008f/rtl930x_sw.h",
+    "shared/rtl930x-sw/rtl930x_sw_defaults.h": "board/tplink/tl-st1008f/rtl930x_sw_defaults.h",
 }
 
 ARCH_BLOCK = """config ARCH_OTTO
