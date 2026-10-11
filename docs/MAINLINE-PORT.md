@@ -117,7 +117,28 @@ Upstream-hostile items to carry out-of-tree: #7 (`700`, `722`), #8 until merged,
   - Uses only upstream bindings: `uart0`, `spi0` + `jedec,spi-nor` + fixed partitions (same layout as OpenWrt), `i2c0` (`realtek,rtl9303-i2c`, `realtek,scl = <0>`, channels 0..7 = one SDA per cage), mode switch on gpio0 17..19 (`tplink,st1008f-mode-switch`, our patch 300-06, #64; was `gpio-keys`), `i2c-gpio` + `nxp,pca9534` @0x38 (SCL GPIO22, SDA GPIO23), 8x `sff,sfp` (MOD-DEF0 gpio0 0..7, TX-disable expander pins 0..7), `linux,wdt-gpio` on GPIO21, `realtek,rtl9303-switch` compatible.
   - Omitted (no upstream driver/binding): switch ports, CPU port, PCS handles, SerDes, LEDs, thermal, 2nd RAM bank.
   - SFP I2C left at the controller default; SFF-8472 module EEPROM is a 100 kHz interface, so default is the rated max.
-- `mainline/st1008f-v2.config`: Kconfig fragment on `32r2_defconfig` (big-endian, HIGHMEM from `generic/32r2.config`), `MACH_REALTEK_RTL`, 8250 console, `I2C_RTL9300`, `I2C_GPIO`, `GPIO_REALTEK_OTTO`, `GPIO_PCA953X`, `REALTEK_OTTO_WDT`, MTD SPI-NOR + OF partitions, `SFP`, `MDIO_REALTEK_RTL9300`, `KEYBOARD_GPIO`.
+- `mainline/st1008f-v2.config`: complete board config on `allnoconfig` (no `32r2_defconfig`): MIPS32r2 BE UP, HIGHMEM, 8250 OF console + earlycon, GPIO otto + PCA953X, I2C rtl9300 + i2c-gpio, `MFD_SYSCON`, mode switch (300-06), watchdog, SPI + MTD SPI-NOR + OF parts, NET/INET/PACKET/UNIX, PHYLIB/SFP/MDIO rtl9300, initrd (xz), devtmpfs, debugfs, SysRq. `MODULES`, IPv6, wireless, VT, input off.
+  - `scripts/mainline_build_check.py` fails and lists every fragment line that `olddefconfig` drops.
+  - Size (2026-10-11, incl. initramfs): 939 `=y` / raw 15.28 MB / `mainline.bin` 5.46 MB on `32r2_defconfig` -> 417 `=y` / raw 6.74 MB / 2.60 MB.
+  - Not enabled yet: `RTL930X` (selects `MIPS_CPU_SCACHE`, `MIPS_EXTERNAL_TIMER`), MT SMP (2 VPEs); the pre-allnoconfig boots ran without them too.
+- 300-06 Kconfig: mode switch `select PHYLINK` + `select SFP` (nothing else selects `PHYLINK` without a MAC driver).
+- `mainline_uimage.py` refuses kernel+DTB over 16 MiB (our U-Boot `SYS_BOOTM_LEN`; stock's limit unrecorded).
+
+### Stage-0 initramfs (#16)
+
+- `scripts/mainline_initramfs.py` (called by the build): newc cpio, mtime 0, xz (CRC32, LZMA2) -> `tmp/initramfs/st1008f-initramfs.cpio.xz` + generated `CONFIG_INITRAMFS_SOURCE` fragment.
+- Contents: static BusyBox 1.31.0 (musl, MIPS-I o32 BE; `sources/README.md`), `/init`, `/dev/console` (5,1).
+- `/init`: `busybox --install -s`, mount proc/sysfs/devtmpfs/debugfs, print `st1008f-initramfs: up (Linux <ver>)`, `exec setsid cttyhack sh` with prompt `st1008f-linux # `.
+- `./dev.py ramload mainline-kernel` waits for that prompt (cap 10 s after `bootm`) and fails on any kernel panic.
+
+### SPI-NOR dirmap reads (#61, `openwrt/patches/300-07`)
+
+- DTS: `&soc` gains range `0x14000000` (32 MiB flash window); `spi0` reg 2 = window, `reg-names = "regs", "dirmap"`. All flash partitions `read-only`.
+- Driver: spi-mem `dirmap_create`/`dirmap_read`; window read mode = stock SFCR2 (`0xbbc14a00`, Dual I/O 0xBB, 4-byte address). Writes/erase stay PIO.
+- `dirmap_create` takes 1-1-1 read ops with 4-byte addresses only, then compares 64 B PIO vs window at offset 0 and at half size; mismatch -> warning + PIO fallback.
+- Cached window, `dma_cache_inv` per read (PIO program/erase cannot leave stale lines).
+- `/sys/module/spi_realtek_rtl/parameters/dirmap`: 0 PIO, 1 uncached window, 2 cached (default); read per call.
+- A/B: `./dev.py spi-dirmap-test` (dd time + md5 of `firmware` per mode).
 - Build check (2026-10-10, `scripts/mainline_build_check.py`): `dtc` clean (0 warnings), `vmlinux` links (ELF32 MSB MIPS32r2, text 12.1 MB), DTB 6.7 KB. Not booted; `dtbs_check` not run.
 - Stage-0 gate (issue #16): serial boot, `i2c-rtl9300` / `gpio-realtek-otto` / `realtek_otto_wdt` / SPI-NOR probe. Needs the image wrapper (#5) and a switch session.
 

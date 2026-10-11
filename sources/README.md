@@ -28,3 +28,8 @@ Carried over from the retired `awto-st1008f` notes repo (2026-08-18).
 | OpenWrt device page | https://openwrt.org/inbox/toh/tp-link/tl-st1008f_1.0 | ToH entry |
 | RTL93xx SoC notes | https://www.svanheule.net/switches/rtl93xx | clock/bus/memory map, register layout |
 | Installation manual | https://www.manualslib.com/manual/3622336/Tp-Link-Tl-St1008f.html | not downloaded |
+
+## busybox/busybox-mips
+- URL: https://busybox.net/downloads/binaries/1.31.0-defconfig-multiarch-musl/busybox-mips
+- Revision: BusyBox 1.31.0 defconfig, static musl, ELF32 MSB MIPS-I o32 (busybox.net multiarch build, 2019-06-10). Used by `scripts/mainline_initramfs.py`.
+- Good copy: 1,629,084 bytes, sha256 `c3fed048a70d5529f95820c5abb77553efc276a89a8608414ca03e53d6bedd1d` (checked by the script). Gitignored; fetch with playwrong's download tool.

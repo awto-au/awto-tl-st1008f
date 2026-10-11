@@ -111,7 +111,7 @@ End-to-end workflow: [../README.md#workflow](../README.md#workflow).
 - Purpose: wrap a mainline `vmlinux` + DTB into a uImage stock U-Boot boots: objcopy → append DTB (`MIPS_RAW_APPENDED_DTB`) → LZMA-alone (real size in header) → legacy header, OpenWrt RTL930x magic `0x93030000`. Load/entry read from the ELF.
 - Run: `scripts/mainline_uimage.py --vmlinux <build>/vmlinux --dtb <build>/arch/mips/boot/dts/realtek/tplink-tl-st1008f-v2.dtb [--out tmp/tftp/mainline.bin]`, then `tftpboot 0x84f00000 mainline.bin; bootm 0x84f00000`.
 - Log: `tmp/logs/mainline_uimage.log`.
-- Notes: 7.3-rc6 stage-0 boots to `VFS: Unable to mount root fs` (no initramfs yet) with the GPIO21 watchdog node disabled; enabled, it resets the board at probe (#16, #18).
+- Notes: refuses kernel+DTB over 16 MiB (bootm limit). Stage-0 boots to the initramfs shell `st1008f-linux # ` (`mainline_initramfs.py`); GPIO21 watchdog node stays disabled (enabled, it resets the board at probe, #16, #18).
 
 ### ubnt_fw_unpack.py
 - Purpose: split a Ubiquiti UBNT firmware `.bin` (e.g. UniFi `US.bcm5334x`) into PART payloads; decompress the uImage; extract embedded xz/gzip/LZMA-alone streams (built-in initramfs cpio).
@@ -244,9 +244,19 @@ Desk-only; no switch access. Needs `tmp/openwrt` (sparse clone of openwrt, `targ
 - Output: `tmp/logs/mainline_patch_check.log` (patch table, then make output), build tree `tmp/build-fp`.
 
 ### mainline_build_check.py
-- Purpose: build the stage-0 board DTS (`mainline/tplink-tl-st1008f-v2.dts`) and Kconfig fragment (`mainline/st1008f-v2.config`) against `tmp/linux-v7.3`.
-- Run: `scripts/mainline_build_check.py [--dtb-only] [--jobs N]`
-- Output: `tmp/logs/mainline_build_check.log`, build tree `tmp/build-mips`.
+- Purpose: build the stage-0 board DTS (`mainline/tplink-tl-st1008f-v2.dts`) against `tmp/linux-v7.3`: OpenWrt 300-01..03 + `openwrt/patches/*.patch`, `allnoconfig` + `mainline/st1008f-v2.config` + generated initramfs fragment.
+- Run: `scripts/mainline_build_check.py [--dtb-only] [--jobs N]` (or `./dev.py build-kernel`, which also wraps `tmp/tftp/mainline.bin`).
+- Output: `tmp/logs/mainline_build_check.log`, build tree `tmp/build-mips`; prints the `=y` count.
+- Fails, listing them, if `olddefconfig` drops or changes any fragment line.
+
+### mainline_initramfs.py
+- Purpose: stage-0 initramfs: static BusyBox (`sources/busybox/busybox-mips`, sha256-checked) + `/init` -> shell `st1008f-linux # ` on the console. Called by `mainline_build_check.py`.
+- Output: `tmp/initramfs/st1008f-initramfs.cpio.xz` (deterministic newc, xz CRC32), `tmp/initramfs/initramfs.config`. Log: `tmp/logs/mainline_initramfs.log`.
+
+### spi_dirmap_test.py
+- Purpose: A/B SPI-NOR reads under the mainline kernel (#61): per `dirmap` mode (0 PIO, 2 cached window, 1 uncached) time `dd` of a partition and md5sum it.
+- Run: `./dev.py ramload mainline-kernel`, then `./dev.py spi-dirmap-test [--part firmware] [--modes 0,2,1]`.
+- PASS = dirmap active at probe, equal md5 in every mode, cached faster than PIO. Read-only. Log: `tmp/logs/spi_dirmap_test.log`.
 
 - `rtk_parity.py` + `rtk_parity_cmds.json`: run the `rtk` command list on stock and on our U-Boot and diff (`./dev.py rtk-parity`; see docs/RTK-COMMANDS.md). Never sends flash writers. Both sides run `rtk network on` between the pre and post phases.
 

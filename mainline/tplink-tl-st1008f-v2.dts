@@ -203,7 +203,14 @@
 	};
 };
 
+/* Flash read window 0x14000000 (32 MiB) for spi0 dirmap reads (openwrt/patches/300-07, #61) */
+&soc {
+	ranges = <0x0 0x18000000 0x20000>, <0x14000000 0x14000000 0x2000000>;
+};
+
 &spi0 {
+	reg = <0x1200 0x100>, <0x14000000 0x2000000>;
+	reg-names = "regs", "dirmap";
 	status = "okay";
 
 	flash@0 {
@@ -211,6 +218,7 @@
 		reg = <0>;
 		spi-max-frequency = <100000000>;
 
+		/* all read-only: no flash writes from this kernel (CLAUDE.md hazards) */
 		partitions {
 			compatible = "fixed-partitions";
 			#address-cells = <1>;
@@ -225,6 +233,7 @@
 			partition@e0000 {
 				label = "u-boot-env";
 				reg = <0xe0000 0x10000>;
+				read-only;
 			};
 
 			partition@f0000 {
@@ -236,16 +245,19 @@
 			partition@100000 {
 				label = "jffs2-cfg";
 				reg = <0x100000 0x100000>;
+				read-only;
 			};
 
 			partition@200000 {
 				label = "jffs2-log";
 				reg = <0x200000 0x100000>;
+				read-only;
 			};
 
 			partition@300000 {
 				label = "firmware";
 				reg = <0x300000 0x1d00000>;
+				read-only;
 			};
 		};
 	};

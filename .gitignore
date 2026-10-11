@@ -16,5 +16,7 @@ uboot/*.o
 uboot/*.elf
 uboot/*.bin
 sources/**/*.pdf
+# downloaded binaries (manifest: sources/README.md)
+sources/busybox/
 # Claude Code local settings + agent worktrees
 .claude/

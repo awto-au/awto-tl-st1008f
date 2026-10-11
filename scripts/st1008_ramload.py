@@ -5,7 +5,8 @@
   wait for the daemon's autoboot catch → `rtk network on` (waits for its end marker) → light one
   cage → TFTP (verifies byte count) → `go`/`bootm` → capture until a done marker → boot_log_check.
 - Every wait expects a console marker with a stated cap; expiry logs what was waited for.
-- Images: `uboot-mainline` (go 0x81000000), `openwrt` (bootm 0x84f00000), `mainline-kernel` (bootm).
+- Images: `uboot-mainline` (go 0x81000000), `openwrt` (bootm 0x84f00000), `mainline-kernel` (bootm;
+  done = initramfs BusyBox prompt `st1008f-linux # `, scripts/mainline_initramfs.py).
 - Log: tmp/logs/st1008_ramload.log. Read-only on flash: no saveenv/sf/upgrade ever sent.
 """
 
@@ -41,13 +42,13 @@ def ensure_server_ip() -> None:
 IMAGES = {
     # name: (file, load addr, start cmd, done marker, cap s)
     # caps: uboot-mainline reaches its prompt <1 s after go; OpenWrt shell ~25 s, ports ~75 s;
-    # mainline kernel panics/prompts <3 s. Each cap ≈ 1.25x measured + margin for print time.
+    # mainline kernel reached its VFS panic <3 s (pre-initramfs). Each cap ≈ 1.25x measured + margin.
     "uboot-mainline": ("uboot-mainline.bin", 0x81000000, "go", r"st1008f-mainline #", 5),
     "openwrt": ("openwrt-initramfs.bin", 0x84f00000, "bootm", r"Please press Enter to activate", 40),
     "mainline-kernel": ("mainline.bin", 0x84f00000, "bootm",
-                        r"end Kernel panic|Please press Enter|login:|/ # ", 10),
+                        r"st1008f-linux # ", 10),
 }
-FAIL_MARKERS = r"U-Boot 2011\.12|Kernel panic - not syncing(?!: VFS)|Oops|Unhandled exception|\$ra  "
+FAIL_MARKERS = r"U-Boot 2011\.12|Kernel panic - not syncing|Oops|Unhandled exception|\$ra  "
 
 
 def log(msg: str) -> None:
@@ -110,7 +111,8 @@ class Console:
             log(f"  echo mismatch (try {attempt}/{tries}): {len(got)}/{len(text)} chars; Ctrl-C")
             m = self.size()
             self.send("\x03", cr=False)
-            self.expect(r"st1008f-mainline # |RTL9300# |root@[^:\s]*:[^#]*# ", 1, m, "prompt after Ctrl-C")
+            self.expect(r"st1008f-(mainline|linux) # |RTL9300# |root@[^:\s]*:[^#]*# ", 1, m,
+                        "prompt after Ctrl-C")
         raise SystemExit(f"FAIL: line echo wrong {tries}x: {text[:60]!r}...")
 
     def expect(self, pattern: str, cap: float, mark: int, what: str,

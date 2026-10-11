@@ -5,6 +5,7 @@
   (real size in header, not -1) → 64-byte legacy header with OpenWrt's RTL930x magic 0x93030000.
 - Load address and entry are read from the ELF (no guessing).
 - Stock U-Boot accepts magic 0x93030000 (OpenWrt 25.12 initramfs boots with it).
+- Refuses a decompressed image over MAX_RAW (our U-Boot `SYS_BOOTM_LEN`, docs/UBOOT-MAINLINE.md).
 - Log: tmp/logs/mainline_uimage.log
 """
 
@@ -19,6 +20,7 @@ from pathlib import Path
 ROOT = Path(__file__).resolve().parent.parent
 LOG = ROOT / "tmp/logs/mainline_uimage.log"
 MAGIC = 0x93030000
+MAX_RAW = 0x1000000  # bootm decompress limit of our U-Boot; stock's is not recorded
 IH_OS_LINUX, IH_ARCH_MIPS, IH_TYPE_KERNEL, IH_COMP_LZMA = 5, 5, 2, 3
 
 
@@ -57,6 +59,8 @@ def main() -> None:
     if dtb[:4] != b"\xd0\x0d\xfe\xed":
         raise SystemExit(f"{a.dtb}: not a DTB")
     image = body + dtb
+    if len(image) > MAX_RAW:
+        raise SystemExit(f"kernel+dtb {len(image)} B > bootm limit {MAX_RAW} B")
     comp = bytearray(lzma.compress(image, format=lzma.FORMAT_ALONE,
                                    filters=[{"id": lzma.FILTER_LZMA1, "preset": 9,
                                              "dict_size": 1 << 23}]))

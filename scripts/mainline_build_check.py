@@ -6,14 +6,19 @@ Needs: tmp/linux-v7.3 (shallow clone of v7.3-rc6), a mips big-endian cross gcc
 Steps: OpenWrt realtek board patches (300-01..03 + mach-rtl-otto headers) and ours
 (openwrt/patches/*.patch, e.g. 300-04 DRAM prefetch, #53), applied fresh each run (patched files reset
 via git, patch-created files deleted);
-install DTS + dts Makefile line, 32r2_defconfig + fragment, build vmlinux and the dtb.
+install DTS + dts Makefile line, allnoconfig + complete board fragment (mainline/st1008f-v2.config)
++ generated initramfs fragment (scripts/mainline_initramfs.py: BusyBox shell), olddefconfig,
+fail if any fragment option did not survive, build vmlinux and the dtb.
 """
 import argparse
+import re
 import shutil
 import subprocess
 import sys
 import time
 from pathlib import Path
+
+import mainline_initramfs
 
 ROOT = Path(__file__).resolve().parent.parent
 LOG = ROOT / "tmp/logs/mainline_build_check.log"
@@ -48,6 +53,24 @@ def apply_patches(tree):
             sys.exit(f"{p.name} does not apply, see log")
 
 
+def check_fragments(config: Path, fragments: list[Path]) -> list[str]:
+    """Fragment lines olddefconfig dropped or changed (unmet depends, typos)."""
+    have = {}
+    for ln in config.read_text().splitlines():
+        if m := re.fullmatch(r"(CONFIG_\w+)=(.*)", ln):
+            have[m.group(1)] = m.group(2)
+    bad = []
+    for frag in fragments:
+        for ln in frag.read_text().splitlines():
+            if m := re.fullmatch(r"(CONFIG_\w+)=(.*)", ln.strip()):
+                if have.get(m.group(1)) != m.group(2):
+                    bad.append(f"{ln.strip()}  (got {have.get(m.group(1), 'not set')})")
+            elif m := re.fullmatch(r"# (CONFIG_\w+) is not set", ln.strip()):
+                if m.group(1) in have:
+                    bad.append(f"{ln.strip()}  (got {have[m.group(1)]})")
+    return bad
+
+
 def run(cmd, cwd):
     stamp = time.strftime("%Y-%m-%dT%H:%M:%S%z")
     with LOG.open("a") as f:
@@ -79,14 +102,18 @@ def main():
         mk.write_text(mk.read_text() + line)
 
     base = ["make", "-C", str(tree), "ARCH=mips", f"CROSS_COMPILE={a.cross}", f"O={out}"]
-    if run(base + ["32r2_defconfig"], tree):
-        sys.exit("defconfig failed, see log")
+    if run(base + ["allnoconfig"], tree):
+        sys.exit("allnoconfig failed, see log")
+    frags = [ROOT / "mainline/st1008f-v2.config", mainline_initramfs.build()]
     merge = tree / "scripts/kconfig/merge_config.sh"
-    if run([str(merge), "-m", "-O", str(out), str(out / ".config"),
-            str(ROOT / "mainline/st1008f-v2.config")], tree):
+    if run([str(merge), "-m", "-O", str(out), str(out / ".config"), *map(str, frags)], tree):
         sys.exit("merge_config failed, see log")
     if run(base + ["olddefconfig"], tree):
         sys.exit("olddefconfig failed, see log")
+    if bad := check_fragments(out / ".config", frags):
+        sys.exit("fragment options dropped by olddefconfig:\n  " + "\n  ".join(bad))
+    ny = sum(1 for ln in (out / ".config").read_text().splitlines() if ln.endswith("=y"))
+    print(f"config: {ny} =y (allnoconfig + fragments)")
     targets = [f"realtek/{DTS}.dtb"] if a.dtb_only else ["vmlinux", f"realtek/{DTS}.dtb"]
     rc = run(base + [f"-j{a.jobs}", *targets], tree)
     print("build", "OK" if rc == 0 else f"FAILED ({rc})", "- log:", LOG)

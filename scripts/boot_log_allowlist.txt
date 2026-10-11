@@ -264,6 +264,12 @@ Serial: 8250/16550 driver, 4 ports, IRQ sharing disabled  # serial driver
 printk: console \[ttyS0\] enabled  # console hand-over
 loop: module loaded  # loop driver
 input: keys as /devices/platform/keys/input/input0  # gpio-keys input device registered
+realtek-rtl-spi 18001200\.spi: dirmap: 0x0\+0x2000000 via window, SFCR2 0xbbc14a00, op 0x(0c|13), mode 2  # openwrt/patches/300-07: flash reads via mmio window, stock SFCR2 pinned (#61)
+Freeing unused kernel image \(initmem\) memory: \d+K  # init memory freed (size follows the build)
+This architecture does not have kernel memory protection\.  # MIPS has no strict kernel RWX
+Run /init as init process  # initramfs init start
+\s+(/init|with arguments:|with environment:|HOME=/|TERM=linux)  # init argv/env dump
+st1008f-initramfs: up \(Linux 7\.\d+\.\d+(-rc\d+)?(-dirty)?\)  # scripts/mainline_initramfs.py /init marker before the shell (#16)
 
 # ---- Reviewed DENY lines: tolerated only with a tracking issue (known #NN) ----
 

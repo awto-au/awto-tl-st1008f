@@ -135,6 +135,12 @@ def cmd_uboot_test(extra: list[str]) -> int:
     return _script("uboot_mainline_test.py", extra)
 
 
+@command("SPI-NOR read A/B under the mainline kernel: PIO vs mmio dirmap, md5 + MB/s (#61)",
+         args="[--part firmware] [--modes 0,2,1]  (run `ramload mainline-kernel` first)", kind="check")
+def cmd_spi_dirmap_test(extra: list[str]) -> int:
+    return _script("spi_dirmap_test.py", extra)
+
+
 @command("console UART baud ladder (self-restoring; board ends at 115200)",
          args="[divisor ...]  (default 47 24 12 6 5 4 3 2 1; mainline prompt)", kind="check")
 def cmd_serial_speed(extra: list[str]) -> int:
