@@ -5,7 +5,8 @@ Design + layout: docs/DEFAULT-BOOT.md; steps: docs/DEFAULT-BOOT-OPS.md.
 - check:   host only. Validate the three images in tmp/tftp/ (uImage header + data CRC, slot fit,
            split-layout DTB inside the kernel) and print every flash write `install` would do.
 - test:    RAM-boot the OpenWrt-on-7.3 initramfs (`ramload openwrt-ours`), then check at its shell:
-           STP on, uci defaults, /proc/mtd split layout, devmem, bootok. No flash writes.
+           STP on, uci defaults (DHCP + 192.168.0.1), mode/isolation, /proc/mtd split layout, devmem.
+           No flash writes.
 - status:  read-only at a running OpenWrt shell: mtd layout, stock env flag, attempt record, bootok log.
 - install primary|recovery, revert: FLASH WRITES. Refused without --i-have-owner-approval; without it
            they only print the plan. primary: sysupgrade -n from the RAM-booted test image.
@@ -144,20 +145,26 @@ def shell_checks(con: Console) -> int:
     """At an OpenWrt-on-7.3 shell: loop safety, config, layout, record access. Read-only."""
     fails = 0
     checks = [
-        ("cat /sys/class/net/switch/bridge/stp_state", r"\n1\r?\n", "bridge STP on"),
+        ("cat /sys/class/net/switch/bridge/stp_state", r"\n1\r?\n", "bridge STP on (all modes)"),
         ("cat /sys/class/net/switch/bridge/forward_delay", r"\n200\r?\n", "forward_delay 2 s"),
-        ("uci get network.lan.ipaddr", r"\n192\.168\.25\.48\r?\n", "lan .48"),
-        ("uci get network.lan.gateway", r"\n192\.168\.25\.254\r?\n", "gateway .254"),
+        ("uci get network.lan.proto", r"\ndhcp\r?\n", "lan DHCP client"),
+        ("ip -4 a s switch.1 | grep -c 192.168.0.1/24", r"\n1\r?\n", "fallback 192.168.0.1/24 up"),
+        ("uci get dhcp.lan.ignore", r"\n1\r?\n", "no DHCP server"),
         ("grep -c recovery /proc/mtd", r"\n1\r?\n", "recovery partition"),
         ("devmem 0x0e000000 32", r"\n0x[0-9A-Fa-f]{8}\r?\n", "devmem on the record page"),
         ("uname -r", r"\n7\.3", "kernel 7.3"),
         ("pidof dropbear", r"\n\d+", "dropbear"),
     ]
     for cmd, want, what in checks:
-        out = sh(con, cmd)
-        ok = re.search(want, out) is not None
+        ok = re.search(want, sh(con, cmd)) is not None
         fails += not ok
         log(f"  {'PASS' if ok else 'FAIL'} {what}")
+    # mode (st1008f-mode): every port isolated <=> "isolated"; a RAM boot has no bootargs -> gpio
+    mode = re.search(r"\n(\S+ \S+ (switch|isolated) \S+)\r?\n", sh(con, "cat /var/run/st1008f-mode"))
+    iso = set(re.findall(r"\n([01])\r?(?=\n)", sh(con, "cat /sys/class/net/switch/brif/*/isolated")))
+    ok = bool(mode) and iso == {"1" if mode.group(2) == "isolated" else "0"}
+    fails += not ok
+    log(f"  {'PASS' if ok else 'FAIL'} mode {mode and mode.group(1)}: brport isolated {sorted(iso)}")
     return fails
 
 

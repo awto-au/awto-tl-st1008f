@@ -377,10 +377,9 @@ DRAM:  256 MiB  # stage 0 maps 256 MiB (second bank not linear); pinned
 Core:  23 devices, 10 uclasses, devicetree: separate  # DM: root, clock provider, 2 simple-bus, serial, gpio, gpio-keys+3, i2c master+8 SFP buses, i2c-gpio+expander, spi+nor flash; a change shows up here
 Loading Environment from <NULL>\.\.\. OK  # ENV_IS_NOWHERE: RAM-only env, no flash
 (In|Out|Err):\s+serial  # console on ns16550 UART0
-Mode:  M1 normal, pins 17/18/19 = [01]/1/1  # mode switch boot policy (#46): pins 18/19 decode; pin 17 open (#8)
-Mode:  M2 easy, pins 17/18/19 = [01]/0/1  # mode switch boot policy (#46)
+Mode:  M1 switch, pins 17/18/19 = [01]/1/1  # mode switch boot policy (#46): pins 18/19 decode; pin 17 open (#8)
+Mode:  M2 isolated, pins 17/18/19 = [01]/0/1  # mode switch boot policy (#46)
 Mode:  M3 recovery, pins 17/18/19 = [01]/1/0  # mode switch boot policy (#46)
-Mode:  M[23] needs Ethernet \(stage 4, #46\): no autoboot; `run bootcmd_m1` boots OpenWrt  # chainloaded at M2/M3: stays at the prompt until stage-4 Ethernet
 Boot:  (legacy|prompt) \(no image in recovery slot: single-image boot as before\)  # default boot (#73): no recovery image yet, today's behaviour (M3 = prompt)
 Boot:  primary \(attempt 1/2 \(cold boot or confirmed\)\)  # default boot (#73): last primary boot confirmed or power-up
 Boot:  fallback \(mode switch M3\)  # default boot (#73): owner selected recovery

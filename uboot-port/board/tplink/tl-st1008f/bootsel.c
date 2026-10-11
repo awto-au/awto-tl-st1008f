@@ -43,12 +43,15 @@
 /* bootm -> kernel wdt probe: ~9 s expected (flash read + LZMA at stock SPI), x1.25 + rounding */
 #define BOOT_WDT_MS	12000
 
-/* led boot-end before the clock switch; led fallback/error only run when a bootm returned (#9) */
-#define BOOT_PRIMARY	"rtk led boot-end; clocks fast; bootsel wdt on; bootm 0xb4300000; bootsel wdt off; " \
-			"rtk led fallback bootm-primary; bootm 0xb5900000; rtk led error bootm"
-#define BOOT_FALLBACK	"rtk led boot-end; clocks fast; bootsel wdt on; bootm 0xb5900000; bootsel wdt off; " \
+/* led boot-end before the clock switch; led fallback/error only run when a bootm returned (#9).
+ * bootargs: Linux reads st1008f.mode (switch position) + st1008f.boot (image) (docs/DEFAULT-BOOT.md) */
+#define ARGS(img)	"setenv bootargs st1008f.mode=m%d st1008f.boot=" img "; "
+#define BOOT_PRIMARY	"rtk led boot-end; clocks fast; bootsel wdt on; " ARGS("primary") "bootm 0xb4300000; " \
+			"bootsel wdt off; rtk led fallback bootm-primary; " ARGS("fallback") "bootm 0xb5900000; " \
 			"rtk led error bootm"
-#define BOOT_LEGACY	"rtk led boot-end; clocks fast; bootm 0xb4300000; rtk led error bootm"
+#define BOOT_FALLBACK	"rtk led boot-end; clocks fast; bootsel wdt on; " ARGS("fallback") "bootm 0xb5900000; " \
+			"bootsel wdt off; rtk led error bootm"
+#define BOOT_LEGACY	"rtk led boot-end; clocks fast; " ARGS("legacy") "bootm 0xb4300000; rtk led error bootm"
 
 /* uImage header in flash: magic (std or Realtek), header CRC, payload fits the slot */
 static bool slot_ok(ulong off, ulong size, char *name)
@@ -147,7 +150,7 @@ enum { SEL_LEGACY, SEL_PROMPT, SEL_PRIMARY, SEL_FALLBACK };
 static const char *fb_auto;	/* fallback chosen by a fault (not M3 / owner flag): LED latch tag */
 static const char *const sel_name[] = { "legacy", "prompt", "primary", "fallback" };
 
-/* Decision for a chained boot at mode switch position `mode` (1-3); `why` gets the reason */
+/* Decision for a chained boot at mode switch position `mode` (1-3; M2 selects like M1); `why` = reason */
 static int decide(int mode, char *why, int len, bool count)
 {
 	char flag[16] = "";
@@ -183,10 +186,10 @@ static int decide(int mode, char *why, int len, bool count)
 	return SEL_PRIMARY;
 }
 
-/* board_late_init, chained boot at M1/M3/invalid: set bootcmd + bootdelay */
+/* board_late_init, chained boot (mode 1-3, invalid passed as 1): set bootcmd, bootargs, bootdelay */
 int st1008f_bootsel(int mode)
 {
-	char why[96];
+	char why[96], cmd[320];
 	int s = decide(mode, why, sizeof(why), true);
 
 	printf("Boot:  %s (%s)\n", sel_name[s], why);
@@ -194,7 +197,11 @@ int st1008f_bootsel(int mode)
 		rtk_led_fallback(fb_auto);
 	if (s == SEL_PROMPT)
 		return 0;
-	env_set("bootcmd", s == SEL_LEGACY ? BOOT_LEGACY : s == SEL_PRIMARY ? BOOT_PRIMARY : BOOT_FALLBACK);
+	if (s == SEL_PRIMARY)
+		snprintf(cmd, sizeof(cmd), BOOT_PRIMARY, mode, mode);
+	else
+		snprintf(cmd, sizeof(cmd), s == SEL_LEGACY ? BOOT_LEGACY : BOOT_FALLBACK, mode);
+	env_set("bootcmd", cmd);
 	env_set("bootdelay", "1");
 	return 0;
 }
@@ -225,10 +232,9 @@ static int do_bootsel(struct cmd_tbl *cmdtp, int flag, int argc, char *const arg
 	printf("record: %s, attempts %u (max %u)\n", rec_valid() ? "valid" : "invalid", rec_attempts(),
 	       MAX_ATTEMPTS);
 	printf("wdt ctrl: %08x\n", __raw_readl((void __iomem *)(WDT + 8)));
-	mode = st1008f_boot_mode(NULL);
-	s = mode == 2 ? SEL_PROMPT : decide(mode ? mode : 1, why, sizeof(why), false);
-	printf("chained boot now: M%d -> %s (%s)\n", mode ? mode : 1, sel_name[s],
-	       mode == 2 ? "M2 easy mode" : why);
+	mode = st1008f_boot_mode(NULL) ?: 1;
+	s = decide(mode, why, sizeof(why), false);
+	printf("chained boot now: M%d -> %s (%s), bootargs st1008f.mode=m%d\n", mode, sel_name[s], why, mode);
 	return 0;
 }
 

@@ -1,0 +1,41 @@
+#!/bin/sh /etc/rc.common
+# Mode switch -> bridge port isolation (#73, docs/DEFAULT-BOOT.md "Modes"). Runs before network:
+# netifd writes brport/isolated right after adding each port; rtl83xx offloads it (PORT_ISO_CTRL).
+# switch = M1 + primary image; isolated (ports reach only the CPU) = M2, M3, recovery image, unknown.
+
+START=19
+
+STATE=/var/run/st1008f-mode	# "<mode> <image> switch|isolated <source>", read by st1008f-bootok
+DBG=/sys/kernel/debug/st1008f-mode-switch/state	# 300-06 driver
+
+arg() { tr ' ' '\n' < /proc/cmdline | sed -n "s/^st1008f\.$1=//p"; }
+
+# uci section of the existing device section for a port (02_network creates one per lanN, MAC)
+port_sec() { uci show network | sed -n "s/^network\.\([^.]*\)\.name='$1'$/\1/p" | head -n 1; }
+
+start() {
+	local mode=$(arg mode) image=$(arg boot) src=cmdline want=isolated iso=1 i sec
+
+	if [ -z "$mode" ]; then	# RAM boot / no bootargs from U-Boot: read the switch itself
+		[ -e $DBG ] || mount -t debugfs debugfs /sys/kernel/debug 2>/dev/null
+		mode=$(sed -n 's/^position .* = M\([123]\)$/m\1/p' $DBG 2>/dev/null)
+		src=gpio
+	fi
+	[ -n "$mode" ] || mode=unknown
+	[ -n "$image" ] || image=unknown
+	[ "$mode" = m1 ] && [ "$image" != fallback ] && want=switch iso=0
+
+	for i in 1 2 3 4 5 6 7 8; do
+		sec=$(port_sec lan$i)
+		if [ -z "$sec" ]; then
+			sec=lan${i}_dev
+			uci set network.$sec=device
+			uci set network.$sec.name=lan$i
+		fi
+		[ "$(uci -q get network.$sec.isolate)" = $iso ] || uci set network.$sec.isolate=$iso
+	done
+	# flash write (overlay) only when the mode changed since the last boot
+	[ -z "$(uci changes network)" ] || uci commit network
+	echo "$mode $image $want $src" > $STATE
+	logger -t st1008f-mode "mode $mode ($src), image $image: $want"
+}

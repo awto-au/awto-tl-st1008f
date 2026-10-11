@@ -233,7 +233,7 @@ Rows = LED index, columns = cages. Physical front-panel order SPEC (unchecked); 
 - Latches stop the snake and survive `bootm` into Linux:
   - fallback: bootsel chose recovery on a fault (`unconfirmed`: attempts >= max; `primary-bad`: uImage header), or the primary `bootm` returned.
   - error: a `bootm` returned with nothing left to try, mode switch invalid, `network on` CMU not ready / isolation table busy / laser expander not responding / SerDes access errors.
-  - Not latched: M3 (recovery by choice), stock env `st1008f_boot` flag (owner choice), M2 (prompt).
+  - Not latched: M3 (recovery by choice), stock env `st1008f_boot` flag (owner choice), M2 (isolated management: normal boot, not an error).
 
 ### Linux (300-16, `CONFIG_TPLINK_ST1008F_LEDS`)
 

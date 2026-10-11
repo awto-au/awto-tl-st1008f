@@ -111,7 +111,9 @@ CONFIG_I2C_SMBUS=y
 CONFIG_MDIO_SMBUS=y
 CONFIG_THERMAL_OF=y
 CONFIG_REALTEK_THERMAL=y
-"""
+CONFIG_MIPS_CMDLINE_DTB_EXTEND=y
+# CONFIG_MIPS_CMDLINE_FROM_DTB is not set
+"""  # DTB_EXTEND: U-Boot bootargs (st1008f.mode, #73) appended to DT bootargs
 
 SEED = f"""CONFIG_TARGET_realtek=y
 CONFIG_TARGET_realtek_rtl930x=y
@@ -294,6 +296,8 @@ def overlay_73() -> None:
         if UP73:  # one VPE, as `./dev.py build-kernel --up` (the 7.3 runs tested on the board)
             cfg = override(cfg, (ROOT / "mainline/st1008f-v2-up.config").read_text())
         (TREE / RT / "rtl930x/config-7.3").write_text(cfg)
+        if missing := [ln for ln in PORT73.splitlines() if ln.startswith("CONFIG_") and ln not in CONFIG73.read_text().splitlines()]:
+            log(f"WARN: config-7.3 lacks PORT73 lines {missing}: run with --regen-config")
     # 7.3 dtc dropped the graph_child_address check: `-Wno-graph_child_address` is a FATAL ERROR there
     im = TREE / "include/image.mk"
     im.write_text(im.read_text().replace("  -Wno-graph_child_address \\\n", ""))

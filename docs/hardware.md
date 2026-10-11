@@ -186,13 +186,13 @@ Source: static RE of stock `rtk.ko` (TP-Link additions, `TP_CHKPATTERN` thread).
 - Owner decision 2026-10-12 changes the meanings (implementation in progress, #73): M1 = switch mode (bridge + STP), M2 = isolated management, M3 = recovery image with isolated management. The text below is the current build. [DECISIONS.md](DECISIONS.md).
 
 - `board_late_init` reads DAT bits 17-19 twice, 30 ms apart (stock settle), decodes pins 18/19 only: 1/1 = M1, 0/1 = M2, 1/0 = M3. Both low or the two reads differ = invalid -> M1.
-- Prints `Mode:  Mx <name>, pins 17/18/19 = a/b/c`; sets env `boot_mode=Mx`, `bootcmd_m1=clocks fast; bootm 0xb4300000`.
-- Chainloaded from flash (marker `0xa5a51008` @ `0xa0f80000`, cleared on read):
-  - M1 / invalid: `bootcmd` = `bootcmd_m1`, `bootdelay=1` (unchanged from before #46).
-  - M2 / M3: no autoboot, stays at the prompt; prints `needs Ethernet (stage 4, #46)`. `run bootcmd_m1` boots flash OpenWrt. DHCP/netconsole (M2) and TFTP recovery (M3) wait for stage-4 Ethernet.
+- Prints `Mode:  Mx <name>, pins 17/18/19 = a/b/c` (names: M1 `switch`, M2 `isolated`, M3 `recovery`); sets env `boot_mode=Mx`, `bootcmd_m1=clocks fast; bootm 0xb4300000`.
+- Chainloaded from flash (marker `0xa5a51008` @ `0xa0f80000`, cleared on read): `bootsel` picks the image and passes `st1008f.mode=mN` in `bootargs` (#73, [DEFAULT-BOOT.md](DEFAULT-BOOT.md) "Boot selection", "Modes").
+  - M1 / M2 / invalid: primary (with fallback), `bootdelay=1`. Linux: M1 = switch, M2 = isolated management.
+  - M3: recovery image (isolated management); no recovery image yet → prompt.
 - RAM-loaded (no marker): prompt at every position, `boot_mode` still set.
 - Live check: `rtk mode` (stock pattern + `boot policy:` line). Mapping/verify: `./dev.py mode-map live | boot --expect Mx`.
-- The switch must sit at M1 for unattended power-up to reach OpenWrt.
+- Unattended power-up reaches OpenWrt at every position once `recovery` holds an image; until then M3 stops at the prompt.
 
 ### Linux driver (#64)
 

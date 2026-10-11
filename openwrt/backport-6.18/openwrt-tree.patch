@@ -1,6 +1,7 @@
 OpenWrt-tree overlay for TL-ST1008F v2 (#73), applied by scripts/build_openwrt.py with git apply:
 - DTS: gpio-keys M1/M2/M3 -> mode-switch node (300-06, cage@N children); spi0 dirmap window (300-07)
-- rtl930x/config-6.18: MIPS_PLATFORM_DEVICES + TPLINK_ST1008F_MODE_SWITCH built in
+- rtl930x/config-6.18: MIPS_PLATFORM_DEVICES + TPLINK_ST1008F_MODE_SWITCH built in; MIPS_CMDLINE_DTB_EXTEND
+  (DT bootargs + U-Boot bootargs: st1008f.mode/boot from bootsel, #73)
 
 --- a/target/linux/realtek/dts/rtl9303_tplink_tl-st1008f-v2.dts
 +++ b/target/linux/realtek/dts/rtl9303_tplink_tl-st1008f-v2.dts
@@ -100,7 +101,18 @@ OpenWrt-tree overlay for TL-ST1008F v2 (#73), applied by scripts/build_openwrt.p
  	flash@0 {
 --- a/target/linux/realtek/rtl930x/config-6.18
 +++ b/target/linux/realtek/rtl930x/config-6.18
-@@ -145,6 +145,7 @@
+@@ -134,8 +134,9 @@
+ CONFIG_MIPS=y
+ CONFIG_MIPS_ASID_BITS=8
+ CONFIG_MIPS_ASID_SHIFT=0
++CONFIG_MIPS_CMDLINE_DTB_EXTEND=y
+ # CONFIG_MIPS_CMDLINE_FROM_BOOTLOADER is not set
+-CONFIG_MIPS_CMDLINE_FROM_DTB=y
++# CONFIG_MIPS_CMDLINE_FROM_DTB is not set
+ CONFIG_MIPS_CPU_SCACHE=y
+ CONFIG_MIPS_EXTERNAL_TIMER=y
+ CONFIG_MIPS_L1_CACHE_SHIFT=5
+@@ -145,6 +146,7 @@
  # CONFIG_MIPS_NO_APPENDED_DTB is not set
  CONFIG_MIPS_NR_CPU_NR_MAP=2
  CONFIG_MIPS_PERF_SHARED_TC_COUNTERS=y
@@ -108,7 +120,7 @@ OpenWrt-tree overlay for TL-ST1008F v2 (#73), applied by scripts/build_openwrt.p
  CONFIG_MIPS_RAW_APPENDED_DTB=y
  CONFIG_MIPS_SPRAM=y
  CONFIG_MMU_LAZY_TLB_REFCOUNT=y
-@@ -267,6 +268,7 @@
+@@ -267,6 +269,7 @@
  CONFIG_TICK_CPU_ACCOUNTING=y
  CONFIG_TIMER_OF=y
  CONFIG_TIMER_PROBE=y

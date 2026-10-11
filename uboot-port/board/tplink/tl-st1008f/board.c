@@ -15,7 +15,7 @@
 #define BOOTCMD_M1	"clocks fast; bootm 0xb4300000"
 #define MODE_SETTLE_MS	30	/* stock rtk.ko settle before each pin read (docs/hardware.md) */
 
-static const char *const mode_name[] = { "normal", "easy", "recovery" };
+static const char *const mode_name[] = { "switch", "isolated", "recovery" }	/* Linux mode (#73) */;
 
 /*
  * Boot policy from the mode switch (#8, #46). Pins 18/19 decide (one-hot; pin 17 measured
@@ -50,7 +50,7 @@ int board_init(void)
 	return 0;
 }
 
-/* boot_mode from the switch; chainloaded from flash: bootsel.c picks the image (#73), M2 = prompt */
+/* boot_mode from the switch; chainloaded from flash: bootsel.c picks the image + passes the mode (#73) */
 int board_late_init(void)
 {
 	bool chained = __raw_readl(CHAIN_MARK_ADDR) == CHAIN_MARK;
@@ -74,13 +74,9 @@ int board_late_init(void)
 	rtk_led_snapshot();	/* LEDs as stock left them, before any latch below */
 	if (!chained)
 		return 0;
-	if (mode == 2) {	/* M2 DHCP/netconsole: needs Ethernet */
-		printf("Mode:  M2 needs Ethernet (stage 4, #46): no autoboot; `run bootcmd_m1` boots OpenWrt\n");
-		return 0;
-	}
 	if (!mode)
 		rtk_led_error("mode invalid");	/* still autoboots (M1); latch survives into Linux */
-	/* M1/invalid: primary with fallback; M3: fallback; no recovery image: as before (#73) */
+	/* M1/M2/invalid: primary with fallback; M3: fallback; no recovery image: as before (#73) */
 	st1008f_bootsel(mode ? mode : 1);
 	/* snake only when bootsel armed an autoboot countdown */
 	rtk_led_boot_start(env_get("bootcmd") ? (int)simple_strtol(env_get("bootdelay") ?: "0", NULL, 10) : 0);

@@ -187,7 +187,7 @@ End-to-end workflow: [../README.md#workflow](../README.md#workflow).
 
 - OpenWrt on 7.3 as default boot + recovery OpenWrt fallback (#73). `./dev.py default-boot check | test | status | install primary|recovery | revert --backup DIR`. Docs: [../docs/DEFAULT-BOOT.md](../docs/DEFAULT-BOOT.md), [../docs/DEFAULT-BOOT-OPS.md](../docs/DEFAULT-BOOT-OPS.md).
 - `check` (host): uImage header + data CRC, slot fit, split-layout DTB (`recovery`, `bootrec@e000000`) inside each kernel; prints the flash-write plan.
-- `test`: `ramload openwrt-ours` + shell checks (STP, uci, `/proc/mtd`, `devmem`, 7.3, dropbear). `status`: read-only at an OpenWrt shell.
+- `test`: `ramload openwrt-ours` + shell checks (STP, uci DHCP + 192.168.0.1 fallback, mode vs port isolation, `/proc/mtd`, `devmem`, 7.3, dropbear). `status`: read-only at an OpenWrt shell.
 - `install` / `revert`: flash writes; without `--i-have-owner-approval` they print the plan and exit 2.
 - Timeouts: sysupgrade 390 s, `mtd write` recovery 290 s, revert 1600 s = W25Q256 datasheet worst erase/program x1.25. Log: `tmp/logs/default_boot.log`.
 
@@ -195,7 +195,7 @@ End-to-end workflow: [../README.md#workflow](../README.md#workflow).
 
 - Mode switch (#8) and its boot policy (#46). `./dev.py mode-map live | boot --expect M1|M2|M3`.
 - `live`: at our U-Boot prompt; logs `OWNER: slide the mode switch to Mx`, polls `rtk mode` every 0.5 s until the pins change and hold 3 polls; order M1 -> M2 -> M3 -> M1. PASS = 3 distinct patterns, decode == label.
-- `boot`: owner sets the switch first; power-cycle with the saved chain. M1 -> flash OpenWrt (STP set); M2/M3 -> our prompt, `boot_mode=Mx`.
+- `boot`: owner sets the switch first; power-cycle with the saved chain. M1/M2 -> flash OpenWrt (STP set); M3 without a recovery image -> our prompt, `boot_mode=M3`.
 - Timeout: 180 s per owner move (request is relayed through chat). Log: `tmp/logs/mode_switch_map.log`.
 
 ### sds_tools_test.py

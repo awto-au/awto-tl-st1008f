@@ -53,7 +53,7 @@ CHECKS["rtk_ext"] = ("rtk ext-pinGet 3", r"The pinNum \(3\) is invalid\.", 1)  #
 CHECKS["rtk_usage"] = ("rtk bogus", r"Usage:\r?\nrtk     - Realtek commands\r?\n", 1)
 # new commands (no stock equivalent)
 CHECKS["rtk_mode"] = ("rtk mode", r"mode: pins 17/18/19 = [01]/[01]/[01] -> pattern [123] \(M[123][^\n]*\n"
-                     r"boot policy: M[123] (normal|easy|recovery) \(pins 18/19", 1)
+                     r"boot policy: M[123] (switch|isolated|recovery) \(pins 18/19", 1)
 # boot policy latched at board_late_init (#46)
 CHECKS["boot_mode"] = ("printenv boot_mode bootcmd_m1",
                        r"boot_mode=M[123]\r?\nbootcmd_m1=clocks fast; bootm 0xb4300000\r?\n", 1)

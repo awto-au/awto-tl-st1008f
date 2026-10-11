@@ -1,31 +1,54 @@
 #!/bin/sh /etc/rc.common
 # Confirm a good boot to our U-Boot (#73, docs/DEFAULT-BOOT.md): attempt record (RAM) = 0.
-# Good = bridge `switch` exists with STP on. Unconfirmed boots count; 2 -> U-Boot boots recovery.
+# Good = bridge `switch` exists and is loop-safe for its mode (st1008f-mode): switch = STP on;
+# isolated = every port isolated. Unconfirmed boots count; 2 -> U-Boot boots recovery.
 
 START=99
 
 REC=0x0e000000		# reserved-memory in the DTS; layout: magic, attempts, ~attempts
 REC_MAGIC=0x5b007ec0
+STATE=/var/run/st1008f-mode	# written by st1008f-mode (START=19)
 # bridge appears ~27 s uptime, S99 starts ~15 s: 12 s expected x1.25
 WAIT_S=15
 
-start() {
-	local b=/sys/class/net/switch/bridge i=0
+fail() {
+	logger -p daemon.err -t st1008f-bootok "$1: boot not confirmed"
+}
 
-	while [ ! -e $b/stp_state ] && [ $i -lt $WAIT_S ]; do
+start() {
+	local b=/sys/class/net/switch i=0 want p n=0 bad=""
+
+	while [ ! -e $b/bridge/stp_state ] && [ $i -lt $WAIT_S ]; do
 		sleep 1
 		i=$((i + 1))
 	done
-	if [ ! -e $b/stp_state ]; then
-		logger -p daemon.err -t st1008f-bootok "no bridge 'switch' after ${WAIT_S} s: boot not confirmed"
+	[ -e $b/bridge/stp_state ] || { fail "no bridge 'switch' after ${WAIT_S} s"; return 0; }
+	want=$(cut -d ' ' -f 3 $STATE 2>/dev/null)
+	case "$want" in
+	switch)
+		if [ "$(cat $b/bridge/stp_state)" != 1 ]; then
+			echo 1 > $b/bridge/stp_state	# loop safety first (#19), as ./dev.py ramload does
+			fail "bridge STP was off: forced on"
+			return 0
+		fi
+		;;
+	isolated)
+		for p in $b/brif/*; do
+			[ -e $p/isolated ] || continue
+			n=$((n + 1))
+			[ "$(cat $p/isolated)" = 1 ] && continue
+			echo 1 > $p/isolated	# hardware isolation follows (rtl83xx BR_ISOLATED offload)
+			bad="$bad ${p##*/}"
+		done
+		[ $n -gt 0 ] || { fail "isolated mode: no bridge ports"; return 0; }
+		[ -z "$bad" ] || { fail "isolated mode: ports not isolated:$bad (forced on)"; return 0; }
+		;;
+	*)
+		fail "no mode in $STATE (st1008f-mode did not run)"
 		return 0
-	fi
-	if [ "$(cat $b/stp_state)" != 1 ]; then
-		echo 1 > $b/stp_state	# loop safety first (#19), as ./dev.py ramload does
-		logger -p daemon.err -t st1008f-bootok "bridge STP was off: forced on; boot not confirmed"
-		return 0
-	fi
+		;;
+	esac
 	# O_SYNC /dev/mem = uncached: the write reaches DRAM before any watchdog reset
 	devmem 0x0e000004 32 0 && devmem 0x0e000008 32 0xffffffff && devmem $REC 32 $REC_MAGIC &&
-		logger -t st1008f-bootok "boot confirmed: attempt record cleared (STP on after ${i} s)"
+		logger -t st1008f-bootok "boot confirmed: attempt record cleared ($want after ${i} s)"
 }
