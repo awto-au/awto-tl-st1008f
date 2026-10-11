@@ -214,6 +214,12 @@ def cmd_spi_linux(extra: list[str]) -> int:
     return _script("spi_linux_ladder.py", extra)
 
 
+@command("dump pinmux/GPIO/I2C registers at the live prompt, or diff two dumps (#51)",
+         args="capture <label> | compare <a> <b>", kind="check")
+def cmd_reg_diff(extra: list[str]) -> int:
+    return _script("reg_diff.py", extra)
+
+
 @command("run the rtk command list on stock and on our U-Boot, diff (see scripts/rtk_parity.py)",
          args="capture --side stock|ours | compare | both [--state] [--slow]", kind="check")
 def cmd_rtk_parity(extra: list[str]) -> int:
