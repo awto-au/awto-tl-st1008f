@@ -58,8 +58,8 @@ def main() -> int:
         log(f"FAIL: mtd{n} ({PART}) is mounted")
         return 1
     # unused = whole partition 0xff: hexdump collapses repeats to `*`; 1 MiB at ~22 MB/s < 0.1 s
-    blank = sh(con, f"hexdump -C /dev/mtdblock{n} | head -4", r"\n00100000")
-    if not re.search(r"00000000  (ff ){8} (ff ){8}.*\n\*\r?\n00100000", blank) and not a.overwrite:
+    blank = "" if a.overwrite else sh(con, f"hexdump -C /dev/mtdblock{n} | head -4", r"\n00100000")
+    if not a.overwrite and not re.search(r"00000000  (ff ){8} (ff ){8}.*\n\*\r?\n00100000", blank):
         log(f"FAIL: {PART} (mtd{n}) is not blank; refusing (use --overwrite only for our own image)")
         return 1
     srv = http.server.ThreadingHTTPServer(

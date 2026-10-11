@@ -195,6 +195,12 @@ def cmd_uboot_chain_env(extra: list[str]) -> int:
     return _script("uboot_chain_env.py", extra)
 
 
+@command("hash every file of the running flash OpenWrt's squashfs root (+ SQUASHFS error count)",
+         args="<label> [--against <label>]", kind="check")
+def cmd_rootfs_hash(extra: list[str]) -> int:
+    return _script("openwrt_rootfs_hash.py", extra)
+
+
 @command("run the rtk command list on stock and on our U-Boot, diff (see scripts/rtk_parity.py)",
          args="capture --side stock|ours | compare | both [--state] [--slow]", kind="check")
 def cmd_rtk_parity(extra: list[str]) -> int:

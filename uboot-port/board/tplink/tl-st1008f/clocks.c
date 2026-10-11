@@ -363,13 +363,21 @@ static int mem_set(u32 mhz, u32 method)
 #define FAST_E208	0x3a8
 #define FAST_E210	0x6b439e13
 
+/* DRAM controller prefetch, MCR 23 ip_ref / 22 dp_ref; Realtek enables with 0 then 1 (#52) */
+#define MCR_REG		0xb8001000
+#define MCR_PREF	(BIT(23) | BIT(22))
+
 static int fast_set(void)
 {
 	int ret = cpu_set(FAST_E208, FAST_E210, 0);
 
-	if (!ret)
-		puts("clocks: fast = cpu 1000 MHz (spi unchanged)\n");
-	return ret;
+	if (ret)
+		return ret;
+	__raw_writel(R(MCR_REG) & ~MCR_PREF, (void __iomem *)MCR_REG);
+	__raw_writel(R(MCR_REG) | MCR_PREF, (void __iomem *)MCR_REG);
+	__asm__ __volatile__("sync");
+	printf("clocks: fast = cpu 1000 MHz, dram prefetch on (MCR %08x), spi unchanged\n", R(MCR_REG));
+	return 0;
 }
 
 static int do_clocks(struct cmd_tbl *cmdtp, int flag, int argc, char *const argv[])
@@ -422,7 +430,7 @@ static int do_clocks(struct cmd_tbl *cmdtp, int flag, int argc, char *const argv
 
 U_BOOT_CMD(clocks, 7, 0, do_clocks, "show CPU/LX/SPI/MEM clocks and DDR3 timings; set CPU/MEM PLL",
 	   "\n  rates decoded from the PLL registers; docs/CLOCKS.md\n"
-	   "clocks fast  - CPU 1000 MHz (measured default; SPI left alone)\n"
+	   "clocks fast  - CPU 1000 MHz + DRAM controller prefetch (SPI left alone)\n"
 	   "clocks set cpu <e208> <e210> [relock 0|1] force\n"
 	   "  - CPU PLL from SRAM (stock sequence); relock 0 = e200 bit 30 (default), 1 = e220 bit 17\n"
 	   "clocks set lx <code 2..5> force  - LX = 2450 / (2 x (code + 2)) MHz; 5 = stock 175\n"

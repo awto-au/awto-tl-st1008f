@@ -4,7 +4,8 @@ How to run and verify clock changes. Facts (registers, formulas, measured result
 
 ## Defaults
 
-- `./dev.py ramload uboot-mainline` applies, after `go`: CPU 1000 MHz (`e208 0x3a8`, /3) and SPI 122.5 MHz (SFCR /2, NOR source code 3). `--stock-clocks` keeps 800 MHz / 25.5 MHz.
+- `clocks fast` (our U-Boot) = CPU 1000 MHz (`e208 0x3a8`, /3) + DRAM controller prefetch (MCR bits 23/22, #52). Runs on every power-up (chain, #47) and in `./dev.py ramload uboot-mainline`.
+- `ramload` also sets SPI 122.5 MHz (SFCR /2, NOR code 3) in U-Boot-only sessions; never before Linux (#50). `--stock-clocks` keeps 800 MHz / 25.5 MHz.
 - LX stays 175 MHz (204 MHz works, no measured gain). DDR stays 600 MHz until `mem-clock` passes.
 - Applies only to our RAM-loaded U-Boot; stock U-Boot and unattended boots run stock clocks (#47).
 
@@ -22,6 +23,7 @@ How to run and verify clock changes. Facts (registers, formulas, measured result
 | SPI-NOR | `./dev.py flash-speed [D ...] [--nor CODE ...]` | whole-chip CRC = the /6 baseline at every step; mismatch restores the previous setting |
 | LX | `clocks set lx <code> force` | console answers; `./dev.py uboot-test sfp_all ddm laser rtk_port sf_read highmem timer` |
 | DDR | `./dev.py ramload uboot-mainline --from-flash --stock-clocks`, then `./dev.py mem-clock 600 650 --nosr` (600 first = stock values through the new sequence; self-refresh mode hangs) | `mem set OK`; `clocks` decodes the bin; crc32 + `md` of 16 MiB copied before the change unchanged; `highmem test` 0 errors |
+| Linux reads under a setting | boot flash OpenWrt the stock way (`./dev.py flash-openwrt-watch --minutes 0`), `./dev.py rootfs-hash stock`; then boot with the setting, `./dev.py rootfs-hash <label> --against stock` | same hash, 0 SQUASHFS errors |
 | Whole board | `./dev.py uboot-test` | all pass |
 | Throughput | `./dev.py bench run <label>`, `./dev.py bench compare` | table in CLOCKS.md |
 

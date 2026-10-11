@@ -73,7 +73,7 @@ Source tags: **[SRC]** GPL file:line (`dms1250/` = `sources/rtk-dms1250/`, `xgs1
 
 | Reg | Live | Decode @ 600 MHz (tCK 1.667 ns) |
 |---|---|---|
-| `1000` MCR | `20241e60` | DRAM_TYPE 31:28 = 2 -> DDR3; EEPROM_TYPE 21, FLASH_MAP1_DIS 18; LX1-3_FRQ_SLOWER 12:10 = 1, LX0 13 = 0, OCP0_FRQ_SLOWER 9 = 1; OCP0/1_RBF_F_DIS 5/6 = 1 |
+| `1000` MCR | `20241e60` | DRAM_TYPE 31:28 = 2 -> DDR3; **IP_REF 23 = 0, DP_REF 22 = 0 (controller instruction/data prefetch off)**; EEPROM_TYPE 21, FLASH_MAP1_DIS 18; OCP1_FRQ_SLOWER 13 = 0, LX1-3_FRQ_SLOWER 12:10 = 1, OCP0_FRQ_SLOWER 9 = 1; OCP1/0_RBF_F_DIS 6/5 = 1; SYNC_* 4:0 = 0 [SRC] `xgs1210/arch/otto40/plr/src/platform/9300/dram_gen4_9300/memcntlr_reg.h` MCR_T |
 | `1004` DCR | `21421003` | BANKCNT 29:28 = 2 (8 banks), DBUSWID 25:24 = 1 (x16), ROWCNT 23:20 = 4 (15 bits), COLCNT 19:16 = 2 (10 bits) -> 2^29 = 512 MiB = **one 4 Gbit x16 die**; PRL_BANK_ACT_EN 12 = 1 |
 | `1008` DTR0 | `99644838` | CL 10 (16.7 ns), tWR 10 (16.7), CWL 7, tRTP 5 (8.3), tWTR 5 (8.3), tREFI 2304 clk = 3.84 us, CAS_PHY 3:0 = 8 (PHY read latency, raw) |
 | `100c` DTR1 | `0808061f` | tRP 9 (15.0 ns), tRCD 9 (15.0), tRRD 7 (11.7), tFAW 32 (53.3) |
@@ -189,7 +189,18 @@ Source tags: **[SRC]** GPL file:line (`dms1250/` = `sources/rtk-dms1250/`, `xgs1
 | flash_uc MB/s | 2.0 | 2.0 | 4.8 (+138 %) | 4.8 |
 | flash_c MB/s | 5.0 | 5.0 | 13.9 (+177 %) | 13.9 |
 
-- mem_write 237 MB/s does not move with CPU (800 → 1000) or DDR (600 → 650): the ceiling is in the CPU write path / OCP / controller, not the DRAM.
+- CPU caches (CP0, 2026-10-11): Config `80248483` (K0 = 3 WB/WA, MM = 2 write merge), Config1 `bea3519e` (I/D 32 KiB 4-way, 32 B lines), Config2 `80000000` (no L2), Config7 `80090400`.
+- Throughput is miss-latency bound: random cached miss 120 ns (800 MHz) / 109 ns (1000 MHz) per 32 B line; DDR 600 → 650 moves it ≤ 2 %. Software prefetch: `pref 30` stores 1286.6 MB/s, `pref 0` reads 763.3 MB/s (stock clocks).
+- **DRAM controller prefetch (MCR `ip_ref`/`dp_ref`, off in stock) fixes plain code** (#52):
+
+| Test MB/s | 800 stock | 800 + prefetch | 1000 | 1000 + prefetch |
+|---|---|---|---|---|
+| mem_write | 237.6 | 382.8 (+61 %) | 237.7 | **400.1 (+68 %)** |
+| mem_read | 291.4 | 366.4 (+26 %) | 336.3 | **433.0 (+49 %)** |
+| memcpy | 158.2 | 149.9 (−5 %) | 162.4 | 156.3 |
+| mem_read_pf (sw prefetch) | 763.3 | 694.1 (−9 %) | 983.5 | 732.7 |
+
+- Prefetch on: 16 MiB CRC kept, `highmem test` 0 errors; flash OpenWrt rootfs hash identical to stock, 0 SQUASHFS errors. OpenWrt never writes MCR (only reads DCR), so Linux runs with it.
 - DDR 650 (2026-10-11, CPU 1000, `--nosr`): mem_read 342.7 (+2 % vs DDR 600), mem_read_uc 63.0 (+4 %), mem_write 237.0, memcpy 162.4.
 - SPI-NOR ladder (whole-chip CRC vs a /6 baseline, 2026-10-11): SFCR /6 25.5 MHz 16.7 s, /4 38.3 MHz 11.9 s, /2 76.6 MHz 7.0 s; then /2 with NOR source e220[16:13] code 5 (87.5 MHz) 6.2 s, code 4 (102.1 MHz) 5.3 s, **code 3 (122.5 MHz) 4.4 s, flash_uc 7.7 / flash_c 22.3 MB/s**; code 2 (153.1 MHz, rated 133) **CRC mismatch**. Flash limit between 122.5 and 153 MHz. Dual/quad read not tried.
 - LX 204.2 MHz (`clocks set lx 4 force`): console, I2C/SFP/DDM, lasers, sf, highmem, timer all pass; no bench test depends on LX.

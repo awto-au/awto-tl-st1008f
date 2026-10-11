@@ -20,8 +20,8 @@ from st1008_ramload import ROOT, Console  # noqa: E402
 LOG = ROOT / "tmp/logs/bench.log"
 OUT = ROOT / "tmp/bench"
 PROMPT = r"\r?\nst1008f-mainline # "
-# 8 tests; slowest = 4 MiB uncached flash at ~2 MB/s = 2 s; all together ~6 s at stock. x1.25 + slack
-BENCH_CAP = 10
+# 14 tests; slowest = 4 MiB uncached flash at ~2 MB/s = 2 s; all together ~8 s at stock. x1.25 + slack
+BENCH_CAP = 12
 
 
 def log(msg: str) -> None:

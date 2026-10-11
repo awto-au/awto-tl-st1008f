@@ -5,11 +5,13 @@
  */
 
 #include <command.h>
+#include <cpu_func.h>
 #include <div64.h>
 #include <time.h>
 #include <u-boot/crc.h>
 #include <vsprintf.h>
 #include <asm/io.h>
+#include <asm/mipsregs.h>
 #include <linux/sizes.h>
 #include <linux/string.h>
 
@@ -37,6 +39,38 @@ static void done(const char *name, u64 amount, const char *unit)
 	milli = (u32)per_s;
 
 	printf("bench %s %u.%03u %s\n", name, milli / 1000, milli % 1000, unit);
+}
+
+/* ns per access of a dependent chain: one miss at a time (latency, not bandwidth) */
+static void done_ns(const char *name, u32 n)
+{
+	u64 ns = (get_ticks() - bench_start) * 1000000000ULL;
+
+	do_div(ns, (u32)get_tbclk());
+	do_div(ns, n);
+	printf("bench %s %u.000 ns\n", name, (u32)ns);
+}
+
+/* chain of N nodes, stride 4 KiB + 64 (new line, spread over sets), visited in a scrambled order */
+#define CHAIN_N		8192
+#define CHAIN_STRIDE	(SZ_4K + 64)
+
+static u32 *chain_build(ulong base)
+{
+	u32 i, j;
+
+	for (i = 0; i < CHAIN_N; i++) {
+		j = (i * 4099 + 1) % CHAIN_N;	/* 4099 prime, coprime to N: one cycle over all */
+		*(u32 *)(base + i * CHAIN_STRIDE) = base + j * CHAIN_STRIDE;
+	}
+	return (u32 *)base;
+}
+
+static u32 chain_walk(u32 *p, u32 n)
+{
+	while (n--)
+		p = (u32 *)*p;
+	return (u32)(ulong)p;
 }
 
 static u32 cpu_loop(u32 n)
@@ -78,6 +112,41 @@ static int do_bench(struct cmd_tbl *cmdtp, int flag, int argc, char *const argv[
 	start();
 	memcpy((void *)(BUF + SZ_64M), (void *)BUF, SZ_32M);
 	done("memcpy", SZ_32M, "MB/s");
+
+	printf("bench dline %u.000 B\n", 2 << ((read_c0_config1() >> 10) & 7));
+	printf("cp0 config %08x config1 %08x config2 %08x config3 %08x config7 %08x\n",
+	       read_c0_config(), read_c0_config1(), read_c0_config2(), read_c0_config3(),
+	       read_c0_config7());
+
+	start();	/* PrepareForStore: line allocated without a fill read */
+	for (p = (u32 *)BUF; p < (u32 *)(BUF + SZ_64M); p += 8) {
+		__asm__ __volatile__("pref 30, 0(%0)" : : "r"(p));
+		p[0] = p[1] = p[2] = p[3] = p[4] = p[5] = p[6] = p[7] = 0x3c3c3c3c;
+	}
+	done("mem_write_pfs", SZ_64M, "MB/s");
+
+	start();
+	for (p = (u32 *)BUF_UC; p < (u32 *)(BUF_UC + SZ_16M); p += 8)
+		p[0] = p[1] = p[2] = p[3] = p[4] = p[5] = p[6] = p[7] = 0x5a5a5a5a;
+	done("mem_write_uc", SZ_16M, "MB/s");
+
+	start();	/* prefetch 4 lines ahead: overlapping misses, if the core allows */
+	for (p = (u32 *)BUF; p < (u32 *)(BUF + SZ_64M); p += 8) {
+		__asm__ __volatile__("pref 0, 128(%0)" : : "r"(p));
+		sum += p[0] + p[1] + p[2] + p[3] + p[4] + p[5] + p[6] + p[7];
+	}
+	done("mem_read_pf", SZ_64M, "MB/s");
+
+	chain_build(BUF);
+	flush_dcache_range(BUF, BUF + CHAIN_N * CHAIN_STRIDE);
+	start();
+	sum += chain_walk((u32 *)BUF, 1000000);
+	done_ns("lat_c", 1000000);
+
+	chain_build(BUF_UC);
+	start();
+	sum += chain_walk((u32 *)BUF_UC, 200000);
+	done_ns("lat_uc", 200000);
 
 	start();
 	for (p = (u32 *)BUF_UC; p < (u32 *)(BUF_UC + SZ_16M); p += 8)
