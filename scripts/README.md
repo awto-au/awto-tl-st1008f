@@ -178,6 +178,11 @@ End-to-end workflow: [../README.md#workflow](../README.md#workflow).
 - Run: `scripts/sfp_decode_host_test.py dump <a0.bin> [<a2.bin>]` (decode raw EEPROM dumps) or `selftest` (external-cal vectors and dBm vs double math).
 - Log: `tmp/logs/sfp_decode_host_test.log`.
 
+### udivdi3_host_test.py
+
+- Runs our `uboot-port/arch/mips/lib/udivdi3.c` (replaces mainline's, #33) as a freestanding MIPS32 BE program under `qemu-mips-static`: 211 u64 `/` `%` cases vs Python; also shows mainline's `(long long, int)` signature seeing divisor 0.
+- Run: `scripts/udivdi3_host_test.py`. Needs `mips64-linux-gnu-gcc`, `qemu-mips-static`. Log: `tmp/logs/udivdi3_host_test.log`.
+
 ### clock_calc.py
 
 - Host-only RTL930x clock calculator; formulas and tables: [../docs/CLOCKS.md](../docs/CLOCKS.md).

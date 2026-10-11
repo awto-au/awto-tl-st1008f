@@ -4,6 +4,7 @@
 - Each check: send a command, expect a regex before the prompt returns, within a stated cap.
 - `timer`: `sleep N; echo` timed host-side against the console log; must be within ±3 %.
 - Read-only: flash writes are refused by the driver (checked), no env-save or GPIO21 commands. Add a check per new driver stage.
+- Explicit only (not in the default list): `reset` (ends the session), `cr_idle` (~100 s, #31).
 - Log: tmp/logs/uboot_mainline_test.log. Exit 0 = all pass.
 """
 
@@ -30,7 +31,10 @@ CHECKS = {
     "env": ("printenv baudrate", r"baudrate=(115200|1822916|2187500|2734375|3645833|5468750|10937500)\r?\n", 1),
 }
 # PLL decode (docs/CLOCKS.md) must show stock rates: CPU 800 MHz, DDR clock 600 MHz (~1 KB of output)
-CHECKS["clocks"] = ("clocks", r"(?s)\ncpu [\d.]+ MHz .*\nmem 6[05]0 MHz \(DDR3-1[23]00", 1)
+# `src pll` = SSR.ckse_ocp0 reads 1 with the CPU on its PLL (an inverted SDK name would print ALT, #41)
+CHECKS["clocks"] = ("clocks", r"(?s)\ncpu [\d.]+ MHz \(ocp0;[^\n]*src pll\r?\n.*\nmem 6[05]0 MHz \(DDR3-1[23]00", 1)
+# plain u64 `/` `%` via libgcc helpers (mainline __udivdi3 trapped on BE, #33); values = Python
+CHECKS["div64"] = ("bench div64", r"\r?\ndiv64 100005b00205 r a497, ffffffff\r?\n", 1)
 # mode switch via gpio-keys: all three probe (a state, not "not found"); M1 = pin 17 low = on
 CHECKS["buttons"] = ("button M1; button M2; button M3",
                      r"button M3\r?\n(on|off)\r?\n(on|off)\r?\n(on|off)\r?\n", 1)
@@ -77,6 +81,11 @@ CHECKS["refuse_sf_write"] = (f"sf probe 0; mw.b 0x{SF_RAM2:x} 0x5a 0x100; sf wri
                              r"refused: no flash writes", 1)
 CHECKS["refuse_sf_erase"] = ("sf erase 0x1ff0000 0x1000", r"refused: no flash writes", 1)
 CHECKS["refuse_sf_update"] = (f"sf update 0x{SF_RAM2:x} 0x1ff0000 0x100", r"refused: no flash writes", 1)
+I2C_CTRL1 = 0xBB00036C  # SFP I2C master CTRL1 (DTS i2c@36c): FAIL = bit 1, TRIG/BUSY = bit 0
+FDT_COPY = 0x86200000  # scratch copy of the control DTB for fdt_clocks (clear of SF_RAM/SF_RAM2)
+# 88E1111 (GLC-T) PHY ID: OUI 0x005043 -> ID1 0x0141, ID2 0x0cc0 | rev (Linux marvell.c MARVELL_PHY_ID_88E1111)
+PHY_ID1, PHY_ID2_RX = 0x0141, r"0x0cc[0-9a-f]"
+CR_IDLE_S = (1, 2, 5, 10, 13, 15, 20, 30)  # #31: lost reply seen after ~13 s idle
 GPIO_DAT = 0xB800330C  # gpio0 DATA (docs/hardware.md)
 SFP_DUMPS = ROOT / "private/sfp"  # stock-loader A0 dumps (scripts/st1008_sfp_ddm.py)
 # DDM sanity: SFF-8472 Vcc 3.3 V +-5 %; room-temp module 10-70 C; laser on = bias > 1 mA.
@@ -268,15 +277,113 @@ def sf_read(con: Console) -> bool:
     return ok
 
 
+def i2c_scan(con: Console) -> bool:
+    """#33: `i2c probe` (full scan) on cage 1's bus lists 0x50 and 0x51; after a NACK (0x0a)
+    0x50 still answers (FAIL not sticky). CTRL1 after the NACK is logged for the FAIL-bit question."""
+    try:
+        # scan: 112 addresses x ~0.5 ms NACK at 100 kHz + DM bind; 1 s names a hang (busy cap 3.2 ms each)
+        _, scan = con.run("i2c dev 0; i2c probe", PROMPT, 1, "i2c scan bus 0")
+        con.run("i2c probe 0x0a", PROMPT, 1, "probe NACK")
+        _, ctrl = con.run(f"md.l 0x{I2C_CTRL1:08x} 1", PROMPT, 1, "CTRL1 after NACK")
+        _, again = con.run("i2c probe 0x50", PROMPT, 1, "probe 0x50 after NACK")
+    except SystemExit as e:
+        log(f"FAIL i2c_scan: {e}")
+        return False
+    found = re.findall(r"\b([0-7][0-9A-F])\b",scan.split("Valid chip addresses:", 1)[-1].split("\n", 1)[0])
+    word = re.search(rf"{I2C_CTRL1:08x}: ([0-9a-f]{{8}})", ctrl)
+    ok = {"50", "51"} <= set(found) and re.search(r"Valid chip addresses: 50", again) is not None
+    log(f"{'PASS' if ok else 'FAIL'} i2c_scan: bus 0 lists {found or 'nothing'}; CTRL1 after NACK "
+        f"{word.group(1) if word else '?'} (FAIL bit {int(word.group(1), 16) >> 1 & 1 if word else '?'}); "
+        f"0x50 after NACK {'found' if 'addresses: 50' in again else 'MISSING'}")
+    return ok
+
+
+def sfp_phy(con: Console) -> bool:
+    """#33: copper modules (1000BASE-T in `rtk sfp`): PHY ID via two 1-byte reads per register
+    must read 88E1111 (ID1 0x0141, ID2 0x0cc?), i.e. the LSB is no longer 0xff. No copper module = SKIP."""
+    try:
+        _, out = con.run("rtk sfp", PROMPT, 3, "rtk sfp (find copper)")  # cap: see sfp_all
+    except SystemExit as e:
+        log(f"FAIL sfp_phy: {e}")
+        return False
+    cages = [int(c) for c in re.findall(r"\ncage (\d): 1000BASE-T", out)]
+    if not cages:
+        log("SKIP sfp_phy: no 1000BASE-T module in any cage")
+        return True
+    ok = True
+    for cage in cages:
+        try:
+            # 5 regs x 2 one-byte reads, ~1 ms each at 100 kHz
+            _, out = con.run(f"rtk sfp {cage} phy", PROMPT, 1, f"phy cage {cage}")
+        except SystemExit as e:
+            log(f"FAIL sfp_phy cage {cage}: {e}")
+            return False
+        regs = dict(re.findall(r"reg (0x[0-9a-f]{2}) = (0x[0-9a-f]{4})", out))
+        good = regs.get("0x02") == f"0x{PHY_ID1:04x}" and re.fullmatch(PHY_ID2_RX, regs.get("0x03", "")) is not None
+        ok &= good
+        log(f"{'PASS' if good else 'FAIL'} sfp_phy cage {cage}: {regs}")
+    return ok
+
+
+def fdt_clocks(con: Console) -> bool:
+    """#41: ft_board_setup on a copy of the control DTB with the OpenWrt rate properties added
+    (`fdt boardsetup`): /cpus frequency, /cpu-clock and /lx_clk clock-frequency = live `clocks` rates."""
+    cmds = [f"fdt move ${{fdtcontroladdr}} 0x{FDT_COPY:x} 0x10000", f"fdt addr 0x{FDT_COPY:x}",
+            'fdt set /cpus frequency "<0>"', "fdt mknode / cpu-clock", 'fdt set /cpu-clock clock-frequency "<0>"',
+            "fdt mknode / lx_clk", 'fdt set /lx_clk clock-frequency "<0>"']
+    try:
+        _, clk = con.run("clocks", PROMPT, 1, "clocks")
+        for c in cmds:
+            con.run(c, PROMPT, 1, c)
+        _, bs = con.run("fdt boardsetup", PROMPT, 1, "fdt boardsetup")
+        props = {}
+        for path, prop in (("/cpus", "frequency"), ("/cpu-clock", "clock-frequency"), ("/lx_clk", "clock-frequency")):
+            _, out = con.run(f"fdt print {path} {prop}", PROMPT, 1, f"{path} {prop}")
+            m = re.search(rf"{prop} = <(0x[0-9a-f]+)>", out)
+            props[path] = int(m.group(1), 16) if m else None
+    except SystemExit as e:
+        log(f"FAIL fdt_clocks: {e}")
+        return False
+    mhz = {k: round(float(v) * 1000) for k, v in re.findall(r"\n(cpu|lx) ([\d.]+) MHz", clk)}  # kHz
+    line = re.search(r"fdt: clocks cpu (\d+) kHz, lx (\d+) kHz", bs)
+    want = {"/cpus": mhz.get("cpu"), "/cpu-clock": mhz.get("cpu"), "/lx_clk": mhz.get("lx")}
+    ok = (line is not None and mhz.get("cpu") == int(line.group(1)) and mhz.get("lx") == int(line.group(2))
+          and all(want[p] is not None and props[p] == want[p] * 1000 for p in want))
+    log(f"{'PASS' if ok else 'FAIL'} fdt_clocks: clocks {mhz} kHz; {line.group(0) if line else 'no fdt: line'}; dtb {props}")
+    return ok
+
+
+def cr_idle(con: Console) -> bool:
+    """#31: a bare CR after N s idle must echo and give a prompt, for each N in CR_IDLE_S.
+    ~100 s; not in the default list: `./dev.py uboot-test cr_idle`. Logs every N (idle-dependent or not)."""
+    ok = True
+    for n in CR_IDLE_S:
+        time.sleep(n)  # the idle under test
+        mark = con.size()
+        con.send("", cr=True)
+        try:
+            # CR echo + prompt = ~22 bytes, 2 ms at 115200; daemon log poll 50 ms; 1 s as the original report
+            con.expect(PROMPT, 1, mark, f"prompt after {n} s idle")
+            log(f"  ok  bare CR after {n} s idle")
+        except SystemExit:
+            ok = False
+            log(f"  BAD bare CR after {n} s idle: no prompt in 1 s")
+            con.run("echo PROMPT_OK", r"\r?\nPROMPT_OK" + PROMPT, 1, "prompt back")  # resync before next N
+    log(f"{'PASS' if ok else 'FAIL'} cr_idle: {len(CR_IDLE_S)} idle lengths {CR_IDLE_S} s")
+    return ok
+
+
 def main() -> int:
     ap = argparse.ArgumentParser(description=__doc__.splitlines()[0])
-    ap.add_argument("checks", nargs="*", default=[*CHECKS, "gpio", "sfp_a0", "sfp_all", "ddm", "laser", "sf_read", "timer"])
+    ap.add_argument("checks", nargs="*", default=[*CHECKS, "gpio", "sfp_a0", "sfp_all", "ddm", "laser", "sf_read",
+                                                 "i2c_scan", "sfp_phy", "fdt_clocks", "timer"])
     a = ap.parse_args()
     con = Console()
     # presence probe: a command with a known reply (a bare CR once got no reply at all)
     con.run("echo PROMPT_OK", r"\r?\nPROMPT_OK" + PROMPT, 1, "mainline prompt present")
     special = {"timer": timer, "gpio": gpio, "sfp_a0": sfp_a0, "sfp_all": sfp_all, "ddm": ddm_sane, "laser": laser,
-               "sf_read": sf_read, "reset": reset}
+               "sf_read": sf_read, "reset": reset, "i2c_scan": i2c_scan, "sfp_phy": sfp_phy,
+               "fdt_clocks": fdt_clocks, "cr_idle": cr_idle}
     results = {n: (special[n](con) if n in special else check(con, n)) for n in a.checks}
     bad = [n for n, ok in results.items() if not ok]
     log(f"=== {len(results) - len(bad)}/{len(results)} pass" + (f"; FAIL: {', '.join(bad)}" if bad else ""))

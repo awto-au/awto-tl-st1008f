@@ -34,7 +34,7 @@ static void done(const char *name, u64 amount, const char *unit)
 	u64 per_s = amount * get_tbclk();	/* units per second, after the divide */
 	u32 milli;
 
-	do_div(per_s, ticks ? (u32)ticks : 1);	/* do_div: no __udivdi3 (#33); runs < 8.6 s */
+	do_div(per_s, ticks ? (u32)ticks : 1);	/* u32 ticks: runs < 8.6 s */
 	do_div(per_s, 1000);			/* thousandths of a mega-unit */
 	milli = (u32)per_s;
 
@@ -84,12 +84,23 @@ static u32 cpu_loop(u32 n)
 	return a ^ b;
 }
 
+/* `bench div64`: plain u64 `/` and `%` through libgcc __udivdi3/__umoddi3 (trapped before #33) */
+static int div64(void)
+{
+	volatile u64 n = 0x123456789abcdef0ULL, d = 0x12345, m = ~0ULL, d2 = 0x100000001ULL;
+
+	printf("div64 %llx r %llx, %llx\n", n / d, n % d, m / d2);
+	return 0;
+}
+
 static int do_bench(struct cmd_tbl *cmdtp, int flag, int argc, char *const argv[])
 {
 	volatile u32 sink;
 	u32 i, sum = 0;
 	u32 *p;
 
+	if (argc == 2 && !strcmp(argv[1], "div64"))
+		return div64();
 	start();
 	sink = cpu_loop(50000000);
 	done("cpu_loop", 50000000, "Mops/s");
@@ -168,5 +179,6 @@ static int do_bench(struct cmd_tbl *cmdtp, int flag, int argc, char *const argv[
 	return 0;
 }
 
-U_BOOT_CMD(bench, 1, 0, do_bench, "CPU / cache / DRAM / flash throughput",
-	   "\n  one line per test: bench <name> <value> <unit>; scripts/bench.py compares runs");
+U_BOOT_CMD(bench, 2, 0, do_bench, "CPU / cache / DRAM / flash throughput",
+	   "\n  one line per test: bench <name> <value> <unit>; scripts/bench.py compares runs\n"
+	   "bench div64 - u64 divide/modulo self-check (libgcc helpers)");

@@ -49,7 +49,12 @@ Not hardware-verified yet (built and inspected only).
 |---|---|
 | timer | `sleep 5` = 5.013 s host (+0.3 %) → CP0 400 MHz (CPU/2) correct |
 | bdinfo | 256 MiB at `0x80000000` |
-| clocks | PLL decode shows `cpu 800 MHz`, `mem 600 MHz (DDR3-1200` (not yet run on the board) |
+| clocks | PLL decode: `cpu ... src pll` (SSR.ckse_ocp0 = PLL), `mem 600/650 MHz` |
+| fdt_clocks | `fdt boardsetup` on a control-DTB copy: `/cpus frequency`, `/cpu-clock`, `/lx_clk` = live rates (#41) |
+| div64 | `bench div64`: u64 `/` `%` through our `__udivdi3`/`__umoddi3` (#33) |
+| i2c_scan | `i2c probe` scan on cage 1 lists 50 51; 0x50 still answers after a NACK; CTRL1 logged (#33) |
+| sfp_phy | copper modules: `rtk sfp N phy` reads 88E1111 ID `0x0141`/`0x0cc?` (#33); none fitted = SKIP |
+| cr_idle | explicit only (~100 s): bare CR after 1-30 s idle gets a prompt (#31) |
 | gpio | all 24 lines from the driver == raw DATA `0xb800330c` |
 | buttons | mode switch M1/M2/M3 via gpio-keys |
 | sfp_a0 | first 96 A0 bytes via our I2C master == stock-loader dumps (cages 1, 2, 8) |
@@ -74,6 +79,7 @@ Full stock `rtk` parity inventory, registers and parity harness: [RTK-COMMANDS.m
 - `rtk pinGet <pin>` (non-claiming read), `rtk pinSet <pin> <0|1> [force]` (GPIO21 low needs `force`).
 - - `rtk laser [status|<cage>|none|all force]`, `rtk boardmodel`.
 - `rtk sfp`: all cages, summary only (presence, checksums, compact DDM line). `rtk sfp <cage>`: summary + `--- ethtool decode ---`. `rtk sfp <cage> brief`: summary only. `rtk sfp <cage> raw`: hexdump A0/A2 (128 B each).
+- `rtk sfp <cage> phy [reg]`: copper module PHY at 0x56; each 16-bit reg = two 1-byte reads of the same reg (MSB, then LSB), as Linux `mdio-i2c` SMBus. A 2-byte block read returns LSB `0xff` (master has no clock stretching).
 - Decoder: `board/tplink/tl-st1008f/sfp/` = ethtool 7.1 (`6b7b16e`) `sfpid.c`, `sfpdiag.c`, `sff-common.c`, `module-common.c` (GPL-2.0); printf output, no JSON, integer fixed point (no FPU). Rx external-cal polynomial per SFF-8472 (upstream omits r^2..r^4). Host check: `scripts/sfp_decode_host_test.py`.
 - `rtk network on`: not yet (no Ethernet driver; stage 4).
 
@@ -117,15 +123,15 @@ st1008f-mainline #
 - Address mode: stock leaves the flash in **4-byte mode** (the mmio window spans 32 MiB on it). A 3-byte READ reads `(addr<<8)|0xff`: `sf read` at 0x100 returned flash 0x100ff. U-Boot therefore runs 4-byte (sends EN4B `0xB7`, harmless: already set).
 - Read-only guard is in the driver (CMD_SF has no Kconfig to drop writes): opcode allowlist RDID, RDSR/2/3, READ/FAST_READ (3B and 4B `0x13`/`0x0c`), RDSFDP, RDEAR, WRDI, EN4B. EX4B `0xE9` refused (mmio needs 4-byte mode). WREN held back, only sent before WREAR. Program/erase/WRSR print `refused: no flash writes (opcode 0x..)`, return -EPERM; the flash never sees a WREN for them.
 - mmio window: `claim_bus` sets SFCR RBO|WBO and deasserts CS; `release_bus` restores SFCR/SFCSR. `crc32 0xb4000000 ...` after `sf` matches.
-- SPI clock: divider inherited from stock, never written (`set_speed` is a no-op). SFCR read `0x5fc00244` (field decode: #35).
+- SPI clock: driver never writes the divider (`set_speed` is a no-op); `clocks set`/`clocks` own it. SFCR `0x5fc00244` = SPI_CLK_DIV 2 → SCK = NOR 153.125 / 6 = 25.52 MHz ([CLOCKS.md](CLOCKS.md)).
 
 | Interface | Rated max | Board allows | We run | Why the gap |
 |---|---|---|---|---|
-| SPI clock, FAST_READ 0Bh | 133 MHz (W25Q256JV rev G, 3.0-3.6 V, `sources/README.md`) | not measured | stock divider (SFCR `0x5fc00244`, not decoded) | divider field unknown (#35) |
+| SPI clock, FAST_READ 0Bh | 133 MHz (W25Q256JV rev G, 3.0-3.6 V, `sources/README.md`) | U-Boot reads bit-exact to 122.5 MHz; Linux to 102.1 MHz ([CLOCKS.md](CLOCKS.md) ladder) | 25.52 MHz under Linux (stock); `ramload uboot-mainline` default 122.5 MHz (SFCR /2, NOR code 3) when Linux will not run | Linux JFFS2 CRC errors at 102.1 MHz (#50) |
 | SPI clock, READ 03h | 50 MHz | not measured | not used (U-Boot picks 0Bh) | n/a |
 
 - Read throughput (2026-10-10, commit after dda6fff, 1x I/O, stock divider): mmio `crc32` of 32 MiB 16.6 s (~2.0 MB/s); `sf read` 32 MiB 22.6 s (~1.5 MB/s).
-- RDY wait limit 40 us per 32-bit word: assumes SPI clock >= 1 MHz (32 clocks = 32 us) x 1.25; expiry prints limit and elapsed.
+- RDY wait limit per 32-bit word = 32 SCK x 1.25 + 1 us from the clock provider, per claim (3 us at 25.52 MHz); expiry prints limit and elapsed.
 - Checks: `sf_probe`, `sf_read` (first and last 64 KiB: `sf read` crc32 == mmio crc32), `refuse_sf_write|erase|update`. All pass on the board.
 - Full chip 2026-10-10: `sf read` and mmio both CRC32 `671232ac`. Differs from the 2026-10-08 backup (`dd984f95`): `firmware` now holds OpenWrt 25.12.4 (sysupgrade 2026-10-08) and env `ethaddr` changed (#36).
 

@@ -75,8 +75,8 @@ static int xfer_one(struct udevice *bus, u8 addr, u8 reg, u8 *buf, int len, bool
 		for (i = 0; i < 4; i++)
 			__raw_writel(w[i], p->mst + DATA0 + 4 * i);
 	}
-	/* 32-bit: a 64-bit divide here traps in U-Boot's MIPS __udivdi3 (seen 2026-10-10) */
-	scl = scl_khz[c->freq_sel] * (u32)(clk_get_rate(&p->lx) / 1000) / SCL_REF_LX_KHZ;
+	/* fits 32 bits: 2500 kHz x LX kHz (<= 204167) < 2^32 */
+	scl =scl_khz[c->freq_sel] * (u32)(clk_get_rate(&p->lx) / 1000) / SCL_REF_LX_KHZ;
 	cap_us = (len + 4) * 9 * 1250 / max(scl, 1U) + 500;
 	rmw(p->mst + CTRL1, BIT(0), BIT(0));				/* TRIG */
 	t0 = timer_get_us();
@@ -123,11 +123,15 @@ static int rtl9300_i2c_xfer(struct udevice *bus, struct i2c_msg *msg, int nmsgs)
 	return -EOPNOTSUPP;
 }
 
-/* No zero-length transfers in this master: probe = 1-byte read of register 0. */
+/* No zero-length transfers in this master: probe = 1-byte read of register 0.
+ * Reserved addresses (general call/START byte/CBUS/Hs master codes, 10-bit prefixes) are not
+ * put on the bus, as i2cdetect's default 0x08-0x77 range (#33: full scan listed nothing). */
 static int rtl9300_i2c_probe_chip(struct udevice *bus, u32 addr, u32 flags)
 {
 	u8 b;
 
+	if (addr < 0x08 || addr > 0x77)
+		return -EREMOTEIO;
 	return xfer_one(bus, addr, 0, &b, 1, false);
 }
 

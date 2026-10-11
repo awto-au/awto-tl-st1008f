@@ -42,6 +42,8 @@ FILES = {
     "drivers/gpio/gpio-realtek-otto.c": "drivers/gpio/gpio-realtek-otto.c",
     "drivers/i2c/i2c-rtl9300.c": "drivers/i2c/i2c-rtl9300.c",
     "drivers/spi/spi-realtek-rtl.c": "drivers/spi/spi-realtek-rtl.c",
+    # replaces mainline's: its __udivdi3 takes a 32-bit divisor (BE: high word -> trap, #33)
+    "arch/mips/lib/udivdi3.c": "arch/mips/lib/udivdi3.c",
 }
 DIRS = {
     "arch/mips/mach-otto": "arch/mips/mach-otto",

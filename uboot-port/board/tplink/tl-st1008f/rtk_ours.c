@@ -137,6 +137,7 @@ int rtk_ours_help(void)
 	printf("rtk commands not on the stock loader:\n"
 	       "  rtk laser [status|<cage>|none|all force]   TX enable (one cage by default)\n"
 	       "  rtk sfp [cage [raw|brief]]                 module EEPROM/DDM decode\n"
+	       "  rtk sfp <cage> phy [reg]                   copper module PHY (0x56) registers\n"
 	       "  rtk port [status]                          per cage: module, laser, SerDes, link, LED\n"
 	       "  rtk mode                                   M1/M2/M3 switch position\n"
 	       "  rtk temp                                   on-die temperature (enables the meter)\n");

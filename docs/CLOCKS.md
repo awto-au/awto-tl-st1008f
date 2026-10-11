@@ -172,7 +172,7 @@ Source tags: **[SRC]** GPL file:line (`dms1250/` = `sources/rtk-dms1250/`, `xgs1
 | LX | not stated; SPL accepts 133-204 MHz | UART divisor scales | 175 | stock default; 204 is inside the SPL window |
 | DDR3 clock | [DS] 8.3 "up to 800MHz (DDR3-1600)"; [DS] Table 25 fCK typ 600 MHz; SPL PLL table max 600, DTR/PHY to 650 | DRAM Zentel A3T4GF40BBF-HP = DDR3-1866 (933 MHz) | 600 power-on; 650 via `clocks fast`; 675-800 bins implemented (MRS), untested | 800 = controller rating and field limit; above 650 needs MR0/MR2 (CL 11 / CWL 8) |
 | DDR3 timings | A3T4GF40BBF-HP: 13-13-13 at 933 MHz; tRCD/tRP 13.91 ns | — | stock: DRAM CL 9 CWL 7 tRCD/tRP 15 ns, tREFI 3.84 us | stock bin; tREFI at 2x rate costs ~3 % bandwidth (SPEC) |
-| SPI SCK | 133 MHz FAST_READ (W25Q256JV) | not measured | 25.5 MHz | #35 |
+| SPI SCK | 133 MHz FAST_READ (W25Q256JV) | U-Boot bit-exact to 122.5 MHz (153.1 corrupts); Linux to 102.1 MHz | 25.5 MHz under Linux; 122.5 MHz in U-Boot without Linux | Linux JFFS2 CRC errors at 102.1 MHz (#50) |
 | UART | LX / 16 = 10.94 MBd | host adapter (#32) | 115200 or `--fast` | host side |
 
 - DRAM part (owner, board photo 2026-10-11): **Zentel A3T4GF40BBF-HP**, 4 Gbit 256M x16, 96-ball FBGA, DDR3-1866 13-13-13, 1.35 V with 1.5 V backward compatibility (#48). OpenWrt commit `39b9b491bb` lists Samsung K4B4G1646E-BYMA: not this board. Matches DCR/DTR2 (4 Gbit x16). Board VDD (1.35 / 1.5 V) not measured.

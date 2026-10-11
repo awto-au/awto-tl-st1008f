@@ -22,6 +22,7 @@
 #define EXP_CFG		3
 #define SFP_A0		0x50
 #define SFP_A2		0x51
+#define SFP_PHY		0x56	/* copper module PHY (SFF-8472 has no address; Linux sfp.c) */
 #define GPIO_RESET	21
 
 struct udevice *rtk_chip(int bus, int addr)
@@ -451,10 +452,32 @@ static int sfp_raw(int cage)
 	return 0;
 }
 
+/* Copper module PHY (88E1111 at 0x56): 16-bit regs as two 1-byte reads of the same reg, MSB
+ * then LSB (Linux mdio-i2c SMBus path). A 2-byte block read gets the LSB as 0xff (#33). */
+static int sfp_phy(int cage, int only)
+{
+	static const u8 regs[] = { 0x00, 0x01, 0x02, 0x03, 0x11 };	/* BMCR BMSR ID1 ID2 PSSR */
+	struct udevice *dev = rtk_chip(cage - 1, SFP_PHY);
+	int i, r, n = only >= 0 ? 1 : ARRAY_SIZE(regs);
+	u8 hi, lo;
+
+	for (i = 0; i < n; i++) {
+		r = only >= 0 ? only : regs[i];
+		if (!dev || dm_i2c_read(dev, r, &hi, 1) || dm_i2c_read(dev, r, &lo, 1)) {
+			printf("cage %d: phy 0x%02x reg 0x%02x: no answer\n", cage, SFP_PHY, r);
+			return CMD_RET_FAILURE;
+		}
+		printf("cage %d: phy 0x%02x reg 0x%02x = 0x%04x\n", cage, SFP_PHY, r, hi << 8 | lo);
+	}
+	return 0;
+}
+
 static int do_rtk_sfp(int argc, char *const argv[])
 {
 	int c;
 
+	if (argc >= 3 && !strcmp(argv[2], "phy"))
+		return sfp_phy(dectoul(argv[1], NULL), argc >= 4 ? (int)hextoul(argv[3], NULL) : -1);
 	if (argc >= 3 && !strcmp(argv[2], "raw"))
 		return sfp_raw(dectoul(argv[1], NULL));
 	if (argc >= 2)
@@ -607,8 +630,9 @@ U_BOOT_CMD(rtk, 16, 0, do_rtk, "rtk     - Realtek commands\n",
 	   "--- TL-ST1008F additions (not in stock help) ---\n"
 	   "rtk laser [status | <cage> | none | all force]\n"
 	   "        - SFP TX enable via the TCA9534A; one cage at a time unless forced\n"
-	   "rtk sfp [cage [raw | brief]]\n"
-	   "        - module EEPROM + DDM: presence, checksums, ethtool-style decode\n"
+	   "rtk sfp [cage [raw | brief | phy [reg]]]\n"
+	   "        - module EEPROM + DDM: presence, checksums, ethtool-style decode;\n"
+	   "          phy: copper module PHY (0x56) regs 0-3, 0x11\n"
 	   "rtk port [status]\n"
 	   "        - per cage: module PN, laser, SerDes mode, RX light, MAC link, LED owner\n"
 	   "rtk mode\n"
