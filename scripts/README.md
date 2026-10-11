@@ -155,6 +155,10 @@ End-to-end workflow: [../README.md#workflow](../README.md#workflow).
 - Purpose: find the RTL9300 NIC ring-size tables (tx[2] + rx[32] uint32) in vendor ELF data sections.
 - Run: `scripts/vendor_nic_values.py <elf> ...`. Log: `tmp/logs/vendor_nic_values.log`.
 
+### sdk_regdump.py
+- Purpose: RTL9300 (longan) register offsets and field layouts from the GPL SDK tables (`rtk_longan_reg_list.c`, `rtk_longan_regField_list.c`). Also decodes a read value into fields. Feeds `docs/DATASHEET-AUDIT.md`.
+- Run: `scripts/sdk_regdump.py '<name regex>' [--decode NAME=0xVALUE] [--fetch]`. The first run fetches the tables with `gh api` into `tmp/datasheet-audit/sdk/longan/`. Log: `tmp/logs/sdk_regdump.log`.
+
 ### ghidra/DumpBytes.java
 - Purpose: print the memory-block map and raw bytes at given addresses of a loaded program (reads initialised `.data`/`.rodata` tables the decompiler shows only as `DAT_`).
 - Run: `analyzeHeadless private/ghidra <proj> -process <bin> -noanalysis -readOnly -postScript DumpBytes.java <out.txt> <addr>:<nbytes> ...`
