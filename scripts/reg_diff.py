@@ -38,7 +38,7 @@ RANGES = [
 SERDES_RANGES = [
     (0xBB000194, 2, "SDS_MODE_SEL_0/3 0x194/0x198"),
     (0xBB0002A0, 2, "SDS_MODE_SEL_1/2 0x2a0/0x2a4"),
-    (0xBB00CA10, 1, "SMI private polling 0xca10"),
+    (0xBB00CA00, 5, "SMI GLB / MAC_TYPE 0xca04 / poll sel / private polling 0xca10"),
     (0xBB00CA1C, 29, "MAC_FORCE_MODE_CTRL ports 0-28"),
     (0xBB00CA90, 1, "SMI_POLL_CTRL 0xca90"),
     (0xBB00CB10, 4, "MAC link / speed status 0xcb10-0xcb1c"),

@@ -55,6 +55,7 @@ static void port_line(int cage, const u8 *exp)
 	u16 sig;
 	char pn[17] = "";
 	int i, itf;
+	u32 lnk;
 
 	printf("cage %d (port %d, sds %d): ", cage, port, sds);
 	if (!pres) {
@@ -78,8 +79,10 @@ static void port_line(int cage, const u8 *exp)
 	if (mode == 0x1a ? !rtk_sds_read(sds, 5, 0, &sig) && !rtk_sds_read(sds, 5, 0, &sig) :
 	    !rtk_sds_read(sds == 3 ? 10 : sds, 2, 1, &sig) && !rtk_sds_read(sds == 3 ? 10 : sds, 2, 1, &sig))
 		printf(", pcs %s", sig & (mode == 0x1a ? 0x1000 : 0x4) ? "up" : "down");
-	printf(", mac %s", sw_r(MAC_LINK_STS) & BIT(port) ? "up" : "down");
-	if (sw_r(MAC_LINK_STS) & BIT(port))
+	sw_r(MAC_LINK_STS);	/* latched low (OpenWrt reads twice): second read = now */
+	lnk = sw_r(MAC_LINK_STS) & BIT(port);
+	printf(", mac %s", lnk ? "up" : "down");
+	if (lnk)
 		printf(" %s", spd_name[(sw_r(MAC_LINK_SPD(port)) >> ((port & 7) * 4)) & 0xf]);
 	printf(", media %s", rtk_media_name(port));
 	itf = pres ? rtk_sfp_iface(cage, &why) : -1;

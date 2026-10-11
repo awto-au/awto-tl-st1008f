@@ -28,6 +28,12 @@ enum { MEDIA_NONE, MEDIA_10G, MEDIA_1G, MEDIA_2_5G, MEDIA_100M, MEDIA_DAC50, MED
 #define ISO_CTRL	0xb340			/* table access: [17] exec, [16] write, [14:12] type */
 #define ISO_DATA	0xb344			/* PORT_ISO_CTRL entry: [31:3] = ports 0-28 */
 #define ISO_TYPE	6
+/* rtl9300_init _rtl9300_smiMacType_init: XGE + SerDes media -> type 0 (link from SerDes, not SMI PHY).
+ * Fields P3_P0 [1:0], P11_P8 [5:4], P19_P16 [9:8], P23_P20 [11:10], P24-P27 3 bits each [23:12] */
+#define SMI_MAC_TYPE	0xca04
+#define SMI_MAC_TYPE_M	0x00ffff33
+/* CPU port force = stock value after its NIC probe (reg-diff, #51): link up, 1G; other bits SPEC */
+#define CPU_FORCE	0x217
 /* table op is a few switch-core cycles; 100 x 10 us = 1 ms names a dead engine (OpenWrt waits 10 ms) */
 #define ISO_POLL_N	100
 #define CLK_TRIES	20	/* stock CMU toggle retries (sds_mode_10gr_set); 3 x ready in a row ends it */
@@ -439,8 +445,13 @@ static void construct(void)
 	unsigned int s, i, n;
 	const struct sds_cfg *t;
 
-	for (i = 0; i < ARRAY_SIZE(rtcore); i++)	/* stock banner; RTCORE/L2 defaults not run */
+	for (i = 0; i < ARRAY_SIZE(rtcore); i++) {	/* stock banner; RTCORE/L2 defaults not run */
 		printf("%s\n", rtcore[i]);
+		if (!strcmp(rtcore[i], "  NIC probe (unit 0)"))
+			sw_w(MAC_FORCE(CPU_PORT), CPU_FORCE);
+		if (!strcmp(rtcore[i], "  MAC init (unit 0)"))
+			sw_rmw(SMI_MAC_TYPE, SMI_MAC_TYPE_M, 0);
+	}
 	printf("    Disable PHY Polling\n");
 	sw_rmw(SMI_POLL_CTRL, 0x0fffffff, 0);
 	mdelay(3);
