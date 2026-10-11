@@ -285,6 +285,17 @@ static bool sfp_space_padded(u8 *id)
 	return true;
 }
 
+int rtk_sfp_read_id(int cage, u8 *id)
+{
+	struct udevice *a0 = rtk_chip(cage - 1, SFP_A0);
+	int mode;
+
+	if (!a0 || sfp_read(a0, 0, id, 96, &mode))
+		return -1;
+	sfp_space_padded(id);
+	return 0;
+}
+
 static u8 sfp_csum(const u8 *p, int n)
 {
 	u8 s = 0;
@@ -506,6 +517,16 @@ static int do_rtk_sfp(int argc, char *const argv[])
 		return sfp_phy(dectoul(argv[1], NULL), argc >= 4 ? (int)hextoul(argv[3], NULL) : -1);
 	if (argc >= 3 && !strcmp(argv[2], "raw"))
 		return sfp_raw(dectoul(argv[1], NULL));
+	if (argc >= 3 && !strcmp(argv[2], "mode")) {
+		const char *why;
+		int itf = rtk_sfp_iface(dectoul(argv[1], NULL), &why);
+
+		if (itf < 0)
+			printf("cage %s: no module EEPROM\n", argv[1]);
+		else
+			printf("cage %s: linux interface %s (%s)\n", argv[1], rtk_if_name[itf], why);
+		return 0;
+	}
 	if (argc >= 2)
 		return sfp_one(dectoul(argv[1], NULL), !(argc >= 3 && !strcmp(argv[2], "brief")));
 	for (c = 1; c <= NCAGES; c++)	/* all cages: summary only (the full decode is ~5 KB per cage) */
@@ -531,7 +552,7 @@ static int do_rtk(struct cmd_tbl *cmdtp, int flag, int argc, char *const argv[])
 		return rtk_not_yet(argv[1]);
 	if (is(argv, 1, "network"))
 		return argc > 2 && (is(argv, 2, "on") || is(argv, 2, "off")) ?
-		       rtk_not_yet("network") : rtk_usage();
+		       rtk_network(argc, argv) : rtk_usage();
 	if (is(argv, 1, "unit"))
 		return argc > 2 && (is(argv, 2, "get") || is(argv, 2, "set")) ?
 		       rtk_unit(argc, argv) : rtk_usage();
@@ -546,7 +567,7 @@ static int do_rtk(struct cmd_tbl *cmdtp, int flag, int argc, char *const argv[])
 		return rtk_comboport(argc, argv);
 	if (is(argv, 1, "port-isolation"))
 		return argc > 2 && (is(argv, 2, "on") || is(argv, 2, "off")) ?
-		       rtk_not_yet("port-isolation") : rtk_usage();
+		       rtk_port_isolation(argc, argv) : rtk_usage();
 	if (is(argv, 1, "pinGet"))
 		return do_rtk_pin(false, argc, argv);
 	if (is(argv, 1, "pinSet"))
@@ -580,7 +601,7 @@ static int do_rtk(struct cmd_tbl *cmdtp, int flag, int argc, char *const argv[])
 		if (argc > 3)
 			for (i = 0; i < ARRAY_SIZE(media); i++)
 				if (is(argv, 3, media[i]))
-					return rtk_not_yet("10g");
+					return rtk_10g(argc, argv);
 		return rtk_usage();
 	}
 	if (is(argv, 1, "send"))
@@ -594,6 +615,8 @@ static int do_rtk(struct cmd_tbl *cmdtp, int flag, int argc, char *const argv[])
 		return rtk_mode(argc, argv);
 	if (is(argv, 1, "temp"))
 		return rtk_temp(argc, argv);
+	if (is(argv, 1, "sdsdump"))
+		return rtk_sdsdump(argc, argv);
 	if (is(argv, 1, "help-ours"))
 		return rtk_ours_help();
 	return rtk_usage();
@@ -656,11 +679,14 @@ U_BOOT_CMD(rtk, 16, 0, do_rtk, "rtk     - Realtek commands\n",
 	   "--- TL-ST1008F additions (not in stock help) ---\n"
 	   "rtk laser [status | <cage> | none | all force]\n"
 	   "        - SFP TX enable via the TCA9534A; one cage at a time unless forced\n"
-	   "rtk sfp [cage [raw | brief | phy [reg]]]\n"
+	   "rtk sfp [cage [raw | brief | phy [reg] | mode]]\n"
 	   "        - module EEPROM + DDM: presence, checksums, ethtool-style decode;\n"
-	   "          phy: copper module PHY (0x56) regs 0-3, 0x11\n"
+	   "          phy: copper module PHY (0x56) regs 0-3, 0x11;\n"
+	   "          mode = SerDes interface Linux would pick (network on uses it; rtk_media=stock: 10G)\n"
 	   "rtk port [status]\n"
-	   "        - per cage: module PN, laser, SerDes mode, RX light, MAC link, LED owner\n"
+	   "        - per cage: module PN, laser, SerDes mode, PCS link, MAC link + speed, media, LED\n"
+	   "rtk sdsdump [sds | all]\n"
+	   "        - SerDes 2-9 pages 0-7, 0x1f-0x2f (for reg_diff.py)\n"
 	   "rtk mode\n"
 	   "        - M1/M2/M3 front switch position (GPIO 17-19)\n"
 	   "rtk temp\n"
@@ -668,6 +694,6 @@ U_BOOT_CMD(rtk, 16, 0, do_rtk, "rtk     - Realtek commands\n",
 	   "rtk help-ours\n"
 	   "        - one-line list of the above\n"
 	   "hidden stock verbs (work here, absent from stock help): port enable|disable <port>,\n"
-	   "  comboport copper|fiber, phyreg dump-top|setbymask; init, rtcore-init,\n"
-	   "  port-isolation, send = not yet (need the Ethernet stage)\n"
+	   "  comboport copper|fiber, phyreg dump-top|setbymask, port-isolation on|off;\n"
+	   "  init, rtcore-init, send = not yet (need the Ethernet stage)\n"
 	   "see also: highmem (RAM above 256 MiB), sf (read-only flash)\n");

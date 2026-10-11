@@ -1,6 +1,7 @@
 // SPDX-License-Identifier: GPL-2.0+
 /* TP-Link TL-ST1008F v2: board hooks. */
 
+#include <command.h>
 #include <env.h>
 #include <init.h>
 #include <asm/io.h>
@@ -66,6 +67,9 @@ int board_late_init(void)
 		       pins & 1, (pins >> 1) & 1, (pins >> 2) & 1);
 	env_set("boot_mode", m);
 	env_set("bootcmd_m1", BOOTCMD_M1);
+	/* #25 boot table, opt-in (adds ~9 s): `setenv rtk_boot_net 1` (RAM env unless saved) */
+	if (env_get_yesno("rtk_boot_net") == 1)
+		run_command("rtk network on; rtk port", 0);
 	if (!chained)
 		return 0;
 	if (mode >= 2) {	/* M2 DHCP/netconsole, M3 TFTP recovery: both need Ethernet */

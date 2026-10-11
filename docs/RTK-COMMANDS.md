@@ -15,7 +15,8 @@ Goal: every stock `rtk` subcommand (visible and hidden) in our mainline U-Boot, 
 |---|---|---|
 | done (existed, now aligned to stock text) | 6 | `i2c init sw`, `i2c init hw`, `i2c read`, `i2c write`, `pinGet`, `pinSet` |
 | implemented now | 22 | `unit get/set`, `port enable/disable`, `show hw_profile_list`, `comboport copper/fiber`, `ext-devInit/pinGet/pinSet`, `ledtest` (2 forms), `phyreg get/set/setbymask/dump-top`, `phymmd get/set`, `sdsreg get/set`, `boardid` get, `boardmodel` get |
-| needs ethernet + SerDes stage | 9 | `init`, `rtcore-init`, `network on/off`, `port-isolation on/off`, `macsds set`, `10g`, `send` |
+| stage 4 (SerDes/MAC), untested on hardware | 6 | `network on/off`, `port-isolation on/off`, `macsds set`, `10g` ([below](#stage-4-network-on-10g-macsds-port-isolation)) |
+| needs the Ethernet stage | 3 | `init`, `rtcore-init`, `send` |
 | refused | 3 | `boardid <id>`, `boardmodel <str>` (flash writers), `phytestmode` (needs a PHY; none fitted) |
 
 - In `help rtk` but not dispatched (stock prints Usage): `testmode`, `10g ... fiber100m`. Not in stock at all: `eee`. Ours matches (Usage).
@@ -31,13 +32,13 @@ Unit = `rtk unit set` value (default 0); a unit >= 6 prints `\nUnit %u invalid u
 |---|---|---|---|---|---|
 | `init` | SDK init, per-port MAC cfg [SRC] uboot_cmd.c:173 | SDK banner | no | needs-eth: prints `not yet`, rc 1 | none (hangs/changes state) |
 | `rtcore-init` | RTCORE module init :180 | `RTCORE Driver Module Initialize`... | no | needs-eth | none |
-| `network on` / `off` | PHY enable/disable per port, SDK init once :187/:197 | `Enable network` / `Disable network` + banner | no | needs-eth | none (once per boot) |
+| `network on` / `off` | PHY enable/disable per port, SDK init once :187/:197 | `Enable network` / `Disable network` + banner | no | done (stage 4) | harness phase between pre/post |
 | `unit get` | print unit [SRC] :209 | `unit: %u` | no | done | `rtk unit get` |
 | `unit set <n>` | set unit; n>5 prints `Invalid unit: %u` but still sets [BIN] | `Change to unit: %u` | no | done | `rtk unit get; rtk unit set 0; rtk unit get` |
 | `port enable\|disable <p>` | SDK admin state [SRC] :369 ff.; hidden | `Enable port (%d,%d)` / `Disable port (%d,%d)` | no | done: RMW `MAC_L2_PORT_CTRL(p)` bits 1:0 (`0x3268 + p*0x40`, [OWRT] dsa.c:339,407). SPEC: stock may touch more | state: `port disable 8; md.l 0xbb003468 1; port enable 8; md.l ...` (compares register) |
 | `show hw_profile_list` | list profile table [BIN] `0x83f9348c` | `      Available profiles are:` + 25 rows `        NAME (ID)` + `      (uboot: setenv boardmodel 'YOUR_HARDWARE_PROFILE_NAME')` | no | done (table copied from the binary data) | `rtk show hw_profile_list` |
 | `comboport copper\|fiber` | combo media; no combo ports on 8XGE [SRC] :270 | `ComboPort: Copper mode` / `ComboPort: Fiber mode` | no | done (message only) | 3 forms |
-| `port-isolation on\|off` | rewrites per-port forwarding masks via ASIC table [SRC] :353 | `isolation: %2u <--> %2u` rows | no | needs-eth (ASIC table access) | none |
+| `port-isolation on\|off` | rewrites per-port forwarding masks via ASIC table [SRC] :353 | `\nUnit 0` + `isolation: %2u <--> %2u` rows | no | done: PORT_ISO_CTRL table; SA-learning change not done | `--state` |
 | `pinGet <n>` | SoC GPIO input read [SRC] :392 | `pin%d:\t%d\n\n` | no | done: driver read, no claim; pins 0-23 (stock usage says 0~7) | `rtk pinGet 7`, `pinGet 0`, bad args |
 | `pinSet <n> <0\|1>` | SoC GPIO output [SRC] :414 | `pin%d:\t%d\n\n` | no | done; GPIO21 low refused without `force` | usage/invalid forms only (hardware pins) |
 | `ext-devInit <addr>` | RTL8231 MDC init; the SDK rejects ext dev 1 (`0xf012`) [BIN] `0x83f1fcd0` | `The generalCtrl GPIO device init failed.` | no | done | `rtk ext-devInit`, `... 1` |
@@ -54,13 +55,13 @@ Unit = `rtk unit set` value (default 0); a unit >= 6 prints `\nUnit %u invalid u
 | `phymmd get\|set <ignored> <port> <mmd> <reg> [d]` | clause-45 access | `Get Unit %u Port %02d mmd-address %02d mmd-reg %02d  val: ...` ; set seen [LIVE] `Set Unit 0 Port 00 mmd-address 04 mmd-reg 50241 val: 0x0008 ` | no | no PHY: stock text + note; `set` needs 8 args (data = argv[7]) | `rtk phymmd get 0 0 4 0xc441` |
 | `sdsreg get <ignored> <sds> <page> <reg>` | SerDes read [SRC] :691 | `Get unit %u sds %02d page %02d reg %02d  val: 0x%04X ` [LIVE]; error `    Failed!! 0x%x ` | no | done: indirect access (below) | 4 reads + usage forms |
 | `sdsreg set <ignored> <sds> <page> <reg> <d>` | SerDes write | `Set unit %u sds %02d page %02d reg %02d val: 0x%04X ` [LIVE] | no | done | state: rewrite of the value just read |
-| `macsds set <sds> <mode>` | re-construct SerDes in `<mode>` [SRC] :731; 34 names | `sds=%u mode=%s`, `unit %u sds %u mode %u`; bad mode: `sdsmode error` + 44-row list (10 blank) | no | needs-eth: validation, mode list and first line done; the set itself prints `not yet` | `macsds set 2`, `... bogus` |
+| `macsds set <sds> <mode>` | re-construct SerDes in `<mode>` [SRC] :731; 34 names | `sds=%u mode=%s`, `unit %u sds %u mode %u`; bad mode: `sdsmode error` + 44-row list (10 blank) | no | done: SDK `_dal_longan_sds_10gSdsMode_force`; before `network on` prints `Chip not supported` (SPEC) | `macsds set 2`, `... bogus`; `--state`: `2 10gr`, `2 qsgmii` |
 | `phytestmode <m> <p> <ch>` | PHY test mode | `Usage: testmode ...` when no args | no | refused (no PHY) | `rtk phytestmode` (usage) |
 | `boardid` | print env `boardid`; returns 1 | `Board Model ID: %s` (`<NULL>` unset) | no | done | `rtk boardid` |
 | `boardid <id>` | `setenv` + env sector erase/write [BIN] `0x83f19894` | none | **yes** | **REFUSED** | denylist |
 | `boardmodel` | print env `boardmodel`; returns 1 | `Board Model: RTL9303_8XGE` | no | done: default env `boardmodel=RTL9303_8XGE` in the board header | `rtk boardmodel` |
 | `boardmodel <str>` | `setenv` + env sector write [BIN] `0x83f1991c` | none | **yes** | **REFUSED** | denylist |
-| `10g <port> <media>` | per-port media (none, fiber10g, fiber1g, dac50cm, dac100cm, dac300cm) | `FAIL (0xf002)` before SDK init | no | needs-eth (media = SerDes mode); bad media prints Usage | `rtk 10g 0 bogus` |
+| `10g <port> <media>` | per-port media (none, fiber10g, fiber1g, dac50cm, dac100cm, dac300cm) | `FAIL (0xf002)` before SDK init | no | done: `phy_9300_10gMedia_set`; `FAIL (0xf002)` before `network on` [LIVE] | `rtk 10g 0 bogus`; `--state`: ports 8 (pre), 0, 1, 28 |
 | `send` | transmit a fixed 74-byte frame; hidden | none | no | needs-eth; also puts a frame on the wire (storm risk) | denylist |
 
 ## Registers (all base `0xBB000000` unless noted)
@@ -97,12 +98,30 @@ Unit = `rtk unit set` value (default 0); a unit >= 6 prints `\nUnit %u invalid u
 - `./dev.py rtk-parity capture --side stock [--state] [--slow]` at the stock `RTL9300#` prompt; runs the `pre` phase, `rtk network on`, then the `post` phase.
 - `./dev.py rtk-parity capture --side ours` at `st1008f-mainline #`; `./dev.py rtk-parity compare`; `both` chains stock capture -> `st1008_ramload.py uboot-mainline --no-cycle --no-network` -> ours capture -> compare.
 - Verdicts: PASS, DIFF (stock/ours text printed in the log), ONLY-OURS, NO-STOCK/NO-OURS. Per-command `mask` regexes hide volatile values.
-- Never sent: `saveenv savesys setsys upgrade flerase erase protect boota bootm bootp tftpboot reset go`, `sf write|erase|update`, `rtk boardid|boardmodel <arg>`, `rtk init|rtcore-init|network|port-isolation|send`, a real `macsds set`, any `*force`.
-- `--state` adds `sdsreg set` (rewrites the value just read) and `port disable/enable 8`; `--slow` adds the `ledtest` forms.
+- Never sent: `saveenv savesys setsys upgrade flerase erase protect boota bootm bootp tftpboot reset go`, `sf write|erase|update`, `rtk boardid|boardmodel <arg>`, `rtk init|rtcore-init|send`, any `*force`.
+- Both sides: `pre` phase, `rtk network on` (output compared; ours with `rtk_media=stock`) + cage-1 laser mask, `post` phase.
+- `--state` adds `sdsreg set` (rewrites the value just read), `port disable/enable 8` and the stage-4 verbs (`10g`, `macsds set`, `port-isolation`, `network off` last); `--slow` adds the `ledtest` forms.
 - Log `tmp/logs/rtk_parity.log`; captures `tmp/logs/rtk_parity-{stock,ours}.json`.
 
 ## Open
 
 - Admin-state register for `port enable|disable` is from Linux behaviour, not from the SDK sources (stock path is a driver-table call).
 - LED layout (copper vs fibre fields) for the 8XGE profile.
-- Stage 4 (ethernet + SerDes bring-up) unlocks: `init`, `rtcore-init`, `network`, `port-isolation`, `macsds set`, `10g`, `send`.
+- Ethernet stage unlocks: `init`, `rtcore-init`, `send`.
+
+## Stage 4: network on, 10g, macsds, port-isolation
+
+Code `rtk_net.c` (media choice `rtk_sfpmode.c`). Sources: stock loader [BIN] (`tmp/re/board-bringup.md` §9, `private/ghidra/stock-loader-named.c`) for the order and the construct writes; SDK [SRC] for the rest.
+
+- `network on` = stock `inferred_network_on` 0x83f199c4:
+  - once per boot, "Chip Construct" steps (stock table 0x83fa3718) with stock step names: SMI poll mask `0xca90[27:0]` = 0; polarity normal (page 6 reg 2 bits 13/14, page 0 reg 0 bits 8/9); MAC `SDS_MODE_SEL` = `0x1f` all 12; construct lists (`rtk_sds_tables.h`, list `a`, even 120 / odd 106 rows, sds 3 pages 0-3 -> physical 10); WDIG reg 0xb bit 1; `sds_mode_10gr_set` 0x83f90f74 per SerDes 2-9 (LC 10.3125G, ring 1.25G, CMU toggle until 3 ready reads, 10GR FSM/block-lock check); private poll mask 0; poll mask `0x0f110101`; page 0 reg 4 bit 2 (`fiberNwayForceLink`).
+  - per cage: `phy_9300_enable_set` (page 2/4 BMCR power-up) -> media set with the current media, then the cage media (stock: `fiber10g` always).
+  - CPU port: `Err:0xf030:FAIL (0xf030)` (stock text, no PHY driver), then 2 s settle.
+- Not run (switching plane, not link): chip defaults (rate, QoS, flow control, ACL, VLAN, L2/L3 init), SA learning. Registers will differ from stock there.
+- Ours only: every front port's PORT_ISO_CTRL entry = CPU port only (cage loop #19); `rtk port-isolation off` restores all-to-all.
+- Media per cage = Linux `sfp_select_interface` + support quirks + phylink preference (10GBASE-R, 2500BASE-X, SGMII, 1000BASE-X, 100BASE-X); `rtk sfp <cage> mode` prints it. 1000BASE-T modules -> SGMII (Linux after PHY probe; the module PHY is not configured here). `setenv rtk_media stock` = stock `fiber10g` on all cages (parity runs use it).
+- Media set = `phy_9300_10gMedia_set`: BMCR speed bits; SDK `dal_longan_sds_mode_set` (MAC force link down 20 ms, mode off, rx-cal defaults `_1d1`, mode on with the PLL rules of `_dal_longan_sds_pll_cfg`); `CFG_LINKDW_SEL`; 50 ms; MAC force off. Full RX calibration is not run (stock runs it only for DAC media in the link handler).
+- `rtk 10g <port> <media>`: same path; `FAIL (0x%x)` on error (`0xf003` no port, `0xf030` CPU port, `0xf00d` PLL conflict: 1G beside a 2.5G partner).
+- `rtk sdsdump [sds|all]`: SerDes pages 0-7, 0x1f-0x2f; `./dev.py reg-diff capture <label> --serdes` stores it with the MAC/SMI ranges.
+- Boot table (#25): `setenv rtk_boot_net 1` runs `rtk network on; rtk port` in `board_late_init` (default off: chain autoboot unchanged).
+- Checks: `./dev.py uboot-test network` (cage 1 PCS + MAC up, others configured, no link); `./dev.py rtk-parity both --state`.

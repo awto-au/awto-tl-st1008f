@@ -15,6 +15,7 @@
 #define EXP_BUS		8
 #define EXP_ADDR	0x38
 #define MAC_LINK_STS	0xcb10		/* bit per SDK port */
+#define MAC_LINK_SPD(p)	(0xcb18 + (((p) >> 3) << 2))	/* 4 bits per port (OpenWrt pcs-rtl-otto) */
 #define LED_SW_EN(p)	(0xcc4c + (((p) >> 3) << 2))
 
 #define TM_CTRL1	0x64	/* 31:16 SAMPLE_DLY */
@@ -47,10 +48,13 @@ static void port_line(int cage, const u8 *exp)
 {
 	int port = rtk_cage_port[cage - 1], sds = rtk_cage_sds(cage), mode;
 	bool pres = !(__raw_readl((void __iomem *)GPIO_DAT) & BIT(cage - 1));
+	static const char *const spd_name[16] = { "10M", "100M", "1G", "10G", "10G", "2.5G", "5G",
+						  [7 ... 15] = "?" };
 	struct udevice *dev;
+	const char *why;
 	u16 sig;
 	char pn[17] = "";
-	int i;
+	int i, itf;
 
 	printf("cage %d (port %d, sds %d): ", cage, port, sds);
 	if (!pres) {
@@ -70,9 +74,17 @@ static void port_line(int cage, const u8 *exp)
 		       "ON" : "off");
 	mode = rtk_sds_mode(sds);
 	printf(", sds %s (0x%02x)", sds_mode_name(mode), mode);
-	if (!rtk_sds_read(sds, 5, 0, &sig))	/* page 5 reg 0 bit 12 = RX signal detect (hardware.md) */
-		printf(", rx %s", sig & 0x1000 ? "light" : "dark");
+	/* PCS link, latched low: 10GR page 5 reg 0 bit 12; else 1G block BMSR (page 2, sds 3 -> 10) */
+	if (mode == 0x1a ? !rtk_sds_read(sds, 5, 0, &sig) && !rtk_sds_read(sds, 5, 0, &sig) :
+	    !rtk_sds_read(sds == 3 ? 10 : sds, 2, 1, &sig) && !rtk_sds_read(sds == 3 ? 10 : sds, 2, 1, &sig))
+		printf(", pcs %s", sig & (mode == 0x1a ? 0x1000 : 0x4) ? "up" : "down");
 	printf(", mac %s", sw_r(MAC_LINK_STS) & BIT(port) ? "up" : "down");
+	if (sw_r(MAC_LINK_STS) & BIT(port))
+		printf(" %s", spd_name[(sw_r(MAC_LINK_SPD(port)) >> ((port & 7) * 4)) & 0xf]);
+	printf(", media %s", rtk_media_name(port));
+	itf = pres ? rtk_sfp_iface(cage, &why) : -1;
+	if (itf >= 0)
+		printf(", sfp->%s", rtk_if_name[itf]);
 	printf(", led %s\n", (sw_r(LED_SW_EN(port)) >> ((port & 7) * 4)) & 0xf ? "sw" : "hw");
 }
 
@@ -136,9 +148,10 @@ int rtk_ours_help(void)
 {
 	printf("rtk commands not on the stock loader:\n"
 	       "  rtk laser [status|<cage>|none|all force]   TX enable (one cage by default)\n"
-	       "  rtk sfp [cage [raw|brief]]                 module EEPROM/DDM decode\n"
+	       "  rtk sfp [cage [raw|brief|mode]]            module EEPROM/DDM decode, Linux interface\n"
 	       "  rtk sfp <cage> phy [reg]                   copper module PHY (0x56) registers\n"
 	       "  rtk port [status]                          per cage: module, laser, SerDes, link, LED\n"
+	       "  rtk sdsdump [sds|all]                      SerDes register dump (reg_diff.py)\n"
 	       "  rtk mode                                   M1/M2/M3 switch position\n"
 	       "  rtk temp                                   on-die temperature (enables the meter)\n");
 	return 0;

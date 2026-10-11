@@ -308,8 +308,7 @@ int rtk_macsds(int argc, char *const argv[])
 		return rtk_usage();
 	}
 	printf("sds=%u mode=%s\n", (u32)num(argv, 3), argv[4]);
-	rtk_not_yet("macsds set");
-	return 1;
+	return rtk_macsds_apply(num(argv, 3), i);
 }
 
 int rtk_board(int argc, char *const argv[])

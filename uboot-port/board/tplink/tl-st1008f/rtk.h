@@ -66,6 +66,25 @@ int rtk_board(int argc, char *const argv[]);
 int rtk_ledtest(int argc, char *const argv[]);
 int rtk_not_yet(const char *what);
 
+void rtk_mac_mode_set(unsigned int sds, u32 val);	/* SDS_MODE_SEL field */
+
+/* rtk_net.c: stock stage-4 verbs (network, 10g, macsds, port-isolation) */
+int rtk_network(int argc, char *const argv[]);
+int rtk_10g(int argc, char *const argv[]);
+int rtk_macsds_apply(unsigned int sds, unsigned int mode);
+int rtk_port_isolation(int argc, char *const argv[]);
+int rtk_sdsdump(int argc, char *const argv[]);
+bool rtk_net_is_on(void);
+const char *rtk_media_name(int port);
+
+/* rtk_sfpmode.c: SerDes interface Linux would pick for the module (sfp-bus.c, sfp.c quirks) */
+enum rtk_if { RTK_IF_NA, RTK_IF_100BX, RTK_IF_1000BX, RTK_IF_SGMII, RTK_IF_2500BX, RTK_IF_10GR };
+extern const char *const rtk_if_name[];
+int rtk_sfp_iface(int cage, const char **why);	/* enum rtk_if, -1 = no module / unreadable */
+
+/* cmd_rtk.c: A0 bytes 0-95 with the read fallbacks and the Cisco space-padding fix-up */
+int rtk_sfp_read_id(int cage, u8 *id);
+
 /* rtk_ours.c: commands that do not exist on the stock loader */
 int rtk_port_status(int argc, char *const argv[]);
 int rtk_mode(int argc, char *const argv[]);

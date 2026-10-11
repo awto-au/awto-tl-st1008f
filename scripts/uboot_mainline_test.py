@@ -382,6 +382,37 @@ def cr_idle(con: Console) -> bool:
     return ok
 
 
+NET_CAP_S = 12  # stock `rtk network on` measured ~9 s (#28); same sequence here; x1.25 -> 12 s
+LINK_TRIES = 4  # `rtk port` re-reads after laser on (10GR block lock is ms; far end may take ~1 s)
+
+
+def network(con: Console) -> bool:
+    """Stage 4 (#51 #25): `rtk network on` with no stock help, cage 1 laser only. Pass: cage 1 PCS + MAC up,
+    every other cage configured (sds not off) with no link. Not in the default list: changes state."""
+    try:
+        _, out = con.run("rtk network on", r"Err:0xf030:FAIL \(0xf030\)" + PROMPT, NET_CAP_S, "rtk network on")
+        con.run("rtk laser 1", r"OK \(out 0xfe\)" + PROMPT, 1, "laser cage 1 only")
+        for i in range(LINK_TRIES):
+            _, st = con.run("rtk port", PROMPT, 3, "rtk port")
+            rows = dict(re.findall(r"cage (\d) \(port \d+, sds \d\): ([^\n]*)", st))
+            if "pcs up" in rows.get("1", "") and "mac up" in rows.get("1", ""):
+                break
+            time.sleep(0.5)
+    except SystemExit as e:
+        log(f"FAIL network: {e}")
+        return False
+    ok = len(rows) == 8 and "pcs up" in rows["1"] and "mac up" in rows["1"]
+    for cage, row in sorted(rows.items()):
+        mode = re.search(r"sds (\S+) \(0x", row)
+        good = mode is not None and mode.group(1) != "off"
+        if cage != "1":
+            good &= "pcs up" not in row and "mac up" not in row
+        ok &= good
+        log(f"  {'ok ' if good else 'BAD'} cage {cage}: {row}")
+    log(f"{'PASS' if ok else 'FAIL'} network: {len(rows)} cages after network on + laser 1")
+    return ok
+
+
 def main() -> int:
     ap = argparse.ArgumentParser(description=__doc__.splitlines()[0])
     ap.add_argument("checks", nargs="*", default=[*CHECKS, "gpio", "sfp_a0", "sfp_all", "ddm", "laser", "sf_read",
@@ -392,7 +423,7 @@ def main() -> int:
     con.run("echo PROMPT_OK", r"\r?\nPROMPT_OK" + PROMPT, 1, "mainline prompt present")
     special = {"timer": timer, "gpio": gpio, "sfp_a0": sfp_a0, "sfp_all": sfp_all, "ddm": ddm_sane, "laser": laser,
                "sf_read": sf_read, "reset": reset, "i2c_scan": i2c_scan, "sfp_phy": sfp_phy,
-               "fdt_clocks": fdt_clocks, "cr_idle": cr_idle}
+               "fdt_clocks": fdt_clocks, "cr_idle": cr_idle, "network": network}
     results = {n: (special[n](con) if n in special else check(con, n)) for n in a.checks}
     bad = [n for n, ok in results.items() if not ok]
     log(f"=== {len(results) - len(bad)}/{len(results)} pass" + (f"; FAIL: {', '.join(bad)}" if bad else ""))

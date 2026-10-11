@@ -248,7 +248,11 @@ Desk-only; no switch access. Needs `tmp/openwrt` (sparse clone of openwrt, `targ
 - Run: `scripts/mainline_build_check.py [--dtb-only] [--jobs N]`
 - Output: `tmp/logs/mainline_build_check.log`, build tree `tmp/build-mips`.
 
-- `rtk_parity.py` + `rtk_parity_cmds.json`: run the `rtk` command list on stock and on our U-Boot and diff (`./dev.py rtk-parity`; see docs/RTK-COMMANDS.md). Never sends flash writers.
+- `rtk_parity.py` + `rtk_parity_cmds.json`: run the `rtk` command list on stock and on our U-Boot and diff (`./dev.py rtk-parity`; see docs/RTK-COMMANDS.md). Never sends flash writers. Both sides run `rtk network on` between the pre and post phases.
+
+### sds_tables_gen.py
+- Purpose: extract the stock 10GBASE-R SerDes construct lists (even/odd SerDes) from `private/stock-loader-20261007/loader.bin` into `uboot-port/board/tplink/tl-st1008f/rtk_sds_tables.h`; fails if a list length differs (120 / 106).
+- Run: `python3 scripts/sds_tables_gen.py`. Log: `tmp/logs/sds_tables_gen.log`.
 
 ### serial_speed_test.py
 

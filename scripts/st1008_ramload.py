@@ -184,15 +184,17 @@ def to_stock_uboot(con: Console) -> None:
     con.expect(r"\[daemon\] at RTL9300#", 8, mark, "stock U-Boot prompt (autoboot caught)", boot_ok=True)
 
 
-def network_on(con: Console) -> None:
+def network_on(con: Console, prompt: str = "RTL9300#") -> str:
     # measured ~9 s (PHY init); ends with the benign Err:0xf030 (#28) then the prompt. Cap 15 s.
-    con.run("rtk network on", r"Err:0xf030:FAIL \(0xf030\)\s*\r?\nRTL9300#", 15, "rtk network on")
+    # Ours (same sequence) prints the same end line; any extra line (SerDes errors) fails the match.
+    _, out = con.run("rtk network on", rf"Err:0xf030:FAIL \(0xf030\)\s*\r?\n{prompt}", 15, "rtk network on")
+    return out
 
 
-def laser(con: Console, cage: int) -> None:
+def laser(con: Console, cage: int, prompt: str = "RTL9300#") -> None:
     mask = 0xFF & ~(1 << (cage - 1))
     m, _ = con.run(f"rtk i2c write 8 1 0x{mask:02x}; rtk i2c write 8 3 0; rtk i2c read 8 1",
-                   r"data 0x([0-9a-f]+)\s*\r?\nRTL9300#", 2, f"laser cage {cage} only")
+                   rf"data 0x([0-9a-f]+)\s*\r?\n{prompt}", 2, f"laser cage {cage} only")
     if int(m.group(1), 16) != mask:
         raise SystemExit(f"laser readback 0x{m.group(1)} != 0x{mask:02x}")
 

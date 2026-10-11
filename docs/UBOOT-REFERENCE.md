@@ -210,9 +210,10 @@ From **[DTS]** `rtl9303_tplink_tl-st1008f-v2.dts` unless noted.
 ### Chip revision
 
 - **[SRC]** `chip_probe.c:_drv_swcore_cid9300_get:342-347`: `RTL9300_MODEL_NAME_INFO_ADDR = 0x4` → MMIO `0xBB000004`; rev = bits[3:0] (1 = B, 2 = C, 3 = D); `(reg >> 4) & 0x3` nonzero = 8XG variant.
-- This unit: **rev B** (OpenWrt `SoC Type: Realtek RTL9303 rev B (6487)`). `md.l 0xBB000004` not read live.
+- This unit: `0xBB000004 = 0x93030001` **[LIVE]** ([CLOCKS.md](CLOCKS.md)): bits[5:4] = 0 → production `RTL9303_CHIP_ID`, rev 1 (OpenWrt prints `rev B`).
+- SerDes construct list = **`serdes_patch_list_a`** (per-lane `rtl9300_a_sds_10gr_lane0/1`), not `bT`/`cT`: those need `HWP_CHIP_ID == RTL9303_CHIP_ID_8XG` (`0x93036810`, ES part). Stock agrees **[BIN]**: `serdes_construct` 0x83f91ffc uses fixed lists only for `model & 0xfffdffff == 0x93016810`; else the default even/odd sets. Lists: `uboot-port/.../rtk_sds_tables.h` (`scripts/sds_tables_gen.py`).
 
-### SerDes 10GR construct tables **[SRC]**
+### SerDes 10GR construct tables, ES parts only (not this unit) **[SRC]**
 
 `rtk sdsreg set 0 <sds> <page> <reg> <data>`; table picked by `HWP_CHIP_REV` (`dal_longan_construct.c:2712-2726`, `:1102,1112`).
 

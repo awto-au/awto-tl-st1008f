@@ -52,13 +52,20 @@ int rtk_sds_write(unsigned int sds, unsigned int page, unsigned int reg, u16 val
 	return sds_io(sds, page, reg, CMD_WRITE);
 }
 
+static const struct { u16 reg; u8 shift; } f[NSDS] = {
+	{ 0x194, 0 }, { 0x194, 6 }, { 0x194, 12 }, { 0x194, 18 },
+	{ 0x2a0, 0 }, { 0x2a0, 6 }, { 0x2a0, 12 }, { 0x2a0, 18 },
+	{ 0x2a4, 0 }, { 0x2a4, 6 }, { 0x198, 0 }, { 0x198, 6 },
+};
+
+void rtk_mac_mode_set(unsigned int sds, u32 val)
+{
+	if (sds < NSDS)
+		sw_rmw(f[sds].reg, 0x1f << f[sds].shift, (val & 0x1f) << f[sds].shift);
+}
+
 int rtk_sds_mode(unsigned int sds)
 {
-	static const struct { u16 reg; u8 shift; } f[NSDS] = {
-		{ 0x194, 0 }, { 0x194, 6 }, { 0x194, 12 }, { 0x194, 18 },
-		{ 0x2a0, 0 }, { 0x2a0, 6 }, { 0x2a0, 12 }, { 0x2a0, 18 },
-		{ 0x2a4, 0 }, { 0x2a4, 6 }, { 0x198, 0 }, { 0x198, 6 },
-	};
 	u16 wdig;
 
 	if (sds >= NSDS)

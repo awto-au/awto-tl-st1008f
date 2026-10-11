@@ -233,6 +233,61 @@
    "cmd": "rtk port enable 99; rtk port bogus 0"
   },
   {
+   "cmd": "rtk 10g 8 fiber10g",
+   "phase": "pre",
+   "kind": "state",
+   "note": "stock before network on: FAIL (0xf002), unit not probed (console log 2026-10-07)"
+  },
+  {
+   "cmd": "rtk network on",
+   "kind": "net",
+   "note": "run once per side by the harness between pre and post (ours with rtk_media=stock); output recorded"
+  },
+  {
+   "cmd": "rtk sdsreg get 0 2 31 9; rtk sdsreg get 0 3 31 9; rtk sdsreg get 0 9 31 9",
+   "note": "WDIG reg 9 = forced SerDes mode after network on"
+  },
+  {
+   "cmd": "rtk sdsreg get 0 2 46 20; rtk sdsreg get 0 3 46 20; rtk sdsreg get 0 2 47 29",
+   "note": "construct-table discriminators: 0x2e/0x14 = 0x1311 (list a) vs 0x1179 (bT); 0x2f/0x1d even = 0x76e1"
+  },
+  {
+   "cmd": "md.l 0xbb000194 1; md.l 0xbb0002a0 2; md.l 0xbb00ca90 1; md.l 0xbb00ca1c 1",
+   "note": "MAC SDS_MODE_SEL, SMI poll mask, MAC force (port 0) after network on"
+  },
+  {
+   "cmd": "rtk 10g 0 fiber10g",
+   "kind": "state",
+   "cap": 5,
+   "note": "media re-set on cage 1: SDK sds_mode_set (CMU wait 150 ms x up to 20)"
+  },
+  {
+   "cmd": "rtk 10g 1 fiber10g",
+   "kind": "state"
+  },
+  {
+   "cmd": "rtk 10g 28 fiber10g",
+   "kind": "state"
+  },
+  {
+   "cmd": "rtk macsds set 2 10gr",
+   "kind": "state",
+   "cap": 5
+  },
+  {
+   "cmd": "rtk macsds set 2 qsgmii",
+   "kind": "state",
+   "note": "mode the 10G force path does not handle"
+  },
+  {
+   "cmd": "rtk port-isolation on",
+   "kind": "state"
+  },
+  {
+   "cmd": "rtk port-isolation off",
+   "kind": "state"
+  },
+  {
    "cmd": "rtk sdsreg set 0 2 0x1f 2 0x35",
    "kind": "state",
    "note": "rewrites the value just read"
@@ -283,6 +338,15 @@
   {
    "cmd": "rtk sfp 3 brief",
    "kind": "ours"
+  },
+  {
+   "cmd": "rtk sfp 1 mode",
+   "kind": "ours"
+  },
+  {
+   "cmd": "rtk network off",
+   "kind": "state",
+   "note": "last: powers the SerDes down"
   }
  ]
 }

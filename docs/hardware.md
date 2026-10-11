@@ -6,7 +6,7 @@ Narrative & dead ends: see [HISTORY.md](HISTORY.md). Evidence paths under `priva
 
 - Hardware revision v2 (label and PCB).
 - SoC RTL9303, CPU 800 MHz, LX 175 MHz, DDR 600 MHz, 512 MiB RAM (one 4 Gbit x16 DDR3 die, under the heatsink). Clock tree: [CLOCKS.md](CLOCKS.md).
-  - OpenWrt reports `SoC Type: Realtek RTL9303 rev B` → SerDes tables are the `bT` variant ([UBOOT-REFERENCE.md](UBOOT-REFERENCE.md) §4).
+  - OpenWrt reports `SoC Type: Realtek RTL9303 rev B`; `0xBB000004 = 0x93030001` = production part → SerDes construct list `a`, not `bT` ([UBOOT-REFERENCE.md](UBOOT-REFERENCE.md#chip-revision)).
 - Flash: Winbond `EF4019`, 32 MiB SPI NOR, single chip. Mapped at `0xb4000000`-`0xb5ffffff`.
 - U-Boot `2011.12.(3.6.6.55087)`, built 2022-01-19; toolchain Realtek MSDK-4.8.5p1 Build 2536.
 - Saved env: `boardmodel=RTL9303_8XGE`, `bootcmd=boota`, `bootdelay=1`, `baudrate=115200`, `ipaddr=192.168.0.100`, `serverip=192.168.0.145`.

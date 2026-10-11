@@ -2,8 +2,9 @@
 """rtk_parity — run the same `rtk` command list on the stock loader and on our U-Boot, diff the output.
 
 - Command list: scripts/rtk_parity_cmds.json (kinds: read, state, slow, key, ours; see its _doc).
-- Sides are separate boots: `capture --side stock` (fresh boot at RTL9300#, no network yet; runs
-  `rtk network on` + one-cage laser mask between the pre and post phases), `capture --side ours` (at st1008f-mainline #), then `compare`.
+- Both sides: phase `pre`, then `rtk network on` (output recorded; ours with `rtk_media=stock`) + one-cage
+  laser mask, then phase `post`. `capture --side stock` at a fresh RTL9300#, `--side ours` at st1008f-mainline #.
+- `--state` adds the stage-4 verbs (`10g`, `macsds set`, `port-isolation`, `network off` last).
   `both` = stock capture, chainload our U-Boot (st1008_ramload --no-cycle --no-network), ours capture, compare.
 - Table: PASS (same after normalising) | DIFF | ONLY-OURS (no stock command) | NO-STOCK / NO-OURS (not captured).
 - Hard denylist (never sent, on either side): flash writers, upgrades, boot/reset, `*force`, boardid/boardmodel set.
@@ -31,7 +32,7 @@ DENY = re.compile(
     r"\b(saveenv|savesys|setsys|upgrade|flerase|erase|protect|boota|bootm|bootp|tftpboot|reset|go)\b"
     r"|\bsf\s+(write|erase|update)\b"
     r"|\brtk\s+(boardid|boardmodel)\s+\S"
-    r"|\brtk\s+(init|rtcore-init|network|port-isolation|send|macsds\s+set\s+\d+\s+(?!bogus\b)\w+)"
+    r"|\brtk\s+(init|rtcore-init|send)\b"
     r"|\S*force\b", re.I)
 
 
@@ -96,16 +97,21 @@ def capture(side: str, with_state: bool, with_slow: bool) -> Path:
     con.note("interactive-begin")  # deliberate error replies: not boot output
     # stock has no `echo`; printenv exists on both
     con.run("printenv baudrate", r"\r?\nbaudrate=\d+" + PROMPTS[side], 1, f"{side} prompt present")
-    phases = ["pre", "post"] if side == "stock" else ["any"]
-    for phase in phases:
-        if side == "stock" and phase == "post":
-            log("stock: rtk network on (once per boot)")
-            network_on(con)
-            laser(con, 1)  # all lasers come up on: one cage only (cage loop)
+    prompt = PROMPTS[side].split("n", 1)[1].rstrip()  # bare prompt text for the helpers
+    for phase in ("pre", "post"):
+        if phase == "post":
+            if side == "ours":
+                # stock forces fiber10g on every cage; ours picks per module unless told otherwise
+                con.run("setenv rtk_media stock", PROMPTS[side], 1, "media = stock")
+            log(f"{side}: rtk network on (once per boot)")
+            res["rtk network on"] = clean("rtk network on", network_on(con, prompt))
+            laser(con, 1, prompt)  # one cage only (cage loop #19); GLC-T ignores TX-disable
         for c in cmds:
-            if side == "stock" and c.get("phase", "post") != phase:
+            if c.get("phase", "post") != phase:
                 continue
             kind = c.get("kind", "read")
+            if kind == "net":  # run by the harness above
+                continue
             if kind == "ours" and side == "stock":
                 continue
             if (kind == "state" and not with_state) or (kind in ("slow", "key") and not with_slow):

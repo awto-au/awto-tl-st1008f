@@ -98,7 +98,7 @@ Classes: UP = already upstream; TRIV = trivial rebase; API = needs API rework (n
 | 9 | CPU-port Ethernet `rtl838x_eth.c` | TRIV | Compiles unchanged; Kconfig hook `716` hunk 1 |
 | 10 | DSA driver `rtl83xx/` | TRIV (compile) / LARGE (behaviour) | One rename. 20.5k lines; 7.8k for a minimal L2 core. Behaviour change 6.18 to 7.3 untested |
 | 11 | Tagger `tag_rtl_otto.c` | TRIV | Compiles unchanged |
-| 12 | PCS/SerDes `pcs-rtl-otto.c` | TRIV (compile) / LARGE (10G bring-up) | 4844 lines; rev B (`bT`) construct tables + `rtpcs_930x_sds_do_rx_calibration` (issue #16 stage 5) |
+| 12 | PCS/SerDes `pcs-rtl-otto.c` | TRIV (compile) / LARGE (10G bring-up) | 4844 lines; list `a` construct tables (production chip, not `bT`) + `rtpcs_930x_sds_do_rx_calibration` (issue #16 stage 5) |
 | 13 | SerDes MDIO `mdio-realtek-otto-serdes.c` | TRIV | Compiles unchanged |
 | 14 | MDIO: OpenWrt OTTO fork vs mainline `mdio-realtek-rtl9300` + `031-25..34` | decision | Same compatible `realtek,rtl9301-mdio`. Mainline 7.3 lacks polling/page tracking (7.4). Not needed for PHY-less SFP ports; whether DSA/PCS call OTTO-specific symbols is unchecked |
 | 15 | `otto_table.c` | TRIV | Compiles; hook `331` applies |
