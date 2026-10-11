@@ -462,9 +462,6 @@ static int mem_set(const struct mem_req *q)
 #define MCR_REG		0xb8001000
 #define MCR_PREF	(BIT(23) | BIT(22))
 
-#define SFCR_REG	0xb8001200	/* [31:29] D: SPI = NOR / 2(D + 1) */
-#define FAST_SFCR_D	0
-#define FAST_NOR_CODE	4	/* e220[16:13]: NOR = 2450 / 2(code + 2) = 204.2 MHz */
 #define FAST_MEM_MHZ	650	/* runtime change with refresh paused (nosr); self-refresh mode hangs (#39) */
 #define DTR0_REG	0xb8001008
 #define DMCR_REG	0xb800101c
@@ -499,12 +496,10 @@ static int fast_set(void)
 		return ret;
 	__raw_writel(R(MCR_REG) & ~MCR_PREF, (void __iomem *)MCR_REG);
 	__raw_writel(R(MCR_REG) | MCR_PREF, (void __iomem *)MCR_REG);
-	/* SPI 102.1 MHz: fastest Linux reads bit-exact; 122.5 corrupts (#50) */
-	__raw_writel((R(SFCR_REG) & ~GENMASK(31, 29)) | (FAST_SFCR_D << 29), (void __iomem *)SFCR_REG);
-	__raw_writel((R(PLL_E220) & ~GENMASK(16, 13)) | (FAST_NOR_CODE << 13), (void __iomem *)PLL_E220);
+	/* SPI stays stock: Linux JFFS2 writes at 102.1 MHz left CRC errors (#50) */
 	__asm__ __volatile__("sync");
 	printf("clocks: fast = cpu 1000 MHz, mem %u MHz, tREFI 4608 clk, dram prefetch on (MCR %08x), "
-	       "spi 102.1 MHz\n", FAST_MEM_MHZ, R(MCR_REG));
+	       "spi unchanged\n", FAST_MEM_MHZ, R(MCR_REG));
 	return 0;
 }
 

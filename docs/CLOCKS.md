@@ -227,7 +227,7 @@ Source tags: **[SRC]** GPL file:line (`dms1250/` = `sources/rtk-dms1250/`, `xgs1
 - Prefetch on: 16 MiB CRC kept, `highmem test` 0 errors; flash OpenWrt rootfs hash identical to stock, 0 SQUASHFS errors. OpenWrt never writes MCR (only reads DCR), so Linux runs with it.
 - DDR 650 (2026-10-11, CPU 1000, `--nosr`): mem_read 342.7 (+2 % vs DDR 600), mem_read_uc 63.0 (+4 %), mem_write 237.0, memcpy 162.4.
 - SPI-NOR ladder (whole-chip CRC vs a /6 baseline, 2026-10-11): SFCR /6 25.5 MHz 16.7 s, /4 38.3 MHz 11.9 s, /2 76.6 MHz 7.0 s; then /2 with NOR source e220[16:13] code 5 (87.5 MHz) 6.2 s, code 4 (102.1 MHz) 5.3 s, **code 3 (122.5 MHz) 4.4 s, flash_uc 7.7 / flash_c 22.3 MB/s**; code 2 (153.1 MHz, rated 133) **CRC mismatch**. Flash limit between 122.5 and 153 MHz. Dual/quad read not tried.
-- Linux reads (29 MiB firmware mtdblock md5, RAM OpenWrt, 2026-10-11): bit-exact up to **102.1 MHz** (3.07 MB/s, PIO-bound); 122.5 MHz md5 mismatch. `clocks fast` sets 102.1 MHz (#50).
+- Linux reads (29 MiB firmware mtdblock md5, RAM OpenWrt, 2026-10-11): bit-exact up to **102.1 MHz** (3.07 MB/s, PIO-bound); 122.5 MHz md5 mismatch. At 102.1 MHz the flash OpenWrt's JFFS2 overlay logged `node CRC failed` and lost /etc/config/network; at stock SPI the same flash reads clean (0 CRC errors). So Linux runs stock SPI; `clocks fast` leaves SPI unchanged (#50).
 - LX 204.2 MHz (`clocks set lx 4 force`): console, I2C/SFP/DDM, lasers, sf, highmem, timer all pass; no bench test depends on LX.
 
 ## CPU overclock: measured (2026-10-10, mainline U-Boot RAM-loaded, heatsink off, stock core voltage)
