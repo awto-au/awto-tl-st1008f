@@ -3,14 +3,15 @@
 
 - Samples `ethtool -S <nic>` rx_multicast_packets + rx_broadcast_packets every 0.5 s.
 - Baseline = mean rate over the first 3 s (switch must not be storming yet).
-- Trip: rate > max(--abs-pps, 20 x baseline) on 2 consecutive samples → relay off
-  (scripts/switch_power.py off). Unicast (iperf) is ignored, so benchmarks don't trip it.
+- Trip: rate > max(--abs-pps, 20 x baseline) on 2 consecutive samples → kill: console takes every
+  lan* port down, then relay off retried until it confirms. Unicast (iperf) is ignored.
 - `--observe`: log the storm but only cut after --hold seconds (to prove/measure one).
 - Exits after --duration s (bounded) or on trip. Log: tmp/logs/storm_watch.log
 """
 
 import argparse
 import subprocess
+import urllib.request
 import sys
 import time
 from pathlib import Path
@@ -19,6 +20,7 @@ ROOT = Path(__file__).resolve().parent.parent
 LOG = ROOT / "tmp/logs/storm_watch.log"
 SAMPLE_S = 0.5  # detection latency ≈ 2 samples = 1 s
 BASELINE_S = 3.0
+RELAY = "http://192.168.25.138/switch/relay"  # same relay as scripts/switch_power.py
 
 
 def log(msg: str) -> None:
@@ -40,10 +42,33 @@ def bcast_mcast(nic: str) -> int:
     return tot
 
 
-def relay_off() -> None:
-    r = subprocess.run([sys.executable, str(ROOT / "scripts/switch_power.py"), "off"],
-                       capture_output=True, text=True, timeout=12)  # 2 LAN POSTs @5 s cap
-    log(f"RELAY OFF: {r.stdout.strip()} {r.stderr.strip()}")
+KILL_PORTS = "for p in /sys/class/net/lan*; do ip link set ${p##*/} down; done"
+RELAY_TRY_S = 0.5  # relay answers in ~0.12 s on a quiet LAN; caps one try while the LAN floods
+RELAY_TRIES = 120  # 1 min of retries; the console kill has normally stopped forwarding by then
+
+
+def kill() -> bool:
+    """Console first (local USB, immune to the LAN storm), then the relay until it confirms.
+    2026-10-10: one relay POST timed out in the storm and nothing retried (#19)."""
+    try:
+        sys.path.insert(0, str(ROOT / "scripts"))
+        from st1008_ramload import Console
+        Console().send(KILL_PORTS)  # no-op unless an OpenWrt shell is at the prompt
+        log("KILL console: lan* down sent")
+    except Exception as e:  # noqa: BLE001  daemon down must not stop the relay path
+        log(f"KILL console failed: {e}")
+    req = urllib.request.Request(f"{RELAY}/turn_off", method="POST")
+    for i in range(1, RELAY_TRIES + 1):
+        t = time.monotonic()
+        try:
+            with urllib.request.urlopen(req, timeout=RELAY_TRY_S) as r:
+                log(f"KILL relay off: HTTP {r.status} on try {i}")
+                return True
+        except Exception as e:  # noqa: BLE001  any network error -> retry
+            log(f"KILL relay try {i}/{RELAY_TRIES} failed after {time.monotonic() - t:.2f}s: {e}")
+            time.sleep(max(0.0, RELAY_TRY_S - (time.monotonic() - t)))
+    log(f"KILL relay FAILED {RELAY_TRIES} tries: cut switch power by hand")
+    return False
 
 
 def main() -> int:
@@ -84,7 +109,7 @@ def main() -> int:
             storm_start = storm_start or now
             if not a.observe or now - storm_start >= a.hold:
                 log(f"STORM: {pps:.0f} pps (peak {peak:.0f}), {now - storm_start:.1f}s over limit")
-                relay_off()
+                kill()
                 return 2
     log(f"=== end, no storm in {a.duration:.0f}s (last {pps:.0f} pps)")
     return 0

@@ -199,6 +199,31 @@ def tftp(con: Console, fname: str, addr: int) -> None:
             srv.wait(timeout=3)
 
 
+OW_PROMPT = r"root@[^:\s]*:[^#]*# "  # hostname is "(none)" early in boot
+
+
+def openwrt_stp(con: Console) -> None:
+    """Bridge STP on as soon as the shell is up: the initramfs bridges every port with every
+    laser lit, no STP (#19). A loop ramps slowly (~13k pps at +80 s), so this is in time."""
+    con.run("", OW_PROMPT, 3, "OpenWrt shell")  # 'Please press Enter'; prompt within ~1 s
+    # kernel lines (SerDes calibration) interleave with replies and broke the check 2026-10-10
+    con.run("dmesg -n 1", OW_PROMPT, 1, "console loglevel 1")
+    for _ in range(10):  # bridge appears when netifd brings `switch` up; 10 x 1 s
+        try:
+            con.run("echo 1 > /sys/class/net/switch/bridge/stp_state", OW_PROMPT, 1, "stp on")
+            con.run("cat /sys/class/net/switch/bridge/stp_state", r"\n1\r?\n" + OW_PROMPT, 1,
+                    "stp_state = 1")
+            break
+        except SystemExit:
+            time.sleep(1)
+    else:
+        con.send("for p in /sys/class/net/lan*; do ip link set ${p##*/} down; done")
+        power("off")
+        raise SystemExit("FAIL: bridge STP not enabled after 10 s: lan* down + relay off (#19)")
+    con.run("uci set network.switch.stp='1'; uci commit network", OW_PROMPT, 2, "stp persistent")
+    log("  OpenWrt bridge STP on")
+
+
 def main() -> int:
     ap = argparse.ArgumentParser(description=__doc__.splitlines()[0])
     ap.add_argument("image", choices=sorted(IMAGES) + ["stock"],
@@ -207,6 +232,10 @@ def main() -> int:
     ap.add_argument("--no-cycle", action="store_true", help="already at the stock RTL9300# prompt")
     ap.add_argument("--fast", type=int, nargs="?", const=1, metavar="DIV",
                     help="uboot-mainline: switch console to 10.9375 MBd/DIV after boot (default 1)")
+    ap.add_argument("--then", choices=["openwrt"],
+                    help="uboot-mainline: also TFTP OpenWrt (std magic) to 0x84f00000, bootm it from ours")
+    ap.add_argument("--cpu", metavar="E208",
+                    help="with --then: CPU PLL before bootm, e.g. 0x3a8 = 1000 MHz (/3, docs/CLOCKS.md)")
     ap.add_argument("--no-network", action="store_true", help="rtk network on already done this boot")
     a = ap.parse_args()
 
@@ -222,12 +251,33 @@ def main() -> int:
     if a.image == "stock":
         return 0
     fname, addr, start, done, cap = IMAGES[a.image]
+    if a.then == "openwrt":
+        src, std = TFTP_ROOT / IMAGES["openwrt"][0], TFTP_ROOT / "openwrt-initramfs-std.bin"
+        subprocess.run([sys.executable, str(ROOT / "scripts/uimage_std_magic.py"), str(src), str(std)],
+                       check=True, timeout=10)  # local 5 MB rewrite, <1 s
+        tftp(con, std.name, IMAGES["openwrt"][1])
     tftp(con, fname, addr)
     con.run(f"{start} 0x{addr:08x}", done, cap, f"{a.image} running")
+    if a.image == "openwrt":
+        openwrt_stp(con)
     r = subprocess.run([sys.executable, str(ROOT / "scripts/boot_log_check.py"), "--boot", "-1"],
                        capture_output=True, text=True, timeout=30)  # local file scan, <2 s
     sys.stdout.write(r.stdout)
     log(f"boot_log_check exit {r.returncode} ({['CLEAN', 'UNKNOWN', 'ERRORS'][min(r.returncode, 2)]})")
+    if a.then == "openwrt":
+        if a.cpu:
+            con.run(f"clocks set cpu {a.cpu} 0x6b439e13 0 force",
+                    r"clocks: locked after \d+ polls\r?\nst1008f-mainline # ", 2, f"cpu pll {a.cpu}")
+            _, out = con.run("clocks", r"(?s)mem \d+ MHz.*st1008f-mainline # ", 1, "clocks")
+            log("  " + re.search(r"cpu [\d.]+ MHz", out).group(0))
+        ow = IMAGES["openwrt"]
+        con.run(f"bootm 0x{ow[1]:08x}", ow[3], ow[4], "OpenWrt via mainline bootm")
+        openwrt_stp(con)
+        r = subprocess.run([sys.executable, str(ROOT / "scripts/boot_log_check.py"), "--boot", "-1"],
+                           capture_output=True, text=True, timeout=30)  # local file scan, <2 s
+        sys.stdout.write(r.stdout)
+        log(f"boot_log_check exit {r.returncode}")
+        return r.returncode
     if a.fast and a.image == "uboot-mainline":
         from serial_speed_test import go_fast  # imports this module; late import avoids a cycle
         go_fast(con, a.fast)
