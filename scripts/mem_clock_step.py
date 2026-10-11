@@ -49,9 +49,9 @@ def md(con: Console) -> list[str]:
     return re.findall(r"a20000[01]0:[ 0-9a-f]+", out)
 
 
-def step(con: Console, mhz: int, nosr: bool, ref_crc: str, ref_md: list[str]) -> bool:
+def step(con: Console, mhz: int, nosr: bool, ref_crc: str, ref_md: list[str], extra: str = "") -> bool:
     con.run("echo PROMPT_OK", r"\r?\nPROMPT_OK" + PROMPT, CAP_CMD, "prompt present")
-    cmd = f"clocks set mem {mhz}{' nosr' if nosr else ''} force"
+    cmd = f"clocks set mem {mhz}{' nosr' if nosr else ''}{' ' + extra if extra else ''} force"
     _, out = con.run(cmd, r"clocks: mem set (OK|FAIL)[^\r\n]*" + PROMPT, CAP_SET, f"mem set {mhz}")
     for line in re.findall(r"clocks: (?:routine|canary|mem now|mem set)[^\r\n]*", out):
         log(f"  {line}")
@@ -84,6 +84,7 @@ def main() -> int:
                     help="bins in order, e.g. 600 650 675 700 ... 800 (600 = re-apply stock: proves the sequence; "
                          "675+ = CL 11 / CWL 8 via MRS, needs --nosr and CPU above the target)")
     ap.add_argument("--nosr", action="store_true", help="refresh-off method instead of self-refresh")
+    ap.add_argument("--extra", default="", help="options before `force` on every step, e.g. 'dqshift -8'")
     a = ap.parse_args()
     con = Console()
     log(f"=== mem_clock_step {' '.join(sys.argv[1:])} ===")
@@ -95,7 +96,7 @@ def main() -> int:
         ref_crc, ref_md = crc(con), md(con)
         log(f"  reference crc32 {ref_crc}")
         for mhz in a.mhz:
-            if not step(con, mhz, a.nosr, ref_crc, ref_md):
+            if not step(con, mhz, a.nosr, ref_crc, ref_md, a.extra):
                 return 1
     except SystemExit as e:  # no prompt: hang after the change -> power cycle needed
         log(f"FAIL: {str(e)[:300]}")
