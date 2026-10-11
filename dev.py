@@ -159,6 +159,12 @@ def cmd_flash_openwrt_watch(extra: list[str]) -> int:
     return _script("flash_openwrt_watch.py", extra)
 
 
+@command("running OpenWrt: static registry address .48/24, gw+DNS .254 (persists on flash OpenWrt)",
+         args="[--ip A.B.C.D]", kind="hardware")
+def cmd_openwrt_static_ip(extra: list[str]) -> int:
+    return _script("openwrt_static_ip.py", extra)
+
+
 @command("run the rtk command list on stock and on our U-Boot, diff (see scripts/rtk_parity.py)",
          args="capture --side stock|ours | compare | both [--state] [--slow]", kind="check")
 def cmd_rtk_parity(extra: list[str]) -> int:

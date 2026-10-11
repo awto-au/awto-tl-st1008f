@@ -59,8 +59,13 @@ int rtk_sds_mode(unsigned int sds)
 		{ 0x2a0, 0 }, { 0x2a0, 6 }, { 0x2a0, 12 }, { 0x2a0, 18 },
 		{ 0x2a4, 0 }, { 0x2a4, 6 }, { 0x198, 0 }, { 0x198, 6 },
 	};
+	u16 wdig;
 
 	if (sds >= NSDS)
 		return -1;
+	/* SGMII/1000BX/2500BX/10GR are forced in the SerDes (WDIG reg 9 FRC_SDS_MD_ON, bits 11:7);
+	 * MAC SDS_MODE_SEL then stays 0x1f (OpenWrt pcs-rtl-otto set_ip_mode, #42) */
+	if (!rtk_sds_read(sds, 0x1f, 9, &wdig) && (wdig & BIT(6)))
+		return (wdig >> 7) & 0x1f;
 	return (sw_r(f[sds].reg) >> f[sds].shift) & 0x1f;
 }
