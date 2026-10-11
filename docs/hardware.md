@@ -36,13 +36,33 @@ Narrative & dead ends: see [HISTORY.md](HISTORY.md). Evidence paths under `priva
 - GLC-SX-MM: binary fields space-padded (bytes 3-19, 36-39, 64-65); `rtk sfp` zeroes them. Connector byte says "Fibre Channel Style 2 copper" (vendor error, reported as-is).
 - PTB3370553: no compliance code (described from rate/wavelength/reach); vendor `rtk.ko` classes it "unknown media"; on 2026-10-12 it had RX signal, no link, symbol-error counter saturated ([SDS-TOOLS.md](SDS-TOOLS.md)).
 - Cage 1 fibre = house LAN uplink. Cages 3 ↔ 7 copper cable removed 2026-10-11.
+- DDM at the stock U-Boot prompt, lasers off (2026-10-10, `scripts/st1008_sfp_ddm.py`, #11):
+
+| Cage | Temp °C | Vcc V | Bias mA | RX dBm |
+|---|---|---|---|---|
+| 1 | 33.4 | 3.335 | 0.002 | -2.36 |
+| 2 | 33.0 | 3.322 | 0.002 | -2.46 |
+| 8 | 28.7 | 3.317 | 0.002 | -2.15 |
+
+  - TX power -40 dBm (off); status byte 110 = `0x80` (TX_DISABLE asserted); alarm byte 112 = `0x05` (bias low + TX power low).
+  - SR modules: FS `SFP-10GSR-85`, 850 nm, 10.3 GBd, date code 211223, internal calibration.
 
 ## Network identity
 
 - **No factory MAC.** Stock `printsys` → `Invalid system information`; stock env `ethaddr` was a Realtek-OUI placeholder (#36).
 - **Base MAC `16:b0:46:e9:0d:c0`:** saved in `u-boot-env` `ethaddr` by the 2026-10-08 `sysupgrade`; locally administered (bit 1 of the first byte set) = randomly generated, not TP-Link assigned. Used by flash OpenWrt and our 7.3 kernel (nvmem layout on `u-boot-env`). Stock leaves the switch MAC registers at `00:e0:4c:00:00:00`.
 - **Management address** (owner, 2026-10-12): DHCP client + static fallback `192.168.0.1/24`; house LAN reserves `192.168.25.48` (registry block `st1008f-1` = `.48`-`.55`). Today's flash OpenWrt: static `.48/24` on bridge `switch.1`, gateway/DNS `.254`. [DECISIONS.md](DECISIONS.md).
-- **Lab hosts** (registry): host `enp7s0` TFTP server `192.168.25.30` (static NM entry + DHCP reservation); power relay (ESPHome "Office Bench Lights", no metering) claimed `.49` in the registry, was at `.138` in the DHCP pool, router reservation pending (owner).
+- **Lab hosts** (registry): host `enp7s0` TFTP server `192.168.25.30` (static NM entry + DHCP reservation); power relay `192.168.25.49` (DHCP-reserved; [Bench power relay](#bench-power-relay-84)).
+
+## Bench power relay (#84)
+
+- ESPHome node `office-bench-lights` (ESP8266, HA entity `Office Bench Lights relay`), `192.168.25.49`; switches the board's 12 V supply. No power metering.
+- **A relay reboot leaves the board unpowered:** `restore_mode: RESTORE_DEFAULT_OFF` without `esp8266: restore_from_flash: true`.
+- Seen 2026-10-12: relay OFF unprompted at 10:24:30+11:00 and between 10:26:58 and 10:27:42, each 25-60 s after a `dev.py` power-on (10:24:06, 10:26:40). ESPHome `sensor/uptime` read 64 s at ~10:29 = the relay itself had rebooted.
+  - Not Home Assistant: no automation references the entity; `light.office_lights` does not include it.
+  - Suspect: ESP8266 reset (brownout or EMI) when the relay switches the board load on. HA `sensor.office_bench_lights_reset_reason` would confirm; not yet read.
+- Detection (`scripts/switch_power.py`): every on/off logs relay uptime before/after (`tmp/relay_uptime.json`); `check` flags a reboot (uptime < recorded + elapsed − 30 s), exit 3; `check --fix` powers on once if a reboot left it OFF. `ramload` (end) and `nic-bench boot` run it.
+- Not done (config in the private awto-terminal repo, `hass/esphome/office-bench-lights.yaml`): `restore_from_flash: true` + `RESTORE_DEFAULT_ON`; snubber or separate ESP supply; entity rename.
 - **Managed-switch convention** (applies when routing goes live):
   - one base MAC per box; management interface, ports and VLAN interfaces share it (base+1… only for extra MACs such as VRRP);
   - the ASIC holds an L2 entry for its own MAC pointing at the CPU port (frames to the switch trap to the CPU; broadcast/ARP copied);
@@ -106,7 +126,10 @@ From the OpenWrt v2 DTS (`SWITCH_PORT_SFP(p,l,s,c,g)` = SoC port, label, SerDes,
 - 3 LEDs per port, 24 total, via 3× 74HC164 shift registers (serial-LED output) — [svanheule.net](https://www.svanheule.net/switches/tl-st1008f).
 - Driven by the RTL9303 hardware LED engine (`RTL930X_LED_GLB_CTRL` `0xCC00`; 3 LED sets), no CPU involvement.
 - v2 DTS `led_set0`: set 0 = 1G/100M/10M, set 1 = 2.5G, set 2 = 10G, each LINK + ACT, active-high.
-- Activity is combined RX+TX (no directional indicator in the HW engine). Richer scheme: issue "per-port LEDs".
+- Stock loader profile `RTL9303_8XGE` set 0 (what stock `rtk network on` programs): LED0 `0x0A01` = 10G link/act, LED1 `0x0A08` = 2.5G, LED2 `0x0BA0` = 1G/100M/10M. Selector bits: 0 = 10G, 1 = 5G, 3 = 2.5G, 5 = 1G, 7 = 100M, 8 = 10M, 9 = link, 11 = activity (#9).
+- After stock `rtk network on`: `0xcc00` = `01452651`, cage LEDs in software mode (`SW_EN` `0xf`). Our `rtk network on` matches every register `0xcc00-0xccc8` (reg-diff, 0 diffs, 2026-10-11, #9). Register detail: [RTK-COMMANDS.md](RTK-COMMANDS.md#port-leds).
+- ST5008F (managed sibling) uses other set-0 values and `0xCC00`; SDK env `ledModeInitSkip=1` keeps the bootloader's LED setup in Linux: [MANAGED-FEATURES.md](MANAGED-FEATURES.md).
+- Activity is combined RX+TX (no directional indicator in the HW engine).
 
 ## SFP power
 
@@ -116,7 +139,10 @@ From the OpenWrt v2 DTS (`SWITCH_PORT_SFP(p,l,s,c,g)` = SoC port, label, SerDes,
 - **Board budget check instead (warn only, never blocks or disables a module).**
   - Budget default **15.0 W** (declared module power) = (24 W input (PSU 12 V 2 A) − 6 W board draw) × ~0.85 3.3 V regulator.
   - Measured by owner 2026-10-12 at the 12 V input: no SFPs fitted ≈ 0.5 A (≈ 6 W); each SFP with laser disabled adds ≈ 0.1 A (≈ 1.2 W input ≈ 1.0 W at the module).
-  - Unknown: 3.3 V SFP rail(s) and regulator rating on this PCB; real board draw. Set the budget from an input-power measurement (idle, then per module) when one exists. #30.
+  - Unknown: 3.3 V SFP rail(s) and regulator rating on this PCB; per-module draw with laser on / link up. #30.
+  - Check 2026-10-12 (one 10G SR in cage 1): U-Boot `rtk sfp power` 1.0 W by 1 module, budget 15.0 W; Linux `power_total_mw` 1000, `power_cage_mw` `1000 0 0 0 0 0 0 0`.
+  - No vendor precedent: the managed ST5008F firmware has no power-level (A0 byte 64) handling or budget (#30).
+  - GLC-T (copper): declares level 1, no DDM (no A2 page), so nothing measurable; real 10GBASE-T modules draw 2.5-3 W and commonly still declare level 1.
 - **Counted power per module** (same rules in U-Boot and Linux):
   - A0 byte 64: bit 5 → level 3 = 2.0 W; else bit 1 → level 2 = 1.5 W; else level 1 = 1.0 W. Linux `sfp.c` also gates these on byte 94 (SFF-8472 rev ≥ 10.2 / 11.4) and needs DDM (byte 92 bit 6) to switch levels; the count ignores those gates (a module may draw its declared level regardless).
   - Copper modules cannot declare > 2.0 W, so they are raised to a datasheet table (max of declared and table):
@@ -152,7 +178,7 @@ From the OpenWrt v2 DTS (`SWITCH_PORT_SFP(p,l,s,c,g)` = SoC port, label, SerDes,
   - Part is a TI TCA9534A (svanheule.net); "PCA9534" in these docs = same register map. The `A` variant's base address `0x38` matches.
 - 3-position mode switch M1/M2/M3 on gpio0 pins 17/18/19. OpenWrt v2 DTS: `gpio-keys` (`BTN_0/1/2`, EV_SW, active-low, 50 ms debounce); our mainline DTS: the mode-switch driver ("Linux driver (#64)" below). Stock behaviour: see "Mode switch (stock firmware)" below.
   - Read with raw `md.l 0xb800330c 1` (DAT), bits 17-19 (bank C bits 1-3). Not `rtk pinGet` before `rtk network on` (hangs the console).
-- GPIO21: DTS external-watchdog toggle pin (1.2 s, always-running). Found static output-high at the U-Boot prompt; board does not reset. Unexplained.
+- GPIO21: DTS external-watchdog toggle pin (1.2 s, always-running). Found static output-high at the U-Boot prompt; board does not reset. Low = board reset (stock `switch_reset()`). Unexplained as a watchdog: the managed ST5008F has no `<wtd>` board section and never uses GPIO21; TP-Link's watchdog support is generic (`insmod <wtd> enGpio= feedGpio=`, 500 ms feed) (#18).
 - USB: RTL9303 has a USB 2.0 host (EHCI `0x18021000`, irq 28, 1 port); **not wired on this board** (issue #5, closed).
   - Chip: datasheet Rev 1.1-1 sec 6.10 — DM = ball F4, DP = G4, RREF J4 (12 kΩ to GND), AVDDH_USB 3.3 V, AVDDL_USB 1.1 V. Copy: `sources/README.md`.
   - Board photos (top and bottom): no USB connector or footprint, no D+/D- pads, no VBUS switch, no ESD array. Only headers: J14 UART (`DH GND RX TX`) and 5-pad JTAG on the bottom.
@@ -213,6 +239,7 @@ Source: static RE of stock `rtk.ko` (TP-Link additions, `TP_CHKPATTERN` thread).
 - Read when: once at module init (first iteration latches), then polled every loop of `TP_CHKPATTERN`.
 - Poll period ~1 s + 3 x 30 ms settle: `osal_time_sleep(1)` = `schedule_timeout(100)` (HZ = 100, 1 s).
 - Debounce: none beyond the 30 ms settle before each pin read; a single changed sample counts.
+- Between detents no pin is grounded: pins read 1/1/1 = pattern 3 (seen M1 → M2 under our 300-06 driver, 2026-10-11, #64). Stock would reset the switch on that transient.
 - On change: prints `pattern changed switch reset`, drives gpio0 pin 21 low (`drv_generalCtrlGPIO_dataBit_set(0,0,0x15,0)`) = `switch_reset`; presumably reboots and re-latches the new pattern.
   - Pin 21 is the DTS "external watchdog" pin; the stock code calls the pin-21-low write `switch_reset` (`0x0020c374`). Effect on the board not observed live.
 - A GPIO read error leaves the stack value stale (error path prints `gpio read failed ret=%d` and continues).
@@ -253,7 +280,9 @@ Source: static RE of stock `rtk.ko` (TP-Link additions, `TP_CHKPATTERN` thread).
 - On-die meter (switch-SDK `swcore_rtl9300.h` layout; the U-Boot-header addresses are 8 bytes off):
   - **Off at power-on**: `CTRL_2.TM_ENABLE` (`0xBB000068` bit 16) = 0; `RESULT_0` holds a reset value with `TEMP_VALID` clear. Do not read it as a temperature.
   - Enable (as OpenWrt's `rtl9300_thermal_init`): `CTRL_1` (`0xBB000064`) bits 31:16 `SAMPLE_DLY` = `0x0800`; `CTRL_2` bit 16 = 1. RMW; no flash involved.
-  - Read `RESULT_0` (`0xBB00006C`): `TEMP_VALID` = bit 24, `TEMP_OUT` = bits 23:16 = °C (OpenWrt `coefficients = <1000 0>`). `RESULT_1` (`0x70`): `TEMP_MAX` 14:8, `TEMP_MIN` 6:0, latched since enable.
+  - Read `RESULT_0` (`0xBB00006C`): `TEMP_VALID` = bit 24, `TEMP_OUT` = bits 23:16. `RESULT_1` (`0x70`): `TEMP_MAX` 14:8, `TEMP_MIN` 6:0, latched since enable.
+  - **Conversion unsettled (#13):** OpenWrt (`coefficients = <1000 0>`), `rtk temp` and the readings below take `TEMP_OUT` as °C. Realtek SDK 3.6.9 `dal_longan_switch_thermalTemp_get` (ST5008F `core`): `TM_ENABLE` = 1, 10 ms, `TEMP_OUT × 129 − 1000` (/100) → **°C = 1.29 × TEMP_OUT − 10**. By that formula raw 73 = 84.2 °C, and OpenWrt's 105 °C trip fires at ~125 °C real. Needs an external probe at two temperatures.
+  - No vendor over-temperature handling in either firmware (diag CLI only).
   - U-Boot one-liner (RMW values from a stock boot): `mw.l 0xBB000064 0x08000007; mw.l 0xBB000068 0x00034cd7; md.l 0xBB00006C 2`.
 - 2026-10-08, heatsink off, idle at U-Boot after `rtk network on`, one laser on, ~7 min after power-on: **73 °C** steady (3 reads); min/max since enable 55/73. Not yet checked against an external probe.
 
@@ -294,10 +323,17 @@ rtk i2c read 8 1               # readback
 - `rtk sdsreg get 0 <sds> 1 30` (block-lock, low 9 bits `0x1ff`) is **not** a usable link indicator here: it read `0x0000`/`0x0100` while millions of frames flowed.
 - `MAC_LINK_STS` `0xBB00CB10` reflects force-mode bits, not real link.
 - RX light: `rtk sdsreg get 0 <sds> 5 0`, bit `0x1000` set = signal detect (lit `0x100D`, dark `0x000C`).
+- Our U-Boot `rtk port` / `rtk sds status`: PCS link (10GR block lock, 1G BMSR), MAC link + speed (`0xcb18`). Cage 1 on the house fibre reads `pcs up, mac up 10G` after our `rtk network on` (2026-10-11, #51).
+- SerDes mode for SGMII / 100BX / 1000BX / 2500BX / 10GBASE-R is forced inside the SerDes: page `0x1f` (WDIG) reg 9, `FRC_SDS_MD_ON` bit 6, mode bits 11:7. The MAC-side `SDS_MODE_SEL` (`0x194/0x2a0/0x2a4/0x198`) then stays `0x1f` ("off"); only XSGMII/USXGMII/QSGMII are MAC-driven. All 8 cages read `0x1a` (10GBASE-R) after stock `rtk network on` (2026-10-11, #42).
+- Open (#44): with the stock network on and cage 1 lit, `MAC_LINK_STS 0xcb10` showed cage 2 "mac up" (laser off) and cage 1 "mac down" (2026-10-10/11).
 
 ## Hazards
 
 - **Cage loop.** Cages 1 and 2 both cabled to the same LAN switch + both lasers on + `rtk network on` → the U-Boot SDK forwards front↔front → broadcast storm (TX mcast 39M in ~1 min). Break with `rtk port disable 8`. Light one cage only. OpenWrt initramfs lights all lasers and bridges all ports with no STP → unplug the second fiber before `bootm`.
+  - OpenWrt 25.12.4 default config (bridge `switch`, lan1-8, no STP), cages 1/2/8 to one LAN switch, 2026-10-10: host bcast+mcast 5 → 13,354 pps ~80 s after forwarding (slow ramp); at 253 s `rtl838x-eth eth0: Ring contention` ×3, then the switch hangs (#19).
+  - Bridge STP from first boot (set before netifd) blocks it: lan2 → blocking 1.5 s after up (own BPDU looped via lan1); bridge is root, the house switch sends no BPDUs; 10 min at 2-8 pps, 0 `Ring contention` (#19).
+  - Flash OpenWrt (STP saved) at power-up, 2026-10-11: lan2 listening 28.7 s → blocking 30.1 s, lan1 forwarding 44.0 s; no port forwarded before STP decided; steady state lan2 blocking (#43).
+  - Managed ST5008F firmware turns a port's laser off on admin-down and all lasers off before reboot; OpenWrt and ours do neither ([MANAGED-FEATURES.md](MANAGED-FEATURES.md), #19).
 - **GPIO/I2C before SDK init hangs the console.** `rtk pinGet`, `rtk i2c init sw`, `rtk i2c read` wedge U-Boot (power cycle needed) only if run before `rtk network on`. After it they work.
 - **`rtk network on` twice in one boot is unreliable.** One second run returned `0xf030` and then the console went dead (power cycle); another second run returned normally. Run it once per boot.
 - `rtk 10g <port> <media>` before `rtk network on` → `0xf002` (unit not initialised).
