@@ -3,7 +3,7 @@
 
 - Power cycle → stock prompt (autoboot caught, NO `rtk network on`, no laser mask) → `boota`.
 - At the shell: every --every s log uptime (a drop = reboot), bridge stp_state, lan* STP port
-  states, SoC temperature. Run `./dev.py storm-watch` alongside: it is the kill switch.
+  states, SoC temperature. The storm guard starts automatically with any ./dev.py hardware command.
 - Log: tmp/logs/flash_openwrt_watch.log
 """
 
