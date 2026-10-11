@@ -2,5 +2,6 @@
   "task.allowAutomaticTasks": "on",
   "[markdown]": {
     "editor.wordWrap": "on"
-  }
+  },
+  "markdown.styles": [".vscode/markdown-preview.css"]
 }
