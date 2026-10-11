@@ -7,6 +7,8 @@
 
 #include <command.h>
 #include <cpu_func.h>
+#include <dm.h>
+#include <ns16550.h>
 #include <fdt_support.h>
 #include <serial.h>
 #include <asm/global_data.h>
@@ -103,6 +105,38 @@ static int cpu_set(u32 e208, u32 e210, u32 relock)
 	return 0;
 }
 
+#define PLL_E200	0xbb00e200	/* bit 17 LXB_CLK_SEL: 1 = LX on the alternate clock */
+#define PLL_E220	0xbb00e220	/* [12:9] DIVN2_LXB: LX = sw vco / (2 x (code + 2)) */
+
+/* docs/CLOCKS.md "LX at runtime": switch LX, then hand the console its new clock at once */
+static int lx_set(u32 code)
+{
+	struct ns16550_plat *plat;
+	struct otto_clocks c;
+	struct udevice *dev;
+	u32 i;
+
+	if (code < 2 || code > 5) {	/* 5 = 175 MHz stock; 2 = 306 MHz */
+		puts("clocks: lx code 2..5 only\n");
+		return CMD_RET_USAGE;
+	}
+	if (uclass_get_device(UCLASS_SERIAL, 0, &dev))
+		return CMD_RET_FAILURE;
+	plat = dev_get_plat(dev);
+	printf("clocks: 0xbb00e220[12:9] = %u via LXB_CLK_SEL; console follows\n", code);
+	for (i = 0; i < TEMT_POLL && !(__raw_readb((void __iomem *)UART_LSR) & LSR_TEMT); i++)
+		;
+	__raw_writel(R(PLL_E200) | BIT(17), (void __iomem *)PLL_E200);
+	__raw_writel((R(PLL_E220) & ~GENMASK(12, 9)) | (code << 9), (void __iomem *)PLL_E220);
+	__raw_writel(R(PLL_E200) & ~BIT(17), (void __iomem *)PLL_E200);
+	__asm__ __volatile__("sync");
+	otto_clocks_read(&c);
+	plat->clock = c.lx_khz * 1000;
+	serial_setbrg();
+	printf("clocks: lx now %u kHz, uart clock updated\n", c.lx_khz);
+	return 0;
+}
+
 static int do_clocks(struct cmd_tbl *cmdtp, int flag, int argc, char *const argv[])
 {
 	struct otto_clocks c;
@@ -111,6 +145,9 @@ static int do_clocks(struct cmd_tbl *cmdtp, int flag, int argc, char *const argv
 
 	if (argc > 1) {
 		/* clocks set cpu <e208> <e210> [relock 0|1] force  (values: scripts/clock_calc.py) */
+		if (argc == 5 && !strcmp(argv[1], "set") && !strcmp(argv[2], "lx") &&
+		    !strcmp(argv[4], "force"))
+			return lx_set(dectoul(argv[3], NULL));
 		if (argc < 6 || strcmp(argv[1], "set") || strcmp(argv[2], "cpu") ||
 		    strcmp(argv[argc - 1], "force"))
 			return CMD_RET_USAGE;
@@ -146,6 +183,7 @@ static int do_clocks(struct cmd_tbl *cmdtp, int flag, int argc, char *const argv
 U_BOOT_CMD(clocks, 7, 0, do_clocks, "show CPU/LX/SPI/MEM clocks and DDR3 timings; set CPU PLL",
 	   "\n  rates decoded from the PLL registers; docs/CLOCKS.md\n"
 	   "clocks set cpu <e208> <e210> [relock 0|1] force\n"
+	   "clocks set lx <code 2..5> force  - LX = 2450 / (2 x (code + 2)) MHz; 5 = stock 175\n"
 	   "  - CPU PLL from SRAM (stock sequence); relock 0 = e200 bit 30 (default), 1 = e220 bit 17");
 
 /* Kernel DTB gets the live rates: OpenWrt rtl930x.dtsi uses fixed clocks + /cpus/frequency */

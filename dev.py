@@ -171,6 +171,12 @@ def cmd_bench(extra: list[str]) -> int:
     return _script("bench.py", extra)
 
 
+@command("SPI-NOR clock ladder: SFCR divider, whole-chip CRC vs baseline, bench flash (#32)",
+         args="[D ...]  (default 1 0 = /4 then /2; stock D=2 = /6)", kind="hardware")
+def cmd_flash_speed(extra: list[str]) -> int:
+    return _script("flash_speed_step.py", extra)
+
+
 @command("run the rtk command list on stock and on our U-Boot, diff (see scripts/rtk_parity.py)",
          args="capture --side stock|ours | compare | both [--state] [--slow]", kind="check")
 def cmd_rtk_parity(extra: list[str]) -> int:
