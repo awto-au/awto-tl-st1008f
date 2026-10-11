@@ -120,6 +120,33 @@ Tool: `scripts/routing_wirespeed.py` (setup/run/probe/teardown). Topology: one h
 
 Contrast — on-link inter-VLAN (no gateway): **trap → CPU**, ~70 Mbit/s, 216 % of volume through CPU. Matches the design model.
 
+## Measured — `300-17` on-link and default-route offload on 7.3 (2026-10-12)
+
+Mainline 7.3-rc6 SMP (both VPEs, 300-18, eth0 IRQ on CPU0), CPU 1 GHz, `ramload uboot-mainline --then mainline-kernel`, one 10G SR in cage 1, nat-bench one-armed over lan1 VLANs 991/992, host netns, `mode route` (no NAT), TCP `-P 4`, 15 s, one run each.
+
+| Path | Offload off Mbit/s | eth0 pps off | Offload on Mbit/s | eth0 pps on | CPU0 busy off / on |
+|---|---|---|---|---|---|
+| On-link v4 | 355 / 354 (fwd / rev) | 44.4k | 9247 / 9226 | 8-10 | 97 % / 0.5 % |
+| On-link v6 | 332 | 43.2k | 9101 | 6 | 99.6 % / 0.2 % |
+| Default v4 (`--dst 198.51.100.5`) | 563 | 46.9k | 9255 | 7 | 97 % / 0.3 % |
+| Default v6 (`--dst 2001:db8:22::5`) | 534 | 46.6k | 9112-9125 | 5-7 | 99.7 % / 0.1-0.2 % |
+
+- `l3_onlink=1`: host rows `10.99.1.2/32`, `10.99.2.2/32` `fwd chk,dec` NH 515/516; v6 `fd99:1::2/128`, `fd99:2::2/128` WIDTH 3 NH 518/517; HIT 1 after traffic. No `fe80::` rows.
+- `l3_default_v6=1`, `l3_default_v4=0`: upper `::/0` `fwd` NH 21, upper `0.0.0.0/0` `trap` (v4 stays on the CPU path at 557 Mbit/s); catch-alls `trap` NH 0 last in both families.
+- With the default offload off, the upper `/0` rows show `trap` with the gateway NH id (20 / 21), not NH 0.
+
+### Correctness checks (same boot)
+
+| # | Check | Result |
+|---|---|---|
+| a | `ip neigh del 10.99.2.2` | `/32` row gone at once; `0.0.0.0/0` (via 10.99.2.2) drops to `trap`; one ping -> both back `fwd` |
+| c | `ip route add 10.99.2.0/25 via 10.99.1.2` | `10.99.2.2/32` row torn down; after `del` + ping it is back `fwd` NH 516 |
+| e | `ip rule add from 10.99.1.2 table 100` | not testable on the mainline initramfs: `RTNETLINK answers: Not supported` (no `IP_MULTIPLE_TABLES`); needs OpenWrt-on-7.3 |
+| i | all three parameters 0 | neighbour rows gone, upper `/0` rows `trap` within one poll |
+| b, d, f, g, h | not run this pass | |
+
+- `check-log` on the boot: CLEAN.
+
 ## Pending
 
 - True all-port routed test (ingress ≠ egress port, #22) needs a clean **second 10G endpoint** — host has one 10G SFP+ (single-port ConnectX), twin is SFP+-only.
