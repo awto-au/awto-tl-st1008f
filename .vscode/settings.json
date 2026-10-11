@@ -1,3 +1,6 @@
 {
-  "task.allowAutomaticTasks": "on"
+  "task.allowAutomaticTasks": "on",
+  "[markdown]": {
+    "editor.wordWrap": "on"
+  }
 }
