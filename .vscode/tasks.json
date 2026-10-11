@@ -8,6 +8,7 @@
       "command": "tail -n 200 -F ${workspaceFolder}/private/serial/st1008-console.log",
       "isBackground": true,
       "problemMatcher": [],
+      "runOptions": { "runOn": "folderOpen" },
       "presentation": { "reveal": "always", "panel": "dedicated", "focus": false, "clear": true }
     }
   ]

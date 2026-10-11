@@ -149,6 +149,14 @@ def power(op: str) -> None:
     log(f"relay {op}: {r.stdout.strip().splitlines()[-1] if r.stdout.strip() else r.stderr.strip()}")
 
 
+def console_view() -> None:
+    """Owner watches the console via the VS Code task 'ST1008 console' (.vscode/tasks.json)."""
+    r = subprocess.run(["pgrep", "-f", "tail -n 200 -F .*st1008-console.log"], capture_output=True,
+                       timeout=2)  # local process scan, instant
+    log("console view: running" if r.returncode == 0 else
+        "console view NOT running: VS Code -> Run Task -> 'ST1008 console' (or reopen the folder)")
+
+
 def restart_daemon(policy: str = "hold") -> None:
     subprocess.run(["pkill", "-f", "scripts/switch_console_daemon.py"], check=False)
     t0 = time.monotonic()
@@ -285,6 +293,7 @@ def main() -> int:
     a = ap.parse_args()
 
     log(f"=== ramload {a.image}, cage {a.cage}")
+    console_view()
     con = Console()
     if not a.no_cycle:
         to_stock_uboot(con)
