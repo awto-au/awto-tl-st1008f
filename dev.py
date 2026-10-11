@@ -189,6 +189,12 @@ def cmd_uboot_chain_install(extra: list[str]) -> int:
     return _script("uboot_chain_install.py", extra)
 
 
+@command("stock env for chainloading our U-Boot from flash (#47 A): test (no save) | apply | revert",
+         args="test|apply|revert", kind="hardware")
+def cmd_uboot_chain_env(extra: list[str]) -> int:
+    return _script("uboot_chain_env.py", extra)
+
+
 @command("run the rtk command list on stock and on our U-Boot, diff (see scripts/rtk_parity.py)",
          args="capture --side stock|ours | compare | both [--state] [--slow]", kind="check")
 def cmd_rtk_parity(extra: list[str]) -> int:

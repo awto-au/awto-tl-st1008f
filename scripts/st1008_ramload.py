@@ -149,14 +149,14 @@ def power(op: str) -> None:
     log(f"relay {op}: {r.stdout.strip().splitlines()[-1] if r.stdout.strip() else r.stderr.strip()}")
 
 
-def restart_daemon() -> None:
+def restart_daemon(policy: str = "hold") -> None:
     subprocess.run(["pkill", "-f", "scripts/switch_console_daemon.py"], check=False)
     t0 = time.monotonic()
     while SOCK.exists() and time.monotonic() - t0 < 3:  # daemon unlinks its socket on SIGTERM
         time.sleep(0.05)
     out = open(ROOT / "tmp/logs/switch_console_daemon.out", "a")
     subprocess.Popen([sys.executable, str(ROOT / "scripts/switch_console_daemon.py"), "--dev", DEV,
-                      "--baud", "115200", "--policy", "hold"], cwd=ROOT, stdout=out,
+                      "--baud", "115200", "--policy", policy], cwd=ROOT, stdout=out,
                      stderr=subprocess.STDOUT, start_new_session=True)
     t0 = time.monotonic()
     while not SOCK.exists():  # daemon binds within ~0.3 s

@@ -53,7 +53,7 @@ bootm 0x84f00000                     # OpenWrt in RAM; unplug other cages first 
 
 Never run `sysupgrade`, `mtd write`/`erase`, `firstboot`, or mount the stock JFFS2 regions read-write.
 
-- Flash state: `firmware` = OpenWrt 25.12.4 (sysupgrade 2026-10-08; owner decision 2026-10-10: keep it), env `ethaddr` set by it; loader and JFFS2 regions stock. Stock firmware only in the 2026-10-08 backup (#36).
+- Flash state: `firmware` = OpenWrt 25.12.4 (sysupgrade 2026-10-08; owner decision: keep it; LAN static 192.168.25.48, bridge STP on); `jffs2-log` (0x200000) = our mainline U-Boot; stock env `bootcmd` chainloads it (`bootcmd_stock=boota` kept, #47). Loader stock. Stock firmware only in the 2026-10-08 backup (#36).
 
 ## Firmware family
 
