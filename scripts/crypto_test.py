@@ -3,7 +3,7 @@
 
 - `gen-kat`: NIST/RFC vectors below, each checked against host hashlib/cryptography, written to
   uboot-port/board/tplink/tl-st1008f/rtk_crypto_kat.h (build input; rerun after editing VECTORS).
-- `run` (default): at our U-Boot prompt: `rtk crypto probe`, `rtk crypto test`, `rtk crypto bench`;
+- `run [--lx N]` (default): at our U-Boot prompt (optionally after `clocks set lx N force`): `rtk crypto probe`, `rtk crypto test`, `rtk crypto bench`;
   parses `kat`/`cbench` lines -> tmp/crypto_test-<label>.json. Log tmp/logs/crypto_test.log.
 - Run via `./dev.py crypto-test [run --label L | gen-kat]`. Docs: docs/CRYPTO.md.
 """
@@ -135,23 +135,26 @@ def gen_kat() -> int:
     return 0
 
 
-def run(label: str) -> int:
+def run(label: str, lx: int | None) -> int:
     sys.path.insert(0, str(ROOT / "scripts"))
     from st1008_ramload import Console
-    con, res = Console(), {"label": label, "kat": {}, "bench": [], "probe": ""}
+    con, res = Console(), {"label": label, "lx": lx, "kat": {}, "bench": [], "probe": ""}
     out = ROOT / f"tmp/crypto_test-{label}.json"
-    # probe: 4 md-style lines at 115200 = ~40 ms; 2 s names a hang
-    _, txt = con.run("rtk crypto probe", PROMPT, 2, "crypto probe")
+    if lx is not None:  # engine clock check (#62); `clocks` prints ~10 lines, 1 s names a hang
+        _, txt = con.run(f"clocks set lx {lx} force", PROMPT, 1, f"clocks set lx {lx}")
+        res["clocks"] = txt
+    # probe: 6 lines at 115200 = ~40 ms (measured < 0.1 s); 1 s names a hang
+    _, txt = con.run("rtk crypto probe", PROMPT, 1, "crypto probe")
     res["probe"] = txt
     present = "crypto: present" in txt
     log(f"probe: {'present' if present else 'ABSENT/unknown'}")
     if present:
-        # KATs: 25 jobs x <5 ms engine time + ~60 output lines (~0.5 s at 115200); 5 s names a hang
-        _, txt = con.run("rtk crypto test", PROMPT, 5, "crypto test")
+        # KATs: measured 0.1 s (50 jobs <= 7 us + ~30 lines at 115200); 1 s names a hang
+        _, txt = con.run("rtk crypto test", PROMPT, 1, "crypto test")
         for m in re.finditer(r"^kat (\S+) (PASS|FAIL)(.*)$", txt, re.M):
             res["kat"][m.group(1)] = {"result": m.group(2), "detail": m.group(3).strip()}
-        # bench: per alg 1 MiB hw + sw; sw AES ~2-3 MB/s worst case -> ~0.5 s each x 12 runs; 30 s cap
-        _, txt = con.run("rtk crypto bench", PROMPT, 30, "crypto bench")
+        # bench: 3.3 s measured at CPU 1000 (software AES dominates); x1000/800 (stock CPU) x1.25 = 5.2 s
+        _, txt = con.run("rtk crypto bench", PROMPT, 5.2, "crypto bench")
         res["bench"] = [m.group(0) for m in re.finditer(r"^cbench .*$", txt, re.M)]
     out.write_text(json.dumps(res, indent=1))
     npass = sum(v["result"] == "PASS" for v in res["kat"].values())
@@ -168,8 +171,9 @@ def main() -> int:
     ap = argparse.ArgumentParser(description=__doc__.splitlines()[0])
     ap.add_argument("action", nargs="?", default="run", choices=["run", "gen-kat"])
     ap.add_argument("--label", default=time.strftime("%Y%m%d-%H%M%S"))
+    ap.add_argument("--lx", type=int, choices=range(2, 6), help="run `clocks set lx N force` first (5 = stock 175 MHz)")
     a = ap.parse_args()
-    return gen_kat() if a.action == "gen-kat" else run(a.label)
+    return gen_kat() if a.action == "gen-kat" else run(a.label, a.lx)
 
 
 if __name__ == "__main__":

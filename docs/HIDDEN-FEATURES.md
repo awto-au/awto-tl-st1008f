@@ -170,10 +170,10 @@ Catalogue of RTL9303 hardware that the datasheet omits, the SDK leaves unused, o
 - **Risk:** writes: use the SDK sequence
 
 ### Crypto engine (#62)
-- **What:** `IPSEC_*` 0xb800c000 (legacy DES/3DES/AES, MD5/SHA1 SPEC)
-- **Evidence:** [DS], [SOC]
-- **Measured:** see inventory
-- **Use:** flash decrypt / legacy ciphers
+- **What:** `IPSEC_*` 0xb800c000: AES-128/192/256 ECB/CBC/CTR, DES, 3DES, MD5, SHA1, HMAC
+- **Evidence:** [DS], [SOC], LIVE 2026-10-12
+- **Measured:** 25/25 KATs pass; AES-128 29 MB/s, 3DES 22, SHA1 45 (clock = LX); [CRYPTO.md](CRYPTO.md)
+- **Use:** AES offload for legacy IPsec suites; hashing is slower than the CPU
 - **Risk:** low
 
 ### NAT / IP or L4 rewrite (#68)

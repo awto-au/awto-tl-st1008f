@@ -221,9 +221,9 @@ End-to-end workflow: [../README.md#workflow](../README.md#workflow).
 
 ### crypto_test.py
 
-- SoC crypto engine (#62, [../docs/CRYPTO.md](../docs/CRYPTO.md)). `./dev.py crypto-test [run --label L]` at our prompt: `rtk crypto probe`, `rtk crypto test` (KATs), `rtk crypto bench` (1 MiB MB/s, engine vs U-Boot software).
+- SoC crypto engine (#62, [../docs/CRYPTO.md](../docs/CRYPTO.md)). `./dev.py crypto-test [run --label L]` at our prompt: `rtk crypto probe`, `rtk crypto test` (KATs), `rtk crypto bench` (1 MiB MB/s, engine vs U-Boot software). `--lx N` first runs `clocks set lx N force` (engine clock check).
 - `gen-kat`: NIST/RFC vectors in the script, each checked against host `hashlib`/`cryptography`, written to `uboot-port/board/tplink/tl-st1008f/rtk_crypto_kat.h`. No hardware.
-- Timeouts: probe 2 s, test 5 s, bench 30 s (derivations in the script). Output `tmp/crypto_test-<label>.json`; log `tmp/logs/crypto_test.log`.
+- Timeouts: probe 1 s, test 1 s, bench 5.2 s, `--lx` 1 s (derivations in the script). Output `tmp/crypto_test-<label>.json`; log `tmp/logs/crypto_test.log`.
 
 ### fetch_sdk_files.py
 

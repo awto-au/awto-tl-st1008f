@@ -70,11 +70,11 @@ struct ddesc { u32 w0, addr, rsv, icv[5]; };		/* w0: own, eor, dbl[13:0] */
 #define HCHUNK		16192		/* HMAC: len + apl < 0x3fc0 (SDK limit) */
 
 /*
- * Job timeout: worst-case 32 LX cycles/B (SPEC: 3DES-class engine) + 4096 cycles setup, at the
- * slowest LX the SPL accepts (133 MHz, docs/CLOCKS.md), x1.25. Measured per-job times: docs/CRYPTO.md.
+ * Job timeout: slowest algorithm (3DES, 8 LX cycles per data byte) + 4096 cycles setup, at the
+ * slowest LX the SPL accepts (133 MHz), x1.25. Measured: docs/CRYPTO.md "Measured".
  */
 #define LX_MIN_MHZ	133
-#define JOB_US(b)	(((b) * 32 + 4096) / LX_MIN_MHZ * 5 / 4)
+#define JOB_US(b)	(((b) * 8 + 4096) / LX_MIN_MHZ * 5 / 4)
 
 enum { KAT_AES, KAT_DES, KAT_3DES, KAT_MD5, KAT_SHA1, KAT_HMAC_MD5, KAT_HMAC_SHA1 };
 enum { KAT_NONE, KAT_ECB, KAT_CBC, KAT_CTR };
@@ -89,7 +89,7 @@ struct kat {
 
 static int src_i, dst_i, burst = 3;	/* burst code: 16 << n bytes; 3 = 128 B, map max */
 static int hash_layout;			/* 0: SDK authEngine dst (dbl 0); 1: ipsecEngine dst */
-static u64 job_ticks;
+static u64 job_ticks, job_max, job_sum;	/* last job; max and sum since job_reset() */
 
 static u32 ir(u32 off) { return __raw_readl((void __iomem *)(IPS + off)); }
 static void iw(u32 off, u32 v) { __raw_writel(v, (void __iomem *)(IPS + off)); }
@@ -165,7 +165,9 @@ static int eng_run(const char *what, u32 bytes, volatile struct ddesc *d)
 	iw(IPSCSR, CSR_PEND);
 	t0 = get_ticks();
 	iw(IPSCSR, CSR_POLL);
-	while (!((v = ir(IPSCSR)) & (CSR_DDOK | CSR_SDLE | CSR_DABF | CSR_DDUE))) {
+	/* DDOK can precede the dst OWN write-back (measured): done = DDOK and OWN clear */
+	while (!((v = ir(IPSCSR)) & (CSR_SDLE | CSR_DABF | CSR_DDUE)) &&
+	       !(v & CSR_DDOK && !(d->w0 & D_OWN))) {
 		if (get_ticks() - t0 > lim) {
 			printf("crypto: %s TIMEOUT limit %u us elapsed %u us CSR %08x dst.w0 %08x\n", what,
 			       JOB_US(bytes), ticks_to_us(get_ticks() - t0), v, d->w0);
@@ -174,6 +176,9 @@ static int eng_run(const char *what, u32 bytes, volatile struct ddesc *d)
 		}
 	}
 	job_ticks = get_ticks() - t0;
+	job_sum += job_ticks;
+	if (job_ticks > job_max)
+		job_max = job_ticks;
 	if (v & (CSR_SDLE | CSR_DABF | CSR_DDUE) || d->w0 & D_OWN) {
 		printf("crypto: %s error CSR %08x dst.w0 %08x\n", what, v, d->w0);
 		eng_init();
@@ -229,7 +234,7 @@ static int eng_cipher(int alg, int mode, bool enc, const u8 *key, int klen, cons
 		if (put_src(w0 | D_FS | kl, len, 0, PHYS(KEYB)) || put_src(ivlen, len, 0, PHYS(IVB)) ||
 		    put_src(len, len, 0, PHYS(data)))
 			return -1;
-		if (eng_run("cipher", len * 2, d))
+		if (eng_run("cipher", len, d))
 			return -1;
 	}
 	invalidate_dcache_range(data, data + len);
@@ -382,7 +387,7 @@ static int crypto_test(void)
 		if (kats[i].alg >= KAT_MD5 && (!i || kats[i - 1].alg < KAT_MD5)) {
 			for (layout = 0; layout < 2; layout++) {	/* first hash: find the dst layout */
 				hash_layout = layout;
-				printf("hash dst layout %d: ", layout);
+				printf("hash dst layout %d\n", layout);
 				if (kat_one(&kats[i]))
 					break;
 			}
@@ -405,6 +410,18 @@ static void mbs(const char *tag, u32 bytes, u64 ticks)
 	do_div(v, ticks ? (u32)ticks : 1);
 	do_div(v, 1000);
 	printf(" %s %u.%03u MB/s", tag, (u32)v / 1000, (u32)v % 1000);
+}
+
+static void job_reset(void)
+{
+	job_max = job_sum = 0;
+}
+
+/* engine-only rate (kick to done, excludes CPU setup/cache ops) and the longest job */
+static void job_report(u32 bytes)
+{
+	mbs("eng", bytes, job_sum);
+	printf(" jobmax %u us", ticks_to_us(job_max));
 }
 
 static void fill(ulong p, u32 len)
@@ -440,6 +457,7 @@ static int bench_aes(const char *name, int mode, bool enc, int klen)
 
 	fill(ORIG, SZ_1M);
 	memcpy((void *)BUF, (void *)ORIG, SZ_1M);
+	job_reset();
 	memset(iv, 0xa5, 16);
 	t0 = get_ticks();
 	for (off = 0; off < SZ_1M; off += n) {
@@ -481,7 +499,8 @@ static int bench_aes(const char *name, int mode, bool enc, int klen)
 	printf("cbench %s", name);
 	mbs("hw", SZ_1M, th);
 	mbs("sw", SZ_1M, ts);
-	printf(" job %u us verify %s\n", ticks_to_us(job_ticks), bad ? "MISMATCH" : "ok");
+	job_report(SZ_1M);
+	printf(" verify %s\n", bad ? "MISMATCH" : "ok");
 	return bad;
 }
 
@@ -497,6 +516,7 @@ static int bench_des(const char *name, int alg)
 
 	fill(ORIG, SZ_1M);
 	memcpy((void *)BUF, (void *)ORIG, SZ_1M);
+	job_reset();
 	for (pass = 0; pass < 2; pass++) {
 		memset(iv, 0x5a, 8);
 		t0 = get_ticks();
@@ -517,7 +537,8 @@ static int bench_des(const char *name, int alg)
 	printf("cbench %s", name);
 	mbs("hw", SZ_1M, te);
 	mbs("hw-dec", SZ_1M, td);
-	printf(" sw - job %u us verify %s\n", ticks_to_us(job_ticks), bad ? "MISMATCH" : "roundtrip ok");
+	job_report(2 * SZ_1M);
+	printf(" sw - verify %s\n", bad ? "MISMATCH" : "roundtrip ok");
 	return bad;
 }
 
@@ -529,6 +550,7 @@ static int bench_hash(const char *name, bool sha1, bool hmac)
 	u32 off, n, bad = 0, i, dl = sha1 ? 20 : 16;
 	u64 t0, th = 0, ts = 0;
 
+	job_reset();
 	fill(ORIG, SZ_1M);
 	for (off = 0; off < SZ_1M; off += n) {
 		n = min_t(u32, HCHUNK, SZ_1M - off);
@@ -578,7 +600,8 @@ static int bench_hash(const char *name, bool sha1, bool hmac)
 	printf("cbench %s", name);
 	mbs("hw", SZ_1M, th);
 	mbs("sw", SZ_1M, ts);
-	printf(" job %u us verify %s\n", ticks_to_us(job_ticks), bad ? "MISMATCH" : "ok");
+	job_report(SZ_1M);
+	printf(" verify %s\n", bad ? "MISMATCH" : "ok");
 	return bad;
 }
 

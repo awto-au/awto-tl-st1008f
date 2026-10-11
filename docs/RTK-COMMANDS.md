@@ -91,6 +91,7 @@ Unit = `rtk unit set` value (default 0); a unit >= 6 prints `\nUnit %u invalid u
 | `rtk temp` | enables the thermal meter if off (RMW), waits for a valid sample (cap 100 ms, no measured settling time yet), prints deg C and min/max since enable | `rtk_temp` |
 | `rtk led ...` | 24 port LEDs as a 3x8 matrix, snake, boot indicator, error latch ([below](#port-leds)) | `rtk_led` |
 | `rtk sds ...` | SerDes test tools: status, error counters, PRBS, loopback, RX/TX eye ([below](#serdes-test-tools-rtk-sds-74)) | `sds_tools_test.py` |
+| `rtk crypto probe\|test\|bench` | SoC crypto engine: register read / 25 NIST+RFC KATs / 1 MiB MB/s vs software ([CRYPTO.md](CRYPTO.md)) | `./dev.py crypto-test` |
 | `rtk help-ours` | lists the above | none |
 
 `help rtk` text is the stock text (typos included); extras are only in `rtk help-ours`.
