@@ -40,6 +40,7 @@ Index of owner decisions, newest first. One line each: date (AEDT), decision, li
 - HIGHMEM kept: use all 512 MiB and fix the MIPS DMA highmem cost (`300-13`) rather than turn HIGHMEM off. #27.
 - Port all of OpenWrt's realtek target to our 7.3 kernel and optimise NAT there (step 1); full OpenWrt userspace on 7.3 = step 2. #16.
 - Local OpenWrt buildroot lives on `/mnt/2tb` (repo `tmp/`), low priority (`nice 19`, `-j8`): keep host cores free. Keep the switch's CPU threads free too: everything the ASIC can do stays in the ASIC. [OPENWRT-BUILD.md](OPENWRT-BUILD.md).
+- NIC profiling: ftrace `function_graph` + CP0 Count first; musl toolchain + static `perf` only if ftrace cannot attribute the per-packet cost; no OpenWrt buildroot perf. [NAT-OPS.md](NAT-OPS.md), #67.
 - CPU-port 10G register test skipped until the CPU path nears 1 Gbit/s; no register-poke kernel module. #60, #65.
 - Fast-NAT work: research + measure, IPv6-first strategy, PIE to keep non-NAT traffic off the CPU. [NAT.md](NAT.md), #65.
 - Mode switch reverse-engineered from vendor `rtk.ko` and made permanent in U-Boot and Linux (`300-06`); our test is not the reference. #64.
