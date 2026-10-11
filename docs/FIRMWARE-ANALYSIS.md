@@ -71,6 +71,16 @@ All MIPS32 BE, built Realtek MSDK-4.8.5p1 / SDK3.6.6.55087 (same as kernel). bus
 - U-Boot env: 65,536 bytes from `0xe0000` (BDINFO). `ethaddr` = Realtek OUI with placeholder NIC bytes. `printsys` → `Invalid system information`. No unique factory MAC location found.
 - [stock-flash-layout.json](stock-flash-layout.json) covers exactly 33,554,432 contiguous bytes.
 
+### Network presence of stock Linux (#10)
+
+Static, from the full-flash dump; no traffic test run yet.
+
+- `rc`: `ifconfig lo 127.0.0.1`, loopback route, then `ifconfig eth0 192.168.1.1`. `eth0` = CPU-port NIC (`rtnic.ko`, SDK CPU port 28): the stock IP stack is up on the CPU port.
+- No network daemons: busybox has no `telnetd`, `httpd`, `udhcpc`/`udhcpd`, `inetd`, `ftpd`/`tftpd`, `ntpd`, `syslogd`, `dropbear`. Only `diag` runs (console-bound).
+- IPv4 built into the kernel; `ipv6.ko` is shipped, `rc` never loads it.
+- Expected exposure = kernel only: ARP replies + ICMP echo for `192.168.1.1`, and only if the ASIC delivers frames to port 28 (L2 entry for the CPU MAC, flood masks, ARP/RMA traps, isolation). Those registers are unread under stock Linux; OpenWrt programs the ASIC differently, so its values don't count.
+- Open: `diag` carries many `rtrpc_*` (Realtek RPC) symbols; whether that is a socket listener or a local ioctl path is unchecked (static check: `bind`/`listen`/`accept` imports).
+
 ## Related managed-switch firmware
 
 No public TL-ST1008F firmware exists on its official download pages. Related official updates were acquired for comparison.
@@ -118,6 +128,39 @@ No public TL-ST1008F firmware exists on its official download pages. Related off
   - SX v2 2.0.0: getty line commented out.
 - Autoboot stop key: ST1008F stock = Esc at 115200; ST5008F v2 loader = Ctrl+B at 38400.
 - `CONFIG_MAGIC_SYSRQ` is compiled in; no sysrq-enabling bootarg, no kgdb.
+
+### Unmanaged ST1008F vs managed ST5008F v2 (#7)
+
+Same platform (`RTL9303_8XGE`, U-Boot 2011.12, Realtek SDK lineage); differences are firmware only.
+
+| Area | ST1008F v2 stock | ST5008F v2 1.2.0 |
+|---|---|---|
+| U-Boot | 3.6.6.55087, 2022-01-19, 115200, Esc | 3.6.9.55156, 2026-05-06, 38400, Ctrl+B |
+| Flash layout | kernel built-in array (LOADER … RUNTIME2) | `mtdparts=` from U-Boot `bootargs` |
+| Kernel image | `RTK_SDK` uImage, magic `0x93000000` | standard uImage, LZMA |
+| Init | `rc` → SDK modules → `diag` (foreground) | `rcS`, `mdev`, getty, `start_system.sh` |
+| `diag` size | 2.4 MB | 4.9 MB |
+
+- SDK modules: stock `rtcore`, `rtk`, `rtnic`, `rtdrv` in the initramfs. ST5008F: `rtcore` in the initramfs; `rtdrv`, `sdktest` and the rest loaded by `/etc/rc` from the app image.
+- TP-Link extras on ST5008F only: `ethdriver.ko` (`/dev/tp-eth` c 127:0), `mgntPort.ko` (netfilter), zram swap.
+- Management apps on ST5008F only: `core`, `cli_server`, `scm`, `monitor`, httpd, SSH, SNMP, FRR (`frr.conf`, `daemons`, `vtysh.conf`). Stock: none (`/bin/cli` named in `passwd`, absent).
+- CPU packet path (user-mode SDK, `tp-eth` over netlink, CPU port shaped to 600 pps): [VENDOR-NIC-TUNING.md](VENDOR-NIC-TUNING.md).
+- Feature set and board-level differences (GPIO use, TX-disable on the LED chain): [MANAGED-FEATURES.md](MANAGED-FEATURES.md).
+
+### ST5008F v2 boot chain and flash layout (#6)
+
+- Kernel: standard uImage, LZMA, `Linux version 3.18.24 (jenkins@...) #3 Wed May 6`; `CONFIG_MTD_CMDLINE_PARTS` built in (no built-in partition array).
+- U-Boot default `bootargs`: `console=ttyS0,38400n8 mem=250m rtk_dma_size=6M mtdparts=spi_flash:896K(boot),128K(env),9M(usrimg2),9M(usrimg1@main),8M(sys),3840K(usrappfs),256K(tp_head),1M(para)`.
+- Init chain: `inittab` → `rcS` → `mdev -s` → getty on ttyS0 → `/etc/start_system.sh`:
+  - `InitCore`: `dd` the `usrimg{1,2}@main` app squashfs → `/img/usrImage`, loop-mounted at `/tplink/image`.
+  - `usrappfs` mounted JFFS2 read-write at `/tplink/usrapp`.
+  - app tree symlinked into `/tplink/exe`; `insmod ethdriver.ko`; `mknod /dev/tp-eth c 127 0`; `/etc/rc` (SDK modules); `/etc/monitor` in a respawn loop.
+- That `mtdparts` against the stock ST1008F layout:
+  - `env` (0xE0000, 128K) overlaps BDINFO + SYSINFO.
+  - `usrimg1@main` = 0xA00000-0x1300000 overlaps the second kernel copy in RUNTIME1.
+  - `usrappfs` = 0x1B00000-0x1EC0000 lies in RUNTIME2; a JFFS2 rw mount writes cleanmarkers / may erase.
+- `core`/`scm` may read product ID / MAC / HW version from `tp_head`, `para`, `sys`; absent on ST1008F.
+- RAM-booting this firmware on the ST1008F (read-only `mtdparts=spi_flash:32M(all)ro`, app squashfs in the initramfs, tmpfs for `usrappfs`): not attempted (#6).
 
 ### Software base age
 
@@ -192,8 +235,12 @@ Projects (local only): `private/ghidra/stock-loader-mapped.gpr`, `private/ghidra
 - [TL-ST5008 v1 update](https://resource.tp-link.com.cn/pc/docCenter/showDoc?id=1707112849710707)
 - [SX v1 GPL archive](https://static.tp-link.com/upload/gpl-code/2024/202412/20241206/SX3008F_GPL.tar.gz)
 - [GPL model listing](https://www.tp-link.com/phppage/gpl-res-list.html?model=SX3008F&appPath=us)
-- [OpenWrt TL-ST1008F v2 support commit](https://github.com/openwrt/openwrt/commit/39b9b491bb)
+- [OpenWrt TL-ST1008F v2 support commit](https://github.com/openwrt/openwrt/commit/39b9b491bb): port ↔ SerDes ↔ cage map, tx-disable expander, mode-switch GPIOs, LED sets, watchdog pin.
+  - Its "Initial flashing" note ("stock U-boot has broken networking thus no TFTP available. Serial transfer only") is wrong: stock U-Boot TFTPs over the SFP+ cages after `rtk network on` + laser enable ([hardware.md](hardware.md#method-a-use-this-native-rtk-i2c-device-8)). Verified netboot of the OpenWrt initramfs on two cages, each with a generic FS 10GBASE-SR module (no vendor-SFP lock in U-Boot). Upstream correction drafted, held for owner go (#45).
 - [OpenWrt v2 DTS](https://github.com/openwrt/openwrt/blob/main/target/linux/realtek/dts/rtl9303_tplink_tl-st1008f-v2.dts)
-- [NicGiga S100-0800S-M (same board profile)](https://openwrt.org/toh/nicgiga/s100-0800s-m)
+- OpenWrt `realtek/rtl930x` drivers (`rtl930x.c`, `pcs-rtl-otto`): register map (L2, LED, MIB), SerDes RX calibration under Linux.
+- [svanheule.net TL-ST1008F page](https://www.svanheule.net/switches/tl-st1008f): BOM (TCA9534A, 3× 74HC164 = 3 LEDs/port, tri-state 2.5G selector, W25Q256JV, TPS568230, PT7A7514).
+- [NicGiga S100-0800S-M (same board profile)](https://openwrt.org/toh/nicgiga/s100-0800s-m): TFTP RAM-boot from its stock U-Boot.
+- Unverified community reports (#12): RTL9303 8×SFP+ managed and unmanaged SKUs (NICGIGA/Sodola type) on identical hardware, firmware-only difference (Reddit); TL-ST1008F passive DAC works (Level1Techs); DAC is the reliable case and the tri-state switch is the port-speed selector (linux-realtek list).
 - GPL U-Boot/SDK sources matching this loader: `github.com/reyalo/Realtek` (`sources/uboot-dms1250`, `sources/rtk-dms1250`, `sources/rtk-xgs1210`).
 - Buildable SDK U-Boot: olliver's `realtek_sdk` on GitLab (`tplink_maple` branch).
