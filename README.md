@@ -142,6 +142,8 @@ Details per script: [scripts/README.md](scripts/README.md).
 
 ## Docs
 
+Full index: [docs/README.md](docs/README.md).
+
 - [docs/hardware.md](docs/hardware.md) — identity, UART, cage↔port↔SerDes map, GPIO/I2C, lasers, hazards.
 - [docs/UBOOT-REFERENCE.md](docs/UBOOT-REFERENCE.md) — stock U-Boot: source match, `rtk` commands + hazards, bring-up path, datapath registers.
 - [docs/UBOOT-FUNCMAP.md](docs/UBOOT-FUNCMAP.md) — SDK function addresses in the stock loader.
