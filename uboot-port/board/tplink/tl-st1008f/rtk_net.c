@@ -632,6 +632,7 @@ static void network_on(void)
 	io_err = 0;
 	if (!constructed)
 		construct();
+	rtk_presence_pins_gpio();	/* before cage_media/power sum read the cages (#29) */
 	printf("Please wait for PHY init-time ...\n\n");
 	for (c = 1; c <= NCAGES; c++) {
 		port = rtk_cage_port[c - 1];

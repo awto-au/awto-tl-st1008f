@@ -53,6 +53,7 @@ No undocumented devices (`unknown I2C devices: 0`). Raw: `tmp/bus_scan-77.json`.
 - CS0: JEDEC `ef 40 19` (W25Q256), RDSR 00.
 - CS1: reads `ff`, nothing attached.
 - Switch-core master `SPI_CTRL1 = 0035e000`: GPIO3-5 as SPI, no CS routed, idle; not driven (pins = cage presence).
+  - Set by stock `rtk network on` (`ramload` runs it before our U-Boot). It made empty cages 4-6 read "present" (#29); our U-Boot and Linux DTS now mux GPIO3-7 back to GPIO ([hardware.md](hardware.md#cage-presence-pinmux-29)).
 
 ### Registers
 - MAC EEPROM autoload: NOEEPROM 0, EEPROM_COMPL 1, VALID_FAIL 1: the reset-time download gets an answer (likely cage-1 SFP EEPROM on the shared SDA) and rejects it; nothing loaded.

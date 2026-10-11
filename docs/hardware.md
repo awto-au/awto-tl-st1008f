@@ -81,6 +81,18 @@ From the OpenWrt v2 DTS (`SWITCH_PORT_SFP(p,l,s,c,g)` = SoC port, label, SerDes,
 - Cages 1/2 = SDK ports **0 and 8**, not 0 and 1. Stock Linux `port 0 media 5` / `port 1 media 5` messages use logical module indices, not SDK ports (one fewer line after removing the cage-2 module).
 - Verified live: cage 1 and cage 2 each TFTP an image with only that laser lit.
 
+### Cage presence pinmux (#29)
+
+- MOD-DEF0 cages 4-8 = GPIO3-7 share pins with the switch-core SPI master. `SPI_CTRL1` `0xbb0003a0` muxes them:
+  - bit 13 `GPIO_SPI_SEL` = GPIO3-5 (cages 4-6) as SCK/MISO/MOSI.
+  - bit 11 `GPIO6_CSB1_SEL` = GPIO6 (cage 7) as CS1; bit 10 `GPIO7_CSB0_SEL` = GPIO7 (cage 8) as CS0.
+- Stock `rtk network on` ("SPI Master init") writes `0x0000e000` (bit 13 + `CLK_DIV`): reads `0035e000` after it, `00340000` without it (reg-diff).
+- Bit 13 set: GPIO3-5 read 0 = "present" on empty cages; Linux sfp then fails the EEPROM read (`-EIO`). Seen in RAM boots after stock network on (`ramload` flows).
+- Nothing uses the switch-core SPI master on this board (#77). The pins are always GPIO in our code:
+  - Our U-Boot clears bits 13/11/10 in `board_init` and in `rtk network on` (`rtk_presence_pins_gpio()`, `rtk.h`).
+  - Linux DTS: `pinmux@1b0003a0` (`pinctrl-single`, nodes as OpenWrt `rtl930x.dtsi`), applied by `&gpio0` `pinctrl-0` (mainline DTS, OpenWrt 6.18 tree patch).
+- OpenWrt's TL-ST1008F v2 DTS does not apply `pinmux_disable_spi0` (upstream fix: draft, not posted).
+
 ### Switch fabric
 
 - One chip: the RTL9303 package holds the CPU (1× MIPS 34Kc, 800 MHz, 2 hardware threads → Linux shows 2 CPUs), the switch core, 8 SerDes, GPIO/I2C/SPI/LED/thermal blocks. No separate processor on the board. External: DDR3, SPI NOR, TCA9534A, 74HC164s.
@@ -116,7 +128,7 @@ From the OpenWrt v2 DTS (`SWITCH_PORT_SFP(p,l,s,c,g)` = SoC port, label, SerDes,
 | 5G/10GBASE-T (byte 36 `0x16`/`0x1c`/`0x1d`, or RJ45 + rate ≥ 10G) | 3.0 W | FS SFP-10G-T-30: 3.0 W max |
 
   - Datasheets: [sources/README.md](../sources/README.md).
-  - Present but EEPROM unreadable: 1.0 W in Linux (power level 1, as `sfp.c` leaves it). U-Boot counts only modules whose EEPROM answers (MOD-DEF0 can read present on an empty cage, #29).
+  - EEPROM unreadable = not inserted: 0 W, cage reported empty, in U-Boot and Linux (#29).
   - GLC-T declares level 1 and has connector byte `0x07` (not RJ45), so it is counted 1.2 W via byte 6.
 - **U-Boot** (`rtk_sfppower.c`):
   - `rtk sfp power`: per cage counted W + source, then total vs budget.
@@ -158,7 +170,7 @@ Read-only scan 2026-10-12 (`./dev.py bus-scan`, details: [BUS-SCAN.md](BUS-SCAN.
 - Expander bus (bit-bang SCL GPIO22 / SDA GPIO23): only 0x38 TCA9534A. No temp sensor, RTC, EEPROM or PMIC.
 - I2C MST2: not scanned (SCL1 = GPIO17 = mode switch); idle (CTRL2 `0x5003`).
 - SPI-NOR controller: CS0 = W25Q256 (JEDEC `ef 40 19`); CS1 reads `ff`, nothing attached.
-- Switch-core SPI master (`SPI_CTRL1` `0xbb0003a0` = `0035e000`): GPIO3-5 muxed as SPI, no CS routed, idle; never driven (pins = cage-presence lines).
+- Switch-core SPI master (`SPI_CTRL1` `0xbb0003a0` = `0035e000` after stock network on): GPIO3-5 muxed as SPI, no CS routed, idle; nothing attached. Our code muxes the pins back to GPIO ("Cage presence pinmux" above).
 - MAC EEPROM autoload (`0xbb00c6e4..`): runs at every reset; STS NOEEPROM 0 / COMPL 1 / VALID_FAIL 1 → something answers (likely cage-1 SFP EEPROM on the shared SDA), content rejected, nothing loaded.
 - I2C/SPI slave register interface (`0xbb000360-0368`): 0, unused.
 
@@ -231,7 +243,7 @@ Source: static RE of stock `rtk.ko` (TP-Link additions, `TP_CHKPATTERN` thread).
 - DT node `mode-switch` (mainline DTS): `gpios` = pins 17/18/19 `GPIO_ACTIVE_HIGH` (raw, like stock), `port@N { sfp = <&sfpN>; }`. Replaces the gpio-keys M1/M2/M3 node (same pins, one owner).
 - Per-port action via `set_link_ksettings` on the netdev whose `sfp_bus` is the cage's: media 2 = 1000BASE-X AN on, media 3 = 2500BASE-X AN off, unmatched = admin down; 10G/DAC/unknown untouched; modules with a PHY untouched.
 - Pattern change: logs `pattern changed`, re-reads every module under the new pattern. No GPIO21 write.
-- Presence = I2C probe of EEPROM 0x50 (not MOD-DEF0, #29); removal after 2 failed probes.
+- Presence = I2C probe of EEPROM 0x50 (not MOD-DEF0); removal after 2 failed probes. 0x50 answers but the ID read fails = empty (0 W, no media decision), retried each pass, logged once (#29).
 - State: `/sys/kernel/debug/st1008f-mode-switch/state`. Mainline (no DSA ports): decisions only, `no netdev on this cage`.
 
 ## Thermal

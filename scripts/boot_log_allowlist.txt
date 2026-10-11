@@ -339,7 +339,6 @@ Failed to find NVMEM device  # no MAC source in the image -> random MAC; known #
 realtek-otto-pcs 1b000000\.switchcore:pcs: pcs_config\(10gbase-r\) for port (0|8|27) and sds [239] not yet fully implemented  # upstream PCS stub (cages 1/2/8); known #29
 realtek-otto-pcs 1b000000\.switchcore:pcs: pcs_config\(sgmii\) for port (16|20|24|25|26) and sds [4-8] not yet fully implemented  # upstream PCS stub (empty cages 3-7); known #29
 rtpcs_930x_sds_10g_idle WARNING: Waiting for RX idle timed out, SDS [4-8]  # empty cages 3-7, RX never idles; known #29
-sfp sfp-p[456]: failed to read EEPROM: -EIO  # empty cages 4-6 seen as present; known #29
 rtpcs_930x_sds_force_mode: SDS 9 could not reset state machine  # seen once on lan8; known #29
 rtl838x-eth 1b00a300\.ethernet eth0: Ring contention: r: 0, last a38000[0-9a-f]{2}, cur a38000[0-9a-f]{2}  # CPU-port RX ring swamped during the cage-loop storm; known #19
 

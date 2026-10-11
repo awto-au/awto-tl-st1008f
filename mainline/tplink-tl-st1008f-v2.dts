@@ -192,6 +192,38 @@
 	status = "okay";
 };
 
+/* SPI_CTRL1 pinmux, as OpenWrt rtl930x.dtsi (mainline dtsi lacks it). Stock U-Boot muxes GPIO3-5
+ * (cage 4-6 MOD-DEF0) to the unused switch-core SPI master: empty cages read "present" (#29). */
+/ {
+	pinmux@1b0003a0 {
+		compatible = "pinctrl-single";
+		reg = <0x1b0003a0 0x4>;
+		pinctrl-single,bit-per-mux;
+		pinctrl-single,register-width = <32>;
+		pinctrl-single,function-mask = <0x1>;
+		#pinctrl-cells = <2>;
+
+		/* GPIO3-5 = GPIO */
+		pinmux_disable_spi0: disable-spi0 {
+			pinctrl-single,bits = <0x0 0x0 0x2000>;
+		};
+		/* GPIO6 = GPIO (cage 7 MOD-DEF0) */
+		pinmux_disable_spi0_cs1: disable-spi-cs1 {
+			pinctrl-single,bits = <0x0 0x0 0x800>;
+		};
+		/* GPIO7 = GPIO (cage 8 MOD-DEF0) */
+		pinmux_disable_spi0_cs0: disable-spi-cs0 {
+			pinctrl-single,bits = <0x0 0x0 0x400>;
+		};
+	};
+};
+
+/* GPIO0-7 = cage MOD-DEF0: take them back from the SPI master before any sfp probes (#29) */
+&gpio0 {
+	pinctrl-names = "default";
+	pinctrl-0 = <&pinmux_disable_spi0>, <&pinmux_disable_spi0_cs1>, <&pinmux_disable_spi0_cs0>;
+};
+
 /* Port LED pattern, read by the rtl83xx DSA driver (led-set per port) */
 / {
 	led_set {

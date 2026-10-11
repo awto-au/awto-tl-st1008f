@@ -51,7 +51,9 @@ Deviations from stock:
 SFP power budget (warn only, never blocks a module):
 - Per insert: declared power from ID EEPROM byte 64 (level 1/2/3 =
   1.0/1.5/2.0 W); copper modules raised to a datasheet table (1000BASE-T
-  1.2 W, 2.5GBASE-T 2.0 W, 5G/10GBASE-T 3.0 W); unreadable = 1.0 W.
+  1.2 W, 2.5GBASE-T 2.0 W, 5G/10GBASE-T 3.0 W).
+- ID EEPROM unreadable = not inserted (0 W, no media decision), retried
+  every pass; logged once.
 - Total of all cages vs power_budget_mw (default 15000 = (24 W input - 6 W measured
   board draw) x 0.85 regulator, in declared module W): dev_warn once when it goes over, info when
   back under, info on every change of the total.
@@ -115,7 +117,7 @@ new file mode 100644
 index 000000000..131e3e101
 --- /dev/null
 +++ b/drivers/platform/mips/tplink-st1008f-mode.c
-@@ -0,0 +1,795 @@
+@@ -0,0 +1,799 @@
 +// SPDX-License-Identifier: GPL-2.0-only
 +/*
 + * TP-Link TL-ST1008F v2: 3-position mode switch, ported from the stock rtk.ko
@@ -194,6 +196,7 @@ index 000000000..131e3e101
 +	struct sfp_bus *bus;		/* matches net_device->sfp_bus of the cage's port */
 +	struct i2c_adapter *i2c;	/* the cage's ID EEPROM bus (sfp node "i2c-bus") */
 +	bool present;			/* vendor: !DAT_0004cc9c ("was absent") */
++	bool unread;			/* 0x50 answers, ID read fails: counted empty, retried */
 +	int misses;
 +	bool elec;			/* tpSfpIsElec: "SFP-T" at EEPROM 120 */
 +	unsigned int power_mw;		/* counted toward the budget; 0 = empty */
@@ -596,7 +599,7 @@ index 000000000..131e3e101
 +		if (!p->i2c)
 +			continue;
 +		seen[i] = !st_i2c_probe(p);
-+		recheck |= seen[i] && !p->present;
++		recheck |= seen[i] && !p->present && !p->unread;
 +	}
 +	if (recheck)	/* vendor re-reads one port at a time; one sleep covers all */
 +		msleep(ST_RECHECK_MS);
@@ -609,6 +612,7 @@ index 000000000..131e3e101
 +		if (seen[i] && !p->present)
 +			seen[i] = !st_i2c_probe(p);
 +		if (!seen[i]) {
++			p->unread = false;
 +			if (p->present && ++p->misses >= ST_REMOVE_MISSES) {
 +				dev_info(ms->dev, "port %d outsert\n", i);
 +				p->present = false;
@@ -623,16 +627,17 @@ index 000000000..131e3e101
 +		p->misses = 0;
 +		if (p->present)
 +			continue;
-+		p->present = true;
++		/* unreadable = not inserted: no power counted, no media decision (#29) */
 +		if (st_read_eeprom(p, id)) {
-+			dev_info(ms->dev, "dev %d eeprom read error!\n", i);
-+			p->cls = ST_CLS_NONE;
-+		} else {
-+			p->cls = st_classify(ms, i, id);
++			if (!p->unread)
++				dev_info(ms->dev, "dev %d eeprom read error, counted empty\n", i);
++			p->unread = true;
++			continue;
 +		}
-+		p->power_mw = p->cls == ST_CLS_NONE ? 1000 : st_power_mw(id, &p->power_why);
-+		if (p->cls == ST_CLS_NONE)	/* unread: power level 1, as sfp.c leaves it */
-+			p->power_why = "unread";
++		p->unread = false;
++		p->present = true;
++		p->cls = st_classify(ms, i, id);
++		p->power_mw = st_power_mw(id, &p->power_why);
 +		st_decide(ms, i);
 +	}
 +
@@ -713,7 +718,8 @@ index 000000000..131e3e101
 +		seq_printf(s, "%d %d %d %d %d %d %d %s %s %d %u %s %s\n", i, i + 1, p->pat,
 +			   p->present, p->cls, p->elec, p->media, st_act_name[p->act],
 +			   p->ifname[0] ? p->ifname : "-", p->res, p->present ? p->power_mw : 0,
-+			   p->present ? p->power_why : "-", p->note ?: "-");
++			   p->present ? p->power_why : "-",
++			   p->unread ? "eeprom unreadable, counted empty" : p->note ?: "-");
 +	}
 +	mutex_unlock(&ms->lock);
 +	return 0;

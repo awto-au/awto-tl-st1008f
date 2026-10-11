@@ -29,6 +29,16 @@ static inline void sw_rmw(u32 off, u32 mask, u32 set)
 	sw_w(off, (sw_r(off) & ~mask) | set);
 }
 
+/* SPI_CTRL1 pinmux: GPIO_SPI_SEL [13] (GPIO3-5), GPIO6_CSB1_SEL [11], GPIO7_CSB0_SEL [10].
+ * Stock `rtk network on` sets [13]: cage 4-6 MOD-DEF0 then read "present" when empty (#29).
+ * Nothing on this board uses the switch-core SPI master (docs/BUS-SCAN.md). */
+#define SPI_CTRL1		0x3a0
+#define SPI_CTRL1_PINMUX	(BIT(13) | BIT(11) | BIT(10))
+static inline void rtk_presence_pins_gpio(void)
+{
+	sw_rmw(SPI_CTRL1, SPI_CTRL1_PINMUX, 0);
+}
+
 /* cage 1..8 <-> SDK port / SerDes id (docs/hardware.md port table) */
 extern const u8 rtk_cage_port[NCAGES];
 static inline int rtk_cage_sds(int cage)

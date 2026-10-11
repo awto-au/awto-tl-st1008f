@@ -47,6 +47,7 @@ const char *st1008f_mode_name(int mode)
 
 int board_init(void)
 {
+	rtk_presence_pins_gpio();	/* undo stock network on's SPI pinmux (ramload flows, #29) */
 	return 0;
 }
 

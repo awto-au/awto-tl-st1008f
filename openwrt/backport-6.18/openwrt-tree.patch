@@ -1,5 +1,6 @@
 OpenWrt-tree overlay for TL-ST1008F v2 (#73), applied by scripts/build_openwrt.py with git apply:
-- DTS: gpio-keys M1/M2/M3 -> mode-switch node (300-06, cage@N children); spi0 dirmap window (300-07)
+- DTS: gpio-keys M1/M2/M3 -> mode-switch node (300-06, cage@N children); spi0 dirmap window (300-07);
+  gpio0 applies pinmux_disable_spi0* (cage presence GPIO3-7, #29)
 - rtl930x/config-6.18: MIPS_PLATFORM_DEVICES + TPLINK_ST1008F_MODE_SWITCH built in; MIPS_CMDLINE_DTB_EXTEND
   (DT bootargs + U-Boot bootargs: st1008f.mode/boot from bootsel, #73)
 
@@ -84,10 +85,16 @@ OpenWrt-tree overlay for TL-ST1008F v2 (#73), applied by scripts/build_openwrt.p
  		};
  	};
  
-@@ -185,7 +199,14 @@
+@@ -185,7 +199,20 @@
  	};
  };
- 
+
++/* GPIO3-7 = cage 4-8 MOD-DEF0; stock U-Boot muxes GPIO3-5 to the switch-core SPI master (#29) */
++&gpio0 {
++	pinctrl-names = "default";
++	pinctrl-0 = <&pinmux_disable_spi0>, <&pinmux_disable_spi0_cs1>, <&pinmux_disable_spi0_cs0>;
++};
++
 +/* Flash read window 0x14000000 (32 MiB) for spi0 dirmap reads (300-07) */
 +&soc {
 +	ranges = <0x0 0x18000000 0x20000>, <0x14000000 0x14000000 0x2000000>;
