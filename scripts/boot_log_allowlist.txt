@@ -202,6 +202,16 @@ tap0_coef_bin = \d+  # SerDes RX calibration debug print
 vth_set_bin = \d+  # SerDes RX calibration debug print
 
 [mainline]
+Linux version 7\.\d+\.\d+(-rc\d+)?(-dirty)? \(.*\) #\d+ .*  # our mainline build (tmp/linux-v7.3)
+RTL930x DRAM controller prefetch on \(MCR [0-9a-f]{8}\)  # openwrt/patches/300-04 (#53)
+highmem kernel with > 256 MB RAM, adapt SoC memory mapping  # OpenWrt 300-02 zone-3 remap
+Realtek RTL9303 rev B \(6487\) SoC with 512 MB  # OpenWrt 300-02 SoC detection
+No 'frequency' property in DT, using default\.  # CP0 timer rate guessed; known #55
+Memory: \d+K/\d+K available \(.*\)  # stage-0 DTS maps 256 MiB
+\s*HighMem\s+empty  # stage-0 DTS: no highmem zone yet
+SLUB: HWalign=32, Order=0-3, MinObjects=0, CPUs=1, Nodes=1  # allocator info
+futex hash table entries: \d+ \(.*\)\.?  # core info
+posixtimers hash table entries: \d+ \(.*\)  # core info
 Linux version 7\.\d+\.\d+(-rc\d+)?(-dirty)? \(\w+@\w+\) \(mips64-linux-gnu-gcc \(GCC\) [0-9.]+ \d+ \(Red Hat Cross [0-9.-]+\), GNU ld version [0-9.-]+\.fc\d+\) #\d+ SMP [A-Z][a-z]{2} [A-Z][a-z]{2} +\d+ \d\d:\d\d:\d\d [A-Z]{3,4} 20\d\d  # mainline kernel banner (Fedora cross toolchain)
 Adding initrd info from environment  # MIPS prom: U-Boot env has no initrd (see 'Initrd not found' in triage)
 Kernel command line: earlycon earlycon  # command line pinned
