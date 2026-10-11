@@ -89,6 +89,7 @@ Unit = `rtk unit set` value (default 0); a unit >= 6 prints `\nUnit %u invalid u
 | `rtk port` / `rtk port status` | per cage: port, SerDes id, presence, module PN, laser on/off, SerDes mode, RX light (page 5 reg 0 bit 12), MAC link (`0xCB10`), LED owner (hw/sw). Read-only | `rtk_port` |
 | `rtk mode` | M1/M2/M3 position: `mode: pins 17/18/19 = a/b/c -> pattern N (Mx, ...)` (stock decode), then `boot policy: Mx <name> (pins 18/19; #46)`. Measured one-hot: M1 0/1/1, M2 1/0/1, M3 1/1/0 (hardware.md) | `rtk_mode` |
 | `rtk temp` | enables the thermal meter if off (RMW), waits for a valid sample (cap 100 ms, no measured settling time yet), prints deg C and min/max since enable | `rtk_temp` |
+| `rtk led ...` | 24 port LEDs as a 3x8 matrix, snake, boot indicator, error latch ([below](#port-leds)) | `rtk_led` |
 | `rtk help-ours` | lists the above | none |
 
 `help rtk` text is the stock text (typos included); extras are only in `rtk help-ours`.
@@ -134,3 +135,77 @@ Code `rtk_net.c` (media choice `rtk_sfpmode.c`). Sources: stock loader [BIN] (`t
 - `rtk sdsdump [sds|all]`: SerDes pages 0-7, 0x1f-0x2f; `./dev.py reg-diff capture <label> --serdes` stores it with the MAC/SMI ranges.
 - Boot table (#25): `setenv rtk_boot_net 1` runs `rtk network on; rtk port` in `board_late_init` (default off: chain autoboot unchanged).
 - Checks: `./dev.py uboot-test network` (cage 1 PCS + MAC up, others configured, no link); `./dev.py rtk-parity both --state`.
+
+## Port LEDs
+
+`rtk_led.c` (U-Boot), `openwrt/patches/300-16` (Linux). Issue #9.
+
+### Hardware
+
+- 8 cages x 3 LEDs, serial LED engine (3x 74HC164). Registers: RTL9300 LED app note V1.0 Tables 1-20..1-22.
+  - `LED_PORT_SW_EN_CTRL 0xcc4c + (p>>3)*4`: 4 bits/port, bit n = LED n under software.
+  - `LED_PORT_SW_CTRL 0xcc5c + 4p`: 3 bits/LED, copper [11:0] + fibre [23:12]; both written. Modes: 0 off, 1-6 blink 32/64/128/256/512/1024 ms, 7 on. No brightness control.
+  - `SW_LED_LOAD 0xcc48` bit 0: latch all SW registers (self-clear); written after every update.
+- Engine off (`0xcc00[1:0]` = 0) until `rtk network on`. Any `rtk led` verb then runs only `rtk_led_config()` (stock `mac_led_config` register writes, [stage 4](#stage-4-network-on-10g-macsds-port-isolation)); no SerDes, no laser expander.
+- Hardware meaning per LED index (stock profile set 0): LED0 = 10G link/act (`0xa01`), LED1 = 2.5G link/act (`0xa08`), LED2 = 1G/100M/10M link/act (`0xba0`).
+- Writes are confined to `0xcc00-0xccd0`.
+
+### Matrix mapping
+
+Rows = LED index, columns = cages. Physical front-panel order SPEC (unchecked); flip without a rebuild via env:
+
+| Matrix | Default | Env override |
+|---|---|---|
+| column 1..8 | cage 1..8 (SDK ports 0, 8, 16, 20, 24-27) | `led_cols=12345678` (8 digits, cage per column) |
+| row 0 / 1 / 2 | LED0 / LED1 / LED2 | `led_rows=012` (3 digits, LED index per row) |
+
+- Snake ring = matrix perimeter, 18 cells: row 0 left to right, row 1 col 8, row 2 right to left, row 1 col 1.
+
+### U-Boot commands
+
+| Command | Effect |
+|---|---|
+| `rtk led [show]` | engine state, error latch, `led_boot`, mode per cell (`-` = hardware owner) |
+| `rtk led snake [ms] [laps]` | head on, tail blink 32 ms then 64 ms (reads as dimmer); default 60 ms/step, laps 0 = until Ctrl-C; min 10 ms. Restores every LED register on exit |
+| `rtk led set <cage> <led 0-2> on\|off\|blink\|0-7` | one LED, hardware index (no matrix mapping); `blink` = 512 ms |
+| `rtk led all on\|off\|blink\|0-7` | all 24 |
+| `rtk led pattern booting\|error\|panic\|fallback` | preview a pattern |
+| `rtk led hw` | SW_EN = 0 on the cage ports: link/activity from the engine; releases the error latch |
+| `rtk led clear` | releases the error latch, restores the LED registers as found at `board_late_init` |
+| `rtk led error\|fallback [why]` | latch the error / fallback pattern (env `led_error` = why); error outranks fallback |
+| `rtk led boot-end` | stop the boot snake; leave LEDs for the OS (below) |
+
+- While the error latch is set, `snake`/`set`/`all`/`pattern` refuse; only `clear`/`hw` (or reset) release it.
+
+### Patterns (hardware blink: shown with the CPU stopped)
+
+| Pattern | Cells | Set by |
+|---|---|---|
+| booting | row 0 (LED0) blink 1024 ms, rest off | U-Boot `led_boot=latch` at `boot-end`; Linux `clear` at userspace up |
+| error | all 24 blink 128 ms | U-Boot error paths, Linux `error` |
+| fallback | row 0 on, row 2 blink 256 ms, row 1 off | U-Boot bootsel fell back to recovery on a fault |
+| panic | checkerboard on / blink 64 ms, inverted per `panic_blink` call | Linux `panic_blink` |
+
+### Boot indicator (our U-Boot)
+
+- `board_late_init`: `rtk_led_snapshot()` (`0xcc00-0xccd0`, LEDs as stock left them) before any latch; then `st1008f_bootsel()` ([DEFAULT-BOOT.md](DEFAULT-BOOT.md), #73); then `rtk_led_boot_start(bootdelay)` only if bootsel set `bootcmd` (primary, recovery, legacy; not the prompt).
+- Snake: cyclic (`CONFIG_CYCLIC`), 60 ms/step, runs from `schedule()` inside the countdown's `udelay(10000)` loop. No added delay: frames are ~50 register accesses inside existing waits.
+- bootsel's `bootcmd` strings start with `rtk led boot-end` (before `clocks fast`) and end with `rtk led error bootm`; primary's in-line fallback adds `rtk led fallback bootm-primary` before `bootm` of the recovery slot. `bootcmd_m1` (manual) is unchanged; `board_preboot_os()` runs `boot-end` for it.
+- `led_boot` (default env): `snake` = restore the snapshot at `boot-end` (OpenWrt LED behaviour unchanged); `latch` = leave the booting pattern (needs a kernel with 300-16 + an init that writes `clear`; flash OpenWrt 25.12.4 has neither, LEDs then stay in the pattern); `off` = no snake.
+- Countdown aborted (key): the snake self-stops at bootdelay x 1.25 and restores the snapshot.
+- Latches stop the snake and survive `bootm` into Linux:
+  - fallback: bootsel chose recovery on a fault (`unconfirmed`: attempts >= max; `primary-bad`: uImage header), or the primary `bootm` returned.
+  - error: a `bootm` returned with nothing left to try, mode switch invalid, `network on` CMU not ready / isolation table busy / laser expander not responding / SerDes access errors.
+  - Not latched: M3 (recovery by choice), stock env `st1008f_boot` flag (owner choice), M2 (prompt).
+
+### Linux (300-16, `CONFIG_TPLINK_ST1008F_LEDS`)
+
+- Bound by machine compatible `tplink,tl-st1008f-v2`; maps `0x1b00cc00` (no `request_mem_region`, inside the switch block); writes only `0xcc48-0xccd0`. The rtl83xx DSA `led-set` setup (`0xcc00-0xcc44`) is untouched.
+- `/sys/devices/platform/st1008f-leds/`:
+  - `state` (ro): `hw|booting|error|panic|fallback|custom` + `(error latched)`.
+  - `pattern`: `hw|off|on|booting|error|panic|fallback` or 24 digits 0-7 (LED0 cages 1-8, LED1, LED2); `-EBUSY` while latched.
+  - `error`: any write latches, text = reason (`storm`, `check-log`, `sfp`); read `1 <reason>`.
+  - `clear` (wo): release latch, LEDs back to hardware.
+- Error or fallback pattern found at init (left by U-Boot) = latched, reason `u-boot` / `u-boot fallback`.
+- `panic_blink` (only if unset): lock-free MMIO; the panic loop calls it every 200 ms (`3600 / PANIC_BLINK_SPD`); with `panic=N` > 0 it runs until the reboot.
+- Stage-0 initramfs `/init` writes `clear` when `state` = `booting`.

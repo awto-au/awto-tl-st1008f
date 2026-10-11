@@ -156,6 +156,7 @@ int rtk_ours_help(void)
 	       "  rtk port [status]                          per cage: module, laser, SerDes, link, LED\n"
 	       "  rtk sdsdump [sds|all]                      SerDes register dump (reg_diff.py)\n"
 	       "  rtk sds status|errcnt|prbs|loopback|eye|txeye  SerDes test tools (#74)\n"
+	       "  rtk led [show|snake|set|all|hw|clear|error] port LEDs (3x8 matrix), error latch\n"
 	       "  rtk mode                                   M1/M2/M3 switch position\n"
 	       "  rtk temp                                   on-die temperature (enables the meter)\n");
 	return 0;

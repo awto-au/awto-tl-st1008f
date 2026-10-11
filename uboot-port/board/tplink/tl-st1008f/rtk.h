@@ -98,6 +98,13 @@ int rtk_ours_help(void);
 
 /* rtk_sdstest.c: `rtk sds` SerDes test tools (#74) */
 int rtk_sds_cmd(int argc, char *const argv[]);
+/* rtk_led.c: port LEDs (3x8 matrix), boot snake, error latch; rtk_net.c: LED engine config */
+int rtk_led(int argc, char *const argv[]);
+void rtk_led_error(const char *why);
+void rtk_led_fallback(const char *why);
+void rtk_led_snapshot(void);
+void rtk_led_boot_start(int bootdelay_s);
+void rtk_led_config(void);
 
 /* board.c: mode switch boot policy (#46); 1-3 = M1-M3, 0 = invalid (treated as M1) */
 int st1008f_boot_mode(u32 *pins);

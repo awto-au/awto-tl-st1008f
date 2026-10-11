@@ -39,6 +39,9 @@ mount -t debugfs debugfs /sys/kernel/debug
 mount -t tracefs tracefs /sys/kernel/tracing  # not debug/tracing: that automount is deprecated
 mkdir -p /dev/pts && mount -t devpts devpts /dev/pts
 echo "{INIT_MARKER} (Linux $(uname -r))"
+# userspace up: release U-Boot's led_boot=latch pattern (an error latch stays, #9)
+L=/sys/devices/platform/st1008f-leds
+grep -q '^booting' $L/state 2>/dev/null && echo 1 > $L/clear
 cd /root
 exec setsid cttyhack sh
 """

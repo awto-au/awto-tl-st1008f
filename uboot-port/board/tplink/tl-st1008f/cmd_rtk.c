@@ -615,6 +615,8 @@ static int do_rtk(struct cmd_tbl *cmdtp, int flag, int argc, char *const argv[])
 		return rtk_sdsdump(argc, argv);
 	if (is(argv, 1, "sds"))
 		return rtk_sds_cmd(argc, argv);
+	if (is(argv, 1, "led"))
+		return rtk_led(argc, argv);
 	if (is(argv, 1, "help-ours"))
 		return rtk_ours_help();
 	return rtk_usage();
@@ -691,6 +693,10 @@ U_BOOT_CMD(rtk, 16, 0, do_rtk, "rtk     - Realtek commands\n",
 	   "rtk sds eye <cage> [frames] [raw]\n"
 	   "rtk sds txeye <cage> [<pre> <main> <post> | restore]\n"
 	   "        - SerDes test tools (needs network on); test modes restore on exit/Ctrl-C\n"
+	   "rtk led [show | snake [ms] [laps] | set <cage> <led 0-2> on|off|blink|0-7 | all on|off|blink|0-7]\n"
+	   "rtk led [hw | clear | error|fallback [why] | pattern booting|error|panic|fallback | boot-end]\n"
+	   "        - 24 port LEDs as a 3x8 matrix (software control); hw = back to link/activity;\n"
+	   "          error latch holds until clear/hw; env led_boot=snake|latch|off, led_cols, led_rows\n"
 	   "rtk mode\n"
 	   "        - M1/M2/M3 front switch position (GPIO 17-19)\n"
 	   "rtk temp\n"

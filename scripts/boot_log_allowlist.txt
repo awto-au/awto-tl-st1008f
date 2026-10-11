@@ -110,6 +110,7 @@ mem auto-init: stack:(off|all\(zero\)), heap alloc:off, heap free:off  # kernel 
 clk: Disabling unused clocks  # late init
 pca953x 8-0038: using no (AI|auto increment)  # PCA9538 expander, no auto-increment
 tplink-st1008f-mode mode-switch: cur pattern = [123]  # mode switch first latch (vendor string, 300-06, #64)
+platform st1008f-leds: port LEDs: (hw|booting|custom) \(engine (serial|off)\)  # LED driver init state (300-16, #9); `error` latch lines stay unknown on purpose
 tplink-st1008f-mode mode-switch: pins 17/18/19 = [01]/[01]/[01], position \(pins 18/19\) (M[123]|invalid)  # mode switch raw pins + U-Boot decode
 tplink-st1008f-mode mode-switch: pattern changed [123] -> [123], pins 17/18/19 = [01]/[01]/[01], position \(pins 18/19\) (M[123]|invalid): re-applying, no switch reset  # owner moved the switch; no GPIO21 reset
 tplink-st1008f-mode mode-switch: port [0-7]: (10G|2\.5G|1G) fiber insert  # vendor EEPROM class

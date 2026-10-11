@@ -8,6 +8,7 @@ obj-y += rtk_stock.o
 obj-y += rtk_sds.o rtk_sdstest.o
 obj-y += rtk_ours.o
 obj-y += rtk_net.o
+obj-y += rtk_led.o
 obj-y += rtk_sfpmode.o
 obj-y += highmem.o
 obj-y += clocks.o clocks_sram.o ddr_sram.o

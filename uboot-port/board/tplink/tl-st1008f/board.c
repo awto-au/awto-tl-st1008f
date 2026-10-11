@@ -5,6 +5,7 @@
 #include <env.h>
 #include <init.h>
 #include <asm/io.h>
+#include <vsprintf.h>
 #include <linux/delay.h>
 #include "rtk.h"
 
@@ -70,12 +71,18 @@ int board_late_init(void)
 	/* #25 boot table, opt-in (adds ~9 s): `setenv rtk_boot_net 1` (RAM env unless saved) */
 	if (env_get_yesno("rtk_boot_net") == 1)
 		run_command("rtk network on; rtk port", 0);
+	rtk_led_snapshot();	/* LEDs as stock left them, before any latch below */
 	if (!chained)
 		return 0;
 	if (mode == 2) {	/* M2 DHCP/netconsole: needs Ethernet */
 		printf("Mode:  M2 needs Ethernet (stage 4, #46): no autoboot; `run bootcmd_m1` boots OpenWrt\n");
 		return 0;
 	}
+	if (!mode)
+		rtk_led_error("mode invalid");	/* still autoboots (M1); latch survives into Linux */
 	/* M1/invalid: primary with fallback; M3: fallback; no recovery image: as before (#73) */
-	return st1008f_bootsel(mode ? mode : 1);
+	st1008f_bootsel(mode ? mode : 1);
+	/* snake only when bootsel armed an autoboot countdown */
+	rtk_led_boot_start(env_get("bootcmd") ? (int)simple_strtol(env_get("bootdelay") ?: "0", NULL, 10) : 0);
+	return 0;
 }

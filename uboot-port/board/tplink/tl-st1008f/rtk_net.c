@@ -180,6 +180,7 @@ static bool clk_ready(unsigned int sds, unsigned int l0, int mode, int first_ms,
 	}
 	printf("rtk: SerDes %u: CMU not ready after %d tries (%lu ms)\n", sds, CLK_TRIES,
 	       get_timer(t0));
+	rtk_led_error("sds-cmu");
 	return false;
 }
 
@@ -442,7 +443,7 @@ static void phy_enable(int port, bool on)
 
 /* Values: stock RTL9303_8XGE profile (scripts/stock_led_profile.py): 3 LEDs, set 0 copper + fibre,
  * single set, serial, led_active 0 -> GLB[22] = 1. Fields: stock reg table 0x83fa9ad8 idx 0x16-0x27. */
-static void led_config(void)
+void rtk_led_config(void)
 {
 	static const u16 set0[4] = { 0xa01, 0xa08, 0xba0, 0xffff };	/* LED3 = HWP_LED_END, masked */
 	int c, p, s, i, sh;
@@ -487,8 +488,10 @@ static void park_tx_disable(void)
 	struct udevice *dev = rtk_chip(EXP_BUS, EXP_ADDR);
 	u8 v = 0xff;
 
-	if (!dev || dm_i2c_write(dev, EXP_CFG, &v, 1) || dm_i2c_write(dev, EXP_OUT, &v, 1))
+	if (!dev || dm_i2c_write(dev, EXP_CFG, &v, 1) || dm_i2c_write(dev, EXP_OUT, &v, 1)) {
 		printf("laser expander not responding: lasers not parked\n");
+		rtk_led_error("laser-park");
+	}
 }
 
 /* ---- chip construct (dal_longan_construct table, stock 0x83fa3718) ---- */
@@ -516,7 +519,7 @@ static void construct(void)
 		if (!strcmp(rtcore[i], "  NIC probe (unit 0)"))
 			sw_w(MAC_FORCE(CPU_PORT), CPU_FORCE);
 		if (!strcmp(rtcore[i], "  MAC init (unit 0)")) {	/* stock mac_driver_init order */
-			led_config();
+			rtk_led_config();
 			park_tx_disable();
 			sw_rmw(SMI_MAC_TYPE, SMI_MAC_TYPE_M, 0);
 		}
@@ -573,6 +576,7 @@ static int iso_set(int port, u32 pmask)
 		udelay(10);
 	}
 	printf("rtk: isolation table write port %d busy after %d us\n", port, ISO_POLL_N * 10);
+	rtk_led_error("iso-table");
 	return 0xf011;	/* RT_ERR_TIMEOUT? SPEC */
 }
 
@@ -641,9 +645,11 @@ static void network_on(void)
 	iso_guard();
 	net_on = true;
 	mdelay(2000);	/* stock: link-status settle */
-	if (io_err)
+	if (io_err) {
 		printf("rtk: %d SerDes access errors during network on (%lu ms)\n", io_err,
 		       get_timer(t0));
+		rtk_led_error("sds-io");
+	}
 }
 
 int rtk_network(int argc, char *const argv[])

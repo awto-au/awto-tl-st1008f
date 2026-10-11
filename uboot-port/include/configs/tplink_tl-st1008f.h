@@ -11,7 +11,7 @@
  * rates (div 6..1) so error is 0 on our side; the host adapter rounds to its own grid. */
 #define CFG_SYS_BAUDRATE_TABLE	{ 9600, 19200, 38400, 57600, 115200, 230400, 460800, 921600, \
 				  1822916, 2187500, 2734375, 3645833, 5468750, 10937500 }
-/* stock default env value; `rtk boardmodel` reads it */
-#define CFG_EXTRA_ENV_SETTINGS	"boardmodel=RTL9303_8XGE\0"
+/* boardmodel: stock default, `rtk boardmodel` reads it; led_boot: rtk_led.c boot snake */
+#define CFG_EXTRA_ENV_SETTINGS	"boardmodel=RTL9303_8XGE\0" "led_boot=snake\0"
 
 #endif

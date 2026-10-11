@@ -57,6 +57,8 @@ CHECKS["rtk_mode"] = ("rtk mode", r"mode: pins 17/18/19 = [01]/[01]/[01] -> patt
 # boot policy latched at board_late_init (#46)
 CHECKS["boot_mode"] = ("printenv boot_mode bootcmd_m1",
                        r"boot_mode=M[123]\r?\nbootcmd_m1=clocks fast; bootm 0xb4300000\r?\n", 1)
+CHECKS["rtk_led"] = ("rtk led show", r"engine (serial|off), latch (off|error|fallback)", 1)
+CHECKS["rtk_led_snake"] = ("rtk led snake 10 1", r"snake: 10 ms/step, counted laps; Ctrl-C stops", 1)
 CHECKS["rtk_temp"] = ("rtk temp", r"temp: \d+ C \(since enable: min \d+, max \d+\)", 1)
 # after stock `rtk network on` every cage is forced 10GBASE-R (WDIG reg 9, #42)
 CHECKS["rtk_port"] = ("rtk port", r"(?s)cage 1 \(port 0, sds 2\): [^\n]*sds 10GBASE-R \(0x1a\).*cage 8 \(port 27, sds 9\): ", 3)

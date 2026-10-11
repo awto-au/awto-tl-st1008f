@@ -43,9 +43,12 @@
 /* bootm -> kernel wdt probe: ~9 s expected (flash read + LZMA at stock SPI), x1.25 + rounding */
 #define BOOT_WDT_MS	12000
 
-#define BOOT_PRIMARY	"clocks fast; bootsel wdt on; bootm 0xb4300000; bootsel wdt off; bootm 0xb5900000"
-#define BOOT_FALLBACK	"clocks fast; bootsel wdt on; bootm 0xb5900000; bootsel wdt off"
-#define BOOT_LEGACY	"clocks fast; bootm 0xb4300000"
+/* led boot-end before the clock switch; led fallback/error only run when a bootm returned (#9) */
+#define BOOT_PRIMARY	"rtk led boot-end; clocks fast; bootsel wdt on; bootm 0xb4300000; bootsel wdt off; " \
+			"rtk led fallback bootm-primary; bootm 0xb5900000; rtk led error bootm"
+#define BOOT_FALLBACK	"rtk led boot-end; clocks fast; bootsel wdt on; bootm 0xb5900000; bootsel wdt off; " \
+			"rtk led error bootm"
+#define BOOT_LEGACY	"rtk led boot-end; clocks fast; bootm 0xb4300000; rtk led error bootm"
 
 /* uImage header in flash: magic (std or Realtek), header CRC, payload fits the slot */
 static bool slot_ok(ulong off, ulong size, char *name)
@@ -141,6 +144,7 @@ static void wdt_off(void)
 }
 
 enum { SEL_LEGACY, SEL_PROMPT, SEL_PRIMARY, SEL_FALLBACK };
+static const char *fb_auto;	/* fallback chosen by a fault (not M3 / owner flag): LED latch tag */
 static const char *const sel_name[] = { "legacy", "prompt", "primary", "fallback" };
 
 /* Decision for a chained boot at mode switch position `mode` (1-3); `why` gets the reason */
@@ -164,11 +168,13 @@ static int decide(int mode, char *why, int len, bool count)
 	}
 	if (!slot_ok(PRIMARY_OFF, PRIMARY_SIZE, NULL)) {
 		snprintf(why, len, "primary uImage header bad");
+		fb_auto = "primary-bad";
 		return SEL_FALLBACK;
 	}
 	n = rec_attempts();
 	if (n >= MAX_ATTEMPTS) {
 		snprintf(why, len, "%u primary boots not confirmed by Linux", n);
+		fb_auto = "unconfirmed";
 		return SEL_FALLBACK;
 	}
 	if (count)
@@ -184,6 +190,8 @@ int st1008f_bootsel(int mode)
 	int s = decide(mode, why, sizeof(why), true);
 
 	printf("Boot:  %s (%s)\n", sel_name[s], why);
+	if (fb_auto)
+		rtk_led_fallback(fb_auto);
 	if (s == SEL_PROMPT)
 		return 0;
 	env_set("bootcmd", s == SEL_LEGACY ? BOOT_LEGACY : s == SEL_PRIMARY ? BOOT_PRIMARY : BOOT_FALLBACK);

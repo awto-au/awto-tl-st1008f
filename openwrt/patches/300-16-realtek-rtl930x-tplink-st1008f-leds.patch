@@ -1,0 +1,362 @@
+From: Dan <dan@awto.au>
+Subject: [PATCH] realtek: rtl930x: TP-Link TL-ST1008F v2 port LED patterns
+
+The TL-ST1008F v2 has 24 port LEDs (8 cages x 3), shifted out by the
+RTL930x serial LED engine. The engine has a per-LED software override
+(LED_PORT_SW_EN_CTRL 0xcc4c, LED_PORT_SW_CTRL 0xcc5c + 4p, SW_LED_LOAD
+0xcc48; RTL9300 LED application note V1.0 Tables 1-20..1-22) with modes
+off, blink 32/64/128/256/512/1024 ms and on. The blink runs in hardware,
+so a pattern keeps showing after the CPU stops.
+
+Use it for status the link LEDs cannot show:
+- panic: panic_blink hook (only when no other hook is set). Lock-free,
+  MMIO writes only; alternates a checkerboard of on / 64 ms blink on
+  each call, and the hardware blink keeps going if the CPU hangs.
+- error latch: any write to `error` (text = reason, e.g. "storm")
+  shows all 24 LEDs blinking 128 ms; only `clear` releases it. An error
+  pattern left by the boot loader is taken over as latched at init.
+- booting: the boot loader can leave LED0 of every cage blinking
+  1024 ms (U-Boot env led_boot=latch); it stays until userspace writes
+  `clear`, so a hang between boot loader and userspace is visible.
+- fallback: U-Boot's bootsel chose the recovery image on a fault
+  (unconfirmed primary boots, bad primary image): LED0 on, LED2 blink
+  256 ms. Taken over as latched at init, like an error.
+- `pattern`: hw | off | on | booting | error | panic | fallback, or 24 digits 0-7
+  (LED0 cages 1-8, LED1, LED2); refused (-EBUSY) while latched.
+- `state`: hw | booting | error | panic | fallback | custom, plus the latch.
+
+sysfs: /sys/devices/platform/st1008f-leds/{state,pattern,error,clear}.
+Bound by machine compatible "tplink,tl-st1008f-v2"; no DT node. Only
+the software-control registers are written (0xcc48-0xccd0); the LED
+engine setup (0xcc00-0xcc44, rtl83xx DSA led-set) is left alone.
+
+Signed-off-by: Dan <dan@awto.au>
+---
+--- a/drivers/platform/mips/Kconfig
++++ b/drivers/platform/mips/Kconfig
+@@ -48,4 +48,15 @@
+ 	  stock firmware and applies its 1G/2.5G speed pattern to 1G and 2.5G
+ 	  SFP modules. 10G modules are not touched.
+ 
++config TPLINK_ST1008F_LEDS
++	tristate "TP-Link TL-ST1008F v2 port LED patterns (boot, error, panic)"
++	depends on MACH_REALTEK_RTL || COMPILE_TEST
++	depends on OF
++	help
++	  Puts the 24 port LEDs of the TL-ST1008F v2 under RTL930x software
++	  LED control for status patterns: a latched error (sysfs), a kernel
++	  panic pattern (panic_blink) and release of the boot loader's
++	  "booting" pattern. Hardware blink modes only, so a pattern keeps
++	  showing after the CPU stops.
++
+ endif # MIPS_PLATFORM_DEVICES
+--- a/drivers/platform/mips/Makefile
++++ b/drivers/platform/mips/Makefile
+@@ -3,3 +3,4 @@
+ obj-$(CONFIG_RS780E_ACPI) += rs780e-acpi.o
+ obj-$(CONFIG_LS2K_RESET) += ls2k-reset.o
+ obj-$(CONFIG_TPLINK_ST1008F_MODE_SWITCH) += tplink-st1008f-mode.o
++obj-$(CONFIG_TPLINK_ST1008F_LEDS) += tplink-st1008f-leds.o
+--- /dev/null
++++ b/drivers/platform/mips/tplink-st1008f-leds.c
+@@ -0,0 +1,300 @@
++// SPDX-License-Identifier: GPL-2.0-only
++/*
++ * TP-Link TL-ST1008F v2: the 24 port LEDs (8 cages x 3) under RTL930x software LED control.
++ * Hardware blink modes only: a pattern keeps showing with the CPU stopped.
++ * Registers: RTL9300 LED application note V1.0, Tables 1-20..1-22 (SW LED control).
++ * sysfs /sys/devices/platform/st1008f-leds: state, pattern, error, clear. Panic: panic_blink.
++ */
++
++#include <linux/ctype.h>
++#include <linux/io.h>
++#include <linux/module.h>
++#include <linux/of.h>
++#include <linux/panic.h>
++#include <linux/platform_device.h>
++#include <linux/spinlock.h>
++#include <linux/string.h>
++#include <linux/sysfs.h>
++
++#define LED_BASE	0x1b00cc00		/* switch core LED block (KSEG1 0xbb00cc00) */
++#define LED_SIZE	0xd4			/* up to SW_CTRL(28) */
++#define LED_GLB		0x00			/* [1:0] 1 = serial engine on */
++#define SW_LOAD		0x48			/* bit 0: latch all SW registers (self-clear) */
++#define SW_EN(p)	(0x4c + ((p) >> 3) * 4)	/* 4 bits/port: LED n software-controlled */
++#define SW_CTRL(p)	(0x5c + (p) * 4)	/* 3 bits/LED: copper [11:0], fibre [23:12] */
++#define NCAGES		8
++#define NLEDS		3
++#define NCELLS		(NCAGES * NLEDS)
++
++enum { M_OFF, M_B32, M_B64, M_B128, M_B256, M_B512, M_B1024, M_ON };
++enum { PAT_BOOTING, PAT_ERROR, PAT_PANIC, PAT_PANIC2, PAT_FALLBACK };
++
++/* cage 1..8 -> SDK port (docs/hardware.md) */
++static const u8 cage_port[NCAGES] = { 0, 8, 16, 20, 24, 25, 26, 27 };
++
++static void __iomem *base;
++static struct platform_device *pdev;
++static DEFINE_SPINLOCK(lock);
++static bool err_latched;
++static char err_why[32];
++
++/* cell = led * NCAGES + cage index; same layout as the U-Boot `rtk led` matrix rows */
++static u8 pat_mode(int which, int led, int c)
++{
++	switch (which) {
++	case PAT_BOOTING:
++		return led == 0 ? M_B1024 : M_OFF;
++	case PAT_ERROR:
++		return M_B128;
++	case PAT_FALLBACK:	/* U-Boot bootsel fell back to recovery on a fault */
++		return led == 0 ? M_ON : led == 2 ? M_B256 : M_OFF;
++	default:	/* checkerboard: on / 64 ms blink, PANIC2 = inverted */
++		return ((led + c + which) & 1) ? M_B64 : M_ON;
++	}
++}
++
++/* lock-free: also called from panic_blink with the other CPUs stopped */
++static void out_modes(const u8 *m, bool sw)
++{
++	u32 v, f;
++	int c, l, p;
++
++	for (c = 0; c < NCAGES; c++) {
++		p = cage_port[c];
++		v = readl(base + SW_CTRL(p)) & ~(GENMASK(8, 0) | GENMASK(20, 12));
++		for (l = 0; l < NLEDS; l++) {
++			f = m ? m[l * NCAGES + c] : 0;
++			v |= f << (3 * l) | f << (12 + 3 * l);
++		}
++		writel(v, base + SW_CTRL(p));
++		v = readl(base + SW_EN(p)) & ~(0xfU << ((p & 7) * 4));
++		writel(v | (sw ? 0xfU << ((p & 7) * 4) : 0), base + SW_EN(p));
++	}
++	writel(1, base + SW_LOAD);
++}
++
++static void out_pattern(int which)
++{
++	u8 m[NCELLS];
++	int c, l;
++
++	for (l = 0; l < NLEDS; l++)
++		for (c = 0; c < NCAGES; c++)
++			m[l * NCAGES + c] = pat_mode(which, l, c);
++	out_modes(m, true);
++}
++
++/* -1 = all hardware, else per-cell modes; returns the matching pattern id or -2 (custom) */
++static int read_state(u8 *m)
++{
++	bool any_sw = false;
++	int c, l, p, w;
++
++	for (c = 0; c < NCAGES; c++) {
++		p = cage_port[c];
++		any_sw |= (readl(base + SW_EN(p)) >> ((p & 7) * 4)) & 0x7;
++		for (l = 0; l < NLEDS; l++)
++			m[l * NCAGES + c] = (readl(base + SW_CTRL(p)) >> (12 + 3 * l)) & 7;
++	}
++	if (!any_sw)
++		return -1;
++	for (w = PAT_BOOTING; w <= PAT_FALLBACK; w++) {
++		for (l = 0; l < NLEDS; l++)
++			for (c = 0; c < NCAGES; c++)
++				if (m[l * NCAGES + c] != pat_mode(w, l, c))
++					goto next;
++		return w;
++next:;
++	}
++	return -2;
++}
++
++static const char *state_name(int s)
++{
++	switch (s) {
++	case -1: return "hw";
++	case PAT_BOOTING: return "booting";
++	case PAT_ERROR: return "error";
++	case PAT_PANIC: case PAT_PANIC2: return "panic";
++	case PAT_FALLBACK: return "fallback";
++	default: return "custom";
++	}
++}
++
++static long st1008f_panic_blink(int state)
++{
++	out_pattern(state ? PAT_PANIC : PAT_PANIC2);	/* alternates while the panic loop runs */
++	return 0;
++}
++
++static ssize_t state_show(struct device *dev, struct device_attribute *a, char *buf)
++{
++	u8 m[NCELLS];
++	unsigned long fl;
++	int s;
++
++	spin_lock_irqsave(&lock, fl);
++	s = read_state(m);
++	spin_unlock_irqrestore(&lock, fl);
++	return sysfs_emit(buf, "%s%s\n", state_name(s), err_latched ? " (error latched)" : "");
++}
++static DEVICE_ATTR_RO(state);
++
++static ssize_t pattern_show(struct device *dev, struct device_attribute *a, char *buf)
++{
++	u8 m[NCELLS];
++	unsigned long fl;
++	int l, c, n = 0;
++
++	spin_lock_irqsave(&lock, fl);
++	if (read_state(m) == -1) {
++		spin_unlock_irqrestore(&lock, fl);
++		return sysfs_emit(buf, "hw\n");
++	}
++	spin_unlock_irqrestore(&lock, fl);
++	for (l = 0; l < NLEDS; l++) {
++		for (c = 0; c < NCAGES; c++)
++			n += sysfs_emit_at(buf, n, "%u", m[l * NCAGES + c]);
++		n += sysfs_emit_at(buf, n, "\n");
++	}
++	return n;
++}
++
++/* "hw", "booting", "error", "panic", "fallback", "off", "on", or 24 digits 0-7 (LED0 cages 1-8, LED1, LED2) */
++static ssize_t pattern_store(struct device *dev, struct device_attribute *a, const char *buf,
++			     size_t len)
++{
++	static const char *const names[] = { "booting", "error", "panic" };
++	static const int ids[] = { PAT_BOOTING, PAT_ERROR, PAT_PANIC };
++	u8 m[NCELLS];
++	unsigned long fl;
++	int i, n = 0;
++
++	if (err_latched)
++		return -EBUSY;
++	for (i = 0; i < ARRAY_SIZE(names); i++)
++		if (sysfs_streq(buf, names[i])) {
++			spin_lock_irqsave(&lock, fl);
++			out_pattern(ids[i]);
++			spin_unlock_irqrestore(&lock, fl);
++			return len;
++		}
++	if (sysfs_streq(buf, "fallback")) {
++		spin_lock_irqsave(&lock, fl);
++		out_pattern(PAT_FALLBACK);
++		spin_unlock_irqrestore(&lock, fl);
++		return len;
++	}
++	if (sysfs_streq(buf, "hw") || sysfs_streq(buf, "off") || sysfs_streq(buf, "on")) {
++		memset(m, buf[1] == 'n' ? M_ON : M_OFF, sizeof(m));
++		spin_lock_irqsave(&lock, fl);
++		out_modes(m, buf[0] != 'h');
++		spin_unlock_irqrestore(&lock, fl);
++		return len;
++	}
++	for (i = 0; i < len && n < NCELLS; i++) {
++		if (buf[i] >= '0' && buf[i] <= '7')
++			m[n++] = buf[i] - '0';
++		else if (!isspace(buf[i]))
++			return -EINVAL;
++	}
++	if (n != NCELLS)
++		return -EINVAL;
++	spin_lock_irqsave(&lock, fl);
++	out_modes(m, true);
++	spin_unlock_irqrestore(&lock, fl);
++	return len;
++}
++static DEVICE_ATTR_RW(pattern);
++
++static ssize_t error_show(struct device *dev, struct device_attribute *a, char *buf)
++{
++	return sysfs_emit(buf, "%d%s%s\n", err_latched, err_latched ? " " : "", err_why);
++}
++
++/* any write latches (text = reason, e.g. "storm"); only `clear` releases */
++static ssize_t error_store(struct device *dev, struct device_attribute *a, const char *buf,
++			   size_t len)
++{
++	unsigned long fl;
++
++	spin_lock_irqsave(&lock, fl);
++	if (!err_latched) {
++		strscpy(err_why, buf, sizeof(err_why));
++		strim(err_why);
++		err_latched = true;
++		dev_warn(dev, "error latched: %s\n", err_why);
++	}
++	out_pattern(PAT_ERROR);
++	spin_unlock_irqrestore(&lock, fl);
++	return len;
++}
++static DEVICE_ATTR_RW(error);
++
++/* release the latch and give the LEDs back to the link/activity engine */
++static ssize_t clear_store(struct device *dev, struct device_attribute *a, const char *buf,
++			   size_t len)
++{
++	unsigned long fl;
++
++	spin_lock_irqsave(&lock, fl);
++	err_latched = false;
++	err_why[0] = 0;
++	out_modes(NULL, false);
++	spin_unlock_irqrestore(&lock, fl);
++	return len;
++}
++static DEVICE_ATTR_WO(clear);
++
++static struct attribute *st1008f_leds_attrs[] = {
++	&dev_attr_state.attr, &dev_attr_pattern.attr, &dev_attr_error.attr, &dev_attr_clear.attr,
++	NULL,
++};
++ATTRIBUTE_GROUPS(st1008f_leds);
++
++static int __init st1008f_leds_init(void)
++{
++	u8 m[NCELLS];
++	int s;
++
++	if (!of_machine_is_compatible("tplink,tl-st1008f-v2"))
++		return -ENODEV;
++	base = ioremap(LED_BASE, LED_SIZE);	/* no request_mem_region: inside the switch block */
++	if (!base)
++		return -ENOMEM;
++	pdev = platform_device_register_data(NULL, "st1008f-leds", PLATFORM_DEVID_NONE, NULL, 0);
++	if (IS_ERR(pdev)) {
++		iounmap(base);
++		return PTR_ERR(pdev);
++	}
++	if (device_add_groups(&pdev->dev, st1008f_leds_groups)) {
++		platform_device_unregister(pdev);
++		iounmap(base);
++		return -ENOMEM;
++	}
++	s = read_state(m);
++	if (s == PAT_ERROR || s == PAT_FALLBACK) {	/* U-Boot latch, kept until `clear` */
++		err_latched = true;
++		strscpy(err_why, s == PAT_ERROR ? "u-boot" : "u-boot fallback", sizeof(err_why));
++		dev_warn(&pdev->dev, "%s pattern latched by the boot loader\n", state_name(s));
++	}
++	dev_info(&pdev->dev, "port LEDs: %s (engine %s)\n", state_name(s),
++		 (readl(base + LED_GLB) & 3) == 1 ? "serial" : "off");
++	if (!panic_blink)
++		panic_blink = st1008f_panic_blink;
++	return 0;
++}
++module_init(st1008f_leds_init);
++
++static void __exit st1008f_leds_exit(void)
++{
++	if (panic_blink == st1008f_panic_blink)
++		panic_blink = NULL;
++	device_remove_groups(&pdev->dev, st1008f_leds_groups);
++	platform_device_unregister(pdev);
++	iounmap(base);
++}
++module_exit(st1008f_leds_exit);
++
++MODULE_DESCRIPTION("TP-Link TL-ST1008F v2 port LED patterns (boot, error, panic)");
++MODULE_LICENSE("GPL");
