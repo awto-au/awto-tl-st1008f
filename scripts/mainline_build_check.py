@@ -24,12 +24,20 @@ HDR = "arch/mips/include/asm/mach-rtl-otto"
 
 
 def apply_patches(tree):
-    """Idempotent: a patch whose reverse applies cleanly is already in the tree."""
-    shutil.copytree(OWRT / "files-6.18" / HDR, tree / HDR, dirs_exist_ok=True)
+    """Derived state: reset every file the series touches to git, then apply it all fresh."""
+    touched = set()
     for p in PATCHES:
-        # --force: never flips -R (--batch silently dry-runs forward and "succeeds")
-        if run(["patch", "-p1", "-R", "--dry-run", "--force", "-s", "-i", str(p)], tree) == 0:
-            continue
+        touched |= {ln[6:].split("\t")[0].strip() for ln in p.read_text().splitlines()
+                    if ln.startswith("+++ b/")}
+    if run(["git", "checkout", "--", *sorted(touched)], tree):
+        sys.exit("git checkout of the patched files failed, see log")
+    for f in tree.glob("arch/mips/**/*.rej"):
+        f.unlink()
+    for f in tree.glob("arch/mips/**/*.orig"):
+        f.unlink()
+    shutil.rmtree(tree / HDR, ignore_errors=True)
+    shutil.copytree(OWRT / "files-6.18" / HDR, tree / HDR)
+    for p in PATCHES:
         if run(["patch", "-p1", "--forward", "--batch", "-i", str(p)], tree):
             sys.exit(f"{p.name} does not apply, see log")
 

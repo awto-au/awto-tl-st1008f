@@ -206,7 +206,7 @@ Linux version 7\.\d+\.\d+(-rc\d+)?(-dirty)? \(.*\) #\d+ .*  # our mainline build
 RTL930x DRAM controller prefetch on \(MCR [0-9a-f]{8}\)  # openwrt/patches/300-04 (#53)
 highmem kernel with > 256 MB RAM, adapt SoC memory mapping  # OpenWrt 300-02 zone-3 remap
 Realtek RTL9303 rev B \(6487\) SoC with 512 MB  # OpenWrt 300-02 SoC detection
-No 'frequency' property in DT, using default\.  # CP0 timer rate guessed; known #55
+CPU frequency from PLL: \d+MHz  # openwrt/patches/300-05 (#55)
 Memory: \d+K/\d+K available \(.*\)  # stage-0 DTS maps 256 MiB
 \s*HighMem\s+empty  # stage-0 DTS: no highmem zone yet
 SLUB: HWalign=32, Order=0-3, MinObjects=0, CPUs=1, Nodes=1  # allocator info
