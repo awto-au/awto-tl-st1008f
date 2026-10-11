@@ -250,6 +250,13 @@ def openwrt_stp(con: Console) -> None:
     except SystemExit:
         con.send("\x03")
         con.send("for p in /sys/class/net/lan*; do ip link set ${p##*/} down; done")
+        # lasers' ports are down: record why there is no bridge (console log), then cut power
+        for cmd in ("ls /sys/class/net", "uci -q show network | head -40",
+                    "logread | grep -iE 'netifd|bridge|switch' | tail -20"):
+            try:
+                con.run(cmd, OW_PROMPT, 3, f"diag: {cmd[:24]}")  # local shell output <1 s; 3 s names a hang
+            except SystemExit:
+                break
         power("off")
         raise SystemExit("FAIL: bridge STP not enabled in 30 s: lan* down + relay off (#19)")
     # BusyBox wraps lines > 60 chars and breaks the echo check: short commands

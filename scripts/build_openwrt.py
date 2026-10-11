@@ -73,8 +73,11 @@ PENDING73 = ["700", "701"]  # generic pending-6.18 nft flowtable patches; apply 
 # generic hack-6.18 patches OpenWrt packages need on 7.3 (all apply as-is; status of the rest: docs/OPENWRT-BUILD.md)
 HACK73 = ["910", "911", "940"]  # uevent + broadcast_uevent (gpio-button-hotplug); 940: non-empty modules.builtin (kmod packaging)
 CONFIG73 = K73 / "config-7.3"
+UP73 = False  # --up
 # Port symbols config-7.3 must keep (drivers the 7.3 port boots with; mainline/st1008f-v2.config)
 PORT73 = """CONFIG_HIGHMEM=y
+CONFIG_PREEMPT_VOLUNTARY=y
+# CONFIG_PREEMPT is not set
 CONFIG_SMP=y
 CONFIG_MIPS_MT_SMP=y
 CONFIG_NR_CPUS=2
@@ -287,7 +290,10 @@ def overlay_73() -> None:
         for n in names:
             shutil.copy2(next((TREE / GEN / f"{kind}-6.18").glob(f"{n}-*.patch")), gdir)
     if CONFIG73.exists():
-        shutil.copy2(CONFIG73, TREE / RT / "rtl930x/config-7.3")
+        cfg = CONFIG73.read_text()
+        if UP73:  # one VPE, as `./dev.py build-kernel --up` (the 7.3 runs tested on the board)
+            cfg = override(cfg, (ROOT / "mainline/st1008f-v2-up.config").read_text())
+        (TREE / RT / "rtl930x/config-7.3").write_text(cfg)
     # 7.3 dtc dropped the graph_child_address check: `-Wno-graph_child_address` is a FATAL ERROR there
     im = TREE / "include/image.mk"
     im.write_text(im.read_text().replace("  -Wno-graph_child_address \\\n", ""))
@@ -299,6 +305,14 @@ def overlay_73() -> None:
         f"pending-7.3 {PENDING73}, hack-7.3 {HACK73}, config-7.3 {'from ' + str(CONFIG73.relative_to(ROOT)) if CONFIG73.exists() else 'MISSING'}")
 
 
+def override(cfg: str, frag: str) -> str:
+    """cfg with every symbol set in frag replaced (or added) by frag's line."""
+    sym = re.compile(r"^(?:# )?(CONFIG_\w+)[= ]")
+    new = {m[1]: ln for ln in frag.splitlines() if (m := sym.match(ln.strip()))}
+    out = [ln for ln in cfg.splitlines() if not ((m := sym.match(ln)) and m[1] in new)]
+    return "\n".join(out + list(new.values())) + "\n"
+
+
 def overlay(kernel: str, none: bool) -> None:
     reset_overlay()
     if none:
@@ -308,12 +322,15 @@ def overlay(kernel: str, none: bool) -> None:
 
 
 def config(kernel: str) -> int:
-    (TREE / ".config").write_text(SEED + ("CONFIG_TESTING_KERNEL=y\n" if kernel == "7.3" else ""))
+    # 7.3: PREEMPT_NONE needs ARCH_NO_PREEMPT; OpenWrt's default KERNEL_PREEMPT_NONE would leave full
+    # PREEMPT. Voluntary = the model the 7.3 port boots with (mainline/st1008f-v2.config).
+    extra = "CONFIG_TESTING_KERNEL=y\nCONFIG_KERNEL_PREEMPT_VOLUNTARY=y\n" if kernel == "7.3" else ""
+    (TREE / ".config").write_text(SEED + extra)
     rc = run(["make", "defconfig"], T_DEFCONFIG)
     if rc:
         return rc
     cfg = (TREE / ".config").read_text()
-    want = [f"CONFIG_TARGET_realtek_rtl930x_DEVICE_{DEVICE}=y"] + (["CONFIG_TESTING_KERNEL=y"] if kernel == "7.3" else [])
+    want = [f"CONFIG_TARGET_realtek_rtl930x_DEVICE_{DEVICE}=y"] + extra.split()
     if miss := [w for w in want if w not in cfg]:
         log(f"FAIL: defconfig dropped {miss}")
         return 1
@@ -321,7 +338,7 @@ def config(kernel: str) -> int:
 
 
 def kernel_dir() -> Path:
-    dirs = sorted((TREE / "build_dir").glob("target-*/linux-realtek_rtl930x/linux-7.3*"))
+    dirs = sorted(d for d in (TREE / "build_dir").glob("target-*/linux-realtek_rtl930x/linux-7.3*") if d.is_dir())
     if not dirs:
         sys.exit("no prepared 7.3 kernel tree; run with --prepare-only first")
     return dirs[-1]
@@ -356,7 +373,9 @@ def regen_config_73(jobs: str) -> int:
     # NF_TABLES_IPV4=y): keep OpenWrt's 6.18 line, as OpenWrt's raw config files do
     sym = re.compile(r"^(?:# )?(CONFIG_\w+)[= ]")
     have = {m[1] for ln in keep if (m := sym.match(ln))}
-    keep += [ln for ln in merged.splitlines() if (m := sym.match(ln)) and m[1] not in have]
+    # not for choice members: 7.3 PREEMPT_NONE needs ARCH_NO_PREEMPT; its 6.18 "=y" is invalid there
+    keep += [ln for ln in merged.splitlines()
+             if (m := sym.match(ln)) and m[1] not in have and not m[1].startswith("CONFIG_PREEMPT")]
     CONFIG73.parent.mkdir(parents=True, exist_ok=True)
     CONFIG73.write_text("\n".join(sorted(set(keep), key=lambda s: s.lstrip("# "))) + "\n")
     shutil.copy2(CONFIG73, TREE / RT / "rtl930x/config-7.3")
@@ -405,12 +424,16 @@ def main() -> int:
                     help="stop after the kernel tree is unpacked + patched (patch rebase work)")
     ap.add_argument("--regen-config", action="store_true",
                     help="7.3: rebuild openwrt/kernel-7.3/config-7.3 in the prepared tree, then stop")
+    ap.add_argument("--up", action="store_true", help="7.3: one VPE (merge mainline/st1008f-v2-up.config)")
     ap.add_argument("--no-overlay", action="store_true", help="stock OpenWrt main (baseline / rebase base)")
     ap.add_argument("--no-comment", action="store_true", help="no #73 comment on a disk abort")
     a = ap.parse_args()
     comment = not a.no_comment
+    global UP73
+    UP73 = a.up
     t0 = time.time()
-    log(f"=== build_openwrt kernel {a.kernel} {'kernel-only' if a.kernel_only else 'full'} -j{a.jobs} ===")
+    log(f"=== build_openwrt kernel {a.kernel}{' UP' if a.up else ''} {'kernel-only' if a.kernel_only else 'full'} "
+        f"-j{a.jobs} ===")
     disk_check("clone", comment)
     clone(a.update)
     overlay(a.kernel, a.no_overlay)
