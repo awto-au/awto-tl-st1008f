@@ -297,25 +297,31 @@ static int do_loopback(int argc, char *const argv[])
 /* ---- PRBS generator + checker (10GR PCS, 5/0xa = 3.42 test-pattern ctrl, 5/0xb = 3.43 errors) ---- */
 
 struct prbs_save { u16 p5a, p60, p6e, p6f; };
+/* 6/0xe, 6/0xf after `rtk network on` (all 10GR cages); SDK testDis_set writes 0 instead */
+#define R6E_RESET	0x015a
+#define R6F_RESET	0x5a5a
+#define PAT_MISMATCH	1
 
 static void prbs_set(int sds, int pat)
 {
-	if (!pat) {		/* _dal_longan_sds_testDis_set */
+	if (!pat) {		/* _dal_longan_sds_testDis_set, but 6/0xe + 6/0xf back to reset values */
 		fw(sds, 5, 0xa, 7, 4, 0);
 		fw(sds, 5, 0xa, 3, 3, 0);
 		fw(sds, 5, 0xa, 1, 1, 0);
 		fw(sds, 6, 0, 14, 8, 0);
 		fw(sds, 6, 0, 7, 4, 0);
-		fw(sds, 6, 0xe, 8, 0, 0);
-		wr(sds, 6, 0xf, 0);
+		wr(sds, 6, 0xe, R6E_RESET);
+		wr(sds, 6, 0xf, R6F_RESET);
 		return;
 	}
 	fw(sds, 5, 0xa, 13, 4, 0);
 	fw(sds, 5, 0xa, 1, 1, 0);
 	if (pat == 9)
 		fw(sds, 5, 0xa, 7, 6, 3);
-	else
+	else if (pat == 31)
 		fw(sds, 5, 0xa, 5, 4, 3);
+	else			/* checker self-test: bits 7 + 4 = PRBS31 out, PRBS9 checked (saturates) */
+		fw(sds, 5, 0xa, 7, 4, 9);
 	fw(sds, 6, 0, 12, 8, 2);
 	fw(sds, 6, 0, 14, 13, 3);
 	fw(sds, 6, 0xe, 8, 0, 2);
@@ -338,8 +344,8 @@ static int do_prbs(int argc, char *const argv[])
 		printf("prbs cage %d: off\n", sds_cage(s));
 		return 0;
 	}
-	pat = dectoul(argv[4], NULL);
-	if (pat != 9 && pat != 31)
+	pat = !strcmp(argv[4], "mismatch") ? PAT_MISMATCH : dectoul(argv[4], NULL);
+	if (pat != 9 && pat != 31 && pat != PAT_MISMATCH)
 		return CMD_RET_USAGE;
 	for (i = 5; i < argc; i++) {
 		if (!strcmp(argv[i], "near"))
@@ -403,8 +409,9 @@ static int do_prbs(int argc, char *const argv[])
 	else
 		rx_resync(s);
 	symerr_clear(s);
-	printf("prbs%d cage %d%s: %u errors in %lu ms (%llu Mbit), %u/%u samples nonzero, %u saturated, "
-	       "pre-start 0x%04x%s%s\n", pat, sds_cage(s), near ? " near-loopback" : "", total, el,
+	printf(pat == PAT_MISMATCH ? "prbs31-vs-9 (self-test) " : "prbs%d ", pat);
+	printf("cage %d%s: %u errors in %lu ms (%llu Mbit), %u/%u samples nonzero, %u saturated, "
+	       "pre-start 0x%04x%s%s\n", sds_cage(s), near ? " near-loopback" : "", total, el,
 	       BITS_PER_MS * el / 1000000, nz, samples, sat, first, aborted ? ", ABORTED (Ctrl-C)" : "",
 	       io_err ? ", SerDes IO errors" : "");
 	return aborted ? CMD_RET_FAILURE : 0;
@@ -572,7 +579,7 @@ static int do_eye(int argc, char *const argv[])
 {
 	int s = argc > 3 ? parse_sds(argv[3]) : -1, i, x, y, f, frames = 1, h, w, hx, wc;
 	u16 save[ARRAY_SIZE(eye_regs)], dbg, v;
-	bool raw = false, settle = true, aborted = false, before, after;
+	bool raw = false, settle = true, aborted = false, before, after, idle, cmu;
 	ulong t0;
 
 	if (s < 0)
@@ -587,6 +594,7 @@ static int do_eye(int argc, char *const argv[])
 	}
 	if (frames < 1 || frames > 16)		/* SDK RTK_EYE_MON_FRAME_MAX */
 		return CMD_RET_USAGE;
+	dbg35(s, &idle, &cmu);
 	before = pcs_link(s);
 	for (i = 0; i < ARRAY_SIZE(eye_regs); i++)
 		save[i] = rd(s, 0x2e, eye_regs[i]);
@@ -625,6 +633,8 @@ static int do_eye(int argc, char *const argv[])
 	       io_err ? ", SerDes IO errors" : "");
 	if (aborted)
 		return CMD_RET_FAILURE;
+	if (idle)	/* no input: the comparators never disagree, the map reads all-open */
+		printf("eye cage %d: RX idle (no signal): map below is not an eye\n", sds_cage(s));
 	if (raw)
 		for (y = 0; y < EYE_N; y++) {
 			printf("y%02d", y);
@@ -666,7 +676,7 @@ int rtk_sds_cmd(int argc, char *const argv[])
 		ret = CMD_RET_USAGE;
 	if (ret == CMD_RET_USAGE)
 		printf("usage: rtk sds status|errcnt [<cage>|s<sds>|all] [clear]\n"
-		       "       rtk sds prbs <cage> 9|31 [ms] [near] [force] [v] | prbs <cage> off\n"
+		       "       rtk sds prbs <cage> 9|31|mismatch [ms] [near] [force] [v] | prbs <cage> off\n"
 		       "       rtk sds loopback <cage> near|off [force]\n"
 		       "       rtk sds eye <cage> [frames] [raw] [nosettle]\n"
 		       "       rtk sds txeye <cage> [<pre> <main> <post> | restore]\n");

@@ -240,7 +240,8 @@ int rtk_sdsreg(int argc, char *const argv[])
 	u16 v;
 	int ret;
 
-	if (argc < 6 || (set && argc < 7)) {
+	/* reads argv[4..6] (+7 for set): one argument short dereferenced NULL (#74) */
+	if (argc < 7 || (set && argc < 8)) {
 		printf("sdsreg parameter error\n\n");
 		return rtk_usage();
 	}

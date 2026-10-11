@@ -307,6 +307,14 @@ def cmd_hidden_write_probe(extra: list[str]) -> int:
     return _script("hidden_write_probe.py", extra)
 
 
+@command("`rtk sds` SerDes test tools on hardware: status, guards, PRBS (near loopback), Ctrl-C restore, "
+         "TX eye, RX eye cage 1 + dark cages (#74, docs/SDS-TOOLS.md)",
+         args="[all | status guards prbs ctrlc txeye eye] [--label L] | run \"<cmd>\"  (our prompt)",
+         kind="hardware")
+def cmd_sds_tools_test(extra: list[str]) -> int:
+    return _script("sds_tools_test.py", extra)
+
+
 @command("run the rtk command list on stock and on our U-Boot, diff (see scripts/rtk_parity.py)",
          args="capture --side stock|ours | compare | both [--state] [--slow]", kind="check")
 def cmd_rtk_parity(extra: list[str]) -> int:
