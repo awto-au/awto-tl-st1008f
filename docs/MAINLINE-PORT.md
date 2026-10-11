@@ -140,7 +140,8 @@ Upstream-hostile items to carry out-of-tree: #7 (`700`, `722`), #8 until merged,
 - Cached window, `dma_cache_inv` per read (PIO program/erase cannot leave stale lines).
 - `/sys/module/spi_realtek_rtl/parameters/dirmap`: 0 PIO, 1 uncached window, 2 cached (default); read per call.
 - A/B: `./dev.py spi-dirmap-test` (dd time + md5 of `firmware` per mode).
-- Build check (2026-10-10, `scripts/mainline_build_check.py`): `dtc` clean (0 warnings), `vmlinux` links (ELF32 MSB MIPS32r2, text 12.1 MB), DTB 6.7 KB. Not booted; `dtbs_check` not run.
+- **Status:** the self-check fails on every 7.3 boot; Linux stays on PIO (#61, "On hardware" below).
+- Build check (2026-10-10, `scripts/mainline_build_check.py`): `dtc` clean (0 warnings), `vmlinux` links (ELF32 MSB MIPS32r2, text 12.1 MB), DTB 6.7 KB; `dtbs_check` not run.
 - Stage-0 gate (issue #16): serial boot, `i2c-rtl9300` / `gpio-realtek-otto` / `realtek_otto_wdt` / SPI-NOR probe. Passed 2026-10-10 ([First boots](#first-boots-16)).
 - On hardware (2026-10-11/12, #61): the self-check fails on every 7.3 boot (`dirmap: window != PIO at 0x0 (SFCR2 0xbbc14a00), using PIO`), so reads stay PIO; cause open (DT window `0x14000000` vs the U-Boot-verified `0xb4000000`, compare byte order, 4-byte-address assumption). Allowlisted `known #61`.
 
@@ -149,7 +150,7 @@ Upstream-hostile items to carry out-of-tree: #7 (`700`, `722`), #8 until merged,
 Done 2026-10-12: boot, one cage at 10G, NAT bench ([NAT.md](NAT.md) "Mainline 7.3"), NIC profiling by ftrace (#67), SMP (section 9), OpenWrt userspace on 7.3 ([OPENWRT-BUILD.md](OPENWRT-BUILD.md) step 2).
 
 1. 10GBASE-R on the other cages (PCS calibration, issue #16 stage 5).
-2. SMP-safe doorbell + TX completion on VPE1 (`300-14`, parked, #60).
+2. SMP-safe doorbell + TX completion on the other VPE (`300-14`, parked, #60): lowered throughput on SMP ([section 9](#parked-300-14-both-ring-doorbell--tx-napi-on-smp-2026-10-12)).
 3. `mtdsplit` forward-port for a 7.3 flash image ([OPENWRT-BUILD.md](OPENWRT-BUILD.md)).
 
 ## 6. Not determined
@@ -180,6 +181,9 @@ Built with `./dev.py build-kernel` (GCC 16.2); booted 2026-10-12 with IP traffic
 | `300-15` | `realtek_otto_wdt`: a watchdog armed by U-Boot stays on at probe (`WDOG_HW_RUNNING`), for the default boot ([DEFAULT-BOOT.md](DEFAULT-BOOT.md), #73) |
 | `300-16` | port LED patterns: `panic_blink`, sysfs error latch, boot-pattern release (`CONFIG_TPLINK_ST1008F_LEDS`, #9; [RTK-COMMANDS.md](RTK-COMMANDS.md#port-leds)) |
 | `300-17` | `l3.c`: on-link neighbour host entries (v4+v6) + default-route offload, opt-in module parameters `l3_onlink` / `l3_default_v4` / `l3_default_v6` ([ROUTING-OFFLOAD.md](ROUTING-OFFLOAD.md), #59) |
+| `300-18` | irqchip `realtek-rtl`: one effective target CPU per IRQ + parent IM bits opened on secondary VPEs (cpuhp STARTING hook) ([section 9](#irq-affinity-300-18-devpy-irq-check), #73) |
+
+- Not applied: `300-14` (SMP doorbell + TX NAPI) is parked in `openwrt/patches-parked/` ([measured](#parked-300-14-both-ring-doorbell--tx-napi-on-smp-2026-10-12)).
 
 ### 6.18 -> 7.3 drift fixes (one line each; details in the patch headers)
 
@@ -387,6 +391,15 @@ Measured 2026-10-12, mainline 7.3-rc6, `ramload uboot-mainline --then mainline-k
 - One NAPI context: the softirq runs on the CPU that takes eth0; the other VPE idles (CPU1 busy 0.1-0.6 % with eth0 on CPU0).
 - eth0 on CPU1 recovers the SMP loss: CPU0 also carries the UART, timers' housekeeping and RCU.
 
+### Parked 300-14 (both-ring doorbell + TX NAPI) on SMP, 2026-10-12
+Same conditions as Throughput, 300-18, eth0 on CPU1, one run each. 300-14 stays parked: it lowers throughput.
+
+| 300-14 setting | tcp-P4 Mbit/s | udp1400-900 kpps | udp64 kpps |
+|---|---|---|---|
+| without 300-14 | 334 | 59.3 | 67.9 |
+| `tx_cpu=-1` (inline reclaim) | 290 | 53.6 | 60.6 |
+| `tx_cpu=0` (TX NAPI on CPU0) | 146 | 24.8 | 26.4 |
+
 ### Latency (`build-kernel --latency`: timerlat + irqsoff tracers)
 timerlat per CPU, 10 s idle / 12 s under nic-bench tcp-P4. irqsoff = max IRQs-off section in a separate window of the same length; with the function tracer active it is an upper bound.
 
@@ -423,12 +436,3 @@ CPU = MIPS 34Kc, 1 core / 2 VPEs. CP0 values: [HARDWARE-INVENTORY.md](HARDWARE-I
 - HIGHMEM cost and `300-13` fix: [NAT.md](NAT.md) "HIGHMEM and 512 MiB". Decision: keep HIGHMEM (512 MiB) ([DECISIONS.md](DECISIONS.md)).
 - 512 MiB verified 2026-10-12: MemTotal 508264 kB (HighTotal 262144, LowTotal 246120); `./dev.py mem-stress` (tmpfs of MemFree − 48 MiB, 26 copies of a 16 MiB urandom seed = 432 MiB, HighFree → 784 kB, md5 every copy, 2 passes) 0 bad, no Oops/OOM, on 2 boots; `--no-highmem` kernel MemTotal 245976 kB.
 - `page_pool` allocations are `GFP_ATOMIC` (no `__GFP_HIGHMEM`) and slab is lowmem: every NIC buffer is lowmem, no driver change needed.
-
-### Parked 300-14 (both-ring doorbell + TX NAPI) on SMP, 2026-10-12
-Same conditions as above, 300-18, eth0 on CPU1, one run each. 300-14 stays parked: it lowers throughput.
-
-| 300-14 setting | tcp-P4 Mbit/s | udp1400-900 kpps | udp64 kpps |
-|---|---|---|---|
-| without 300-14 | 334 | 59.3 | 67.9 |
-| `tx_cpu=-1` (inline reclaim) | 290 | 53.6 | 60.6 |
-| `tx_cpu=0` (TX NAPI on CPU0) | 146 | 24.8 | 26.4 |

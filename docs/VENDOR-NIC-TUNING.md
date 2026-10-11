@@ -67,7 +67,7 @@ Question (#60): do the vendor's managed RTL9303 boxes run a faster CPU network p
 Gains below are the pre-measurement estimates. Measured outcome per item: [NAT.md](NAT.md) "NIC path" and [MAINLINE-PORT.md](MAINLINE-PORT.md) section 9.
 
 Status (2026-10-12):
-- Item 1: RPS onto VPE1 measured worse on 6.18 (213 → 128 Mbit/s NAT + flowtable). SMP 7.3: eth0 on CPU1 ≈ UP, no gain (MAINLINE-PORT section 9). TX completion on VPE1 (`300-14` `tx_cpu`): not measured.
+- Item 1: RPS onto VPE1 measured worse on 6.18 (213 → 128 Mbit/s NAT + flowtable). SMP 7.3: eth0 on CPU1 ≈ UP, no gain (MAINLINE-PORT section 9). TX completion on the other VPE (`300-14` `tx_cpu=0`, eth0 on CPU1): throughput drops to ~44 %; 300-14 parked (MAINLINE-PORT section 9).
 - Item 2: done and exceeded: `300-11` (ring 32, BQL, xmit_more) then `300-12` (ring 128, lockless doorbell, reclaim in xmit): UDP 64 B 55.8 → 70 kpps, TCP NAT 302 → 358 Mbit/s.
 - Items 3, 4: not done.
 - Item 5: SPD_SEL A/B deferred until the CPU path nears 1 Gbit/s (owner, 2026-10-11).

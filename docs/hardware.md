@@ -109,7 +109,7 @@ From the OpenWrt v2 DTS (`SWITCH_PORT_SFP(p,l,s,c,g)` = SoC port, label, SerDes,
 - Stock `rtk network on` ("SPI Master init") writes `0x0000e000` (bit 13 + `CLK_DIV`): reads `0035e000` after it, `00340000` without it (reg-diff).
 - Bit 13 set: GPIO3-5 read 0 = "present" on empty cages; Linux sfp then fails the EEPROM read (`-EIO`). Seen in RAM boots after stock network on (`ramload` flows).
 - Nothing uses the switch-core SPI master on this board (#77). The pins are always GPIO in our code:
-  - Our U-Boot clears bits 13/11/10 in `board_init` and in `rtk network on` (`rtk_presence_pins_gpio()`, `rtk.h`).
+  - Our U-Boot clears bits 13/11/10 in `board_late_init` (`board_init` never runs: `CONFIG_BOARD_INIT` unset, 4b33960) and in `rtk network on` (`rtk_presence_pins_gpio()`, `rtk.h`).
   - Linux DTS: `pinmux@1b0003a0` (`pinctrl-single`, nodes as OpenWrt `rtl930x.dtsi`), applied by `&gpio0` `pinctrl-0` (mainline DTS, OpenWrt 6.18 tree patch).
 - OpenWrt's TL-ST1008F v2 DTS does not apply `pinmux_disable_spi0` (upstream fix: draft, not posted).
 
@@ -253,7 +253,8 @@ Source: static RE of stock `rtk.ko` (TP-Link additions, `TP_CHKPATTERN` thread).
 
 ### Boot policy (our U-Boot, #46)
 
-- Owner decision 2026-10-12 changes the meanings (implementation in progress, #73): M1 = switch mode (bridge + STP), M2 = isolated management, M3 = recovery image with isolated management. The text below is the current build. [DECISIONS.md](DECISIONS.md).
+- Meanings (owner decision 2026-10-12, #73): M1 = switch mode (bridge + STP), M2 = isolated management, M3 = recovery image with isolated management. [DECISIONS.md](DECISIONS.md).
+  - Implemented (a518790): U-Boot `bootsel.c` + `board.c`; Linux side `openwrt/default-boot/` (`st1008f-mode`). Install/test status: [DEFAULT-BOOT.md](DEFAULT-BOOT.md).
 
 - `board_late_init` reads DAT bits 17-19 twice, 30 ms apart (stock settle), decodes pins 18/19 only: 1/1 = M1, 0/1 = M2, 1/0 = M3. Both low or the two reads differ = invalid -> M1.
 - Prints `Mode:  Mx <name>, pins 17/18/19 = a/b/c` (names: M1 `switch`, M2 `isolated`, M3 `recovery`); sets env `boot_mode=Mx`, `bootcmd_m1=clocks fast; bootm 0xb4300000`.
@@ -344,5 +345,6 @@ rtk i2c read 8 1               # readback
 
 ## Prior art
 
+- OpenWrt's TL-ST1008F v2 install note ("serial transfer only") is wrong: [FIRMWARE-ANALYSIS.md § Official sources](FIRMWARE-ANALYSIS.md#official-sources).
 - NicGiga S100-0800S-M (same `RTL9303_8XGE`, DTS derived from the ST1008F v2): OpenWrt install RAM-boots via plain `tftpboot`/`bootm` from vendor U-Boot. This unit needs `rtk network on` first (bare `tftpboot` resets the board: `No ethernet found`) and the laser enable.
 - olliver's `realtek_sdk` (GitLab) builds this U-Boot family in Docker and has a `tplink_maple` branch (TP-Link ST-series).

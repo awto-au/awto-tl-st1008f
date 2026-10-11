@@ -147,7 +147,8 @@ Unit = `rtk unit set` value (default 0); a unit >= 6 prints `\nUnit %u invalid u
 ## Open
 
 - Admin-state register for `port enable|disable` is from Linux behaviour; parity shows the same effect as stock (`MAC_L2_PORT_CTRL(8)` `0x30` → `0x33` on both, #34), stock may touch more.
-- Poll caps without a measured basis (#37): SerDes indirect access 1 ms, `rtk temp` VALID 100 × 1 ms.- Ethernet stage unlocks: `init`, `rtcore-init`, `send`.
+- Poll caps without a measured basis (#37): SerDes indirect access 1 ms, `rtk temp` VALID 100 × 1 ms.
+- Ethernet stage unlocks: `init`, `rtcore-init`, `send`.
 
 ## Stage 4: network on, 10g, macsds, port-isolation
 
@@ -162,7 +163,7 @@ Code `rtk_net.c` (media choice `rtk_sfpmode.c`). Sources: stock loader [BIN] (`t
     - LED sets: `0xcc28` = `0x0a080a01` (set 0 LED1:LED0), `0xcc24` = `0xffff0ba0` (LED3 = profile end marker `0xffffffff`, masked to 16 bits), `0xcc0c-0xcc20` (sets 1-3) = 0.
     - `0xcc00` [22] active = 1 (profile `led_active` 0), [3:2] power-on blink = 0, [1:0] mode = 1 (serial).
     - per port: `LED_PORT_SW_CTRL 0xcc5c+4p` [23:12] (fibre LED0-3 modes) = 0, `LED_PORT_SW_EN 0xcc4c` 4-bit field = `0xf` (LEDs under software control), `SW_LED_LOAD 0xcc48` bit 0 = 1.
-    - Result 2026-10-11 (from flash, no stock network on): every LED register `0xcc00-0xccc8` equals stock's (`reg-diff compare stock-led ours-led`: 0 LED diffs; `0xcc00` = `01452651`, `0xcc0c` = 0). Before the port ours left `01052658` / `0a400a80` (#9).
+    - Result 2026-10-11 (from flash, no stock network on): every LED register `0xcc00-0xccc8` equals stock's (`reg-diff compare stock-led ours-led`: 0 LED diffs since 24430e8; `0xcc00` = `01452651`, `0xcc0c` = 0). Before the port ours left `01052658` / `0a400a80` (#9).
     - After network on, stock and ours leave the cage LEDs in software mode (`rtk port`: `led sw`); only `rtk ledtest`'s restore (`rtk_led_restore` 0x83f18564) returns them to hardware. Nothing writes LED pinmux (`0x200`/`0x3a0`).
     - Guess: non-cage fields of `0xcc04/08` and `0xcc2c-0xcc38` keep reset values (RMW), as on stock.
   - Tail of `mac_led_config` = `mac_park_tx_disable` 0x83f6f710: TX-disable PCA9534 `0x38` reg 3 = `0xff`, reg 1 = `0xff` = all lasers off. Ported (`rtk_net.c` `park_tx_disable()`).
@@ -170,7 +171,7 @@ Code `rtk_net.c` (media choice `rtk_sfpmode.c`). Sources: stock loader [BIN] (`t
   - per cage: `phy_9300_enable_set` (page 2/4 BMCR power-up) -> media set with the current media, then the cage media (stock: `fiber10g` always).
   - CPU port: `Err:0xf030:FAIL (0xf030)` (stock text, no PHY driver), then 2 s settle.
 - Hardware 2026-10-11 (#51), from flash, no stock network on, `rtk_media=stock`: `rtk network on` 7.1 s; all 8 SerDes `0x1a`; cage 1 `pcs up, mac up 10G`; `uboot-test network` PASS. Stock discriminator `rtk sdsreg get 0 2 46 20` = `0x1311` = list `a` (`0x1179` would be `bT`).
-- Switching-plane defaults are not run by ours yet (receive relies on chip reset values there); see [stock switch init](#stock-switch-init-what-rtk-network-on-writes-80).
+- Switching-plane defaults are not run by ours on main (receive relies on chip reset values there; branch `worktree-agent-a224c1e0dfdf94299` for #80 adds them, not merged); see [stock switch init](#stock-switch-init-what-rtk-network-on-writes-80).
 
 ### Stock switch init: what `rtk network on` writes (#80)
 

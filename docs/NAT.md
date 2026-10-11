@@ -159,8 +159,8 @@ Same boot and topology as "NIC path" (DDR 600, CPU 1 GHz, UP, `300-12`). `./dev.
 - RX CPU tag: `L2_ERR_PKT`, `L3_ERR_PKT`, no L4-OK bit. TX CPU tag: no checksum or TSO bit. No interrupt-coalescing register (only per-ring RX_DONE / RX_RUNOUT masks); registers: [DATASHEET-AUDIT.md](DATASHEET-AUDIT.md) "CPU NIC / DMA interface".
 - Threaded NAPI: not tested.
 - `300-12` doorbell writes `cached | this ring's fetch bit`, i.e. 0 into the other ring's `TX_FETCH`. SDK `r9300_nicTxFetch_set` is an RMW (writes back a pending 1). Whether a written 0 cancels a pending fetch is undocumented: a risk on SMP and on UP with both rings active.
-- `300-14` (SMP-safe doorbell): every kick writes both fetch bits (an extra fetch of a ring with no OWN descriptor is a no-op); still one lockless `writel`.
-- `300-14` module parameter `tx_cpu` (`/sys/module/rtl838x_eth/parameters/tx_cpu`, runtime): −1 (default) = `300-12` inline reclaim; N = per-ring TX NAPI on CPU N via `smp_call_function_single_async`, RX poll skips reclaim, a full ring stops the queue for the TX NAPI. TX completion on VPE1: not measured. Idea: freeing is cache-miss heavy (~110 ns stalls), which 34Kc MT can overlap with VPE0's RX/NAT, unlike RPS; but VPE1 shares the pipeline and takes issue slots from VPE0.
+- `300-14` (parked in `openwrt/patches-parked/`, not applied; lowers throughput: [MAINLINE-PORT.md](MAINLINE-PORT.md) section 9). SMP-safe doorbell: every kick writes both fetch bits (an extra fetch of a ring with no OWN descriptor is a no-op); still one lockless `writel`.
+- `300-14` module parameter `tx_cpu` (`/sys/module/rtl838x_eth/parameters/tx_cpu`, runtime): −1 (default) = `300-12` inline reclaim; N = per-ring TX NAPI on CPU N via `smp_call_function_single_async`, RX poll skips reclaim, a full ring stops the queue for the TX NAPI. Measured SMP 2026-10-12 (eth0 on CPU1): `tx_cpu=0` (TX NAPI on the other VPE) drops throughput to ~44 %; `tx_cpu=1` not measured. Idea: freeing is cache-miss heavy (~110 ns stalls), which 34Kc MT can overlap with VPE0's RX/NAT, unlike RPS; but VPE1 shares the pipeline and takes issue slots from VPE0.
 - SMP race review of `300-11`/`300-12` (code reading): reclaim always under the txq lock (xmit holds it; RX poll takes `__netif_tx_lock`); BQL `completed_queue` and wake under the same lock; `napi_consume_skb(budget=1)` in xmit runs BH-disabled (OK); TX stats `unsigned long` (no tearing); RX stats under `rx_lock`. Only the doorbell needed a change.
 - Generic `300-12` parts (reclaim, ring 128, kick batch) apply to RTL838x/839x/931x: build-tested only.
 - SMP measurements (UP vs SMP, eth0 on CPU0 / CPU1): [MAINLINE-PORT.md](MAINLINE-PORT.md) section 9.
@@ -241,7 +241,7 @@ Idea (owner research chat 2026-10-09..11): PIE matches the flow, the CPU rewrite
 - Ranked:
   1. IPv6-first: DHCPv6-PD on the WAN, RA per LAN VLAN, v6 routed in the ASIC (`2000::/3` workaround or `300-17` `l3_default_v6`; downstream needs `l3_onlink`, #59).
   2. IPv4 NAT on the CPU with the software flowtable (fw4 `flow_offloading=1`: 3-4x over no flowtable). IPoE preferred over PPPoE (PPPoE adds per-packet work; not measured).
-  3. NIC driver work in the 7.3 port (#60: `300-11`..`300-14`), profiled first.
+  3. NIC driver work in the 7.3 port (#60: `300-11`, `300-12`; `300-14` parked), profiled first.
   4. Everything else off the CPU: inter-VLAN routing in the ASIC (#59), ACL drop of unwanted WAN ingress, PIE `UNICAST_ROUTING` for policy routing, NAT and control traffic (ARP/STP/ND) on different CPU queues (`QM_RSN2CPUQID` / PIE CPU-QID).
   5. CPU-port SPD_SEL 10G/2.5G A/B once the CPU path nears 1 Gbit/s.
 - Not pursued: RPS onto VPE1 (measured worse on 6.18); hybrid re-injection as a route to 2.5G.

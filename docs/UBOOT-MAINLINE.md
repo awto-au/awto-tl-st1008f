@@ -77,25 +77,8 @@ Full stock `rtk` parity inventory, registers and parity harness: [RTK-COMMANDS.m
 
 ## Console speed
 
-- UART = LX 175 MHz / 16 / divisor; every divisor 47..1 (232 k .. 10.94 MBd) passes byte-exact (`./dev.py serial-speed`, #32). Divisor 1 = the UART's rated max; the SoC passes at every divisor.
-- Measured 2026-10-10 (dda6fff): RAM-loaded U-Boot, 16 KiB `md.b` (~81 KB text) per step, byte-exact vs a 115200 baseline; host PL2303HX clone (067b:2303, bcdDevice 3.00), Linux `pl2303`. Stock U-Boot 2011 measured the same way (`--stock`, markers via `printenv`): 9/9 rates pass, same host requests.
-
-| Div | Board rate | Host request that decodes | Ours char/s | Stock char/s |
-|---|---|---|---|---|
-| 95 | 115,131 | 115200 | ~10.6 k | - |
-| 47 | 232,713 | 232,713 | 20.7 k | 20.7 k |
-| 24 | 455,729 | 455,729 | 39.6 k | 39.7 k |
-| 12 | 911,458 | 875,000 (921600 fails) | 77.2 k | 76.5 k |
-| 6 | 1,822,917 | 1,604,167 | 140.9 k | 141.8 k |
-| 5 | 2,187,500 | 1,837,500 | 166.0 k | 166.1 k |
-| 4 | 2,734,375 | 2,187,500 | 194.8 k | 199.5 k |
-| 3 | 3,645,833 | 2,770,833 | 244.7 k | 249.7 k |
-| 2 | 5,468,750 | 3,718,750 | 313.5 k | 335.2 k |
-| 1 | 10,937,500 | 5,129,688 (5,468,750 also works) | 425.1 k | 465.8 k |
-
-- Host limit is the adapter: the clone PL2303HX runs faster than requested, more so at high rates, so `serial_speed_test.py` sweeps the request. An FT232H / CH343 would take exact rates.
-- Above ~3.6 MBd char/s is below line rate: polled `putc` + USB full-speed bulk. Ours ~9 % slower than stock at the top rate: per-character LSR polling in the DM ns16550 path (candidate: fill the 16-byte TX FIFO per THRE).
-- Datasheet (RTL9303-CG Rev 1.1-1) gives pins only (2 UARTs, UART0 with RTS/CTS); no clock, max baud or FIFO depth.
+- UART = LX 175 MHz / 16 / divisor; every divisor 47..1 (232 k .. 10.94 MBd) passes byte-exact on ours and stock (`./dev.py serial-speed`, #32). Rate table, conditions, host-adapter limits: [CLOCKS.md § UART rates](CLOCKS.md#uart-rates-2026-10-10-32).
+- Ours ~9 % slower than stock in chars/s at the top rate: per-character LSR polling in the DM ns16550 path (candidate: fill the 16-byte TX FIFO per THRE).
 - `./dev.py ramload uboot-mainline --fast [DIV]`: after boot, `setenv baudrate` to 10.9375 MBd/DIV (default 1) and find the host request (`tmp/serial-cal.json` first, then sweep). `uboot-test` 29/29 at 10.94 MBd.
 - After `--fast` the board stays fast until power-off; `console-restart`, the daemon's autoboot catch and `uboot-test reset` assume 115200.
 - `CFG_SYS_BAUDRATE_TABLE` lists the exact divisor rates so `setenv baudrate` accepts them.
@@ -108,7 +91,7 @@ Full stock `rtk` parity inventory, registers and parity harness: [RTK-COMMANDS.m
 
 - `rtk i2c read|write <dev> <reg> [data]`: dev 0-7 = cage EEPROM `0x50` (read-only), 8 = laser expander `0x38`. `rtk i2c init …` accepted as a no-op.
 - `rtk pinGet <pin>` (non-claiming read), `rtk pinSet <pin> <0|1> [force]` (GPIO21 low needs `force`).
-- - `rtk laser [status|<cage>|none|all force]`, `rtk boardmodel`.
+- `rtk laser [status|<cage>|none|all force]`, `rtk boardmodel`.
 - `rtk sfp`: all cages, summary only (presence, checksums, compact DDM line). `rtk sfp <cage>`: summary + `--- ethtool decode ---`. `rtk sfp <cage> brief`: summary only. `rtk sfp <cage> raw`: hexdump A0/A2 (128 B each).
 - `rtk sfp power`: counted power per cage + total vs budget (warn only, #30). Rules: [hardware.md](hardware.md#sfp-power).
 - `rtk sfp <cage> phy [reg]`: copper module PHY at 0x56; each 16-bit reg = two 1-byte reads of the same reg (MSB, then LSB), as Linux `mdio-i2c` SMBus. A 2-byte block read returns LSB `0xff` (master has no clock stretching). ID1 first: read as `0x4101` = byte order off by one → one extra byte read re-aligns. Each byte: up to 5 tries 1 ms apart.
@@ -139,7 +122,7 @@ st1008f-mainline #
 - SPI-NOR read-only (stage 3, verified on the board 2026-10-10; see [SPI-NOR](#spi-nor-stage-3-read-only)).
 - Chained-boot selection primary / recovery (`bootsel`, attempt record in RAM, SoC watchdog): [DEFAULT-BOOT.md](DEFAULT-BOOT.md) (#73); not run on the board.
 - SerDes bring-up + `rtk network on` without stock (#51, [Stage 4](#stage-4-network-on-without-stock-51)).
-- Not: Ethernet (CPU-port NIC, #80), flash env, reset (next: switch-core `+0x0c` write 1 = `syscon-reboot` per Linux DTS), interrupts (polled console only), second RAM bank (#32), second hardware thread.
+- Not: Ethernet (CPU-port NIC, #80), flash env, reset (next: switch-core `+0x0c` write 1 = `syscon-reboot` per Linux DTS), interrupts (polled console only), second RAM bank for Linux handover ([highmem](#ram-above-256-mib-highmem-32)), second hardware thread.
 - `bootm`: accepts the standard uImage magic `0x27051956` and the Realtek `0x93030000` (stock-style images, flash OpenWrt), so `bootm 0xb4300000` boots the flash OpenWrt (#47).
 
 ## 64-bit divide (`__udivdi3`, #33)
@@ -236,9 +219,9 @@ Stage 0 uses none of them.
 
 ## Driver reuse audit (#83)
 
-Owner 2026-10-12: U-Boot drivers reuse Linux/OpenWrt code where possible (one OS-independent core + thin platform glue, awto-unvr pattern). Audit 2026-10-12 (01dd293). Mainline U-Boot v2026.07 has no Realtek Otto driver of any kind.
+Owner 2026-10-12: U-Boot drivers reuse Linux/OpenWrt code where possible (one OS-independent core + thin platform glue, awto-unvr pattern). Audit 2026-10-12 (on branch `worktree-agent-a224c1e0dfdf94299`; hashes change on merge). Mainline U-Boot v2026.07 has no Realtek Otto driver of any kind.
 
-- **Shared core (built in 01dd293 on top of #80's 976a2b5; not yet merged to main):** NIC `rtl930x_eth.c` ↔ OpenWrt `rtl838x_eth.c` + `300-11/12`: `shared/rtl930x-nic/rtl930x_nic.h` (registers, descriptor/tag, reset, HOL, reason map, ring base, max length, enable/stop, doorbell); Linux via `300-18`. Linux glue (page_pool, NAPI, DSA) cannot run in U-Boot.
+- **Shared core (branch `worktree-agent-a224c1e0dfdf94299`, with #80's U-Boot Ethernet; not yet merged to main):** NIC `rtl930x_eth.c` ↔ OpenWrt `rtl838x_eth.c` + `300-11/12`: `shared/rtl930x-nic/rtl930x_nic.h` (registers, descriptor/tag, reset, HOL, reason map, ring base, max length, enable/stop, doorbell); Linux via `300-19` (main's `300-18` = irqchip affinity). Linux glue (page_pool, NAPI, DSA) cannot run in U-Boot.
 - **Share a core (to do), in suggested order:**
   - SFP power `rtk_sfppower.c` ↔ `300-06` `st_power_mw()`: pure function on A0 bytes, same rules written twice (drift risk). Trivial.
   - Mode-switch decode (`board.c`) ↔ `300-06`: one-hot pin table written twice. Trivial.
