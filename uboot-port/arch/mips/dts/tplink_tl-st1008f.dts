@@ -187,7 +187,7 @@
 	};
 
 	/* 3-position mode switch, one-hot active-low (stock rtk.ko decode, docs/hardware.md).
-	 * Pin 17 reads low in every position so far (#8): reported as-is, not interpreted. */
+	 * Measured one-hot: M1 0/1/1, M2 1/0/1, M3 1/1/0 (pins 17/18/19, #8). */
 	keys {
 		compatible = "gpio-keys";
 

@@ -17,8 +17,8 @@
 static const char *const mode_name[] = { "normal", "easy", "recovery" };
 
 /*
- * Boot policy from the mode switch (#8, #46). Pins 18/19 only: pin 17 reads low in every
- * position so far. 18 low = M2, 19 low = M3, both high = M1. Both low or an unstable read
+ * Boot policy from the mode switch (#8, #46). Pins 18/19 decide (one-hot; pin 17 measured
+ * high at M2/M3 under OpenWrt). 18 low = M2, 19 low = M3, both high = M1. Both low or an unstable read
  * = invalid: 0 (callers treat it as M1). *pins = DATA bits 17-19 of the first read.
  */
 int st1008f_boot_mode(u32 *pins)

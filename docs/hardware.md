@@ -95,8 +95,8 @@ Source: static RE of stock `rtk.ko` (TP-Link additions, `TP_CHKPATTERN` thread).
 | 3 | anything else | M3 grounds pin 19 | "2.5G mode": 2.5G modules up at 2.5G; 1G modules left down (`will not set because of unmatched pattern`); 10G unaffected |
 
 - Pattern decode (`custom_judge_pattern_mode`, `0x0020c240`): `(p17,p18,p19) == (0,1,1)` -> 1; `== (1,0,1)` -> 2; anything else -> 3. The decode is one-hot: each position grounds one pin.
-- Live reads (U-Boot `md.l`, OpenWrt debugfs) show pin 17 low in all three positions: M1 0/1/1, M2 0/0/1, M3 0/1/0. Taken at face value M2 would fall through to pattern 3; that conflicts with the one-hot design, so the pin-17 read is suspect, not the firmware.
-- Open: pin 17's pinmux/pull state in U-Boot and OpenWrt vs what stock Linux sets before reading. Verify by reading pin 17 at M2/M3 after configuring it as a pulled-up GPIO input, or under stock firmware.
+- Measured live 2026-10-11 under flash OpenWrt (debugfs gpio, `./dev.py mode-watch`), full M1→M2→M3→M1 cycle: **M1 0/1/1 → pattern 1, M2 1/0/1 → pattern 2, M3 1/1/0 → pattern 3**. One-hot as designed; pin 17 works. The earlier "pin 17 low everywhere" record (M2 0/0/1, M3 0/1/0) was wrong.
+- Not yet read at M2/M3 under our U-Boot (`rtk mode`).
 - Global: `check_pattern_thread_func` stores one pattern, `sfpPatternSet` fans it out to the 8 per-port bytes at `0x00396838..3f`. Per-port values differ only in pattern 2.
 - 10G modules (type 5) never consult the pattern. The switch only chooses 1G vs 2.5G for modules that SFP EEPROM-classify as 1G/2.5G.
 
@@ -130,7 +130,7 @@ Source: static RE of stock `rtk.ko` (TP-Link additions, `TP_CHKPATTERN` thread).
 - The `10G/2.5G/1G fiber insert` lines are EEPROM classification, not the switch. A 1G module logged as `10G fiber insert` under M1 means its EEPROM claimed 10G compliance bits; it is not evidence of a global mode.
 - `gpioInit` (`0x0020c6dc`) is dead code (no caller).
 - Stock U-Boot never reads pins 17-19.
-- Stock decode with pin 17 always low separates only M1 vs not-M1. Pins 18/19 alone separate all three positions (measured reads above).
+- Stock decode separates all three positions (measured above). Pins 18/19 alone do too.
 
 ### Boot policy (our U-Boot, #46)
 

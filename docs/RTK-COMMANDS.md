@@ -87,7 +87,7 @@ Unit = `rtk unit set` value (default 0); a unit >= 6 prints `\nUnit %u invalid u
 | `rtk laser [status\|<cage>\|none\|all force]` | TX-disable expander `0x38`; one cage by default (cage loop #19) | `uboot_mainline_test.py laser` |
 | `rtk sfp [cage [raw\|brief]]` | module EEPROM/DDM decode ([UBOOT-MAINLINE.md](UBOOT-MAINLINE.md)) | `sfp_all`, `ddm` |
 | `rtk port` / `rtk port status` | per cage: port, SerDes id, presence, module PN, laser on/off, SerDes mode, RX light (page 5 reg 0 bit 12), MAC link (`0xCB10`), LED owner (hw/sw). Read-only | `rtk_port` |
-| `rtk mode` | M1/M2/M3 position: `mode: pins 17/18/19 = a/b/c -> pattern N (Mx, ...)` (stock decode), then `boot policy: Mx <name> (pins 18/19; #46)`. Pin 17 reading low at all positions is an open question (hardware.md) | `rtk_mode` |
+| `rtk mode` | M1/M2/M3 position: `mode: pins 17/18/19 = a/b/c -> pattern N (Mx, ...)` (stock decode), then `boot policy: Mx <name> (pins 18/19; #46)`. Measured one-hot: M1 0/1/1, M2 1/0/1, M3 1/1/0 (hardware.md) | `rtk_mode` |
 | `rtk temp` | enables the thermal meter if off (RMW), waits for a valid sample (cap 100 ms, no measured settling time yet), prints deg C and min/max since enable | `rtk_temp` |
 | `rtk help-ours` | lists the above | none |
 
