@@ -378,6 +378,12 @@ def cmd_flash_guard(extra: list[str]) -> int:
     return _script("flash_guard.py", extra or ["--selftest"])
 
 
+@command("docs: relative links + anchors resolve, docs/README.md lists every doc once",
+         args="[extra.md ...]", kind="check")
+def cmd_doc_check(extra: list[str]) -> int:
+    return _script("doc_link_check.py", extra)
+
+
 # ---- meta ------------------------------------------------------------------
 @command("machine-readable command list (for agents)", kind="meta")
 def cmd_describe(_extra: list[str]) -> int:

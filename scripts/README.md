@@ -317,6 +317,11 @@ End-to-end workflow: [../README.md#workflow](../README.md#workflow).
 - Run: `scripts/gh_issue_from_draft.py tmp/issue-draft-<name>.md [--close] [--dry-run]` (needs an authenticated `gh`).
 - Log: `tmp/logs/gh_issue_from_draft.log`.
 
+### doc_link_check.py
+- Purpose: relative links and `#anchors` in `docs/*.md` resolve (GitHub heading slugs, `<a id>`); `docs/README.md` lists every `docs/*.md` exactly once. External URLs not fetched; code spans/fences skipped.
+- Run: `./dev.py doc-check [README.md scripts/README.md ...]` (extra files to check). Exit 1 on any problem.
+- Log: `tmp/logs/doc_link_check.log`.
+
 ## Historical Node helpers (scripts/node/)
 
 Kept as used on 2026-10-07/08. New tooling is Python. Run from the repo root with Node ≥ 20; serial helpers need `SERIAL_PORT=/dev/serial/by-id/<adapter>` and nothing else on the port.
