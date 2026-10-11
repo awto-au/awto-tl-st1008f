@@ -75,6 +75,10 @@ def boot(ramload: bool = True) -> int:
     for args, must in ((["setup"], False), (["mode", "nat-ft"], True), (["status"], True)):
         if subprocess.run([sys.executable, str(ROOT / "scripts/nat_bench.py"), *args], timeout=60).returncode and must:
             return 1
+    from st1008_ramload import relay_check
+    if relay_check() == 3:  # relay rebooted during boot (#84): board lost power
+        log("boot: relay rebooted -> board was unpowered; rerun boot")
+        return 1
     log("boot: ready (nat-ft)")
     return 0
 

@@ -162,8 +162,17 @@ class Console:
 
 def power(op: str) -> None:
     r = subprocess.run([sys.executable, str(ROOT / "scripts/switch_power.py"), op],
-                       capture_output=True, text=True, timeout=12)  # 2 LAN POSTs, 5 s cap each
+                       capture_output=True, text=True, timeout=27)  # 2 POSTs + 3 GETs, 5 s cap each
     log(f"relay {op}: {r.stdout.strip().splitlines()[-1] if r.stdout.strip() else r.stderr.strip()}")
+
+
+def relay_check() -> int:
+    """Relay rebooted since our power-on (comes up OFF, #84)? Power on once and say so."""
+    r = subprocess.run([sys.executable, str(ROOT / "scripts/switch_power.py"), "check", "--fix"],
+                       capture_output=True, text=True, timeout=17)  # 2 GETs + 1 POST, 5 s cap each
+    for ln in r.stdout.strip().splitlines():
+        log(f"  {ln}")
+    return r.returncode
 
 
 def console_view() -> None:
@@ -406,4 +415,9 @@ def main() -> int:
 
 
 if __name__ == "__main__":
-    sys.exit(main())
+    try:
+        rc = main()
+    except SystemExit as e:  # FAIL paths raise: a relay reboot (#84) is the first thing to rule out
+        rc = e.code
+    relay_check()  # flow end, >= 60 s after power-on for kernel/OpenWrt flows: a relay reboot shows here
+    sys.exit(rc)
