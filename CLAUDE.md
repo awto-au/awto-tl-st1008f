@@ -9,6 +9,11 @@
 - **sw1 = st1008f-1**: in service as a house switch, mgmt `.48`, no relay, no serial. Never power-cycle, ramload or flash it; network checks only (`./dev.py switch-check`).
 - **sw2 = st1008f-2**: bench unit on the relay (`.49`) and the serial console; every hardware flow targets it. Bench mgmt `.56`.
 
+## Speed sweeps (owner, 2026-10-13)
+
+- Start at the fastest setting the hardware can be programmed to; binary-search down to the fastest **viable** one = passes ONE quick test. No repeat runs (n=5/n=20) during the sweep.
+- Overview table per domain (CPU, SRAM, LX, DDR, SPI) first, then discuss with the owner before repeats or making a setting the default.
+
 ## Entry point: `./dev.py`
 
 - Every hardware, build and check flow goes through `./dev.py` (`./dev.py describe` = JSON command list). Do not hand-type console sequences; extend `dev.py` / its scripts instead.
