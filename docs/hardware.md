@@ -50,7 +50,8 @@ Narrative & dead ends: see [HISTORY.md](HISTORY.md). Evidence paths under `priva
 ## Network identity
 
 - **No factory MAC.** Stock `printsys` → `Invalid system information`; stock env `ethaddr` was a Realtek-OUI placeholder (#36).
-- **Base MAC `16:b0:46:e9:0d:c0`:** saved in `u-boot-env` `ethaddr` by the 2026-10-08 `sysupgrade`; locally administered (bit 1 of the first byte set) = randomly generated, not TP-Link assigned. Used by flash OpenWrt and our 7.3 kernel (nvmem layout on `u-boot-env`). Stock leaves the switch MAC registers at `00:e0:4c:00:00:00`.
+- **No per-unit data in flash.** sw2 (st1008f-2) full-flash backup 2026-10-12 is byte-identical to sw1's stock backup of 2026-10-08 (every MTD and `full-flash.bin` sha256 equal; env `ethaddr=00:E0:4C:00:00:00`). Each unit needs its own MAC written at install (#91).
+- **Base MAC `16:b0:46:e9:0d:c0` (sw1):** saved in `u-boot-env` `ethaddr` by the 2026-10-08 `sysupgrade`; locally administered (bit 1 of the first byte set) = randomly generated, not TP-Link assigned. Used by flash OpenWrt and our 7.3 kernel (nvmem layout on `u-boot-env`). Stock leaves the switch MAC registers at `00:e0:4c:00:00:00`.
 - **Management address** (owner, 2026-10-12): DHCP client + static fallback `192.168.0.1/24`; house LAN reserves `192.168.25.48` (registry block `st1008f-1` = `.48`-`.55`). Today's flash OpenWrt: static `.48/24` on bridge `switch.1`, gateway/DNS `.254`. [DECISIONS.md](DECISIONS.md).
 - **Lab hosts** (registry): host `enp7s0` TFTP server `192.168.25.30` (static NM entry + DHCP reservation); power relay `192.168.25.49` (DHCP-reserved; [Bench power relay](#bench-power-relay-84)).
 
