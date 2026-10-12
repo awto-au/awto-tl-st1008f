@@ -105,7 +105,7 @@ def cmd_console_restart(_extra: list[str]) -> int:
     subprocess.call(["pkill", "-f", "scripts/switch_console_daemon.py"])
     out = (LOGS / "switch_console_daemon.out").open("a")
     subprocess.Popen([sys.executable, str(SCRIPTS / "switch_console_daemon.py"), "--dev", CONSOLE_DEV,
-                      "--baud", "115200", "--policy", "hold"], cwd=REPO, stdout=out,
+                      "--baud", "115200", "--policy", "pass"], cwd=REPO, stdout=out,
                      stderr=subprocess.STDOUT, start_new_session=True)
     log("console daemon started")
     return 0
@@ -238,6 +238,12 @@ def cmd_spi_linux(extra: list[str]) -> int:
          args="[--ip A.B.C.D]", kind="check")
 def cmd_mode_watch(extra: list[str]) -> int:
     return _script("mode_watch.py", extra)
+
+
+@command("running OpenWrt as a managed switch, over the network only: ping, SSH, bridge/STP, ports, mgmt IP, LuCI, sysupgrade",
+         args="[--ip A.B.C.D] [--wait S]", kind="check")
+def cmd_switch_check(extra: list[str]) -> int:
+    return _script("switch_check.py", extra)
 
 
 @command("follow the serial console log live, error-looking lines red (known #NN yellow); read-only",

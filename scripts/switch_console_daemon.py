@@ -72,7 +72,7 @@ class Owner:
         #   "hold"  — stay at the prompt, let an operator/script decide.
         #   "boota" — issue `boota` to boot the stock kernel normally.
         #   "<cmd>" — any U-Boot command string to run, then (optionally) boota.
-        # Set via the "policy" op. Default holds.
+        # Set via the "policy" op or --policy (default pass = boot through).
         self.autoboot_policy = "hold"
         self.at_prompt = threading.Event()
         self._rx_tail = b""                 # rolling RX tail for banner match
@@ -149,6 +149,9 @@ class Owner:
 
     def _catch_autoboot(self):
         """Fire ESC into the ~1 s window, then apply the autoboot policy."""
+        if self.autoboot_policy == "pass":  # unattended power-up: let stock chain-load ours -> OpenWrt
+            self._logfh.write(b"\n[daemon] autoboot banner seen -> policy 'pass', not catching\n")
+            return
         self._logfh.write(b"\n[daemon] autoboot banner seen -> sending ESC\n")
         with self._lock:
             self._ser.write(self.ESC)
@@ -467,8 +470,9 @@ def main() -> int:
     ap.add_argument("--baud", type=int, default=115200)
     ap.add_argument("--dev", default=DEV)
     ap.add_argument("--log", type=Path, default=LOG)
-    ap.add_argument("--policy", default="hold",
-                    help="autoboot catch policy: hold | boota | <uboot cmd>")
+    ap.add_argument("--policy", default="pass",
+                    help="autoboot catch policy: pass (default: boot through) | hold | <uboot cmd>; "
+                         "ramload/stock flows restart the daemon with hold")
     args = ap.parse_args()
     args.log.parent.mkdir(parents=True, exist_ok=True)
     owner = Owner(args.dev, args.baud, args.log)

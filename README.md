@@ -11,7 +11,7 @@ This repo turns it into a managed switch/router on open firmware: our mainline U
 | **OpenWrt tracking** | local OpenWrt buildroot on OpenWrt main; our patches backported to 6.18; then OpenWrt userspace on our 7.3 kernel | in progress (#73) |
 | **Default boot** | OpenWrt on 7.3 (22 MiB) + recovery OpenWrt 6.18 (7 MiB), selected by our U-Boot | designed, not flashed (#73, [docs/DEFAULT-BOOT.md](docs/DEFAULT-BOOT.md)) |
 
-- Power-up today: stock loader → our U-Boot → flash OpenWrt 25.12.4. Stock U-Boot is never written.
+- Power-up today: stock loader → our U-Boot → flash OpenWrt (snapshot r36962, kernel 6.18.55): switch, STP on, management 192.168.25.48. Check over the network: `./dev.py switch-check`. Stock U-Boot is never written.
 - Upstream: patches are prepared for OpenWrt / Linux; posting needs owner approval.
 
 ## Mode switch (front panel M1 / M2 / M3)
@@ -124,7 +124,7 @@ bootm 0x84f00000                     # OpenWrt in RAM; unplug other cages first 
 
 Never run `sysupgrade`, `mtd write`/`erase`, `firstboot`, or mount the stock JFFS2 regions read-write.
 
-- Flash state: `firmware` = OpenWrt 25.12.4 (sysupgrade 2026-10-08; owner decision: keep it; LAN static 192.168.25.48, bridge STP on); `jffs2-log` (0x200000) = our mainline U-Boot; stock env `bootcmd` chainloads it (`bootcmd_stock=boota` kept, #47). Loader stock. Stock firmware only in the 2026-10-08 backup (#36).
+- Flash state (checked 2026-10-12): `firmware` = OpenWrt SNAPSHOT r36962 (kernel 6.18.55; was 25.12.4 from the 2026-10-08 sysupgrade), bridge `switch` with STP on, LAN static 192.168.25.48, no LuCI (snapshot), `sysupgrade` present; `jffs2-log` (0x200000) = our mainline U-Boot; stock env `bootcmd` chainloads it (`bootcmd_stock=boota` kept, #47). Loader stock. Stock firmware only in the 2026-10-08 backup (#36).
 
 ## Firmware family
 

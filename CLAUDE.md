@@ -22,7 +22,7 @@
 ## Console
 
 - `scripts/switch_console_daemon.py` is the only owner of the UART. Drive the switch with `scripts/switch_console.py`; never open the tty with `tio`/`minicom` while the daemon runs.
-- Log: `private/serial/st1008-console.log`. The daemon auto-catches autoboot (policy `hold`).
+- Log: `private/serial/st1008-console.log`. The daemon lets autoboot run (policy `pass`, unattended power-up boots to OpenWrt); `ramload`/`stock` flows restart it with `hold`.
 - A power cut stalls the PL2303 RX (`urb stopped: -32`): restart the daemon before power-on (`./dev.py stock` / `ramload` do it). Power via the relay: `./dev.py power on|off`.
 - `ramload uboot-mainline --fast` leaves board + daemon at 10.94 MBd; a daemon restart drops the host back to 115200 (board stays fast until power-off).
 - Never type ahead during `rtk network on` (~8 s): input is dropped/garbled (no flow control). Lines >256 chars are rejected; input past ~240 chars drops.
