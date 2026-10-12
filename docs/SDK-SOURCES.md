@@ -40,6 +40,12 @@ Every public Realtek switch SDK ("rtk-ms-sdk") drop found, its version and wheth
 - Realtek developer portal (online.realtek.com), 2026-10-12: registration page opened for the owner to fill in. Activation needs a Realtek contact person; switch SDK documents are usually NDA-only, so approval is not expected. Outcome: pending (owner).
 - No public RTL9300 register file, developer guide or SDK API guide; substitutes = SDK register table (`scripts/sdk_regdump.py`) and the RTL9310 developer guide (same NIC bit layout). [DATASHEET-AUDIT.md](DATASHEET-AUDIT.md).
 
+## 4.0.2.55154 PLR loader (SoC register names, #102)
+
+- Local: `private/tplink-gpl-sg3218xp-m2-v2/rtk-ms-sdk-4.0.2.55154/loader/u-boot-2011.12/` (whole loader subtree). Re-downloaded 2026-10-13 from the SG3218XP-M2 URL above; check = 686,077,529 B, sha256 `9c688eb317a10dc8c2f05990971893823eb2ba422f55d4f31cdbaedc8ad283bc`; tarball deleted after extract.
+- `arch/otto40/plr/src/platform/9300/` vs XGS1210 (`private/reyalo-Realtek/sources/uboot-xgs1210`, 2020): text identical ignoring whitespace / CR (`cg/`, `dram_gen4_9300/`, `register_map.h`); 4.0.2 also has the `cpu`, `dram`, `uart`, `nor_spi`, `spi_nand`, `ecc` dirs that XGS1210 ships as empty files. No CPU / SRAM / MEM rule changes.
+- SoC + PLL names (newest): PLR `register_map.h`, `cg/glb_pll.h`, `cg/mem_pll.h`, `dram_gen4_9300/memcntlr_reg.h`. Switch core: `sdk/system/include/private/drv/swcore/swcore_rtl9300.h`. 4.0.2 has no `rtl9300_soc_reg.h`: the 3.6.9 copy gives aliases. Generator + index: `scripts/soc_regs.py`, [REGISTERS.md](REGISTERS.md).
+
 ## 4.0.2.55154 vs 3.6.9.55156 (DMS-1250), Longan only
 
 Reproduce: `scripts/sdk_version_scan.py diff private/reyalo-Realtek/sources/rtk-dms1250 private/tplink-gpl-sg3218xp-m2-v2/rtk-ms-sdk-4.0.2.55154/sdk`.

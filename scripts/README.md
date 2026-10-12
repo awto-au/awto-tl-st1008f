@@ -210,6 +210,11 @@ End-to-end workflow: [../README.md#workflow](../README.md#workflow).
 - Purpose: RTL9300 (longan) register offsets and field layouts from the GPL SDK tables (`rtk_longan_reg_list.c`, `rtk_longan_regField_list.c`). Also decodes a read value into fields. Feeds `docs/DATASHEET-AUDIT.md`.
 - Run: `scripts/sdk_regdump.py '<name regex>' [--decode NAME=0xVALUE] [--fetch]`. The first run fetches the tables with `gh api` into `tmp/datasheet-audit/sdk/longan/`. Log: `tmp/logs/sdk_regdump.log`.
 
+### soc_regs.py
+- Purpose: SDK names, `GENMASK` fields and reset values for every RTL9300 register our code touches (#102). Sources: SDK 4.0.2 PLR loader + `swcore_rtl9300.h`, 3.6.9 `rtl9300_soc_reg.h` (aliases), read from the main checkout's `private/` ([docs/SDK-SOURCES.md](../docs/SDK-SOURCES.md)).
+- Output: `uboot-port/board/tplink/tl-st1008f/rtl9300_regs.h`, generated part of `docs/REGISTERS.md` (hand-written sections below its marker are kept). Edit the `TOUCHED` table in the script to add a register.
+- Run: `./dev.py soc-regs [--scan] [--check]`. `--scan` lists literal `0xb8/0xbb` addresses in our code missing from `TOUCHED`; `--check` fails when the generated files are stale. Checks PLR bitfield order (first member = MSB) against the OFFSET/MASK headers on every run. Log: `tmp/logs/soc_regs.log`.
+
 ### tplink_ow_unpack.py
 - Purpose: unpack a TP-Link `OW`-magic web asset bundle (`usrImage/data/webImage.z`, LZMA-alone wrapped). Format in the docstring and `docs/MANAGED-FEATURES.md`.
 - Run: `python3 -I scripts/tplink_ow_unpack.py <webImage.z|webImage.decoded> private/china/st5008f-v2-extracted/web [--list]`

@@ -477,6 +477,12 @@ def cmd_build_openwrt(extra: list[str]) -> int:
     return _script("build_openwrt.py", extra)
 
 
+@command("regenerate rtl9300_regs.h + docs/REGISTERS.md from the Realtek SDK headers (#102)",
+         args="[--scan] [--check]", kind="build")
+def cmd_soc_regs(extra: list[str]) -> int:
+    return _script("soc_regs.py", extra)
+
+
 # ---- checks ----------------------------------------------------------------
 @command("strict allowlist check of the console boot log", args="[--boot -1|--all] [--from-line N]",
          kind="check")
