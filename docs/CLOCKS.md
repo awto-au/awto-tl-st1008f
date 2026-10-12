@@ -151,7 +151,7 @@ Source tags: **[SRC]** GPL file:line (`dms1250/` = `sources/rtk-dms1250/`, `xgs1
   - 650: DCSDCR0 `0x0fffffff`, DCSDCR1 `0x03000fff`, DCSDCR2/3 `0xffffffff`.
   - 625/600: DCSDCR0 `0x08888888`, DCSDCR1 `0x0c0d0888`, DCSDCR2/3 `0x88888888`.
   - DWDQSOR DQS0/1 output-enable delay `0x0f` / `0x11` at 600 and 650.
-  - Live 600 DCSDCR1 is `12120888`, not the SDK's `0c0d0888`: the SPL binary does not follow this source for DCSDCR1 (or trains it). The SPL's own 600/650 branch stores are not decoded (decompiler output truncated).
+  - Live 600 DCSDCR1 is `12120888`, not the SDK's `0c0d0888`: the SPL binary differs from this source there. SPL 650 branch = SDK 650 (decoded from the disassembly, table in [DRAM.md](DRAM.md#stock-spl-phy-preset-per-speed-bin-0x9fc02664-decoded-2026-10-13)).
   - The SDK writes DCSDCR0-3 with the MEM PLL outputs disabled (`clk_oe` = 0), then 400 us.
 - The SPL also runs `DDR_Calibration` (DQ/DQS tap training) at init [SRC] `boot0412/memctl.c:2024`; `clocks set mem` does no retraining.
 
@@ -328,6 +328,7 @@ Source tags: **[SRC]** GPL file:line (`dms1250/` = `sources/rtk-dms1250/`, `xgs1
 - 122.5 MHz with flash OpenWrt 6.18.55 (power-up chain, 2026-10-11): `wget: I/O error`; from +67 s repeating `SQUASHFS error: Unable to read fragment cache entry` / `Unable to read page` (#50).
 - 102.1 MHz with flash OpenWrt (2026-10-11T21:20+11:00): JFFS2 overlay `jffs2_get_inode_nodes: Node header CRC failed`, `read_dnode: node CRC failed`, `crccheck of ino #462`; /etc/config/network read as default (LAN at 192.168.1.1). Same flash at 25.5 MHz next boot: 0 CRC errors, config intact. The bulk md5 passed; JFFS2's small node reads did not (#50).
 - So Linux runs stock 25.5 MHz; fast SPI only in U-Boot-only sessions (#50, [DECISIONS.md](DECISIONS.md)).
+- Cause (code reading): Linux reads with 13h (4-byte Read Data, flash-rated 50 MHz, no dummy) because no DT has `m25p,fast-read`; U-Boot's window uses BBh/EBh (133 MHz). Details and settings to try: [SPI-NOR.md](SPI-NOR.md).
 - Dirmap (`openwrt/patches/300-07`): self-check fails on every 7.3 boot (2026-10-11/12), Linux stays on PIO. Ranked causes, fix and diag: [MAINLINE-PORT.md](MAINLINE-PORT.md#self-check-failure-61) (#61).
 - **linux-next (next-20261009, has the SFCSR init fix): dirmap active** (2026-10-12T14:10+11:00, sw2, stock ramload, SPI 25.5 MHz, `./dev.py spi-dirmap-test`): `dirmap: 0x0+0x2000000 via window, SFCR2 0xbbc14a00, op 0x13, mode 2`; md5 of the 29 MiB `firmware` equal in all modes.
 
