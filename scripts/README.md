@@ -153,6 +153,11 @@ End-to-end workflow: [../README.md#workflow](../README.md#workflow).
 - Run: `scripts/extract_console_excerpts.py --map <lan-ip>=<switch-ip> --map <host-ip>=<tftp-server-ip>`
 - Log: `tmp/logs/extract_console_excerpts.log`.
 
+### photo_crop.py
+- Purpose: read board-photo markings for `docs/BOM.md`: `sheet` (contact sheet), `crop` (crop/rotate/upscale/`--enhance`), `downscale` (≤1600 px, EXIF dropped, fails over 1 MB) for `docs/photos/`.
+- Run: `python3 -I scripts/photo_crop.py crop <img> tmp/<out>.jpg X0 Y0 X1 Y1 --scale 2 --enhance`. Crops go to `tmp/`, not committed.
+- Log: `tmp/logs/photo_crop.log`.
+
 ### ghidra/TraceLoader.java, ghidra/DecompileSelected.java
 - Purpose: Ghidra headless post-scripts. `TraceLoader`: decompile functions at given addresses (`addr` or `addr=exact_<name>` to force a function boundary). `DecompileSelected`: decompile functions by name.
 - Run: `analyzeHeadless private/ghidra <project> -process loader.bin -postScript TraceLoader.java <out.c> <addr>[=exact_name] ...`

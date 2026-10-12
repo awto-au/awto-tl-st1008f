@@ -17,6 +17,7 @@ uboot/*.elf
 uboot/*.bin
 sources/**/*.pdf
 sources/**/*.jpg
+sources/**/*.png
 # downloaded binaries (manifest: sources/README.md)
 sources/busybox/
 sources/openwrt-24.10.7-ipk/

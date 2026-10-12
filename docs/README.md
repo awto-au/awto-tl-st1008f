@@ -7,6 +7,7 @@
 ## Board and hardware
 
 - [hardware.md](hardware.md) — identity, UART, cage↔port↔SerDes map, GPIO/I2C, lasers, bench rig, hazards.
+- [BOM.md](BOM.md) — component list from board photos: parts, markings, rails, flash IO2/IO3 wiring (#87, #61).
 - [HARDWARE-INVENTORY.md](HARDWARE-INVENTORY.md) — every SoC block: on chip, wired, who uses it (#62).
 - [BUS-SCAN.md](BUS-SCAN.md) — I2C/SPI bus scan; no undocumented devices (#77).
 - [DATASHEET-AUDIT.md](DATASHEET-AUDIT.md) — RTL9303 datasheet features vs stock/OpenWrt/ours (#69).

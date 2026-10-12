@@ -106,3 +106,18 @@ Carried over from the retired `awto-st1008f` notes repo (2026-08-18).
 - Source: https://www.svanheule.net/switches/tl-st1008f (photos by Oliver, CC BY-SA 4.0), `_media/2016_0101_*.jpg`, fetched 2026-10-12 with playwrong `download`.
 - 7 files, 4032x3024 each, 3.1-3.2 MB: `_001`, `_002`, `_005`, `_006`, `_007` (flash U11, `25Q256JVFQ 2222`), `_008`, `_011`. `_003` returns 404.
 - Good copy: JPEG, 4032x3024; sha256 of `_007` = `375c48e0b4dc36a2b6e19f1a3cf76754a54eff4909cbcdf9f1c589fc7c1c5700`.
+- `svanheule-v1-deheatsinked.png` (`*.png` gitignored): https://www.svanheule.net/switches/_media/screenshot_from_2023-03-01_10-28-24.png, V1 board, heatsink off; fetched 2026-10-12 with playwrong `download`. Good copy: PNG 2254x1223, 5,192,572 bytes, sha256 `dcecdc4c455195a153cadfec9e8561a3ca3f56b599c23b7739bd28b7c9964f50`.
+- Downscaled copies (1200 px, EXIF dropped): `docs/photos/svanheule-*.jpg`, made with `scripts/photo_crop.py downscale`.
+
+## BOM part datasheets (fetched 2026-10-12 with playwrong `pdf`, #87)
+
+Used by [docs/BOM.md](../docs/BOM.md).
+
+| File | URL | Good copy: pages, bytes, must contain |
+|---|---|---|
+| ti-tps568230.pdf | https://www.ti.com/lit/ds/symlink/tps568230.pdf | 34, 2,220,174; SLVSEY5C, marking `568230` |
+| ti-tca9534a.pdf | https://www.ti.com/lit/ds/symlink/tca9534a.pdf | 42, 1,488,986; SCPS198C, marking `PW534A` |
+| sgmicro-sgm706.pdf | https://www.sg-micro.com/rect/assets/5ee5bbf9-853c-495c-8b9f-fd25cb6f143f/SGM706.pdf | 11, 935,240; Rev. B 2017-12, `SGM706-SYS8` |
+| diodes-pt7a75xx.pdf | https://www.diodes.com/assets/Datasheets/products_inactive_data/PT7A7511-7515-7521-7525-7531-7535.pdf | 11, 1,917,163; DS43101 Rev 1-3, `PT7A7514` 2.93V |
+| nexperia-74hc164.pdf | https://assets.nexperia.com/documents/data-sheet/74HC_HCT164.pdf | 16, 284,591; Rev. 11 2024-05-28, `74HC164PW` |
+| onsemi-mmbd7000.pdf | https://www.onsemi.com/download/data-sheet/pdf/mmbd7000lt1-d.pdf | 8, 249,311; marking `M5C` |

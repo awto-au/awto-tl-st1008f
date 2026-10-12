@@ -14,7 +14,7 @@ Narrative & dead ends: see [HISTORY.md](HISTORY.md). Evidence paths under `priva
 - UART: 115200 8N1, U-Boot and stock Linux alike.
 - SFP modules: no vendor lock found in SDK source, the loader, or the sibling `cli_server`. Fitted set below.
 - Partition map: [stock-flash-layout.json](stock-flash-layout.json); `flshow` output: [../artifacts/uboot-flshow.txt](../artifacts/uboot-flshow.txt).
-- Board photos: [photos/README.md](photos/README.md).
+- Board photos: [photos/README.md](photos/README.md). Component list (every identified part, rails, markings): [BOM.md](BOM.md).
 
 - **Current (owner, 2026-10-12): only one 10G SR left fitted, for management; the other modules are removed.** The table below is the 2026-10-10 full set (module inventory).
 
@@ -180,6 +180,7 @@ From the OpenWrt v2 DTS (`SWITCH_PORT_SFP(p,l,s,c,g)` = SoC port, label, SerDes,
 - 3-position mode switch M1/M2/M3 on gpio0 pins 17/18/19. OpenWrt v2 DTS: `gpio-keys` (`BTN_0/1/2`, EV_SW, active-low, 50 ms debounce); our mainline DTS: the mode-switch driver ("Linux driver (#64)" below). Stock behaviour: see "Mode switch (stock firmware)" below.
   - Read with raw `md.l 0xb800330c 1` (DAT), bits 17-19 (bank C bits 1-3). Not `rtk pinGet` before `rtk network on` (hangs the console).
 - GPIO21: DTS external-watchdog toggle pin (1.2 s, always-running). Found static output-high at the U-Boot prompt; board does not reset. Low = board reset (stock `switch_reset()`). Unexplained as a watchdog: the managed ST5008F has no `<wtd>` board section and never uses GPIO21; TP-Link's watchdog support is generic (`insmod <wtd> enGpio= feedGpio=`, 500 ms feed) (#18).
+  - Board: supervisor U7 (SGM706-S / PT7A7514, MAX706 pinout). Static high safe + low = instant reset fits GPIO21 → MR, not WDI; trace not visible ([BOM.md](BOM.md#u7-supervisor), #87).
 - USB: RTL9303 has a USB 2.0 host (EHCI `0x18021000`, irq 28, 1 port); **not wired on this board** (issue #5, closed).
   - Chip: datasheet Rev 1.1-1 sec 6.10 — DM = ball F4, DP = G4, RREF J4 (12 kΩ to GND), AVDDH_USB 3.3 V, AVDDL_USB 1.1 V. Copy: `sources/README.md`.
   - Board photos (top and bottom): no USB connector or footprint, no D+/D- pads, no VBUS switch, no ESD array. Only headers: J14 UART (`DH GND RX TX`) and 5-pad JTAG on the bottom.
