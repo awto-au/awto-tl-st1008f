@@ -408,6 +408,12 @@ rtl83xx-switch 1b000000\.switch: fib_add\(\) failed  # follows 'lower interface 
 sfp sfp-p4: SFP: unknown connector id 0x03  # GLC-SX-MM in cage 4 reports connector 0x03; module still used; known #16
 tplink-st1008f-mode mode-switch: port [0-7]: unknown media insert  # vendor class for a module it cannot classify (cage 5 CISCO-NEO): left untouched; known #64
 realtek-rtl-spi 18001200\.spi: dirmap: window != PIO at 0x0 \(SFCR2 0xbbc14a00\), using PIO  # 300-07 self-check fell back to PIO after stock `rtk network on`; known #61
+realtek-rtl-spi 18001200\.spi: dirmap: diag at 0x[0-9a-f]+ op 0x[0-9a-f]{2}/\d/\d, window 0x[0-9a-f]{8} at 0x[0-9a-f]{8}, release -?\d+  # 300-07 self-check mismatch diag: op, window phys/virt, CS-release wait result; known #61
+realtek-rtl-spi 18001200\.spi: dirmap: (pio |mmio|mmio bytes) ([0-9a-f]{2} ){15}[0-9a-f]{2}  # 300-07 diag: first 16 B by PIO / window words / window bytes; known #61
+realtek-rtl-spi 18001200\.spi: dirmap: SFCR 0x[0-9a-f]{8} SFCR2 0x[0-9a-f]{8} SFCSR 0x[0-9a-f]{8}, boot SFCR 0x[0-9a-f]{8} SFCSR 0x[0-9a-f]{8}  # 300-07 diag: controller registers now and at probe; known #61
+realtek-rtl-spi 18001200\.spi: dirmap: pattern [\w =,-]+, mio_pio_err [01] idle [01] cs_sts [01]{2}  # 300-07 diag: mismatch pattern + SFCSR status bits; known #61
+realtek-rtl-spi 18001200\.spi: dirmap: window == PIO with boot SFCSR 0x[0-9a-f]{8}  # 300-07: retry with the bootloader SFCSR matched (#61)
+realtek-rtl-spi 18001200\.spi: SFCSR wait 0x[0-9a-f]{8}: limit \d+ ns, elapsed \d+ ns, SFCSR 0x[0-9a-f]{8}  # 300-07 bounded status wait expired (diag names the bits); known #61
 
 [linux]
 realtek-otto-watchdog \S+: running at probe: kept, \d+ s timeout  # 300-15: watchdog armed by our U-Boot stays on (#73)

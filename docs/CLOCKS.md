@@ -298,7 +298,7 @@ Source tags: **[SRC]** GPL file:line (`dms1250/` = `sources/rtk-dms1250/`, `xgs1
 - 122.5 MHz with flash OpenWrt 6.18.55 (power-up chain, 2026-10-11): `wget: I/O error`; from +67 s repeating `SQUASHFS error: Unable to read fragment cache entry` / `Unable to read page` (#50).
 - 102.1 MHz with flash OpenWrt (2026-10-11T21:20+11:00): JFFS2 overlay `jffs2_get_inode_nodes: Node header CRC failed`, `read_dnode: node CRC failed`, `crccheck of ino #462`; /etc/config/network read as default (LAN at 192.168.1.1). Same flash at 25.5 MHz next boot: 0 CRC errors, config intact. The bulk md5 passed; JFFS2's small node reads did not (#50).
 - So Linux runs stock 25.5 MHz; fast SPI only in U-Boot-only sessions (#50, [DECISIONS.md](DECISIONS.md)).
-- Dirmap (`openwrt/patches/300-07`, [MAINLINE-PORT.md](MAINLINE-PORT.md)): self-check fails on every 7.3 boot (2026-10-11/12, stock and our U-Boot): `dirmap: window != PIO at 0x0 (SFCR2 0xbbc14a00), using PIO`. Linux stays on PIO; cause unknown (DT window range `0x14000000` vs the U-Boot-verified KSEG1 `0xb4000000`, byte order of the 64 B compare, 4-byte-address assumption) (#61).
+- Dirmap (`openwrt/patches/300-07`): self-check fails on every 7.3 boot (2026-10-11/12), Linux stays on PIO. Ranked causes, fix and diag: [MAINLINE-PORT.md](MAINLINE-PORT.md#self-check-failure-61) (#61).
 
 ## CPU overclock: measured (2026-10-10, mainline U-Boot RAM-loaded, heatsink off, stock core voltage)
 

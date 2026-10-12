@@ -4,6 +4,7 @@
 - Needs the initramfs shell (`./dev.py ramload mainline-kernel`); read-only (dd from /dev/mtdN).
 - Per mode of /sys/module/spi_realtek_rtl/parameters/dirmap (0 PIO, 2 cached window, 1 uncached):
   time `dd` of the partition to /dev/null, then md5sum it.
+- Logs the driver dirmap lines (incl. the #61 self-check diag) and mtd0[0:16] by PIO.
 - PASS: dirmap active at probe (driver dev_info line), equal md5 in every mode, cached faster than PIO.
 - Log: tmp/logs/spi_dirmap_test.log
 """
@@ -40,10 +41,15 @@ def main() -> int:
         m = re.search(r"(mtd\d+): ([0-9a-f]+) ", out)
         dev, size = f"/dev/{m.group(1)}", int(m.group(2), 16)
         rl.log(f"{a.part} = {dev}, {size} B")
-        _, out = con.run("dmesg | grep dirmap", P, 2, "driver dirmap line")
+        _, out = con.run("dmesg | grep -E 'dirmap|SFCSR'", P, 2, "driver dirmap lines")
         active = "via window" in out
         rl.log("dirmap at probe: " + ("ACTIVE" if active else "NOT active") + " | " +
-               " / ".join(l.strip() for l in out.splitlines() if "dirmap" in l and "grep" not in l))
+               " / ".join(l.strip() for l in out.splitlines()
+                          if ("dirmap" in l or "SFCSR" in l) and "grep" not in l))
+        # Reference for the diag's "pio" line: first 16 B of the chip by PIO (dirmap=0)
+        con.run("echo 0 >$D", P, 1, "dirmap=0 for the reference read")
+        _, out = con.run("hexdump -C -n 16 /dev/mtd0", rf"(?s)00000010\r?\n{P}", 2, "mtd0 first 16 B")
+        rl.log("mtd0[0:16] by PIO: " + next((l.strip() for l in out.splitlines() if l.startswith("00000000")), "?"))
         cap_read = 1.25 * size / FLOOR_READ + 2
         cap_md5 = 1.25 * size * (1 / FLOOR_READ + 1 / FLOOR_MD5) + 2
         res = {}
