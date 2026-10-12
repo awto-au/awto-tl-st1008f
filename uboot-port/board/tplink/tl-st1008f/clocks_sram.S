@@ -2,7 +2,8 @@
 /*
  * CPU PLL change, copied to SRAM and I-cache locked by `clocks set cpu` (docs/CLOCKS.md (a)).
  * Position independent: absolute I/O addresses, local branches only, no stack.
- * a0 = 0xbb00e208 value, a1 = 0xbb00e210 value, a2 = relock: 0 = e200 bit 30, 1 = e220 bit 17,
+ * a0 = 0xbb00e208 value, a1 = 0xbb00e210 value, a2 bit 0 = relock: 0 = e200 bit 30, 1 = e220 bit 17,
+ * a2 bit 8 = PLL_SRAM_CTRL sram_pll_sel (0 = SRAM 250 MHz, 1 = 500),
  * a3 = CPU_SRAM_ASY_TIMING (0xb80040f8) value for the new rate (written once the CPU is back on the PLL)
  * v0 = lock-poll iterations left; 0 = no lock: CPU left on the alternate clock (not the PLL)
  */
@@ -36,7 +37,8 @@ otto_cpu_pll_sram:
 	sync
 	sw	a1, 0x10(t3)
 	sync
-	bnez	a2, 1f
+	andi	t6, a2, 1		/* a2 bit 0 = relock select, bit 8 = PLL_SRAM_CTRL sram_pll_sel */
+	bnez	t6, 1f
 	 nop
 	lui	t2, 0x4000		/* e200 bit 30 */
 	b	2f
@@ -65,7 +67,12 @@ otto_cpu_pll_sram:
 	ori	t0, t0, 4
 	sw	t0, 0x44(t1)
 	sync
-	lw	t0, 0x700(t1)		/* PLL_SRAM_CTRL rewritten as read (SRAM stays 250 MHz), SDK order */
+	lw	t0, 0x700(t1)		/* PLL_SRAM_CTRL sram_pll_sel bit 1 = a2 bit 8 (SRAM 250 / 500), SDK order */
+	li	t6, ~2
+	and	t0, t0, t6
+	srl	t6, a2, 7
+	andi	t6, t6, 2
+	or	t0, t0, t6
 	sw	t0, 0x700(t1)
 	sw	a3, 0x40f8(t1)		/* CPU_SRAM_ASY_TIMING for the new rate, as SDK cg.c (#101) */
 	sync

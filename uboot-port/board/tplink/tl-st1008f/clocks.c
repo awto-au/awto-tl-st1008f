@@ -162,32 +162,41 @@ static void uart_drain(void)
 }
 
 /* docs/CLOCKS.md (a): run the stock sequence from SRAM with the lines locked in the I-cache */
+/* PLL_SRAM_CTRL sram_pll_sel for the next CPU change: -1 = keep the live value (#103) */
+static int sram_req = -1;
+
 static int cpu_set(u32 e208, u32 e210, u32 relock)
 {
+	u32 sram_sel = sram_req < 0 ? !!(R(0xb8000700) & BIT(1)) : sram_req;
 	u32 (*fn)(u32, u32, u32, u32);
 	struct sram_win w;
-	u32 left, mhz, asy;
+	struct otto_clocks c;
+	u32 left, mhz, asy, sram, ocp;
 
-	/* CPU_SRAM_ASY_TIMING 0xb80040f8 (SDK register_map.h, written by SDK cg.c on every CPU change):
-	 * oc0_sram_pulse [1:0] = CPU/2 class (0 < 250, 1 < 500, 2 >= 500), sram_oc0_pulse bit 6 = CPU/2
-	 * <= 250. 1000 MHz = class 2, 800 = 1: ours never wrote it (#101) */
+	/* CPU_SRAM_ASY_TIMING 0xb80040f8 (SDK register_map.h, cg.c rules, written on every CPU change):
+	 * oc0_sram_pulse [1:0]: OCP0 = CPU/2 < SRAM -> 0, < 2 x SRAM -> 1, else 2; sram_oc0_pulse bit 6 =
+	 * SRAM >= OCP0; sram_lx_pulse bit 8 = 3 x LX <= SRAM. 1000 MHz at SRAM 250 = 2: ours never wrote it (#101) */
 	mhz = 25 * ((e208 & BIT(2)) ? 4 : 1) * (F(e208, 11, 4) + 2) * 2 / (1 << (e208 & 3)) /
 	      (F(e210, 6, 4) + 2);
-	asy = (R(CPU_SRAM_ASY_TIMING) & ~(BIT(6) | 3)) | (mhz / 2 < 250 ? 0 : mhz / 2 < 500 ? 1 : 2) |
-	      (mhz / 2 <= 250 ? BIT(6) : 0);
+	otto_clocks_read(&c);
+	sram = sram_sel ? 500 : 250;
+	ocp = mhz / 2;
+	asy = (R(CPU_SRAM_ASY_TIMING) & ~(BIT(8) | BIT(6) | 3)) |
+	      (ocp < sram ? 0 : ocp < 2 * sram ? 1 : 2) | (sram >= ocp ? BIT(6) : 0) |
+	      (3 * c.lx_khz / 1000 <= sram ? BIT(8) : 0);
 
 	printf("clocks: write 0xbb00e208=0x%08x 0xbb00e210=0x%08x, relock %s\n", e208, e210,
 	       relock ? "e220 bit 17" : "e200 bit 30");
 	fn = sram_load(&w, otto_cpu_pll_sram, otto_cpu_pll_sram_end);
 	uart_drain();
-	left = fn(e208, e210, relock, asy);
+	left = fn(e208, e210, (relock & 1) | sram_sel << 8, asy);
 	sram_unload(&w);
 	if (!left) {
 		puts("clocks: CPU PLL did not lock in 100000 polls; CPU left on the alternate clock\n");
 		return CMD_RET_FAILURE;
 	}
-	printf("clocks: locked after %u polls, CPU_SRAM_ASY_TIMING %08x (%u MHz)\n", 100000 - left,
-	       R(CPU_SRAM_ASY_TIMING), mhz);
+	printf("clocks: locked after %u polls, CPU_SRAM_ASY_TIMING %08x (%u MHz), PLL_SRAM_CTRL %08x (SRAM %u)\n",
+	       100000 - left, R(CPU_SRAM_ASY_TIMING), mhz, R(0xb8000700), sram);
 	return 0;
 }
 
@@ -588,6 +597,56 @@ static int mem_cmd(int n, char *const v[])
 	return mem_set(&q);
 }
 
+/* ns per 32-bit access over 4 KiB: uncached read, uncached write, cached read after a D-cache
+ * invalidate (line fills) - on-chip SRAM (free area above the routines) vs DRAM (#103) */
+#define BENCH_SRAM	0x1f00c000	/* bus address: SRAM window, 48 KiB above SRAM_RUN code + params */
+static int mem_bench(void)
+{
+	static const char *const what[] = { "uc read", "uc write", "c read (fill)" };
+	ulong bus[2];
+	u32 *dram = memalign(32, 4096);
+	struct sram_win w = { .sram = R(SRAMSAR0), .um = R(UMSAR0) };
+	int r, k, i;
+
+	if (!dram)
+		return CMD_RET_FAILURE;
+	__raw_writel(SRAM_WIN, (void __iomem *)UMSAR0);
+	__raw_writel(SRAM_WIN, (void __iomem *)SRAMSAR0);
+	__asm__ __volatile__("sync");
+	bus[0] = BENCH_SRAM;
+	bus[1] = virt_to_phys(dram);
+	printf("membench: PLL_SRAM_CTRL %08x, CPU_SRAM_ASY_TIMING %08x, tbclk %lu\n", R(0xb8000700),
+	       R(CPU_SRAM_ASY_TIMING), get_tbclk());
+	for (r = 0; r < 2; r++) {
+		volatile u32 *uc = (u32 *)CKSEG1ADDR(bus[r]), *c = (u32 *)CKSEG0ADDR(bus[r]);
+		u64 t;
+		u32 sum = 0;
+
+		for (k = 0; k < 3; k++) {
+			if (k == 2)
+				invalidate_dcache_range((ulong)c, (ulong)c + 4096);
+			t = get_ticks();
+			for (i = 0; i < 1024; i++) {
+				if (k == 0)
+					sum += uc[i];
+				else if (k == 1)
+					uc[i] = i;
+				else
+					sum += c[i];
+			}
+			t = get_ticks() - t;
+			printf("membench %s %s: %llu ps/access\n", r ? "dram" : "sram", what[k],
+			       t * 1000000000000ULL / get_tbclk() / 1024);
+		}
+		(void)sum;
+	}
+	__raw_writel(w.sram, (void __iomem *)SRAMSAR0);
+	__raw_writel(w.um, (void __iomem *)UMSAR0);
+	__asm__ __volatile__("sync");
+	free(dram);
+	return 0;
+}
+
 static int do_clocks(struct cmd_tbl *cmdtp, int flag, int argc, char *const argv[])
 {
 	struct otto_clocks c;
@@ -596,6 +655,17 @@ static int do_clocks(struct cmd_tbl *cmdtp, int flag, int argc, char *const argv
 
 	if (argc == 2 && !strcmp(argv[1], "fast"))
 		return fast_set() ? CMD_RET_FAILURE : 0;
+	if (argc == 2 && !strcmp(argv[1], "membench"))
+		return mem_bench();
+	/* clocks set sram 250|500 force: CPU PLL re-locked at its live values with the SRAM select */
+	if (argc == 5 && !strcmp(argv[1], "set") && !strcmp(argv[2], "sram") && !strcmp(argv[4], "force")) {
+		int ret;
+
+		sram_req = dectoul(argv[3], NULL) == 500;
+		ret = cpu_set(R(0xbb00e208), R(0xbb00e210), 0);
+		sram_req = -1;
+		return ret;
+	}
 	if (argc > 1) {
 		if (argc < 5 || strcmp(argv[1], "set") || strcmp(argv[argc - 1], "force"))
 			return CMD_RET_USAGE;
@@ -638,6 +708,8 @@ static int do_clocks(struct cmd_tbl *cmdtp, int flag, int argc, char *const argv
 U_BOOT_CMD(clocks, 24, 0, do_clocks, "show CPU/LX/SPI/MEM clocks and DDR3 timings; set CPU/MEM PLL",
 	   "\n  rates decoded from the PLL registers; docs/CLOCKS.md\n"
 	   "clocks fast  - CPU 1000 MHz, DDR 650 MHz, tREFI 7.1 us, DRAM controller prefetch (SPI left alone)\n"
+	   "clocks membench - ns per access, on-chip SRAM vs DRAM (#103)\n"
+	   "clocks set sram 250|500 force - SRAM clock (PLL_SRAM_CTRL) via a CPU PLL re-lock at the live rate\n"
 	   "clocks set cpu <e208> <e210> [relock 0|1] force\n"
 	   "  - CPU PLL from SRAM (stock sequence); relock 0 = e200 bit 30 (default), 1 = e220 bit 17\n"
 	   "clocks set lx <code 2..5> force  - LX = 2450 / (2 x (code + 2)) MHz; 5 = stock 175\n"

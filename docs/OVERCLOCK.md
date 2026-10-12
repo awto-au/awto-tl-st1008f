@@ -36,6 +36,23 @@ Run/recover steps: [OVERCLOCK-OPS.md](OVERCLOCK-OPS.md). Clock tree and register
 
 - Build f4065adc = #101 fix (CPU_SRAM_ASY_TIMING) + SDK order from the #102 audit: DACCR `ac_bptr_clear` after the tREFI DTR latch, 1 µs before DMCR busy polls, SRAM drain + PLL_SRAM_CTRL rewrite in the CPU change. `clocks-cycle fast` 20/20 on it (2026-10-13T09:33).
 
+## Overview survey (sw2, 2026-10-13T09:10-10:01+11:00, one run per point, our U-Boot RAM-loaded)
+
+One quick test per point: the change reports OK, prompt, 16 MiB `crc32`, temperature (31-34 °C raw at every point). No repeats; the owner picks settings before n=20.
+
+| Domain | Point | Result | Measured | Note |
+|---|---|---|---|---|
+| CPU | 1050-1400 | pass | real 1097.6 / 1185.6 / 1297.2 / 1395.9 at 1100 / 1200 / 1300 / 1400 | /2 VCO 2200-2800 above 1050; 1100-1400 also n=5 |
+| CPU | 1425 | pass | decoded only | `0x378` /2 VCO 2850 |
+| CPU | 1450, 1500 | hang | — | inside `clocks set cpu` (no prompt) |
+| SRAM | 250 → 500 | pass | uc read 80.4 → 60.0 ns, uc write 22.0 → 15.0 ns, cached fill 26.9 → 23.8 ns/word | DRAM: 80.3 / 14.5 / 26.6 ns; `clocks membench`, CPU 800 |
+| LX | 306, 245 | pass | — | UART follows (`clocks set lx 2/3`); Linux side untested |
+| DDR | 800, 750, 700 | fail | canary bad, reverted | 700 + dqshift −6 also fails |
+| DDR | 675 + dqshift −8 | pass | — | 662.5 and 650 pass plain |
+| SPI-NOR (U-Boot, Quad I/O 0xEB, D = 0) | 306 | hang | `crc32` timeout | NOR code 0 |
+| SPI-NOR | 204, 153 | fail | CRC wrong | codes 1, 2 |
+| SPI-NOR | 122.5 | pass | flash_c 37.0 MB/s, chip CRC 3.5 s | code 3 (as Dual I/O) |
+
 ## CPU above 1000 MHz (sw2, 2026-10-13, CPU_SRAM_ASY_TIMING written)
 
 | CPU | e208 / DIVN2 (VCO) | `clocks-cycle cpu` n=5 | Real rate (`cpu-clock`, host-timed `sleep 5`) |

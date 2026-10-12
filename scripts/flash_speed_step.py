@@ -57,6 +57,7 @@ def main() -> int:
     ap.add_argument("divs", nargs="*", type=int, default=[1, 0], help="D values to try, in order")
     ap.add_argument("--nor", nargs="*", type=int, default=[],
                     help="then NOR source codes e220[16:13] (6 = stock 153 MHz; 3 = 245 MHz)")
+    ap.add_argument("--quad", action="store_true", help="after the baseline: SFCR2 Quad I/O 0xEB (#61, #103)")
     a = ap.parse_args()
     con = Console()
     base = sfcr(con)
@@ -66,6 +67,9 @@ def main() -> int:
     t = time.monotonic()
     ref = chip_crc(con, STOCK_D)
     log(f"baseline D={STOCK_D} ({NOR_MHZ / 6:.1f} MHz): CRC {ref} in {time.monotonic() - t:.1f}s")
+    if a.quad:
+        con.run("mw.l b8001204 ebc27200", PROMPT, 1, "SFCR2 Quad I/O")  # scripts/spi_quad_test.py encoding
+        log("SFCR2 = ebc27200 (Quad I/O 0xEB) for every step below")
     for d in a.divs:
         set_d(con, base, d)
         t = time.monotonic()
