@@ -124,7 +124,7 @@ bootm 0x84f00000                     # OpenWrt in RAM; unplug other cages first 
 
 Never run `sysupgrade`, `mtd write`/`erase`, `firstboot`, or mount the stock JFFS2 regions read-write.
 
-- Flash state (checked 2026-10-12): `firmware` = OpenWrt SNAPSHOT r36962 (kernel 6.18.55; was 25.12.4 from the 2026-10-08 sysupgrade), bridge `switch` with STP on, LAN static 192.168.25.48, no LuCI (snapshot), `sysupgrade` present; `jffs2-log` (0x200000) = our mainline U-Boot; stock env `bootcmd` chainloads it (`bootcmd_stock=boota` kept, #47). Loader stock. Stock firmware only in the 2026-10-08 backup (#36).
+- Flash state (checked 2026-10-12): `firmware` = OpenWrt SNAPSHOT r36962 (kernel 6.18.55; was 25.12.4 from the 2026-10-08 sysupgrade), bridge `switch` with STP on, LAN static 192.168.25.48, LuCI added 2026-10-12 (`./dev.py openwrt-luci`, http://192.168.25.48/), `sysupgrade` present; `jffs2-log` (0x200000) = our mainline U-Boot; stock env `bootcmd` chainloads it (`bootcmd_stock=boota` kept, #47). Loader stock. Stock firmware only in the 2026-10-08 backup (#36).
 
 ## Firmware family
 

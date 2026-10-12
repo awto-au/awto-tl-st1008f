@@ -246,6 +246,12 @@ def cmd_switch_check(extra: list[str]) -> int:
     return _script("switch_check.py", extra)
 
 
+@command("install the LuCI web UI on the running OpenWrt from the internet (apk) over SSH, then check it",
+         args="[--ip A.B.C.D]", kind="hardware")
+def cmd_openwrt_luci(extra: list[str]) -> int:
+    return _script("openwrt_luci.py", extra)
+
+
 @command("follow the serial console log live, error-looking lines red (known #NN yellow); read-only",
          args="[--lines N]", kind="check")
 def cmd_console_watch(extra: list[str]) -> int:
