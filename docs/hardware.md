@@ -35,6 +35,15 @@ Narrative & dead ends: see [HISTORY.md](HISTORY.md). Evidence paths under `priva
 - No AQR113C 10GBASE-T module (FS SFP-10G-T) in sw2: those are in sw1 lan7/lan8 (#90).
 - Cages 3/4/5/8 dark with their lasers off = not cabled to a live LAN port (cabled to each other cannot be ruled out). Cage 6/7 cabling unknown.
 
+### 10GBASE-T modules: AQR113C, no 2.5G/5G (#90)
+
+- sw1 lan7/lan8: FS SFP-10G-T (sn G2210210056, F2220688305), PHY `Aquantia AQR113C` over SFP I2C (`smbus:sfp-pN:11`, RollBall), OpenWrt 6.18.55, host side 10GBASE-R; 1G links use pause rate matching (no SerDes change, `flow control rx/tx`).
+- `ethtool` (2026-10-12T14:20+11:00, `./dev.py switch-check`, read-only): **Supported** = 100baseT Half/Full, 1000baseT/Full, 10000baseT/Full, 1000baseKX/Full: **no 2500baseT/5000baseT**. Link partners advertise up to 1000baseT.
+- Source audit (6.18 tree): MAC caps include 2500/5000/10000FD + pause; PCS accepts every interface; `aqr_gen2_get_rate_matching(10GBASER)` = PAUSE. So the missing modes come from the PHY's own abilities (PMA 1.11/1.21) or the module firmware's per-speed provisioning words, not from phylink.
+- `aqr_gen1_read_status failed: -145` = `phy_read_mmd_poll_timeout` on the 100 ms wait for the host interface to leave OFF after copper link-up; not an I2C error. RollBall poll today 11 x `msleep(20)` (220-330 ms at HZ 100) vs 70 ms documented worst case.
+- Candidate patches (untested): log + fix per-speed provisioning words (XFI without rate adaptation → XFI + pause) on SFP-attached AQR PHYs; RollBall completion poll 1-2 ms, 90 ms bound. Test needs an AQR module in sw2 (#97).
+- Suspect second defect: `rtldsa_93xx_phylink_mac_link_up` sets `RTL930X_FORCE_EN` only for the CPU port and phy-handle ports, so SFP ports may ignore rate-matching pause at 10G.
+
 ### Fitted SFP modules (2026-10-10, all 8 cages; our U-Boot `rtk sfp`)
 
 | Cage | Module | Serial | Media |

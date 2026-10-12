@@ -6,7 +6,8 @@
   ok / known (#NN) / ERROR (DENY word, not known) / UNKNOWN.
 - logread: non-kernel lines at warn/err/crit/alert/emerg, plus DENY words at any level.
 - Groups by message with digits folded; prints count, first/last kernel time, a sample.
-- No writes on the switch: only `cat`, `dmesg`, `logread`, `uname`. Log: tmp/logs/switch_logs.log
+- Also lists pending uci-defaults, fw_env/fw_sys.config and `fw_printenv -n ethaddr` (#86).
+- No writes on the switch: only `cat`, `ls`, `dmesg`, `logread`, `uname`, `fw_printenv`. Log: tmp/logs/switch_logs.log
 """
 
 from __future__ import annotations
@@ -28,7 +29,8 @@ LOG = ROOT / "tmp/logs/switch_logs.log"
 OUT = ROOT / "tmp/switch-logs"
 SSH_S = 5   # dropbear connect ~1 s on the LAN; x5
 PULL_S = 20  # 2 x ~200 KB ring buffers over 1G LAN + MIPS cat: ~2 s; generous for first keygen
-REMOTE = "cat /proc/uptime; uname -r; echo ===DMESG; dmesg; echo ===LOGREAD; logread"
+REMOTE = ("cat /proc/uptime; uname -r; echo ===DMESG; dmesg; echo ===LOGREAD; logread; echo ===ENV; "
+          "ls /etc/uci-defaults; cat /etc/fw_env.config /etc/fw_sys.config; fw_printenv -n ethaddr 2>&1")
 SYSLOG = re.compile(r"^\w{3} \w{3} +\d+ [\d:]+ \d{4} (?P<fac>\w+)\.(?P<pri>\w+) (?P<prog>[^:]+): (?P<msg>.*)$")
 BAD_PRI = {"warn", "err", "crit", "alert", "emerg"}
 
@@ -67,6 +69,7 @@ def main() -> int:
         return 1
     head, _, rest = r.stdout.partition("===DMESG\n")
     dmesg, _, logread = rest.partition("===LOGREAD\n")
+    logread, _, env = logread.partition("===ENV\n")
     out = OUT / f"{a.ip}-{time.strftime('%Y%m%d-%H%M%S')}"
     out.mkdir(parents=True, exist_ok=True)
     (out / "dmesg.txt").write_text(dmesg)
@@ -74,6 +77,8 @@ def main() -> int:
     up, kver = head.split()[0], head.split()[-1]
     log(f"{a.ip}: kernel {kver}, uptime {float(up):.0f} s; dmesg {dmesg.count(chr(10))} lines, "
         f"logread {logread.count(chr(10))} lines -> {out.relative_to(ROOT)}")
+    for ln in env.splitlines():  # fw_env.config + pending uci-defaults (#86)
+        log(f"env: {ln}")
     allow = load_allow(DEFAULT_ALLOW)
     rules = allow.get("linux", []) + allow.get("openwrt", [])
     groups: dict[tuple[str, str, str], list[str]] = defaultdict(list)
