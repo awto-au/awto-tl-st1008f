@@ -500,10 +500,12 @@ static int refi_set(void)
 static int fast_set(void)
 {
 	struct mem_req q = { .mhz = FAST_MEM_MHZ, .method = 1 };
-	int ret = cpu_set(FAST_E208, FAST_E210, 0);
+	/* DDR first, CPU after: the DDR change at CPU 1000 hung 3-4 in 20 power-ups on sw2, at CPU 800
+	 * 0 in 45; `clocks set mem 650` then `set cpu` 20/20 (#101, docs/CLOCKS.md) */
+	int ret = mem_set(&q);
 
 	if (!ret)
-		ret = mem_set(&q);
+		ret = cpu_set(FAST_E208, FAST_E210, 0);
 	if (!ret)
 		ret = refi_set();
 	if (ret)
