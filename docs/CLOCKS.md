@@ -63,8 +63,8 @@ Source tags: **[SRC]** GPL file:line (`dms1250/` = `sources/rtk-dms1250/`, `xgs1
 | `0234..024c` MPCR0-6 | `7f 400001ef 26a33860 2e0f0000 fff 0 0` | MEM PLL: MPCR2 `23c` PDIV 15:14; MPCR3 `240` NCODE 31:24 = 0x2e; MPCR4 `244` [5:0] = PLL enable/reset (SPL: 0 = hold, 0x3f = run) | 548-575 |
 | `0388` CMUCR_OC0 | `00000200` (SE_DRAM 9 = 1) | SE_DRAM 9 = (MEM >= CPU/2), SE_SPIF 17 [BIN `0x9f00063c`, `0x9f0008f8`] | 591 |
 | `03a8/3b8/3c8/3d8` CMUCR_LX0-2/LXP | not dumped | SE_DRAM 9 = (MEM >= LX) | 629-695 |
-| `0700` | `00000000` | bit 1 = (SRAM-domain limit `[0x9f000b96]` == 500); written by the CPU apply. No SDK name | — |
-| `40f8` | `00000085` | [1:0] = CPU/2 vs 250 MHz class (0: < 250, 1: < 500, 2: >= 500), bit 6 = CPU/2 <= 250, bit 8 = 250 >= 3 x LX. No SDK name [BIN `0x9fc04100`, `0x9fc0422c`] | — |
+| `0700` PLL_SRAM_CTRL | `00000000` | `sram_pll_sel` bit 1: SRAM clock 0 = 250 MHz, 1 = 500 MHz (SDK MIN/MAX_SRAM_PLL). Written by every CPU change [SRC] `xgs1210/.../platform/9300/cg/glb_pll.h:187-192`, `cg/cg.c:142-146` | — |
+| `40f8` CPU_SRAM_ASY_TIMING | `00000085` (reset `c5`) | CPU bus ↔ on-chip SRAM async handshake. `oc0_sram_pulse` [1:0]: OCP0 (= CPU/2) < SRAM → 0, < 2 x SRAM → 1, else 2; `sram_oc0_pulse` bit 6 = (SRAM >= OCP0); `sram_lx_pulse` bit 8 (LX). SDK writes it on every CPU change [SRC] `register_map.h:3236-3248`, `cg/cg.c:148-160`, `cg/cg_cache_lock.S:99-104`; [BIN `0x9fc04100`, `0x9fc0422c`] | — |
 | `1200` SFCR | `5fc00244` (#35) | SPI_CLK_DIV 31:29 = 2 (divide 2 x (n+1) = 6) | 2169 |
 
 ### DDR3 controller `0xb8001000` — [SRC] `rtl9300_soc_reg.h:1253-1445`; encoding [SRC] `xgs1210/arch/otto40/plr/src/soc/dram_gen2/memcntlr_setup.c:120-298`
@@ -106,7 +106,7 @@ Source tags: **[SRC]** GPL file:line (`dms1250/` = `sources/rtk-dms1250/`, `xgs1
 | 600 ... 800 step 25 | 46, 48, 50, 52, 54, 56, 58, 60, 62 | 2 (/4) | 2400 ... 3200 | 600 ... 800 |
 
 - VCO range used by stock: 2400-3200 MHz. DIVN2 codes used: 2, 3, 4. Code 1 (/3) and 0 (/2) never used.
-- Also written per CPU change: `0xb8000700` bit 1, `0xb80040f8` [1:0]/bit 6 (table above). Unchanged for any CPU 500-999 MHz.
+- Also written per CPU change: PLL_SRAM_CTRL `0xb8000700`, CPU_SRAM_ASY_TIMING `0xb80040f8` (table above). SRAM at 250 MHz: `oc0_sram_pulse` = 1 for CPU 500-999 MHz, 2 from 1000 MHz (OCP0 = 2 x SRAM). Stock/SDK cap the CPU at 800 MHz, so stock never reaches that boundary (#101).
 
 ### LX / SPI-NOR (`0x9fc0422c`, `0x9fc04324`)
 
@@ -202,7 +202,7 @@ Source tags: **[SRC]** GPL file:line (`dms1250/` = `sources/rtk-dms1250/`, `xgs1
 
   - Hangs: marks `MSPXDC` (routine done, hang after the return), or earlier (`MS`, `M`). Only a DDR change made at CPU 1000 hangs.
   - **Suspect (code reading): our CPU change never wrote `0xb80040f8`.** Stock rule: [1:0] = CPU/2 class (0 < 250, 1 < 500, 2 ≥ 500 MHz), bit 6 = CPU/2 ≤ 250. 800 MHz = class 1 (boot value `0x85`); **1000 MHz = class 2** (`0x86`), the first rate in our ladder where it changes; ours left 1. Other leads ruled out by reading: delay loops use the live CPU rate (`otto_clocks_read` after the CPU change, ≥ 2 cycles per loop); the whole routine is I-cache locked; SE_DRAM (OCP vs MEM) does not flip between 800 and 1000; stock/SDK make DDR changes only at SPL init, at the final CPU rate.
-  - Fix 2 (this commit): the CPU SRAM routine writes `0x40f8` for the new rate once the CPU is back on the PLL; `clocks: locked …` prints it. Old order (CPU then DDR) with it: 5/5 (was 18/20; 5/5 is not proof). The DDR-first order stays as well.
+  - Fix 2 (f13672d): the CPU SRAM routine writes `CPU_SRAM_ASY_TIMING` (`0x40f8`) for the new rate (SDK `cg.c` rule: ocp = CPU/2 vs SRAM 250) once the CPU is back on the PLL; `clocks: locked …` prints it. Old order (CPU then DDR) with it: **20/20** (2026-10-13T09:07+11:00; was 18/20 without) = root cause. The DDR-first order stays as well.
   - Fix: `clocks fast` changes DDR at CPU 800, then the CPU. Also `bootsel fast` arms the watchdog (13 s) before the change and skips the overclock on the boot after an unfinished change (the old bootcmd armed it only after `clocks fast`; legacy boots had none).
   - dqshift sweep at 650 on sw2 (CPU 1000, probe): −12…+6 pass, +7 up fail (DQ23/DQ2 first). sw2 DRAM marking not read (no sw2 photo).
 
@@ -365,7 +365,7 @@ Stock runs it from SRAM with the routine's I-cache lines locked (`0x9f000240`, r
 5. SSR `0xb8000044` bit 2 = 0 (CPU to the alternate clock). Write `0xbb00e208` (NCODE) **then** `0xbb00e210` (DIVN2): DIVN2 first with the old NCODE can briefly select a higher rate.
 6. Relock trigger: if `0xbb000004` bit 4 = 1 and [3:0] < 3: `0xbb00e220` bit 17 (SW_CMU_EN) 0 -> 1; else `0xbb00e200` bit 30 0 -> 1. This board (`0x93030001`, bit 4 = 0) takes the `e200` bit 30 branch; `e220` bit 17 is not touched (#38). Hazard on the other branch: SW_CMU_EN also gates the SW PLL = LX, NOR, switch core.
 7. Poll `0xbb00e200` bit 15 (CPU_PLL_READY) = 1. Stock has no limit. Ours: iteration bound, logged on expiry. Measured 2026-10-10: the poll returned at once on every change 775-1050 MHz (#38).
-8. SSR bit 2 = 1. Rewrite `0xb8000700`/`0xb80040f8` only if the CPU class changes (not for 500-999 MHz). Spin 10000 iterations (stock). Restore Config7. I-cache invalidate.
+8. SSR bit 2 = 1. Write PLL_SRAM_CTRL `0xb8000700` and CPU_SRAM_ASY_TIMING `0xb80040f8` for the new rate on every change (SDK `_change_cpu_sram_pll`). Spin 10000 iterations (stock). Restore Config7. I-cache invalidate.
 9. Nothing else scales with CPU: UART, I2C, SPI hang off the SW PLL. CP0 timer follows automatically (`get_tbclk`). Linux gets the new rate via `ft_board_setup`.
 
 - 825 MHz with DIVN2 2 would need VCO 3300 (above the stock 2400-3200 range); /3 steps of 16.7 MHz used instead.

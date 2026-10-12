@@ -119,6 +119,8 @@ extern char otto_ddr_sram[], otto_ddr_sram_end[];
 #define LSR_TEMT	BIT(6)
 #define TEMT_POLL	100000	/* 16-byte FIFO at 115200 = 1.4 ms; bound only names a stuck UART */
 
+#define CPU_SRAM_ASY_TIMING	0xb80040f8	/* SDK register_map.h; CPU/SRAM async pulse timing */
+
 struct sram_win {
 	u32 sram, um;
 	ulong size;
@@ -163,26 +165,28 @@ static int cpu_set(u32 e208, u32 e210, u32 relock)
 {
 	u32 (*fn)(u32, u32, u32, u32);
 	struct sram_win w;
-	u32 left, mhz, f8;
+	u32 left, mhz, asy;
 
-	/* stock CPU apply: 0xb80040f8 [1:0] = CPU/2 class (0 < 250, 1 < 500, 2 >= 500), bit 6 =
-	 * CPU/2 <= 250 [BIN 0x9fc04100]. 1000 MHz is class 2; 800 is 1: ours never wrote it (#101) */
+	/* CPU_SRAM_ASY_TIMING 0xb80040f8 (SDK register_map.h, written by SDK cg.c on every CPU change):
+	 * oc0_sram_pulse [1:0] = CPU/2 class (0 < 250, 1 < 500, 2 >= 500), sram_oc0_pulse bit 6 = CPU/2
+	 * <= 250. 1000 MHz = class 2, 800 = 1: ours never wrote it (#101) */
 	mhz = 25 * ((e208 & BIT(2)) ? 4 : 1) * (F(e208, 11, 4) + 2) * 2 / (1 << (e208 & 3)) /
 	      (F(e210, 6, 4) + 2);
-	f8 = (R(0xb80040f8) & ~(BIT(6) | 3)) | (mhz / 2 < 250 ? 0 : mhz / 2 < 500 ? 1 : 2) |
-	     (mhz / 2 <= 250 ? BIT(6) : 0);
+	asy = (R(CPU_SRAM_ASY_TIMING) & ~(BIT(6) | 3)) | (mhz / 2 < 250 ? 0 : mhz / 2 < 500 ? 1 : 2) |
+	      (mhz / 2 <= 250 ? BIT(6) : 0);
 
 	printf("clocks: write 0xbb00e208=0x%08x 0xbb00e210=0x%08x, relock %s\n", e208, e210,
 	       relock ? "e220 bit 17" : "e200 bit 30");
 	fn = sram_load(&w, otto_cpu_pll_sram, otto_cpu_pll_sram_end);
 	uart_drain();
-	left = fn(e208, e210, relock, f8);
+	left = fn(e208, e210, relock, asy);
 	sram_unload(&w);
 	if (!left) {
 		puts("clocks: CPU PLL did not lock in 100000 polls; CPU left on the alternate clock\n");
 		return CMD_RET_FAILURE;
 	}
-	printf("clocks: locked after %u polls, 0xb80040f8 = %08x (%u MHz)\n", 100000 - left, R(0xb80040f8), mhz);
+	printf("clocks: locked after %u polls, CPU_SRAM_ASY_TIMING %08x (%u MHz)\n", 100000 - left,
+	       R(CPU_SRAM_ASY_TIMING), mhz);
 	return 0;
 }
 
