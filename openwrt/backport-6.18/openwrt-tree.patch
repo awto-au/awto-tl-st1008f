@@ -1,9 +1,11 @@
 OpenWrt-tree overlay for TL-ST1008F v2 (#73), applied by scripts/build_openwrt.py with git apply:
 - DTS: gpio-keys M1/M2/M3 -> mode-switch node (300-06, cage@N children); spi0 dirmap window (300-07);
-  gpio0 applies pinmux_disable_spi0* (cage presence GPIO3-7, #29)
+  gpio0 applies pinmux_disable_spi0* (cage presence GPIO3-7, #29); eth0 MAC from u-boot-env ethaddr via nvmem (#86)
 - rtl930x/config-6.18: MIPS_PLATFORM_DEVICES + TPLINK_ST1008F_MODE_SWITCH built in; MIPS_CMDLINE_DTB_EXTEND
   (DT bootargs + U-Boot bootargs: st1008f.mode/boot from bootsel, #73)
 
+diff --git a/target/linux/realtek/dts/rtl9303_tplink_tl-st1008f-v2.dts b/target/linux/realtek/dts/rtl9303_tplink_tl-st1008f-v2.dts
+index d11a6fd..7c1a670 100644
 --- a/target/linux/realtek/dts/rtl9303_tplink_tl-st1008f-v2.dts
 +++ b/target/linux/realtek/dts/rtl9303_tplink_tl-st1008f-v2.dts
 @@ -2,7 +2,6 @@
@@ -35,7 +37,10 @@ OpenWrt-tree overlay for TL-ST1008F v2 (#73), applied by scripts/build_openwrt.p
 -			debounce-interval = <50>;
 -			linux,code = <BTN_0>;
 -			linux,input-type = <EV_SW>;
--		};
++		cage@0 {
++			reg = <0>;
++			sfp = <&sfp0>;
+ 		};
 -
 -		m2 {
 -			label = "M2";
@@ -43,7 +48,10 @@ OpenWrt-tree overlay for TL-ST1008F v2 (#73), applied by scripts/build_openwrt.p
 -			debounce-interval = <50>;
 -			linux,code = <BTN_1>;
 -			linux,input-type = <EV_SW>;
--		};
++		cage@1 {
++			reg = <1>;
++			sfp = <&sfp1>;
+ 		};
 -
 -		m3 {
 -			label = "M3";
@@ -51,14 +59,6 @@ OpenWrt-tree overlay for TL-ST1008F v2 (#73), applied by scripts/build_openwrt.p
 -			debounce-interval = <50>;
 -			linux,code = <BTN_2>;
 -			linux,input-type = <EV_SW>;
-+		cage@0 {
-+			reg = <0>;
-+			sfp = <&sfp0>;
-+		};
-+		cage@1 {
-+			reg = <1>;
-+			sfp = <&sfp1>;
-+		};
 +		cage@2 {
 +			reg = <2>;
 +			sfp = <&sfp2>;
@@ -88,7 +88,7 @@ OpenWrt-tree overlay for TL-ST1008F v2 (#73), applied by scripts/build_openwrt.p
 @@ -185,7 +199,20 @@
  	};
  };
-
+ 
 +/* GPIO3-7 = cage 4-8 MOD-DEF0; stock U-Boot muxes GPIO3-5 to the switch-core SPI master (#29) */
 +&gpio0 {
 +	pinctrl-names = "default";
@@ -106,9 +106,36 @@ OpenWrt-tree overlay for TL-ST1008F v2 (#73), applied by scripts/build_openwrt.p
  	status = "okay";
  
  	flash@0 {
+@@ -207,6 +234,15 @@
+ 			partition@e0000 {
+ 				label = "u-boot-env";
+ 				reg = <0xe0000 0x10000>;
++
++				/* ethaddr = unit MAC, set at install (#86 #91) */
++				nvmem-layout {
++					compatible = "u-boot,env";
++
++					macaddr_ubootenv_ethaddr: ethaddr {
++						#nvmem-cell-cells = <1>;
++					};
++				};
+ 			};
+ 
+ 			partition@f0000 {
+@@ -276,3 +312,8 @@
+ 		};
+ 	};
+ };
++
++&ethernet0 {
++	nvmem-cells = <&macaddr_ubootenv_ethaddr 0>;
++	nvmem-cell-names = "mac-address";
++};
+diff --git a/target/linux/realtek/rtl930x/config-6.18 b/target/linux/realtek/rtl930x/config-6.18
+index 74f0649..59d94c4 100644
 --- a/target/linux/realtek/rtl930x/config-6.18
 +++ b/target/linux/realtek/rtl930x/config-6.18
-@@ -134,8 +134,9 @@
+@@ -134,8 +134,9 @@ CONFIG_MIGRATION=y
  CONFIG_MIPS=y
  CONFIG_MIPS_ASID_BITS=8
  CONFIG_MIPS_ASID_SHIFT=0
@@ -119,7 +146,7 @@ OpenWrt-tree overlay for TL-ST1008F v2 (#73), applied by scripts/build_openwrt.p
  CONFIG_MIPS_CPU_SCACHE=y
  CONFIG_MIPS_EXTERNAL_TIMER=y
  CONFIG_MIPS_L1_CACHE_SHIFT=5
-@@ -145,6 +146,7 @@
+@@ -145,6 +146,7 @@ CONFIG_MIPS_MT_SMP=y
  # CONFIG_MIPS_NO_APPENDED_DTB is not set
  CONFIG_MIPS_NR_CPU_NR_MAP=2
  CONFIG_MIPS_PERF_SHARED_TC_COUNTERS=y
@@ -127,7 +154,7 @@ OpenWrt-tree overlay for TL-ST1008F v2 (#73), applied by scripts/build_openwrt.p
  CONFIG_MIPS_RAW_APPENDED_DTB=y
  CONFIG_MIPS_SPRAM=y
  CONFIG_MMU_LAZY_TLB_REFCOUNT=y
-@@ -267,6 +269,7 @@
+@@ -267,6 +269,7 @@ CONFIG_THERMAL_OF=y
  CONFIG_TICK_CPU_ACCOUNTING=y
  CONFIG_TIMER_OF=y
  CONFIG_TIMER_PROBE=y

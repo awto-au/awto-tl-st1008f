@@ -176,7 +176,8 @@ OpenWrt 25.12.4 initramfs (kernel 6.12.87), 2026-10-10, cages 1, 2, 8 populated:
 - `realtek-otto-pcs: pcs_config(10gbase-r)` (ports 0/8/27, sds 2/3/9) and `(sgmii)` (ports 16-26, sds 4-8) `not yet fully implemented`: upstream PCS stub; 10G links still come up.
 - `rtpcs_930x_sds_10g_idle WARNING: Waiting for RX idle timed out`, SDS 4..8: SerDes of empty cages never idle.
 - `sfp-p4/p5/p6: module slow to respond` → `failed to read EEPROM: -EIO`: empty cages 4-6 read present; cause = GPIO3-5 muxed to the switch-core SPI master by stock `rtk network on` ([MAINLINE-PORT.md](MAINLINE-PORT.md) DTS). Fixed in our U-Boot, 7.3 DTS and the 6.18 backport; verified 2026-10-12 (only sfp-p1 present, no `-EIO`).
-- `Failed to find NVMEM device` → random MAC each boot: the upstream image has no MAC source for this board (our 7.3 DTS: nvmem on `u-boot-env`).
+- `Cannot parse config file '/etc/fw_env.config'` + `Failed to find NVMEM device`: both from `fw_printenv` (u-boot `tools/env/fw_env.c`) run before uci-defaults `30_uboot-envtools` writes `/etc/fw_env.config` (default case: `u-boot-env` 0x0/0x10000/0x10000, sys `u-boot-env2` 0x1000). Not a kernel NVMEM error. After boot it works: sw1 flash r36962 has `/dev/mtd1 0x0 0x10000 0x10000`, `fw_printenv -n ethaddr` = `16:b0:46:e9:0d:c0` (2026-10-12, `./dev.py switch-logs`) (#86).
+- Kernel MAC: upstream 6.18 DTS has no nvmem cell; the kernel prints the switch MAC registers (our U-Boot chain loads them from `ethaddr`; stock leaves `00:e0:4c:00:00:00`); userspace `02_network` then sets interface MACs from `u-boot-env` `ethaddr`. Our 6.18 backport DTS (`openwrt-tree.patch`) and 7.3/next DTS read `ethaddr` via the `u-boot,env` nvmem layout (built 2026-10-12, DTB checked) (#86).
 - `rtpcs_930x_sds_force_mode: SDS 9 could not reset state machine`: seen once (lan8), unexplained.
 - Lines reviewed as benign (#28, `known #28` in `scripts/boot_log_allowlist.txt`):
   - U-Boot `Err:0xf030:FAIL (0xf030)` at the end of `rtk network on`: `phy_enable_set` on PHY-less ports.
@@ -184,7 +185,6 @@ OpenWrt 25.12.4 initramfs (kernel 6.12.87), 2026-10-10, cages 1, 2, 8 populated:
   - `Failed to get CPU clock: -2`: no CPU clk provider; DT 800 MHz used.
   - `UNKNOWN_MC_PMASK: 000000001fffffff`: driver debug print of a constant mask (ports 0-28).
   - `gpio_button_hotplug: loading out-of-tree module taints kernel.`
-  - `Cannot parse config file '/etc/fw_env.config'`: none for this board.
   - Mainline: `pca953x 8-0038: supply vcc not found, using dummy regulator` (no regulator nodes; fixed rails).
 - Never allowlisted: `Ring contention` (storm, #19), `received packet ... with own address as source address` (loop).
 
