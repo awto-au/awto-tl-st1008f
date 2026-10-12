@@ -25,8 +25,7 @@ bridge link | sed -n 's/^[0-9]*: \([^:@]*\).*<\([^>]*\)>.* state \([a-z]*\).*/po
 for p in /sys/class/net/lan*; do n=$(basename $p); echo "link=$n carrier=$(cat $p/carrier 2>/dev/null) speed=$(cat $p/speed 2>/dev/null) duplex=$(cat $p/duplex 2>/dev/null)"; done
 for p in /sys/class/net/lan*; do n=$(basename $p); [ "$(cat $p/carrier 2>/dev/null)" = 1 ] && ethtool $n 2>/dev/null | grep -A3 -E 'Link partner advertised link modes|^\s+Port:|Supported link modes' | tr -s ' \t' ' ' | sed "s/^/eth $n:/"; ethtool -m $n 2>/dev/null | grep -E 'Vendor PN|Transceiver type|Identifier' | tr -s ' ' | sed "s/^/mod $n:/"; done
 dmesg | grep -iE 'sfp|pcs|phylink|link (is )?(up|down)' | tail -20 | sed 's/^/dmesg=/'
-for z in /sys/class/thermal/thermal_zone*; do echo "thermal=$(cat $z/type) $(cat $z/temp) mC (raw kernel value)"; done
-for p in /sys/class/net/lan*; do n=$(basename $p); t=$(ethtool -m $n 2>/dev/null | grep -m1 'Module temperature' | cut -d: -f2-); [ -n "$t" ] && echo "sfptemp=$n$t"; done
+for h in /sys/class/hwmon/hwmon*; do [ -r $h/temp1_input ] && echo "temp=$(readlink -f $h/device | sed 's#.*/##') $(cat $h/temp1_input) mC"; done
 echo "mgmt=$(uci -q get network.lan.proto) $(uci -q get network.lan.ipaddr)"
 [ -d /www/luci-static ] && echo luci=yes || echo luci=no
 pgrep uhttpd >/dev/null && echo uhttpd=yes || echo uhttpd=no
