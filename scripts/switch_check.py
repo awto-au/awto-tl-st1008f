@@ -22,6 +22,8 @@ REMOTE = r"""
 echo "kernel=$(uname -r)"; echo "uptime=$(cut -d. -f1 /proc/uptime)s"
 for b in $(ls /sys/class/net); do [ -d /sys/class/net/$b/bridge ] && echo "bridge=$b stp=$(cat /sys/class/net/$b/bridge/stp_state)"; done
 bridge link | sed -n 's/^[0-9]*: \([^:@]*\).*<\([^>]*\)>.* state \([a-z]*\).*/port=\1 flags=\2 stp=\3/p'
+for p in /sys/class/net/lan*; do n=$(basename $p); echo "link=$n carrier=$(cat $p/carrier 2>/dev/null) speed=$(cat $p/speed 2>/dev/null) duplex=$(cat $p/duplex 2>/dev/null)"; done
+dmesg | grep -iE 'sfp|pcs|phylink|link (is )?(up|down)' | tail -20 | sed 's/^/dmesg=/'
 echo "mgmt=$(uci -q get network.lan.proto) $(uci -q get network.lan.ipaddr)"
 [ -d /www/luci-static ] && echo luci=yes || echo luci=no
 pgrep uhttpd >/dev/null && echo uhttpd=yes || echo uhttpd=no
