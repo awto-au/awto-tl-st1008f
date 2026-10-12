@@ -278,6 +278,12 @@ def cmd_switch_net_clean(extra: list[str]) -> int:
     return _script("switch_net_clean.py", extra)
 
 
+@command("poll a switch's IF-MIB over SNMP: per-port status, Mbit/s, errors/discards; flag growth; JSONL log",
+         args="[--ip A.B.C.D] [--every S] [--count N]", kind="check")
+def cmd_switch_snmp(extra: list[str]) -> int:
+    return _script("switch_snmp.py", extra)
+
+
 @command("SNMP v2c read-only on a running OpenWrt switch (Omada site community from secrets, LAN-only), verified by snmpget",
          args="[--ip A.B.C.D]", kind="hardware")
 def cmd_openwrt_snmp(extra: list[str]) -> int:
@@ -511,7 +517,7 @@ def main(argv: list[str] | None = None) -> int:
     if any(a in ("-h", "--help") for a in extra):  # never run a command when asked for help
         print(f"./dev.py {name}{' ' + meta['args'] if meta['args'] else ''}\n\n{meta['summary']}")
         return 0
-    if meta["kind"] in ("hardware", "check") and name not in HOST_ONLY:
+    if meta["kind"] in ("hardware", "check") and name not in HOST_ONLY | NET_MANAGE:
         rc = subprocess.call([sys.executable, str(SCRIPTS / "board_guard.py"), name, *extra], cwd=REPO)
         if rc:
             log(f"{name}: refused by scripts/board_guard.py (not sw2; #91)", "ERROR")
@@ -524,6 +530,8 @@ def main(argv: list[str] | None = None) -> int:
 # no board contact, or read-only network checks that may target sw1 (#91)
 HOST_ONLY = {"storm-watch", "check-log", "flash-guard", "doc-check", "console-watch", "console-window",
              "switch-check", "mode-watch", "switch-logs"}
+# Owner-approved management of a running switch over SSH (any unit, sw1 included): no power, console or flash.
+NET_MANAGE = {"openwrt-snmp", "openwrt-luci", "switch-net-clean", "switch-snmp"}
 
 
 def _storm_guard() -> None:
