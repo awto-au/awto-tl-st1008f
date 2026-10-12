@@ -156,6 +156,7 @@ End-to-end workflow: [../README.md#workflow](../README.md#workflow).
 ### photo_crop.py
 - Purpose: read board-photo markings for `docs/BOM.md`: `sheet` (contact sheet), `crop` (crop/rotate/upscale/`--enhance`), `downscale` (≤1600 px, EXIF dropped, fails over 1 MB) for `docs/photos/`.
 - Run: `python3 -I scripts/photo_crop.py crop <img> tmp/<out>.jpg X0 Y0 X1 Y1 --scale 2 --enhance`. Crops go to `tmp/`, not committed.
+- Publish: `python3 -I scripts/photo_crop.py publish private/photos/Photos-1-001.zip docs/photos/own` (max 2000 px, metadata stripped, fails if any EXIF tag survives).
 - Log: `tmp/logs/photo_crop.log`.
 
 ### ghidra/TraceLoader.java, ghidra/DecompileSelected.java

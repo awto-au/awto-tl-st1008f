@@ -4,6 +4,7 @@
 - sheet DIR OUT: contact sheet of every JPEG in DIR, labelled thumbnails.
 - crop IMG OUT X0 Y0 X1 Y1 [--scale S] [--rot DEG] [--enhance]: crop, rotate, upscale.
 - downscale IMG OUT [--max PX] [--box X0 Y0 X1 Y1]: copy for docs/photos (EXIF dropped).
+- publish ZIP OUTDIR [--max PX]: every JPEG in ZIP downscaled, metadata stripped and verified gone.
 Coordinates are pixels of the EXIF-transposed image. Log: tmp/logs/photo_crop.log.
 """
 import argparse
@@ -67,6 +68,25 @@ def downscale(args):
         sys.exit(1)
 
 
+def publish(args):
+    """Every JPEG in a zip -> OUTDIR, downscaled, all metadata dropped (re-encode, no exif=)."""
+    import io
+    import zipfile
+    out = pathlib.Path(args.outdir)
+    out.mkdir(parents=True, exist_ok=True)
+    with zipfile.ZipFile(args.zip) as z:
+        for name in sorted(n for n in z.namelist() if n.lower().endswith((".jpg", ".jpeg"))):
+            im = load(io.BytesIO(z.read(name)))
+            im.thumbnail((args.max, args.max), Image.LANCZOS)
+            dst = out / pathlib.Path(name).name
+            im.save(dst, quality=args.quality, optimize=True)
+            left = Image.open(dst).getexif()
+            if len(left):
+                logging.error("%s still has %d EXIF tags", dst, len(left))
+                sys.exit(1)
+            logging.info("publish %s -> %s %dx%d %d bytes, no EXIF", name, dst, *im.size, dst.stat().st_size)
+
+
 def main():
     LOG.parent.mkdir(parents=True, exist_ok=True)
     logging.basicConfig(level=logging.INFO, format="%(asctime)s %(message)s",
@@ -89,6 +109,12 @@ def main():
     c.add_argument("--rot", type=float, default=0.0)
     c.add_argument("--enhance", action="store_true")
     c.set_defaults(fn=crop)
+    p = sub.add_parser("publish")
+    p.add_argument("zip")
+    p.add_argument("outdir")
+    p.add_argument("--max", type=int, default=2000)
+    p.add_argument("--quality", type=int, default=82)
+    p.set_defaults(fn=publish)
     d = sub.add_parser("downscale")
     d.add_argument("img")
     d.add_argument("out")

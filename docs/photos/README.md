@@ -15,3 +15,9 @@ Licensed [CC BY-SA 4.0](https://creativecommons.org/licenses/by-sa/4.0/) per the
 are redistributed under the same licence with attribution.
 
 - `DH` function is not established by the photo; leave it disconnected. UART needs only GND, RX, TX.
+
+## Own photos of this unit ([own/](own/))
+
+- 40 photos, 2026-10-08 and 2026-10-11, mostly heatsink off. Cited in [../BOM.md](../BOM.md) as `[OWN <file>]`.
+- Published copies: max 2000 px, all metadata (EXIF/GPS) stripped and checked: `scripts/photo_crop.py publish private/photos/Photos-1-001.zip docs/photos/own`. Originals stay in `private/photos/`.
+- Licence: CC BY-SA 4.0, same as the copies above.
