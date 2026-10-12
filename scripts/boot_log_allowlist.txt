@@ -423,3 +423,51 @@ realtek-rtl-spi 18001200\.spi: SFCSR wait 0x[0-9a-f]{8}: limit \d+ ns, elapsed \
 
 [linux]
 realtek-otto-watchdog \S+: running at probe: kept, \d+ s timeout  # 300-15: watchdog armed by our U-Boot stays on (#73)
+
+# OpenWrt SNAPSHOT r36962 / 6.18.55 (sw1 flash image), `./dev.py switch-logs` dmesg, reviewed 2026-10-12
+[openwrt]
+highmem kernel with > 256 MB RAM, adapt SoC memory mapping  # 6.18 realtek prom: highmem on 512 MiB
+Realtek RTL9303 rev B \(6487\) SoC with 512 MB  # SoC id + RAM pinned
+Adding initrd info from environment  # prom reads rd_start/rd_size env (none set)
+printk: log buffer data \+ meta data: 131072 \+ 409600 = 540672 bytes  # printk ring size
+Memory: \d+K/524288K available \(.*262144K highmem\)  # 512 MiB total, 256 MiB highmem pinned
+posixtimers hash table entries: \d+ \(order: \d+, \d+ bytes, linear\)  # 6.18 core init
+pinctrl-single 1b000204\.pinmux: 32 pins, size 4  # pinmux node
+(spi-nor spi0\.0|pca953x 8-0038): supply vcc not found, using dummy regulator  # no regulator nodes, fixed rails; known #93
+realtek-otto-serdes-mdio 1b000000\.ethernet-switch:mdio-serdes: Realtek SerDes mdio bus initialized, 12 SerDes, 64 pages, 32 registers  # SerDes MDIO bus
+realtek-otto-pcs 1b000000\.ethernet-switch:pcs: Realtek PCS driver initialized  # PCS driver probe
+rtl838x_eth 1b000000\.ethernet-switch:ethernet: Using MAC [0-9a-f:]{17}  # MAC from nvmem (u-boot-env ethaddr)
+rtldsa_93xx_setup called|In rtldsa_vlan_setup|In rteth_mac_config, mode 1|RESETTING CPU_PORT 28  # driver debug prints (boot + each network restart)
+rtl83xx-switch 1b000000\.ethernet-switch: led_set0 has 3 LEDs configured  # LED set from DTS
+(rtl83xx-switch 1b000000\.ethernet-switch|rtl838x_eth 1b000000\.ethernet-switch:ethernet eth0): configuring for fixed/internal link mode  # CPU port fixed link
+(rtl83xx-switch 1b000000\.ethernet-switch|rtl838x_eth 1b000000\.ethernet-switch:ethernet eth0): Link is Up - 1Gbps/Full - flow control off  # CPU port fixed link up
+rtl838x_eth 1b000000\.ethernet-switch:ethernet eth0: Failed to create a device link to DSA switch 1b000000\.ethernet-switch  # conduit is a child of the switch node; benign; known #93
+rtl838x_eth 1b000000\.ethernet-switch:ethernet eth0: (entered|left) (promiscuous|allmulticast) mode  # DSA conduit / bridge
+rtl838x_eth 1b000000\.ethernet-switch:ethernet eth0: receive page pool below \d+ MB  # RX page pool info
+rtl838x_eth 1b000000\.ethernet-switch:ethernet eth0: Link is Down  # conduit down on network restart
+check access for rdinit=/init failed: -2, ignoring  # no initramfs in the flash image; known #93
+VFS: Mounted root \(squashfs filesystem\) readonly on device 31:7\.  # flash rootfs
+Freeing unused kernel image \(initmem\) memory: \d+K  # init done
+Run /sbin/init as init process|\s+/sbin/init  # init start
+sfp sfp-p[1-8]: module .{16} .{16} rev .{4} sn .{16} dc \d{6}\s*  # SFP module insert ID
+sfp sfp-p[1-8]: module removed  # SFP module removal (owner swaps; cage-6 phantom is #92)
+sfp sfp-p[1-8]: Host maximum power [\d.]+W  # per-cage DTS power limit (#30)
+rtl83xx-switch 1b000000\.ethernet-switch lan[1-8]: configuring for inband/(1000base-x|sgmii|10gbase-r) link mode  # phylink config
+rtl83xx-switch 1b000000\.ethernet-switch lan[1-8]: switched to inband/(sgmii|10gbase-r|1000base-x) link mode  # phylink mode change on module/PHY
+realtek-otto-pcs 1b000000\.ethernet-switch:pcs: SerDes \d+ configured for (1000base-x|sgmii|10gbase-r) mode  # SerDes mode set
+realtek-otto-pcs 1b000000\.ethernet-switch:pcs: SerDes \d+: waiting for RX idle timed out  # every SerDes config, link still comes up; known #93
+rtl83xx-switch 1b000000\.ethernet-switch: (add|delete) IPv4 route \S+ (via \S+ )?\(VLAN \d+, MAC [0-9a-f:]{17}\)  # L3 offload route table
+rtl83xx-switch 1b000000\.ethernet-switch: skip loopback/broadcast addresses and default routes  # L3 offload info
+rtl83xx-switch 1b000000\.ethernet-switch: route allocated for gw 0\.0\.0\.0  # L3 offload info
+rtl83xx-switch 1b000000\.ethernet-switch: IPv4 forwarding offload (suspended|resumed) by the policy rules  # L3 offload vs nft rules at fw4 load
+rtl83xx-switch 1b000000\.ethernet-switch: lower interface lan1 not found  # route seen before DSA ports exist; known #93
+rtl83xx-switch 1b000000\.ethernet-switch: fib_add\(\) failed  # same; known #93
+jffs2: notice: \(\d+\) jffs2_build_xattr_subsystem: complete building xattr subsystem, .*  # JFFS2 overlay mount
+mount_root: switching to jffs2 overlay|overlayfs: upper fs does not support tmpfile\.|urandom-seed: Seeding with /etc/urandom\.seed  # OpenWrt preinit
+pktgen: Packet Generator for packet performance testing\. Version: 2\.75  # kmod-pktgen (nat-bench)
+rtl83xx-switch 1b000000\.ethernet-switch lan[1-8]: (entered|left) (promiscuous|allmulticast) mode  # bridge membership
+rtl83xx-switch 1b000000\.ethernet-switch lan[1-8]: PHY \[smbus:sfp-p[1-8]:\d+\] driver \[(Marvell 88E1111|Aquantia AQR113C)\] \(irq=POLL\)  # SFP copper module PHY
+rtl83xx-switch 1b000000\.ethernet-switch lan[1-8]: Link is (Down|Up - (100Mbps|1Gbps|10Gbps)/Full - flow control (off|rx/tx))  # port link events (flaps judged per audit, docs/OPENWRT-BUILD.md)
+thermal thermal_zone\d+: Failed to set trips: -34  # on AQR113C PHY attach, -ERANGE; known #93
+rtl83xx-switch 1b000000\.ethernet-switch lan[1-8]: selection of interface failed, speed 10000  # AQR113C reconfigure; known #93
+Aquantia AQR113C smbus:sfp-p[1-8]:11: aqr_gen1_read_status failed: -145  # -ETIMEDOUT (MIPS) over SFP smbus, link drops; known #90

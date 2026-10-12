@@ -248,6 +248,12 @@ def cmd_switch_check(extra: list[str]) -> int:
     return _script("switch_check.py", extra)
 
 
+@command("full dmesg + logread of a running OpenWrt over SSH, classified vs the boot allowlist; read-only",
+         args="[--ip A.B.C.D] [--show-ok]  (default sw1 .48)", kind="check")
+def cmd_switch_logs(extra: list[str]) -> int:
+    return _script("switch_logs.py", extra)
+
+
 @command("bench unit: copy on-chip SRAM + RAM-resident stock U-Boot to private/ over Ethernet (our U-Boot tftpput)",
          args="[--no-boot]", kind="hardware")
 def cmd_mem_dump(extra: list[str]) -> int:
@@ -270,6 +276,12 @@ def cmd_power_boot(extra: list[str]) -> int:
          args="[--ip A.B.C.D] [--dry-run]", kind="hardware")
 def cmd_switch_net_clean(extra: list[str]) -> int:
     return _script("switch_net_clean.py", extra)
+
+
+@command("SNMP v2c read-only on a running OpenWrt switch (Omada site community from secrets, LAN-only), verified by snmpget",
+         args="[--ip A.B.C.D]", kind="hardware")
+def cmd_openwrt_snmp(extra: list[str]) -> int:
+    return _script("openwrt_snmp.py", extra)
 
 
 @command("install the LuCI web UI on the running OpenWrt from the internet (apk) over SSH, then check it",

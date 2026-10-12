@@ -105,6 +105,10 @@ End-to-end workflow: [../README.md#workflow](../README.md#workflow).
 - **After any power cut, restart `switch_console_daemon.py` before power-on**: the PL2303 RX URB stalls (`urb stopped: -32`) and the daemon keeps running deaf.
 - sw1 tripwire: `off`/`cycle` ping sw1 before and after; sw1 lost → relay on, exit 4 (#91).
 
+### switch_logs.py
+- Purpose: full `dmesg` + `logread` of a running OpenWrt over SSH, read-only; dmesg classified against `boot_log_allowlist.txt` ([linux] + [openwrt]), logread warn/err lines listed; grouped by message.
+- Run: `./dev.py switch-logs [--ip A.B.C.D] [--show-ok]` (default sw1 .48). Raw copies: `tmp/switch-logs/<ip>-<ts>/`. Log: `tmp/logs/switch_logs.log`.
+
 ### board_guard.py
 - Purpose: refuse a `dev.py` hardware flow unless the board is sw2 (#91). Called by `dev.py`; checks args, console log last boot, ARP. Exit 5 = refused.
 - Run: `scripts/board_guard.py <command> [args]`. Log: `tmp/logs/board_guard.log`. Detail: [../docs/hardware.md](../docs/hardware.md#unit-guard-91).

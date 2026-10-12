@@ -188,6 +188,18 @@ OpenWrt 25.12.4 initramfs (kernel 6.12.87), 2026-10-10, cages 1, 2, 8 populated:
   - Mainline: `pca953x 8-0038: supply vcc not found, using dummy regulator` (no regulator nodes; fixed rails).
 - Never allowlisted: `Ring contention` (storm, #19), `received packet ... with own address as source address` (loop).
 
+#### sw1 in service: OpenWrt SNAPSHOT r36962 / 6.18.55 flash image
+
+`./dev.py switch-logs` (full dmesg + logread over SSH, read-only), 2026-10-12T13:58+11:00, uptime 4185 s (boot ~12:48:43+11:00), 703 dmesg / 964 logread lines. All lines reviewed into `scripts/boot_log_allowlist.txt` (6.18 block); result PASS with these `known` items:
+- **AQR113C PHY read timeout** (#90): `Aquantia AQR113C smbus:sfp-p8:11: aqr_gen1_read_status failed: -145` (-ETIMEDOUT on MIPS) at 1012 s → lan8 down, back up at 1116 s (104 s outage).
+- **Phantom module on cage 6** (#92): at 14.3 s `sfp-p6` reports cage 1's GLC-T (sn MTC106630), removed at 16.3 s; cage 6 was empty.
+- **Warnings without traffic impact** (#93): `SerDes N: waiting for RX idle timed out` on every SerDes config (x13); `thermal_zone3|4: Failed to set trips: -34` on each AQR113C attach (x8); `lower interface lan1 not found` + `fib_add() failed` at 6.7 s; `lan7: selection of interface failed, speed 10000` at 592 s; AQR113C ports report `10Gbps` for ~5 s after a reconfigure before the PHY attaches, then `1Gbps`.
+- Benign: `eth0: Failed to create a device link to DSA switch`, `supply vcc not found` (spi-nor, pca953x), `rdinit=/init failed: -2`, netifd `Wireless module not found` (#93).
+- **Link drops, explained:**
+  - lan4 (10G SR, fibre to sw2 cage 1): 17 downs from 2641 s on; each matches a sw2 relay off/on, sw2 reset or stock boot laser toggle (`tmp/logs/switch_power.log`, console log), e.g. 2641 s = 13:32:43 relay off, 4104 s = 13:57:06 relay off. One at 3094 s (13:40:18) falls while sw2 ran stock Linux during the UART-wire fix. Not a sw1 fault.
+  - lan1/lan7/lan8 together at 438-441 s and 1251 s: network reload (`RESETTING CPU_PORT 28`), lan7+lan8 at 591 s: port reconfigure.
+  - lan8 alone at 157, 292, 815, 859 s (one 100 Mbit/s link at 175 s): during 2.5G partner tests (#90); lan1 3 s drop at 1002 s: partner side, unexplained.
+
 ## Image names
 
 - `openwrt-ours` = 7.3 kernel (default-boot RAM test image, [DEFAULT-BOOT.md](DEFAULT-BOOT.md)); `openwrt-ours-6.18` = step 1.
