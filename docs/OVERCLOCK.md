@@ -34,4 +34,16 @@ Run/recover steps: [OVERCLOCK-OPS.md](OVERCLOCK-OPS.md). Clock tree and register
 | sw1 | 1000 | 650 | `clocks fast` (2026-10-11); fixed U-Boot in jffs2-log 2026-10-13, active at next power-up |
 | sw2 | 1000 | 650 | `clocks fast`; DDR-only 600-662.5 pass, 675 fails + reverts (2026-10-12) |
 
-- Ladder above 1000 MHz on sw2: results below once run.
+## CPU above 1000 MHz (sw2, 2026-10-13, CPU_SRAM_ASY_TIMING written)
+
+| CPU | e208 / DIVN2 (VCO) | `clocks-cycle cpu` n=5 | Real rate (`cpu-clock`, host-timed `sleep 5`) |
+|---|---|---|---|
+| 1050 | `0x3d8` /3 (3150) | 5/5 | — |
+| 1100 | `0x2a8` /2 (2200) | 5/5 | 1097.6 |
+| 1150 | `0x2c8` /2 (2300) | — | 1147.2 |
+| 1200 | `0x2e8` /2 (2400) | 4/5 + 1 ramload miss | 1185.6 (−1.2 %) |
+| 1300 | `0x328` /2 (2600) | — | 1297.2 |
+
+- Pass = PLL locked, prompt, 16 MiB `crc32`, temperature. U-Boot idle temperature 31-32 °C (raw `TEMP_OUT`, meter just enabled) at every point.
+- Before the CPU_SRAM_ASY_TIMING fix, 1066.7 MHz (/3, VCO 3200) hung after the PLL write (2026-10-10). /2 with VCO 2200-2600 locks at once.
+- Not yet: n=5 at 1300, points above 1300, a Linux load at these rates, n=20 on the pick.

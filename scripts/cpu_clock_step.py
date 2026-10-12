@@ -51,7 +51,7 @@ def step(con: Console, e208: str, e210: str, relock: int) -> bool:
     con.run("echo PROMPT_OK", r"\r?\nPROMPT_OK" + PROMPT, 1, "prompt present")
     # routine: lock poll <= 100000 iterations (~0.1 s even at a 10 MHz alternate clock) + settle
     _, out = con.run(f"clocks set cpu {e208} {e210} {relock} force",
-                     r"clocks: (locked after \d+ polls|CPU PLL did not lock.*)" + PROMPT, 2, "pll set")
+                     r"clocks: (locked after \d+ polls[^\r\n]*|CPU PLL did not lock.*)" + PROMPT, 2, "pll set")
     log(re.search(r"clocks: (locked after \d+ polls|CPU PLL did not lock[^\r\n]*)", out).group(0))
     _, out = con.run("clocks", r"(?s)mem \d+ MHz.*" + PROMPT, 1, "clocks")
     m = re.search(r"cpu ([\d.]+) MHz.*src (\w+)", out)

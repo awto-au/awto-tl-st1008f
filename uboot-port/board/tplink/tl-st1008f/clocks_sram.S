@@ -17,7 +17,14 @@ otto_cpu_pll_sram:
 	ori	t0, t8, 0xc
 	mtc0	t0, $16, 7
 	ehb
-	lui	t1, 0xb800		/* SSR 0xb8000044 bit 2 = 0: CPU to the alternate clock */
+	lui	t0, 0xbf00		/* SDK: drain SRAM traffic (uncached SRAM read, write back, read) */
+	lw	t2, 0(t0)
+	lw	t3, 4(t0)
+	sw	t2, 0(t0)
+	sw	t3, 4(t0)
+	lw	t2, 0(t0)
+	lw	t3, 4(t0)
+	lui	t1, 0xb800		/* SYS_STATUS 0xb8000044 cf_ckse_ocp0 bit 2 = 0: CPU to the alternate clock */
 	lw	t0, 0x44(t1)
 	li	t2, ~4
 	and	t0, t0, t2
@@ -58,6 +65,8 @@ otto_cpu_pll_sram:
 	ori	t0, t0, 4
 	sw	t0, 0x44(t1)
 	sync
+	lw	t0, 0x700(t1)		/* PLL_SRAM_CTRL rewritten as read (SRAM stays 250 MHz), SDK order */
+	sw	t0, 0x700(t1)
 	sw	a3, 0x40f8(t1)		/* CPU_SRAM_ASY_TIMING for the new rate, as SDK cg.c (#101) */
 	sync
 	li	t0, 10000		/* stock settle spin */

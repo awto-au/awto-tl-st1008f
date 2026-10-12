@@ -13,6 +13,7 @@
 #include <malloc.h>
 #include <serial.h>
 #include <time.h>
+#include <linux/delay.h>
 #include <asm/addrspace.h>
 #include <asm/global_data.h>
 #include <asm/io.h>
@@ -364,8 +365,8 @@ static int mem_set(const struct mem_req *q)
 	dtr2 = ((mhz * trfc_ns[die - 9] / 1000 + 5) << 20) | b->dtr2;
 	otto_clocks_read(&c);
 	cur = c.mem_khz / 1000;
-	/* CMUCR_OC0/LX* SE_DRAM = (bus clock <= MEM) (SDK cg_mem.c): must not change, not written */
-	if ((c.cpu_khz / 1000 > cur) != (c.cpu_khz / 1000 > mhz) ||
+	/* CMU_BC_OC0 / CMU_BC_LX* se_dram = (OCP0 = CPU/2 resp. LX <= MEM) (SDK cg_mem.c): must not change, not written */
+	if ((c.cpu_khz / 2000 > cur) != (c.cpu_khz / 2000 > mhz) ||	/* OCP0 = CPU/2 (SDK) */
 	    (c.lx_khz / 1000 > cur) != (c.lx_khz / 1000 > mhz)) {
 		puts("clocks: MEM would cross the CPU or LX clock (SE_DRAM bits): not supported\n");
 		return CMD_RET_FAILURE;
@@ -490,6 +491,7 @@ static int mem_set(const struct mem_req *q)
 #define FAST_MEM_MHZ	650	/* runtime change with refresh paused (nosr); self-refresh mode hangs (#39) */
 #define DTR0_REG	0xb8001008
 #define DMCR_REG	0xb800101c
+#define DACCR_REG	0xb8001500
 /* tREFI = (t + 1) << (unit + 5) clk: t 8, unit 4 = 4608 clk = 7.09 us at 650 MHz (stock unit 3) */
 #define DTR0_REFI	((8 << 8) | (4 << 4))
 
@@ -499,12 +501,17 @@ static int refi_set(void)
 
 	__raw_writel((R(DTR0_REG) & ~0xff0) | DTR0_REFI, (void __iomem *)DTR0_REG);
 	__raw_writel(R(DMCR_REG), (void __iomem *)DMCR_REG);	/* rewrite = latch DTRs (SDK) */
+	udelay(1);	/* SDK: >= 10 MEM clocks before the busy bit is valid (17 ns at 600 MHz) */
 	for (i = 0; i < 64 && (R(DMCR_REG) & BIT(31)); i++)	/* latch ~1 us; 64 polls >= 3.2 us */
 		;
 	if (R(DMCR_REG) & BIT(31)) {
 		puts("clocks: DTR latch still busy after 64 polls\n");
 		return CMD_RET_FAILURE;
 	}
+	/* SDK after every DTR latch: DACCR ac_bptr_clear 0 -> 1 (PHY read FIFO pointer reset) */
+	__raw_writel(R(DACCR_REG) & ~BIT(4), (void __iomem *)DACCR_REG);
+	__raw_writel(R(DACCR_REG) | BIT(4), (void __iomem *)DACCR_REG);
+	__asm__ __volatile__("sync");
 	return 0;
 }
 

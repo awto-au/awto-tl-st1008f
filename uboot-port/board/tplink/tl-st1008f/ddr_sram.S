@@ -324,6 +324,9 @@ refresh:
 
 /* v0 = 0 once DMCR bit 31 (DTR_UP_BUSY/MRS_BUSY) is 0, 1 after DMCR_POLL polls */
 dmcr_idle:
+	move	t1, s1			/* SDK: >= 10 MEM clocks before the busy bit is valid; 1 us */
+0:	bnez	t1, 0b
+	 addiu	t1, t1, -1
 	li	t1, DMCR_POLL
 1:	lw	t0, 0x1c(s2)
 	bgez	t0, 2f
