@@ -54,7 +54,13 @@ otto_ddr_sram:
 	sw	v1, DP_CAN_OFF(s0)
 	sw	a2, DP_CAN_VAL(s0)
 	sw	a3, DP_CAN_XOR(s0)
-	beqz	v0, 1f
+	bnez	v0, 9f			/* reads already bad: no write test */
+	 nop
+	bal	wrtest			/* write + read back at the new clock (canary covers reads only) */
+	 nop
+	sw	v0, DP_WR_BAD(s0)
+	sw	a3, DP_WR_XOR(s0)
+9:	beqz	v0, 1f
 	 nop
 	ori	s5, s5, DST_CANARY
 	li	a1, 'F'
@@ -427,6 +433,46 @@ canary:
 8:	sw	t7, DP_CAN_BURST(s0)
 	jr	ra
 	 addu	v0, v0, t7
+
+/* write test: the CAN_WORDS words after the canary, uncached, word = offset ^ ~seed, written then read
+ * back at the new clock; v0 = mismatches, a3 = OR of (read ^ written) */
+wrtest:
+	lw	t0, DP_CAN_ADDR(s0)
+	lw	t1, DP_CAN_WORDS(s0)
+	lw	t2, DP_CAN_SEED(s0)
+	nor	t2, t2, zero
+	sll	t6, t1, 2
+	addu	t0, t0, t6		/* region after the canary */
+	move	t3, zero
+	move	t7, t0
+	move	t8, t1
+1:	beqz	t8, 2f
+	 nop
+	xor	t5, t3, t2
+	sw	t5, 0(t7)
+	addiu	t7, t7, 4
+	addiu	t3, t3, 4
+	b	1b
+	 addiu	t8, t8, -1
+2:	sync
+	move	v0, zero
+	move	a3, zero
+	move	t3, zero
+3:	beqz	t1, 5f
+	 nop
+	lw	t4, 0(t0)
+	xor	t5, t3, t2
+	beq	t4, t5, 4f
+	 nop
+	xor	t6, t4, t5
+	or	a3, a3, t6
+	addiu	v0, v0, 1
+4:	addiu	t0, t0, 4
+	addiu	t3, t3, 4
+	b	3b
+	 addiu	t1, t1, -1
+5:	jr	ra
+	 nop
 
 /* a1 us; loop = 2 instructions >= 2 CPU cycles, so the delay is never shorter */
 delay:

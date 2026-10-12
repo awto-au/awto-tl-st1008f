@@ -44,7 +44,9 @@
 #define DP_CAN_XOR	(DP_B + 0x38)	/* out: OR of (read ^ expected) over the canary at the new clock */
 #define DP_CAN_BURST	(DP_B + 0x3c)	/* out: canary words wrong in the cached (burst line fill) pass */
 #define DP_SAVE		(DP_B + 0x40)	/* s0-s7, ra */
-#define DP_SIZE		(DP_SAVE + 0x24)
+#define DP_WR_BAD	(DP_SAVE + 0x24)	/* out: write test at the new clock: words wrong (#48) */
+#define DP_WR_XOR	(DP_SAVE + 0x28)	/* out: OR of (read ^ written) of the write test */
+#define DP_SIZE		(DP_SAVE + 0x2c)
 
 /* v0 / DP_STATUS */
 #define DST_BUSY	1	/* DMCR busy before start: nothing written */

@@ -7,7 +7,9 @@
   the canary XOR gives the failing data bits. DQ d = word bits d and d + 16 (x16 die, 2 beats/word).
 - Per DQ: centre of the longest S run where both its bits pass -> RR[d] and FR[d] = trained + centre.
 - Real set: `clocks set mem <MHz> nosr <extra> rtaps <64 hex> force`, then 16 MiB crc32 + prompt.
-- Read taps only (write taps stay at the 600 training). Log: tmp/logs/ddr_retrain.log
+- Then write taps (`--write`): probes with the retrained read taps + `wdqshift S`; the routine's write test
+  (write + read back at the new clock) XOR gives failing bits; per DQ the centre -> `wtaps <32 hex>`.
+- Log: tmp/logs/ddr_retrain.log
 """
 
 from __future__ import annotations
@@ -35,40 +37,20 @@ def log(msg: str) -> None:
         fh.write(line + "\n")
 
 
-def taps(con: Console) -> list[int]:
+def regs(con: Console) -> list[int]:
     out = []
     for base in (0xB8001510, 0xB8001550):
         _, t = con.run(f"md.l {base:x} 10", rf"{base + 0x30:08x}:[^\n]*" + PROMPT, 1, f"md {base:x}")
-        words = [int(w, 16) for ln in re.findall(r"^[0-9a-f]{8}: ((?:[0-9a-f]{8} ?){1,4})", t, re.M)
-                 for w in ln.split()]
-        out += [(w >> 8) & 31 for w in words[:16]]
+        out += [int(w, 16) for ln in re.findall(r"^[0-9a-f]{8}: ((?:[0-9a-f]{8} ?){1,4})", t, re.M)
+                for w in ln.split()][:16]
     return out
 
 
-def main() -> int:
-    ap = argparse.ArgumentParser(description=__doc__.splitlines()[0])
-    ap.add_argument("--mhz", type=int, required=True)
-    ap.add_argument("--extra", default="", help="options for every probe and the set, e.g. 'dll'")
-    ap.add_argument("--shifts", default="-16,10", help="LO,HI dqshift range")
-    a = ap.parse_args()
-    lo, hi = (int(x) for x in a.shifts.split(","))
-    con = Console()
-    con.run("", PROMPT, 2, "our prompt")
-    cur = taps(con)
-    log(f"{a.mhz} MHz: trained taps RR {cur[:16]} FR {cur[16:]}")
-    ok_by_shift: dict[int, int] = {}  # shift -> xor (0 = all pass)
-    for sft in range(lo, hi + 1):
-        _, out = con.run(f"clocks set mem {a.mhz} nosr probe {a.extra} dqshift {sft} force",
-                         r"clocks: (?:probe (?:OK|FAIL)|mem set FAIL|no bin|mem option)[^\r\n]*" + PROMPT,
-                         CAP_PROBE, f"probe {sft}")
-        if "probe FAIL" in out or "mem set FAIL" in out or "no bin" in out or "mem option" in out:
-            log(f"stop at dqshift {sft}: {re.search(r'clocks: (probe FAIL|mem set FAIL|no bin|mem option)[^\\r\\n]*', out).group(0)}")
-            return 1
-        m = re.search(r"canary (\d+) bad at the new clock[^,]*, xor ([0-9a-f]{8})", out)
-        ok_by_shift[sft] = int(m.group(2), 16) if m and int(m.group(1)) else 0
-    new = []
+def windows(xors: dict[int, int], name: str) -> list[int] | None:
+    """Per DQ d (word bits d, d + 16): centre of the longest passing run of shifts; None = no window."""
+    out = []
     for d in range(16):
-        good = [s for s, x in sorted(ok_by_shift.items()) if not (x >> d) & 1 and not (x >> (d + 16)) & 1]
+        good = [s for s, x in sorted(xors.items()) if not (x >> d) & 1 and not (x >> (d + 16)) & 1]
         runs, run = [], []
         for s in good:
             if run and s != run[-1] + 1:
@@ -78,17 +60,69 @@ def main() -> int:
         if run:
             runs.append(run)
         if not runs:
-            log(f"DQ{d}: no passing shift in {lo}..{hi}")
-            return 1
+            log(f"{name} DQ{d}: no passing shift")
+            return None
         best = max(runs, key=len)
-        c = best[len(best) // 2]
-        new.append(c)
-        log(f"DQ{d}: pass {best[0]}..{best[-1]} -> shift {c}")
+        out.append(best[len(best) // 2])
+        log(f"{name} DQ{d}: pass {best[0]}..{best[-1]} -> shift {out[-1]}")
+    return out
+
+
+def probe(con: Console, cmd: str, what: str) -> tuple[str, int, int] | None:
+    _, out = con.run(cmd, r"clocks: (?:probe (?:OK|FAIL)|mem set FAIL|no bin|mem option)[^\r\n]*" + PROMPT,
+                     CAP_PROBE, what)
+    if "probe FAIL" in out or "mem set FAIL" in out or "no bin" in out or "mem option" in out:
+        log(f"stop at {what}: {re.search(r'clocks: (probe FAIL|mem set FAIL|no bin|mem option)[^\r\n]*', out).group(0)}")
+        return None
+    m = re.search(r"canary (\d+) bad at the new clock[^,]*, xor ([0-9a-f]{8})", out)
+    w = re.search(r"write test (\d+) bad at the new clock, xor ([0-9a-f]{8})", out)
+    return (out, int(m.group(2), 16) if m and int(m.group(1)) else 0,
+            int(w.group(2), 16) if w and int(w.group(1)) else 0)
+
+
+def main() -> int:
+    ap = argparse.ArgumentParser(description=__doc__.splitlines()[0])
+    ap.add_argument("--mhz", type=int, required=True)
+    ap.add_argument("--extra", default="", help="options for every probe and the set, e.g. 'dll'")
+    ap.add_argument("--shifts", default="-16,10", help="LO,HI dqshift range")
+    ap.add_argument("--write", action="store_true", help="also retrain the write taps")
+    a = ap.parse_args()
+    lo, hi = (int(x) for x in a.shifts.split(","))
+    con = Console()
+    con.run("", PROMPT, 2, "our prompt")
+    live = regs(con)
+    cur = [(w >> 8) & 31 for w in live]
+    log(f"{a.mhz} MHz: trained read taps RR {cur[:16]} FR {cur[16:]}, write taps {[(w >> 24) & 31 for w in live[:16]]}")
+    rd: dict[int, int] = {}
+    for sft in range(lo, hi + 1):
+        r = probe(con, f"clocks set mem {a.mhz} nosr probe {a.extra} dqshift {sft} force", f"read {sft}")
+        if r is None:
+            return 1
+        rd[sft] = r[1]
+    new = windows(rd, "read")
+    if new is None:
+        return 1
     rr = [min(31, max(0, cur[d] + new[d])) for d in range(16)]
     fr = [min(31, max(0, cur[16 + d] + new[d])) for d in range(16)]
     hx = "".join(f"{t:02x}" for t in rr + fr)
+    wtaps = ""
+    if a.write:
+        wcur = [(w >> 24) & 31 for w in live[:16]]
+        wr: dict[int, int] = {}
+        for sft in range(-16, 17):
+            r = probe(con, f"clocks set mem {a.mhz} nosr probe {a.extra} rtaps {hx} wdqshift {sft} force",
+                      f"write {sft}")
+            if r is None:
+                return 1
+            wr[sft] = r[2] | r[1]
+        wnew = windows(wr, "write")
+        if wnew is None:
+            return 1
+        wt = [min(31, max(0, wcur[d] + wnew[d])) for d in range(16)]
+        wtaps = " wtaps " + "".join(f"{t:02x}" for t in wt)
+        log(f"write taps {wcur} -> {wt}")
     try:
-        _, out = con.run(f"clocks set mem {a.mhz} nosr {a.extra} rtaps {hx} force",
+        _, out = con.run(f"clocks set mem {a.mhz} nosr {a.extra} rtaps {hx}{wtaps} force",
                          r"clocks: (?:mem set (?:OK|FAIL)[^\r\n]*)" + PROMPT, CAP_SET, "set with retrained taps")
         if "mem set OK" not in out:
             log(f"FAIL {a.mhz}: {re.search(r'clocks: mem set FAIL[^\\r\\n]*', out).group(0)}")

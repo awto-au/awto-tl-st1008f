@@ -125,6 +125,10 @@ Each config adds to the previous one; points 800 → 725 → down to the first p
 | (d) (a) + per-DQ read-tap retrain (`./dev.py ddr-retrain`) | no window (DQ1/DQ4) | no window | **pass** | **pass** |
 | (e) (d) + DQS PI 4 / 8 / 12 (MPCR0 26:22, 31:27) | no window (PI 8) | no window (all three) | — | — |
 
+| (d') (a) + read **and write** retrain (`ddr-retrain --write`; write test = write + read back 1024 words at the new clock in the SRAM routine) | — | no read window (DQ3) | **pass** | — |
+| (d') + DQS group read tap (DACCR 20:16 / 12:8) 8 / 16 | — | 750: no read window (8); every bit wrong, data shifted (16) | — | — |
+
+- (d') at 700 (2026-10-13T10:48): read shifts −14…−12, write taps `9 7 9 8 7 9 8 9 10 10 16 9 9 10 10 10` → `10 6 9 8 6 9 8 9 15 13 16 12 13 14 14 14` (DQ8-15 +3…+5, DQ0-7 ±1), write test clean, 16 MiB crc32 pass. Midpoint search 700..800: 750 fail, 725 fail → **700**.
 - "no window" = some DQ fails at every read shift −16…+10 from the 600 training (its taps would have to go below 0). DQ1/DQ4 are the earliest to fail, as on sw1.
 - Fail = canary bad, reverted cleanly; hang = no prompt after the change (PLL row).
 - (d) at 700: read-tap shifts −13 (window −16…−11), taps RR 5-8, FR 0-4. Write taps not retrained: `bench` writes not run (they hung at 675/700 on sw1).

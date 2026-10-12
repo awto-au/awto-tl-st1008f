@@ -393,11 +393,11 @@ static int mem_set(const struct mem_req *q)
 	}
 	if (otto_ddr_sram_end - otto_ddr_sram > SRAM_CODE_MAX)
 		return CMD_RET_FAILURE;
-	buf = malloc(CANARY_WORDS * 4 + 32);
+	buf = malloc(2 * CANARY_WORDS * 4 + 32);	/* canary + write-test area */
 	if (!buf)
 		return CMD_RET_FAILURE;
 	can = PTR_ALIGN(buf, 32);
-	flush_dcache_range((ulong)can, (ulong)(can + CANARY_WORDS));
+	flush_dcache_range((ulong)can, (ulong)(can + 2 * CANARY_WORDS));
 	can = (u32 *)CKSEG1ADDR(can);
 	seed = 0x5aa5c33c ^ (u32)timer_get_us();
 	for (i = 0; i < CANARY_WORDS; i++)
@@ -448,6 +448,8 @@ static int mem_set(const struct mem_req *q)
 	dp_set(DP_CAN_SEED, seed);
 	for (i = DP_STATUS; i < DP_SAVE; i += 4)
 		dp_set(i, 0);
+	dp_set(DP_WR_BAD, 0);
+	dp_set(DP_WR_XOR, 0);
 	dp_set(DP_PROBE, q->probe);
 	if (read_c0_status() & ST0_IE) {	/* U-Boot runs with interrupts off; a handler would run from DRAM */
 		puts("clocks: CP0 Status.IE = 1, refused\n");
@@ -465,6 +467,9 @@ static int mem_set(const struct mem_req *q)
 	printf("\nclocks: routine %lu us, status 0x%02x, DMCR polls left %u, MPMR0 in SR %08x exit %08x\n",
 	       t0, st, dp_get(DP_DMCR_POLLS), dp_get(DP_MPMR0_SR), dp_get(DP_MPMR0_EXIT));
 	/* one parseable line per attempt (scripts/mem_tap_sweep.py) */
+	if (st & (DST_CANARY | DST_PROBE))
+		printf("clocks: write test %u bad at the new clock, xor %08x\n", dp_get(DP_WR_BAD),
+		       dp_get(DP_WR_XOR));
 	if (st & (DST_CANARY | DST_PROBE))
 		printf("clocks: canary %u bad at the new clock (%u in the burst pass), xor %08x, first +0x%x = "
 		       "%08x want %08x, revert code %u\n", dp_get(DP_CAN_BAD), dp_get(DP_CAN_BURST),
@@ -702,11 +707,17 @@ static int fast_set(void)
 static int mem_cmd(int n, char *const v[])
 {
 	struct mem_req q = { .mhz = dectoul(v[0], NULL) };
-	int i, dqs = 0, shift = 0;
+	int i, dqs = 0, shift = 0, wdq = 0, wshift = 0;
+	const char *wt = NULL;
 
 	for (i = 1; i < n; i++) {
 		if (!strcmp(v[i], "nosr")) {
 			q.method = 1;
+		} else if (!strcmp(v[i], "wtaps") && i + 1 < n && strlen(v[i + 1]) == 32) {
+			wt = v[++i];
+		} else if (!strcmp(v[i], "wdqshift") && i + 1 < n) {
+			wshift = simple_strtol(v[++i], NULL, 10);
+			wdq = 1;
 		} else if (!strcmp(v[i], "rtaps") && i + 1 < n) {
 			i++;	/* applied below */
 		} else if (!strcmp(v[i], "dll")) {
@@ -762,6 +773,30 @@ static int mem_cmd(int n, char *const v[])
 
 		q.reg[q.nreg][0] = a;
 		q.reg[q.nreg++][1] = (r & ~GENMASK(12, 8)) | t << 8;
+	}
+	/* wdqshift / wtaps: write DQ taps (DACDQ_IDX_RR phase_shift_90 28:24, 16 RR regs) + shift or set, on any
+	 * read-tap entry for the same register (#48 lead d) */
+	for (i = 0; (wdq || wt) && i < 16; i++) {
+		u32 a = 0xb8001510 + 4 * i, k, r;
+		int t;
+
+		for (k = 0; k < q.nreg && q.reg[k][0] != a; k++)
+			;
+		if (k == q.nreg) {
+			if (q.nreg >= DS_REG_MAX)
+				return CMD_RET_USAGE;
+			q.reg[q.nreg][0] = a;
+			q.reg[q.nreg++][1] = R(a);
+		}
+		r = q.reg[k][1];
+		if (wt) {	/* wtaps <32 hex>: write tap per RR register, two hex digits each */
+			char hx[3] = { wt[2 * i], wt[2 * i + 1], 0 };
+
+			t = hextoul(hx, NULL) & 31;
+		} else {
+			t = clamp((int)F(r, 28, 24) + wshift, 0, 31);
+		}
+		q.reg[k][1] = (r & ~GENMASK(28, 24)) | t << 24;
 	}
 	return mem_set(&q);
 }
@@ -909,6 +944,16 @@ int ft_board_setup(void *blob, struct bd_info *bd)
 	fdt_set_rate(blob, "/cpus", "frequency", c.cpu_khz * 1000);	/* CP0 timer = this / 2 */
 	fdt_set_rate(blob, "/cpu-clock", "clock-frequency", c.cpu_khz * 1000);
 	fdt_set_rate(blob, "/lx_clk", "clock-frequency", c.lx_khz * 1000);
+	/* mainline DTS fixed clocks: `clock-175mhz` (lx_clk: UART, timer, wdt via `clocks`) = LX,
+	 * `clock-800mhz` (baseclk: cpu@0) = CPU; matched by their stock rates */
+	fdt_for_each_node_by_compatible(off, blob, -1, "fixed-clock") {
+		const fdt32_t *f = fdt_getprop(blob, off, "clock-frequency", NULL);
+
+		if (f && fdt32_to_cpu(*f) == 175000000)
+			fdt_setprop_u32(blob, off, "clock-frequency", c.lx_khz * 1000);
+		else if (f && fdt32_to_cpu(*f) == 800000000)	/* `clock-800mhz` (baseclk) = cpu@0 clocks */
+			fdt_setprop_u32(blob, off, "clock-frequency", c.cpu_khz * 1000);
+	}
 	fdt_for_each_node_by_compatible(off, blob, -1, "ns16550a")
 		if (fdt_getprop(blob, off, "clock-frequency", NULL))
 			fdt_setprop_u32(blob, off, "clock-frequency", c.lx_khz * 1000);
