@@ -246,6 +246,12 @@ def cmd_switch_check(extra: list[str]) -> int:
     return _script("switch_check.py", extra)
 
 
+@command("reset the running OpenWrt's ports to plain bridge members (drop per-port interfaces / forced speeds)",
+         args="[--ip A.B.C.D] [--dry-run]", kind="hardware")
+def cmd_switch_net_clean(extra: list[str]) -> int:
+    return _script("switch_net_clean.py", extra)
+
+
 @command("install the LuCI web UI on the running OpenWrt from the internet (apk) over SSH, then check it",
          args="[--ip A.B.C.D]", kind="hardware")
 def cmd_openwrt_luci(extra: list[str]) -> int:
