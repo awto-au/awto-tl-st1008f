@@ -49,7 +49,10 @@ def boot(ramload: bool = True) -> int:
     if ramload:
         # power cycle + rtk network on + 2 TFTPs + boot, ~25 s measured; 300 s names a hang
         r = subprocess.run([sys.executable, str(ROOT / "scripts/st1008_ramload.py"), "uboot-mainline",
-                            "--then", "mainline-kernel", "--cage", "1"], timeout=300)
+                            "--then", "mainline-kernel", "--cage", "1",
+                            # extra ramload args, '|'-separated (e.g. clock picks: --pre|clocks fast)
+                            *[x for x in os.environ.get("ST1008F_RAMLOAD_EXTRA", "").split("|") if x]],
+                           timeout=300)
         if r.returncode not in (0, 1):  # 1 = UNKNOWN boot-log lines: reviewed in the ramload output
             log(f"ramload failed rc={r.returncode}")
             return r.returncode

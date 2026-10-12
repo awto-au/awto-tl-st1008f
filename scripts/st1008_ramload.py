@@ -377,6 +377,8 @@ def main() -> int:
     ap.add_argument("--cpu", metavar="E208",
                     help="uboot-mainline: CPU e208 for /3 (default 0x3a8 = 1000 MHz; docs/CLOCKS.md)")
     ap.add_argument("--no-network", action="store_true", help="rtk network on already done this boot")
+    ap.add_argument("--pre", action="append", default=[], metavar="CMD",
+                    help="with --then: our U-Boot command(s) run before bootm, in order (e.g. clock picks, #103)")
     ap.add_argument("--no-linkcheck", action="store_true",
                     help="skip the pre-OpenWrt live-link/loop check (`rtk linkcheck`, #97)")
     ap.add_argument("--bootargs", metavar="ARGS",
@@ -439,6 +441,9 @@ def main() -> int:
     if a.then and a.spi:
         d, code = (int(x) for x in a.spi.split(":"))
         set_spi(con, d, code)
+    for cmd in a.pre if a.then else []:
+        # a clock change: SRAM routine < 1 ms + ~4 KB of log at 115200 (0.4 s); x5 for LX/UART changes
+        con.run(cmd, r"st1008f-mainline # ", 3, f"pre: {cmd[:40]}")
     if (a.then or "").startswith("openwrt") and not a.no_linkcheck:
         from linkcheck import run as linkcheck_run  # late: linkcheck imports this module
         verdict, live, _ = linkcheck_run(con)
