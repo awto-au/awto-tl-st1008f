@@ -19,8 +19,8 @@ CONSOLE = ROOT / "private/serial/st1008-console.log"
 sys.path.insert(0, str(Path(__file__).resolve().parent))
 from boards import BENCH_CONSOLE  # noqa: E402
 DEV = Path(BENCH_CONSOLE)
-STAGES = [("stock U-Boot", "U-Boot 2011.12"), ("our U-Boot", "U-Boot 20"), ("Linux", "Linux version"),
-          ("userspace", "Please press Enter")]
+STAGES = [("stock U-Boot", "U-Boot 2011.12"), ("kernel", "Linux version"), ("userspace", "Please press Enter")]
+OURS, STOCK_OS = "U-Boot 2026", "RTNIC Driver Module Initialize"  # chain-loaded ours / stock vendor Linux
 # Power-on -> userspace prompt ~35 s measured 2026-10-12 (sw1 via the chain); limit 45 s (x1.25, rounded)
 BOOT_S = 45
 POLL_S = 0.5  # log grows ~1 kB/s at 115200; 0.5 s keeps stage times to +-0.5 s
@@ -55,10 +55,16 @@ def main() -> int:
         while seen < len(STAGES) and STAGES[seen][1] in text:
             log(f"{STAGES[seen][0]} at {time.monotonic() - t0:.1f} s")
             seen += 1
+        if STOCK_OS in text:
+            log(f"stock vendor firmware running at {time.monotonic() - t0:.1f} s (no OpenWrt on this unit)")
+            seen = len(STAGES)
+            break
         if "reopen failed" in text:
             log("FAIL: console daemon lost the adapter (reopen failed)")
             return 1
         time.sleep(POLL_S)
+    if OURS in CONSOLE.read_bytes()[start:].decode("utf-8", "replace"):
+        log("our U-Boot was chain-loaded")
     tail = CONSOLE.read_bytes()[start:].decode("utf-8", "replace").strip().splitlines()[-15:]
     log("console tail:\n" + "\n".join(tail))
     if seen < len(STAGES):
