@@ -72,6 +72,8 @@ def main() -> int:
         con.expect(OW_READY, 90, mark, "flash OpenWrt console", boot_ok=True)  # stock boota + kernel ~45 s; x2
     finally:
         set_policy("hold")
+    # first boot formats the JFFS2 overlay: a sync blocked 67 s on sw2 (2026-10-12, ~23 MiB free); x1.3
+    sh(con, "sync; echo SYNC_OK", r"\nSYNC_OK", cap=90)
     openwrt_stp(con)
     log("PASS: flash OpenWrt installed, STP on (saved)")
     return 0

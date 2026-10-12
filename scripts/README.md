@@ -121,6 +121,11 @@ End-to-end workflow: [../README.md#workflow](../README.md#workflow).
 - Purpose: live links + cage loops at our U-Boot (`rtk linkcheck`, #97): lasers off, one at a time, frame probe; verdict OK/MULTI/LOOP. `st1008_ramload.py` calls it before every OpenWrt boot (`linkcheck_gate`, or in-session for `--then openwrt*`).
 - Run: `./dev.py linkcheck [--boot] [--noprobe]`; exit 0 OK, 3 MULTI, 4 LOOP. Log: `tmp/logs/linkcheck.log`. Doc: [../docs/hardware.md](../docs/hardware.md#hazards).
 
+### openwrt_install.py
+- Purpose: flash the bench unit with the local upstream-layout OpenWrt (`build-openwrt`, kernel 6.18) from a RAM-booted OpenWrt: image metadata + 29 MiB `firmware` checks, flash_guard, host HTTP + md5, `sysupgrade -T`, `sysupgrade -n`, stock autoboot to the new flash, first-boot sync, STP saved (#98).
+- Run: `./dev.py ramload openwrt-ours-6.18`, `./dev.py openwrt-static-ip`, `./dev.py openwrt-install`; then `uboot-chain-install`, `uboot-chain-env apply`, `openwrt-luci`, `openwrt-snmp`. Log: `tmp/logs/openwrt_install.log`.
+- Local images list only the base + target feeds; `openwrt-luci` adds luci/packages/routing/telephony/video to `customfeeds.list`.
+
 ### board_guard.py
 - Purpose: refuse a `dev.py` hardware flow unless the board is sw2 (#91). Called by `dev.py`; checks args, console log last boot, ARP. Exit 5 = refused.
 - Run: `scripts/board_guard.py <command> [args]`. Log: `tmp/logs/board_guard.log`. Detail: [../docs/hardware.md](../docs/hardware.md#unit-guard-91).

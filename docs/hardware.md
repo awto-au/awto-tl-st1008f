@@ -80,7 +80,7 @@ Narrative & dead ends: see [HISTORY.md](HISTORY.md). Evidence paths under `priva
 - **No MAC anywhere else either** (sw2, 2026-10-12, `./dev.py mem-dump` at our prompt after stock `rtk network on`): on-chip SRAM (64 KiB, 64304 non-zero bytes) holds no MAC; RAM-resident stock U-Boot holds only `ethaddr=00:E0:4C:00:00:00` (from the env); its text matches the flash loader for the first `0x922a5` bytes (rest = runtime data). No case-sticker MAC recorded yet.
 - **MACs per unit** (2026-10-12):
   - sw1 (st1008f-1): base `16:b0:46:e9:0d:c0` = bridge `switch`, `switch.1` (mgmt .48) and lan1; lan2-lan8 = `16:b0:46:e9:0d:c1`-`c7`.
-  - sw2 (st1008f-2): base `3a:de:0a:91:10:d0` (random, locally administered), in `u-boot-env` `ethaddr` since 2026-10-12T14:03+11:00 (`./dev.py uboot-chain-env set-mac`; was the `00:E0:4C:00:00:00` placeholder). Registry: awto-dan `st1008f-2-mgmt` (#91).
+  - sw2 (st1008f-2): flash OpenWrt (local main 1daf141, 6.18.55, upstream layout) since 2026-10-12T15:49+11:00 (`./dev.py openwrt-install`, #98); our U-Boot chain, STP + forward_delay 2, static .56, LuCI, SNMP; base `3a:de:0a:91:10:d0` (random, locally administered), in `u-boot-env` `ethaddr` since 2026-10-12T14:03+11:00 (`./dev.py uboot-chain-env set-mac`; was the `00:E0:4C:00:00:00` placeholder). Registry: awto-dan `st1008f-2-mgmt` (#91).
   - Bench relay: `8c:aa:b5:78:31:80` (.49).
 - **Base MAC `16:b0:46:e9:0d:c0` (sw1):** saved in `u-boot-env` `ethaddr` by the 2026-10-08 `sysupgrade`; locally administered (bit 1 of the first byte set) = randomly generated, not TP-Link assigned. Used by flash OpenWrt and our 7.3 kernel (nvmem layout on `u-boot-env`). Stock leaves the switch MAC registers at `00:e0:4c:00:00:00`.
 - **Management address** (owner, 2026-10-12): DHCP client + static fallback `192.168.0.1/24`; house LAN reserves `192.168.25.48` (registry block `st1008f-1` = `.48`-`.55`). Today's flash OpenWrt: static `.48/24` on bridge `switch.1`, gateway/DNS `.254`. [DECISIONS.md](DECISIONS.md).
@@ -330,6 +330,12 @@ Source: static RE of stock `rtk.ko` (TP-Link additions, `TP_CHKPATTERN` thread).
   - No vendor over-temperature handling in either firmware (diag CLI only).
   - U-Boot one-liner (RMW values from a stock boot): `mw.l 0xBB000064 0x08000007; mw.l 0xBB000068 0x00034cd7; md.l 0xBB00006C 2`.
 - 2026-10-08, heatsink off, idle at U-Boot after `rtk network on`, one laser on, ~7 min after power-on: **73 °C** steady (3 reads); min/max since enable 55/73. Not yet checked against an external probe.
+- Flash OpenWrt, `./dev.py switch-check` (raw kernel values: SoC zone = `TEMP_OUT` as °C, see above; SFP = module DDM):
+
+| Unit | When | SoC raw | SFP modules °C |
+|---|---|---|---|
+| sw1 (in service, ~2 h up) | 2026-10-12T13:58+11:00 | 64 | 43.8-70.0 (~70 = the two AQR113C) |
+| sw2 (bench, 4 min after power-up) | 2026-10-12T15:57+11:00 | 45 | 26.9-56.0 (56.0 / PHY 56.6 = AQR113C cage 2) |
 
 ## SFP lasers are OFF in stock U-Boot (root cause of "no 10G in U-Boot")
 

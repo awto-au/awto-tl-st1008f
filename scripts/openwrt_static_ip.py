@@ -53,7 +53,7 @@ def main() -> int:
     # netifd reload re-applies interfaces; returns in ~1 s, the address appears within ~2 s
     sh(con, "/etc/init.d/network reload", cap=5)
     for _ in range(5):  # 5 x 1 s; expected within ~2 s of the reload
-        out = sh(con, "ip -4 -o addr show")
+        out = re.sub(r"\x1b\[[0-9;]*m", "", sh(con, "ip -4 -o addr show"))  # ip colours its output
         ok = f"{a.ip}/24" in out
         if ok:
             break

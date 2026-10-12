@@ -22,6 +22,11 @@ APK_S = 300      # luci + deps ~3-6 MB over the internet + unpack on the 1 GHz M
 STEPS = [
     ("route+dns", "ip route | grep -q '^default' && nslookup downloads.openwrt.org >/dev/null && echo OK", SSH_S * 3),
     ("space", "df -k /overlay | awk 'NR==2{print $4\" KiB free\"; exit ($4<8000)}'", SSH_S * 3),
+    # local builds list only base + target in distfeeds; the other upstream feeds go in customfeeds (kept by sysupgrade)
+    ("feeds", "F=/etc/apk/repositories.d/customfeeds.list; grep -q '^[^#].*/base/' /etc/apk/repositories.d/distfeeds.list "
+              "&& for f in luci packages routing telephony video; do grep -q \"/mips_24kc/$f/packages.adb\" /etc/apk/repositories.d/*.list || "
+              "echo \"https://downloads.openwrt.org/snapshots/packages/mips_24kc/$f/packages.adb\" >>$F; done; "
+              "grep -c packages.adb /etc/apk/repositories.d/*.list", SSH_S * 3),
     ("apk update", "apk update 2>&1 | tail -2", 120),  # index fetch ~5-20 s; x5 for a slow mirror
     ("apk add luci", "apk add luci 2>&1 | tail -4", APK_S),
     ("uhttpd", "/etc/init.d/uhttpd enable; /etc/init.d/uhttpd restart; pgrep uhttpd >/dev/null && echo running", 30),
