@@ -31,8 +31,10 @@ Run/recover steps: [OVERCLOCK-OPS.md](OVERCLOCK-OPS.md). Clock tree and register
 
 | Unit | CPU | DDR | Source |
 |---|---|---|---|
-| sw1 | 1000 | 650 | `clocks fast` (2026-10-11); fixed U-Boot in jffs2-log 2026-10-13, active at next power-up |
-| sw2 | 1000 | 650 | `clocks fast`; DDR-only 600-662.5 pass, 675 fails + reverts (2026-10-12) |
+| sw1 | 1000 | 650 | `clocks fast`; U-Boot md5 `f4065adc…` in jffs2-log 2026-10-13T09:34 (SSH), active at next power-up |
+| sw2 | 1000 | 650 | same build, chain on; power-up PASS 2026-10-13T09:35; DDR-only 600-662.5 pass, 675 fails + reverts |
+
+- Build f4065adc = #101 fix (CPU_SRAM_ASY_TIMING) + SDK order from the #102 audit: DACCR `ac_bptr_clear` after the tREFI DTR latch, 1 µs before DMCR busy polls, SRAM drain + PLL_SRAM_CTRL rewrite in the CPU change. `clocks-cycle fast` 20/20 on it (2026-10-13T09:33).
 
 ## CPU above 1000 MHz (sw2, 2026-10-13, CPU_SRAM_ASY_TIMING written)
 
