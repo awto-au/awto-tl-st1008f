@@ -136,14 +136,44 @@ Upstream-hostile items to carry out-of-tree: #7 (`700`, `722`), #8 until merged,
 
 - DTS: `&soc` gains range `0x14000000` (32 MiB flash window); `spi0` reg 2 = window, `reg-names = "regs", "dirmap"`. All flash partitions `read-only`.
 - Driver: spi-mem `dirmap_create`/`dirmap_read`; window read mode = stock SFCR2 (`0xbbc14a00`, Dual I/O 0xBB, 4-byte address). Writes/erase stay PIO.
-- `dirmap_create` takes 1-1-1 read ops with 4-byte addresses only, then compares 64 B PIO vs window at offset 0 and at half size; mismatch -> warning + PIO fallback.
+- Before every window read: CS0/CS1 high, then wait for SFCSR `RDY|IDLE|CSB0_STS|CSB1_STS` (stock `sf_cs_release`), bounded 5 us.
+- `dirmap_create` takes 1-1-1 read ops with 4-byte addresses only, then compares 64 B PIO vs window at offset 0 and at half size. Mismatch -> diag lines, one retry with the bootloader's SFCSR, then warning + PIO fallback.
 - Cached window, `dma_cache_inv` per read (PIO program/erase cannot leave stale lines).
 - `/sys/module/spi_realtek_rtl/parameters/dirmap`: 0 PIO, 1 uncached window, 2 cached (default); read per call.
-- A/B: `./dev.py spi-dirmap-test` (dd time + md5 of `firmware` per mode).
-- **Status:** the self-check fails on every 7.3 boot; Linux stays on PIO (#61, "On hardware" below).
-- Build check (2026-10-10, `scripts/mainline_build_check.py`): `dtc` clean (0 warnings), `vmlinux` links (ELF32 MSB MIPS32r2, text 12.1 MB), DTB 6.7 KB; `dtbs_check` not run.
+- A/B: `./dev.py spi-dirmap-test` (driver dirmap lines, `mtd0[0:16]` by PIO, dd time + md5 of `firmware` per mode).
+- Build check (2026-10-12, release wait + diag): `./dev.py build-kernel` OK, driver W=1 clean, checkpatch only the binding-split note. 6.18 backport refreshed the same way, not compiled.
 - Stage-0 gate (issue #16): serial boot, `i2c-rtl9300` / `gpio-realtek-otto` / `realtek_otto_wdt` / SPI-NOR probe. Passed 2026-10-10 ([First boots](#first-boots-16)).
-- On hardware (2026-10-11/12, #61): the self-check fails on every 7.3 boot (`dirmap: window != PIO at 0x0 (SFCR2 0xbbc14a00), using PIO`), so reads stay PIO; cause open (DT window `0x14000000` vs the U-Boot-verified `0xb4000000`, compare byte order, 4-byte-address assumption). Allowlisted `known #61`.
+
+#### Self-check failure (#61)
+
+- Every 7.3 boot 2026-10-11/12 (stock ramload and via our U-Boot): `dirmap: window != PIO at 0x0 (SFCR2 0xbbc14a00), using PIO`. Linux stays on PIO. Allowlisted `known #61`.
+- Same window and the same PIO sequence agree in U-Boot: our U-Boot `sf read` (port of this driver) vs `crc32 0xb4000000` match; `bootm 0xb4300000` boots the uImage straight from the window.
+- So the cause is something Linux does between U-Boot and `dirmap_create`. Ranked:
+
+1. **Window read issued before the controller released CS / went idle.** The old self-check deasserted CS and read the window within ns. Stock waits for SFCSR `0x08000c10` (RDY, CSB0_STS, CSB1_STS, IDLE) in `sf_cs_release` and RDY+IDLE in `sf_wait_ready` [BIN `0x83f00fc0`, `0x83f01060`]. RTL9300 SDK register map: SFCSR bit 0 = `MIO_PIO_ERR`, bit 4 = `SPI_IDLE`, bits 11/10 = `SPI_CSB0/1_STS`. In U-Boot the gap between `sf` and `crc32` is human-scale. **Fixed** in the patch (release wait before every window read).
+2. **SFCSR state from `init_hw()` (v7.3).** It does `value &= RTL_SPI_SFCSR_CS`: clears every bit but 24, so CSB0 and CSB1 are both driven low (asserted) after probe; `rt_set_cs` only ever raises CSB0, so CS1 stays asserted. Upstream v7.4 (OpenWrt `040-v7.4-...-second-CS`) rewrites it to `SFCSR = CSB0|CSB1`. Mitigated: retry with the bootloader SFCSR; the diag prints SFCSR now and at probe.
+3. **PIO side of the compare.** Same sequence as upstream `rcv4` (md5-verified), but never run standalone before. The diag prints its first 16 B; `spi-dirmap-test` prints `mtd0[0:16]` via `transfer_one` for comparison.
+4. **Flash address mode.** Unlikely: v7.3 `spi_nor_init` sends EN4B only without 4B opcodes; W25Q256JV gets `SNOR_F_4B_OPCODES` (`w25q256_post_bfpt_fixups`), FV gets EN4B. Either way the flash stays in the 4-byte mode stock set ([UBOOT-MAINLINE.md](UBOOT-MAINLINE.md)). A mismatch would show as a byte shift (diag pattern).
+5. **Linux-only bus setup.** DRAM prefetch (300-04, MCR) and highmem zone remap (`rtl930x_prepare_highmem`, UMSAR/SRAMSAR zeroed, zone 3 at `0x20000000`). The window `0x14000000-0x15ffffff` is outside zones 1-3. If 1-3 are excluded, boot `./dev.py build-kernel --no-highmem` next.
+
+Ruled out from code:
+
+- Mapping: DT range `<0x14000000 0x14000000 0x2000000>` -> resource `0x14000000`; MIPS `ioremap_prot` maps uncached low-512 MiB to KSEG1 = `0xb4000000` (`plat_ioremap` only claims `0xb8xxxxxx`/`0xbbxxxxxx`). The diag prints phys and virt.
+- Byte order: no `CONFIG_SWAP_IO_SPACE`; raw accessors; stock SFCR `0x5fc00244` already has RBO/WBO (bits 28/27), so `init_hw()` does not change SFCR.
+- Cache: the self-check reads the uncached mapping.
+
+What the next boot shows (diag lines, all `known #61`):
+
+- `release <n>`: 0 = controller released in time; `-110` = `SFCSR wait` expired (line names the bits).
+- `pio` / `mmio` / `mmio bytes`: first 16 B. `pattern`: `window all ff`/`00`, `byte reads == PIO, words differ`, `words byte-swapped`, `window has N extra leading bytes` / `skips first N bytes` (address/dummy mismatch), or `none`.
+- `mio_pio_err 1` = window read collided with PIO (cause 1 if it persists after the fix, cause 2 otherwise).
+- `window == PIO with boot SFCSR 0x...` followed by `via window` = cause 2; no diag at all + `via window` = cause 1.
+
+Existing work (checked 2026-10-12):
+
+- Mainline `drivers/spi/spi-realtek-rtl.c` (v7.3, v7.4 `040` second CS) and OpenWrt main `target/linux/realtek` (patches 037, 040): PIO `transfer_one` only, no `spi_controller_mem_ops`, no dirmap. No dirmap/mem_ops patch for this controller found on GitHub (`gh search code/prs`), only ours.
+- Old OpenWrt `rtl838x-nor.c` (files-5.4, removed): PIO reads; only writes SFCR2 to leave QIO. Realtek SDK/Otto U-Boot (`plr_flash.c`): program SFCR2 for the window and read it from the bootloader. Nothing to take as-is.
+- Writes: the current PIO driver writes fine at stock 25.5 MHz. OpenWrt 25.12.4 `sysupgrade -n` (2026-10-08) wrote `firmware` and boots from it since; `uci commit` to the JFFS2 overlay (STP, `forward_delay` 2 s) reads back; 0 JFFS2 CRC errors at 25.5 MHz ([CLOCKS.md](CLOCKS.md#spi-nor-read-path), #50). Dirmap is a read-speed change only.
 
 ## 5. Next steps (dependency order)
 
