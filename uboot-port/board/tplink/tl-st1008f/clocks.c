@@ -161,21 +161,28 @@ static void uart_drain(void)
 /* docs/CLOCKS.md (a): run the stock sequence from SRAM with the lines locked in the I-cache */
 static int cpu_set(u32 e208, u32 e210, u32 relock)
 {
-	u32 (*fn)(u32, u32, u32);
+	u32 (*fn)(u32, u32, u32, u32);
 	struct sram_win w;
-	u32 left;
+	u32 left, mhz, f8;
+
+	/* stock CPU apply: 0xb80040f8 [1:0] = CPU/2 class (0 < 250, 1 < 500, 2 >= 500), bit 6 =
+	 * CPU/2 <= 250 [BIN 0x9fc04100]. 1000 MHz is class 2; 800 is 1: ours never wrote it (#101) */
+	mhz = 25 * ((e208 & BIT(2)) ? 4 : 1) * (F(e208, 11, 4) + 2) * 2 / (1 << (e208 & 3)) /
+	      (F(e210, 6, 4) + 2);
+	f8 = (R(0xb80040f8) & ~(BIT(6) | 3)) | (mhz / 2 < 250 ? 0 : mhz / 2 < 500 ? 1 : 2) |
+	     (mhz / 2 <= 250 ? BIT(6) : 0);
 
 	printf("clocks: write 0xbb00e208=0x%08x 0xbb00e210=0x%08x, relock %s\n", e208, e210,
 	       relock ? "e220 bit 17" : "e200 bit 30");
 	fn = sram_load(&w, otto_cpu_pll_sram, otto_cpu_pll_sram_end);
 	uart_drain();
-	left = fn(e208, e210, relock);
+	left = fn(e208, e210, relock, f8);
 	sram_unload(&w);
 	if (!left) {
 		puts("clocks: CPU PLL did not lock in 100000 polls; CPU left on the alternate clock\n");
 		return CMD_RET_FAILURE;
 	}
-	printf("clocks: locked after %u polls\n", 100000 - left);
+	printf("clocks: locked after %u polls, 0xb80040f8 = %08x (%u MHz)\n", 100000 - left, R(0xb80040f8), mhz);
 	return 0;
 }
 

@@ -200,7 +200,9 @@ Source tags: **[SRC]** GPL file:line (`dms1250/` = `sources/rtk-dms1250/`, `xgs1
 | `set mem 650` then `set cpu` | **20/20** |
 | `clocks fast` reordered (DDR first, then CPU) | 5/5 |
 
-  - Hangs: marks `MSPXDC` (routine done, hang after the return), or earlier (`MS`, `M`). Only a DDR change made at CPU 1000 hangs. Cause inside the CPU-1000 + MEM-PLL-change path not identified; the reorder avoids it.
+  - Hangs: marks `MSPXDC` (routine done, hang after the return), or earlier (`MS`, `M`). Only a DDR change made at CPU 1000 hangs.
+  - **Suspect (code reading): our CPU change never wrote `0xb80040f8`.** Stock rule: [1:0] = CPU/2 class (0 < 250, 1 < 500, 2 ≥ 500 MHz), bit 6 = CPU/2 ≤ 250. 800 MHz = class 1 (boot value `0x85`); **1000 MHz = class 2** (`0x86`), the first rate in our ladder where it changes; ours left 1. Other leads ruled out by reading: delay loops use the live CPU rate (`otto_clocks_read` after the CPU change, ≥ 2 cycles per loop); the whole routine is I-cache locked; SE_DRAM (OCP vs MEM) does not flip between 800 and 1000; stock/SDK make DDR changes only at SPL init, at the final CPU rate.
+  - Fix 2 (this commit): the CPU SRAM routine writes `0x40f8` for the new rate once the CPU is back on the PLL; `clocks: locked …` prints it. Old order (CPU then DDR) with it: 5/5 (was 18/20; 5/5 is not proof). The DDR-first order stays as well.
   - Fix: `clocks fast` changes DDR at CPU 800, then the CPU. Also `bootsel fast` arms the watchdog (13 s) before the change and skips the overclock on the boot after an unfinished change (the old bootcmd armed it only after `clocks fast`; legacy boots had none).
   - dqshift sweep at 650 on sw2 (CPU 1000, probe): −12…+6 pass, +7 up fail (DQ23/DQ2 first). sw2 DRAM marking not read (no sw2 photo).
 

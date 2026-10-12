@@ -320,7 +320,7 @@ def set_spi(con: Console, d: int, code: int) -> None:
 def fast_clocks(con: Console, e208: str, spi: bool = True) -> None:
     con.note("interactive-begin")  # command output, not boot output (boot_log_check skips it)
     con.run(f"clocks set cpu {e208} 0x6b439e13 0 force",
-            r"clocks: locked after \d+ polls\r?\nst1008f-mainline # ", 2, f"cpu pll {e208}")
+            r"clocks: locked after \d+ polls[^\r\n]*\r?\nst1008f-mainline # ", 2, f"cpu pll {e208}")
     if not spi:
         _, out = con.run("clocks", r"(?s)mem \d+ MHz.*st1008f-mainline # ", 1, "clocks")
         con.note("interactive-end")
