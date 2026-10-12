@@ -5,6 +5,8 @@
           autoboot, flash OpenWrt. Nothing written.
 - apply:  stock prompt: setenv bootcmd_stock boota; setenv bootcmd <chain>; saveenv; printenv check.
 - revert: stock prompt: setenv bootcmd boota; saveenv.
+- set-mac [MAC]: stock prompt: setenv ethaddr; saveenv; verify (#91). Default: random locally
+  administered unicast; refuses the Realtek placeholder and sw1's MAC.
 - boot:   power cycle with the daemon policy `run bootcmd` (= the saved autoboot) and follow it to
           flash OpenWrt; daemon back to `hold` after.
 - Chain: marker 0xa5a51008 @ 0xa0f80000 (ours autoboots on it), copy 512 KiB from flash 0x200000
@@ -12,6 +14,8 @@
 """
 
 import argparse
+import random
+import re
 import subprocess
 import sys
 import time
@@ -19,6 +23,7 @@ from pathlib import Path
 
 sys.path.insert(0, str(Path(__file__).resolve().parent))
 import flash_guard  # noqa: E402
+from boards import SW1_MAC  # noqa: E402
 from st1008_ramload import OW_READY, ROOT, SOCK, Console, openwrt_stp, power, restart_daemon  # noqa: E402
 
 LOG = ROOT / "tmp/logs/uboot_chain_env.log"
@@ -72,12 +77,47 @@ def boot() -> int:
     return 0
 
 
+PLACEHOLDER = "00:e0:4c:00:00:00"
+
+
+def pick_mac(mac: str | None) -> str:
+    if mac is None:
+        b = [random.randrange(256) for _ in range(6)]
+        b[0] = (b[0] & 0xFC) | 0x02  # unicast, locally administered
+        mac = ":".join(f"{x:02x}" for x in b)
+    mac = mac.lower()
+    if not re.fullmatch(r"([0-9a-f]{2}:){5}[0-9a-f]{2}", mac) or int(mac[:2], 16) & 1:
+        raise SystemExit(f"FAIL set-mac: {mac!r} is not a unicast MAC")
+    if mac in (PLACEHOLDER, SW1_MAC.lower()):
+        raise SystemExit(f"FAIL set-mac: {mac} is the placeholder or sw1's MAC")
+    return mac
+
+
+def set_mac(con, mac: str) -> int:
+    _, out = con.run(f"setenv ethaddr {mac}", STOCK, 1, "setenv ethaddr")
+    if "overwrite" in out.lower():
+        log(f"FAIL set-mac: stock U-Boot refuses: {out.strip()!r}")
+        return 1
+    con.run("saveenv", STOCK, 4, "saveenv")  # 64 KiB sector erase + write, W25Q256 max 2 s; x1.25 + output
+    _, out = con.run("printenv ethaddr", STOCK, 1, "verify")
+    ok = f"ethaddr={mac}" in out.lower()
+    log(f"{'PASS' if ok else 'FAIL'} set-mac: {out.strip()!r}")
+    return 0 if ok else 1
+
+
 def main() -> int:
     ap = argparse.ArgumentParser(description=__doc__.splitlines()[0])
-    ap.add_argument("mode", choices=["test", "apply", "revert", "boot"])
+    ap.add_argument("mode", choices=["test", "apply", "revert", "boot", "set-mac"])
+    ap.add_argument("mac", nargs="?", help="set-mac: aa:bb:cc:dd:ee:ff (default: random, locally administered)")
     a = ap.parse_args()
     if a.mode == "boot":
         return boot()
+    if a.mode == "set-mac":
+        mac = pick_mac(a.mac)
+        flash_guard.check_range(0xE0000, 0x20000, "uboot-chain-env set-mac")
+        log(f"set-mac: {mac}")
+        to_stock()
+        return set_mac(Console(), mac)
     if a.mode in ("apply", "revert"):  # stock saveenv: env 0xE0000 + env2 0xF0000 (#81)
         flash_guard.check_range(0xE0000, 0x20000, f"uboot-chain-env {a.mode}")
         flash_guard.check_cmd(CHAIN)

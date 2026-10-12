@@ -204,8 +204,8 @@ def cmd_uboot_chain_install(extra: list[str]) -> int:
     return _script("uboot_chain_install.py", extra)
 
 
-@command("stock env for chainloading our U-Boot from flash (#47 A): test (no save) | apply | revert",
-         args="test|apply|revert", kind="hardware")
+@command("stock env for chainloading our U-Boot from flash (#47 A): test (no save) | apply | revert | set-mac (#91)",
+         args="test|apply|revert|boot | set-mac [MAC]  (default MAC: random locally administered)", kind="hardware")
 def cmd_uboot_chain_env(extra: list[str]) -> int:
     return _script("uboot_chain_env.py", extra)
 
