@@ -45,7 +45,8 @@ Narrative & dead ends: see [HISTORY.md](HISTORY.md). Evidence paths under `priva
   - OpenWrt main 1daf141, 6.18.55, both with our overlay and stock (`build-openwrt --no-overlay`): Supported **and** Advertised include 2500baseT/Full and 5000baseT/Full (plus 10000baseKX4/KR). sw1 r36962: neither.
   - Provisioning words (parked patch 727 log): `global cfg 10M 0100 100M 0100 1G 0100 2.5G 0100 5G 0100 10G 0000` = XFI with pause rate adaptation below 10G. 727 changes nothing on this module (no `adding pause rate adaptation`); 713 (RollBall 90 ms bound) built and booted, effect unmeasured (no -145 seen).
   - Upstream diff r36962 → 1daf141 touching the PHY path: only `hack-6.18/726` (Aquantia USXGMII provisioning, ea3d1aeb5d). Not proven to be the cause.
-  - Open: a real 2.5G link needs a 2.5G partner (Selwyn enp5s0, RTL8125), with an iperf3 run to check pause-based rate matching (#90).
+- **2.5G link works** (2026-10-13T09:35+11:00, sw2 flash OpenWrt main 1daf141 / 6.18.55, cage 2 FS SFP-10G-T ↔ Selwyn enp5s0 RTL8125): `lan2: Link is Up - 2.5Gbps/Full - flow control rx/tx` 40 s after boot (host side 10GBASE-R, pause rate matching); host `Speed: 2500Mb/s`. No link while sw2 sits in U-Boot (the module powers its PHY down with TX-disable asserted).
+  - iperf3 host ↔ sw2 over IPv6 link-local (`%enp5s0`, no routing change): host→sw2 350 Mbit/s (41 retrans), sw2→host 222 Mbit/s = sw2's CPU path ceiling, not the link. A wire-speed 2.5G test needs a second host behind sw2 (#90).
 - Suspect second defect: `rtldsa_93xx_phylink_mac_link_up` sets `RTL930X_FORCE_EN` only for the CPU port and phy-handle ports, so SFP ports may ignore rate-matching pause at 10G.
 
 ### Fitted SFP modules (2026-10-10, all 8 cages; our U-Boot `rtk sfp`)
