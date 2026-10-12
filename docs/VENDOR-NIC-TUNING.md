@@ -57,7 +57,7 @@ Question (#60): do the vendor's managed RTL9303 boxes run a faster CPU network p
 
 ## What this rules out
 
-- No hidden vendor CPU-port speed setting: SPD_SEL is never written by SDK, ST1008F or ST5008F. After the stock loader (no `rtk network on`) `0xbb00ca8c` reads `0x217` = 1G (2026-10-11). The loader (`0x83f67548`) writes bits 9/8/7/1/0 of it, so this is not the raw reset value; 1G is consistent with the hardware default but unmeasured (needs a read before the stock loader).
+- No hidden vendor CPU-port speed setting: SPD_SEL is never written by SDK, ST1008F or ST5008F. After the stock loader (no `rtk network on`) `MAC_FORCE_MODE_CTRL(28)` `0xbb00ca8c` reads `0x217` = 1G (2026-10-11). The loader (`0x83f67548`) writes bits 9/8/7/1/0 of it, so this is not the raw reset value; 1G is consistent with the hardware default but unmeasured (needs a read before the stock loader).
 - No hardware interrupt coalescing exists to copy.
 - No vendor ring depth larger than OpenWrt's.
 - No vendor use of the second VPE.

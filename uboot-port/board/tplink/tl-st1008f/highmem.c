@@ -11,13 +11,14 @@
 #include <asm/io.h>
 #include <asm/mipsregs.h>
 #include <linux/sizes.h>
+#include "rtl9300_regs.h"
 
-#define SOC(off)	((void __iomem *)(0xb8000000 + (off)))
-#define DRAM_CONFIG	SOC(0x1004)
-#define UMSAR(n)	SOC(0x1300 + 0x10 * (n))
-#define SRAMSAR(n)	SOC(0x4000 + 0x10 * (n))
-#define O0DOR2		SOC(0x4220)	/* zone 3 offset */
-#define O0DMAR2		SOC(0x4224)	/* zone 3 max address */
+#define SOC(a)		((void __iomem *)(a))
+#define DRAM_CONFIG	SOC(RTL9300_DCR)
+#define UMSAR(n)	SOC(RTL9300_UMSAR0 + 0x10 * (n))
+#define SRAMSAR(n)	SOC(RTL9300_CPU_SRAM_SEG0_ADDR + 0x10 * (n))
+#define DOR2		SOC(RTL9300_DOR2)	/* zone 3 offset */
+#define DMAR2		SOC(RTL9300_DMAR2)	/* zone 3 max address */
 
 #define HM_BUS		0x20000000	/* zone 3 base as the CPU/Linux sees it */
 #define HM_VA		0xc0000000	/* KSEG2 window, one TLB pair of 256 MiB pages */
@@ -49,7 +50,7 @@ static int do_info(void)
 
 	printf("DCR 0x%08x -> %u MiB (high bank %u MiB at bus 0x%08x)\n",
 	       __raw_readl(DRAM_CONFIG), dram_size() >> 20, high_size() >> 20, HM_BUS);
-	printf("zone3 O0DOR2 0x%08x O0DMAR2 0x%08x\n", __raw_readl(O0DOR2), __raw_readl(O0DMAR2));
+	printf("zone3 DOR2 0x%08x DMAR2 0x%08x\n", __raw_readl(DOR2), __raw_readl(DMAR2));
 	for (i = 0; i < 4; i++)
 		printf("UMSAR%d 0x%08x SRAMSAR%d 0x%08x\n", i, __raw_readl(UMSAR(i)), i,
 		       __raw_readl(SRAMSAR(i)));
@@ -70,8 +71,8 @@ static int do_map(void)
 		__raw_writel(0, UMSAR(i));
 		__raw_writel(0, SRAMSAR(i));
 	}
-	__raw_writel(0x70000000, O0DOR2);
-	__raw_writel(0x7fffffff, O0DMAR2);
+	__raw_writel(0x70000000, DOR2);
+	__raw_writel(0x7fffffff, DMAR2);
 	__asm__ __volatile__("sync");
 
 	/* park every entry on a unique unmapped KSEG0 VPN: stock may leave entries behind */

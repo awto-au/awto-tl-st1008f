@@ -4,7 +4,7 @@ Issues #62 (engine), #78 (Linux offload). Run: `./dev.py crypto-test` at our U-B
 
 ## Identity
 
-- Block `IPSEC_CRYPTO` at `0xb800c000` (KSEG1), clock gate `IP_EN_CTRL` `0xb8000600` bit 10 `EN_IPSEC` (set at reset), IRQ GIMR bit 22 `SECURITY_IE` [SOC `rtl9300_soc_reg.h`].
+- Block `IPSEC_CRYPTO` at `0xb800c000` (`IPSEC_SRC_DESC_ADDR`, KSEG1), clock gate `IP_EN_CTRL` `0xb8000600` bit 10 `EN_IPSEC` (set at reset), IRQ GIMR bit 22 `SECURITY_IE` [SOC `rtl9300_soc_reg.h`].
 - Same 4 registers and fields as the RTL865xC/RTL8686 "crypto engine" in the SDK test tree (`uboot-xgs1210/arch/otto/cpu/rlx5281/rtl8686/rtk_soc/test/crypto/crypto/`): `IPSSDAR`, `IPSDDAR`, `IPSCSR`, `IPSCTR`. Driver logic below follows `rtl865xc_ipsecEngine.c` and `rtl865xc_authEngine.c`.
 - RTL8380 and RTL9310 SDK maps carry the same block (`0xc000`); not described in the RTL9303 datasheet beyond Fig. 1 "Crypto Engine".
 

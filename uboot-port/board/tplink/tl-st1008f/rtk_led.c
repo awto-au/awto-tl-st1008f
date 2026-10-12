@@ -16,10 +16,10 @@
 #include <vsprintf.h>
 #include "rtk.h"
 
-#define LED_GLB		0xcc00			/* [1:0] 1 = serial LED engine on */
-#define LED_SW_LOAD	0xcc48			/* bit 0: latch all SW registers (self-clear) */
-#define LED_SW_EN(p)	(0xcc4c + ((p) >> 3) * 4)	/* 4 bits/port, bit n = LED n */
-#define LED_SW_CTRL(p)	(0xcc5c + (p) * 4)	/* 3 bits/LED: copper [11:0], fibre [23:12] */
+#define LED_GLB		RTL9300_LED_GLB_CTRL	/* [1:0] 1 = serial LED engine on */
+#define LED_SW_LOAD	RTL9300_SW_LED_LOAD	/* bit 0: latch all SW registers (self-clear) */
+#define LED_SW_EN(p)	RTL9300_LED_PORT_SW_EN_CTRL((p) >> 3)	/* 4 bits/port, bit n = LED n */
+#define LED_SW_CTRL(p)	RTL9300_LED_PORT_SW_CTRL(p)	/* 3 bits/LED: copper [11:0], fibre [23:12] */
 #define LED_FIRST	LED_GLB
 #define LED_NREG	((LED_SW_CTRL(CPU_PORT) - LED_FIRST) / 4 + 1)
 #define LED_LOAD_IDX	((LED_SW_LOAD - LED_FIRST) / 4)

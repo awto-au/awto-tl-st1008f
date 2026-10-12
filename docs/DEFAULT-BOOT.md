@@ -124,7 +124,7 @@ Chained boot only (`ramload` boots never autoboot). First match wins:
 
 ### Watchdog
 
-- SoC watchdog `0xb8003260` (Linux `realtek_otto_wdt`, reset-mode soc). Tick = 2^(25+prescale) / LX kHz; LX 175 MHz → 192/383/767/1534 ms, max 33 ticks = 50.6 s.
+- SoC watchdog `WDTCNTRR` `0xb8003260`, `WDTINTRR` `+4`, `WDT_CTRL` `+8` (Linux `realtek_otto_wdt`; `WDT_RESET_MODE` 0 = SDK "full chip"). Tick = 2^(25+prescale) / LX kHz; LX 175 MHz → 192/383/767/1534 ms, max 33 ticks = 50.6 s.
 - `bootsel wdt on` = 12 s (prescale 2, 16 ticks of 767 ms). Covers `bootm` → kernel watchdog probe: chain log 2026-10-11 = ~23 s ours → console, of which kernel 14.3 s and bootdelay 1 s → ~8 s `bootm` (flash read + LZMA at stock SPI) + ~1 s to probe ≈ 9 s, x1.25 → 12 s. Expiry = SoC reset → counted attempt.
 - `openwrt/patches/300-15`: probe used to write `CTRL_DEFAULT` (watchdog off). Now an enabled watchdog stays on, `WDOG_HW_RUNNING`: the core pings until procd opens `/dev/watchdog` (procd: 30 s timeout, 5 s ping). Without it, probe (~1 s) → procd (~13 s) is uncovered. The recovery kernel (6.18) needs the same patch.
 - Not measured: that a watchdog reset resets the whole board (and whether `RST_GLB_CTRL_0` WD_RST_EN gates it), LX at boot.

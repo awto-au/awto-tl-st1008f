@@ -77,7 +77,7 @@ Per block: RTL9303, Board, Stock U-Boot, Stock Linux, OpenWrt, Ours (U-Boot / ma
 ## Memory and buses
 
 ### 64 KiB SRAM
-- RTL9303: Y [DS §1 "64Kbyte SP-SRAM"]; seg regs `0xb8004000` (SEG0 = SRAMSAR0) [SOC]
+- RTL9303: Y [DS §1 "64Kbyte SP-SRAM"]; seg regs `CPU_SRAM_SEG0-3_ADDR` `0xb8004000` [SOC]
 - Stock U-Boot: SPL runs from it at `0x9f000000`; window bus `0x1f000000` (`0x1f000001`) left mapped [LIVE [UBOOT-MAINLINE.md](UBOOT-MAINLINE.md)]
 - Stock Linux: N SPEC
 - OpenWrt: N (930x clk driver off)
@@ -85,7 +85,7 @@ Per block: RTL9303, Board, Stock U-Boot, Stock Linux, OpenWrt, Ours (U-Boot / ma
 - Value if enabled: medium: hot data with ~110 ns DDR miss latency; NIC DMA reach unknown
 
 ### DSP SRAM seg regs
-- RTL9303: regs at `0xb8004040` [SOC]; no DSP core in Fig. 1: N SPEC
+- RTL9303: regs `DSP_SRAM_SEG0-3_ADDR` at `0xb8004040` [SOC]; no DSP core in Fig. 1: N SPEC
 - Value if enabled: none
 
 ### Mask ROM
@@ -94,7 +94,7 @@ Per block: RTL9303, Board, Stock U-Boot, Stock Linux, OpenWrt, Ours (U-Boot / ma
 - Value if enabled: none
 
 ### DDR3 controller
-- RTL9303: Y, 8/16-bit, 1 GiB max [DS §8.3]; `0xb8001000` [SOC]
+- RTL9303: Y, 8/16-bit, 1 GiB max [DS §8.3]; `MCR` `0xb8001000` [SOC]
 - Board: one x16 4 Gbit die, 512 MiB, 600 MHz [DOC [DRAM.md](DRAM.md)]
 - Stock U-Boot: Y (SPL init)
 - Stock Linux: Y
@@ -103,7 +103,7 @@ Per block: RTL9303, Board, Stock U-Boot, Stock Linux, OpenWrt, Ours (U-Boot / ma
 - Value if enabled: DRAM prefetch (MCR `ip_ref`/`dp_ref`) off in stock: +26-61 % (#52, #53)
 
 ### Bus zones / unmapped segments
-- RTL9303: `UMSAR0-3` `0xb8001300`, OCP DOR/DMAR [SOC]
+- RTL9303: `UMSAR0-3` `0xb8001300`, OCP `DOR0-2`/`DMAR0-2` `0xb8004200` [SOC]
 - Board: 2nd 256 MiB needs zone 3
 - Stock U-Boot: N
 - Stock Linux: SPEC
@@ -134,7 +134,7 @@ Per block: RTL9303, Board, Stock U-Boot, Stock Linux, OpenWrt, Ours (U-Boot / ma
 ## Flash and serial interfaces
 
 ### SPI-NOR controller
-- RTL9303: Y: 2 CS, 1/2/4-bit, PIO + mmio read window, cached reads [DS §8.2]; `0xb8001200`, window `0xb4000000` [SOC, LIVE]
+- RTL9303: Y: 2 CS, 1/2/4-bit, PIO + mmio read window, cached reads [DS §8.2]; `SFCR` `0xb8001200`, window `0xb4000000` [SOC, LIVE]
 - Board: one Winbond W25Q256JV (32 MiB) on CS0; IO2/IO3 routing unknown (#61)
 - Stock U-Boot: Y: SFCR2 `0xbbc14a00` = Fast Read **Dual I/O** mmio [LIVE #61]
 - Stock Linux: Y: `RTK_NORSFG3`, `MMIO32-2/ModeC` [LOG]
@@ -143,7 +143,7 @@ Per block: RTL9303, Board, Stock U-Boot, Stock Linux, OpenWrt, Ours (U-Boot / ma
 - Value if enabled: **high**: dual/quad dirmap in Linux (#61)
 
 ### SPI-NAND controller + ECC
-- RTL9303: Y [DS §2 "512MB SPI NAND"]; `0xb801a400`, ECC `0xb801a600` [SOC]; OpenWrt nodes `status = "disabled"`
+- RTL9303: Y [DS §2 "512MB SPI NAND"]; `SNFCFR` `0xb801a400`, ECC `ECCFR` `0xb801a600` [SOC]; OpenWrt nodes `status = "disabled"`
 - Board: no NAND
 - Stock U-Boot: N
 - Stock Linux: N
@@ -170,7 +170,7 @@ Per block: RTL9303, Board, Stock U-Boot, Stock Linux, OpenWrt, Ours (U-Boot / ma
 - Value if enabled: none
 
 ### UART0
-- RTL9303: Y [DS §6.2], `0xb8002000` [SOC]
+- RTL9303: Y [DS §6.2], `UART0_PBR_THR_DLL` `0xb8002000` [SOC]
 - Board: header J14 `DH GND RX TX`
 - Stock U-Boot: console
 - Stock Linux: console
@@ -178,11 +178,11 @@ Per block: RTL9303, Board, Stock U-Boot, Stock Linux, OpenWrt, Ours (U-Boot / ma
 - Ours (U-Boot / mainline): console, up to 10.94 MBd ([UBOOT-MAINLINE.md](UBOOT-MAINLINE.md)) / console
 
 ### UART1
-- RTL9303: Y [DS §6.2], `0xb8002100` [SOC]; balls shared with EJTAG (RXD A4 = TDI, RTS B4 = TMS, CTS C5 = TCK, TXD D5 = TDO)
+- RTL9303: Y [DS §6.2], `UART1_PBR_THR_DLL` `0xb8002100` [SOC]; balls shared with EJTAG (RXD A4 = TDI, RTS B4 = TMS, CTS C5 = TCK, TXD D5 = TDO)
 - Board: only via the 5-pad JTAG footprint SPEC
 - Stock U-Boot: N
 - Stock Linux: N
-- OpenWrt: node `disabled`, pinmux `0xbb000204`
+- OpenWrt: node `disabled`, pinmux `JTAG_SEL_CTRL` `0xbb000204`
 - Ours (U-Boot / mainline): N
 - Value if enabled: low-medium: second console while UART0 is busy
 
@@ -196,7 +196,7 @@ Per block: RTL9303, Board, Stock U-Boot, Stock Linux, OpenWrt, Ours (U-Boot / ma
 - Value if enabled: medium: recovery path if flash boot breaks (needs a probe adapter)
 
 ### I2C master MST1
-- RTL9303: Y, `0xbb00036c` [SW]; SCL0 GPIO8, SDA0-7 GPIO9-16 [DOC hardware.md]
+- RTL9303: Y, `I2C_MST1_CTRL1` `0xbb00036c` [SW]; SCL0 GPIO8, SDA0-7 GPIO9-16 [DOC hardware.md]
 - Board: 8 SFP cages (EEPROM `0x50`, DDM `0x51`)
 - Stock U-Boot: `rtk i2c` dev 0-7
 - Stock Linux: Y
@@ -205,7 +205,7 @@ Per block: RTL9303, Board, Stock U-Boot, Stock Linux, OpenWrt, Ours (U-Boot / ma
 - Value if enabled: used
 
 ### I2C master MST2
-- RTL9303: Y, `0xbb000388` [SW]
+- RTL9303: Y, `I2C_MST2_CTRL1` `0xbb000388` [SW]
 - Board: SCL1 = GPIO17 per SDK pin formula = mode switch: unusable here SPEC
 - Stock U-Boot: N
 - Stock Linux: N
@@ -217,7 +217,7 @@ Per block: RTL9303, Board, Stock U-Boot, Stock Linux, OpenWrt, Ours (U-Boot / ma
 - RTL9303: [DS §2]: 8 SDA channels per master SPEC
 
 ### GPIO 0-23
-- RTL9303: Y [DS §6.4], `0xb8003300` [SOC]
+- RTL9303: Y [DS §6.4], `PABCD_DIR` `0xb8003308`, `PABCD_DAT` `0xb800330c` [SOC]
 - Board: 0-7 MOD-DEF0, 8 SCL0, 9-16 SDA0-7, 17-19 mode switch, 20 unknown, 21 ext watchdog / board reset, 22/23 i2c-gpio to TCA9534A [DOC hardware.md]
 - Stock U-Boot: Y
 - Stock Linux: Y
@@ -303,7 +303,7 @@ Per block: RTL9303, Board, Stock U-Boot, Stock Linux, OpenWrt, Ours (U-Boot / ma
 - Value if enabled: **high**: `reset` in our U-Boot; reset-cause readout
 
 ### Thermal sensor
-- RTL9303: Y, `0xbb000060-0x70` [SW]; off at power-on [LIVE [hardware.md](hardware.md)]
+- RTL9303: Y, `THERMAL_METER_CTRL_0-2`, `THERMAL_METER_RESULT_0-1` `0xbb000060-0x70` [SW]; off at power-on [LIVE [hardware.md](hardware.md)]
 - Stock U-Boot: N
 - Stock Linux: N (#13)
 - OpenWrt: `realtek-thermal`, trip 105 °C
@@ -336,7 +336,7 @@ Per block: RTL9303, Board, Stock U-Boot, Stock Linux, OpenWrt, Ours (U-Boot / ma
 - Value if enabled: low-medium: memcpy/memset/checksum offload in U-Boot; bus load generator for DDR tests SPEC
 
 ### Pinmux
-- RTL9303: `0xbb000200/204/3a0`, `0xbb00c600`, `0xbb00cc00` [OWRT]
+- RTL9303: `GPIO_SEL_CTRL` / `JTAG_SEL_CTRL` / `SPI_CTRL1` `0xbb000200/204/3a0`, `EXT_GPIO_GLB_CTRL` `0xbb00c600`, `LED_GLB_CTRL` `0xbb00cc00` [OWRT]
 - Stock U-Boot: Y
 - Stock Linux: Y
 - OpenWrt: Y
@@ -435,14 +435,14 @@ Per block: RTL9303, Board, Stock U-Boot, Stock Linux, OpenWrt, Ours (U-Boot / ma
 - Value if enabled: low
 
 ### MIB counters
-- RTL9303: [DS §7.23]; `0xbb000664 + 0x100*port` [SW]
+- RTL9303: [DS §7.23]; `STAT_PORT_MIB_CNTR(port)` `0xbb000664 + 0x100*port` [SW]
 - Stock U-Boot: Y
 - Stock Linux: Y
 - OpenWrt: `ethtool -S`
 - Ours (U-Boot / mainline): `md.l` reads (docs) / N
 
 ### LED engine
-- RTL9303: serial LED (`LED_MDC/MDIO` C1/C2) or scan, 3 sets [DS §6.7, §9.4.13]; `0xbb00cc00` [SW]
+- RTL9303: serial LED (`LED_MDC/MDIO` C1/C2) or scan, 3 sets [DS §6.7, §9.4.13]; `LED_GLB_CTRL` `0xbb00cc00` [SW]
 - Board: 24 LEDs via 3x 74HC164 [DOC hardware.md]
 - Stock U-Boot: Y (`mac_led_config`)
 - Stock Linux: Y

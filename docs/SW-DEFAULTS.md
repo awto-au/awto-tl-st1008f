@@ -27,7 +27,7 @@ Every register the table writes equals stock. The 232 differing words:
 | SerDes indirect cmd/data 0x3b0/0x3b4 | 2 | last access |
 | `TBL_ACCESS_DATA_0` 0xb344 | 1 | last table access |
 | `ISR_*` latches, `MAC_LINK_STS` | 4 | live status |
-| no SDK name (0x754, 0x31d8, 0x31dc) | 3 | counter-like, change between reads |
+| unnamed words of `STAT_PORT_MIB_CNTR(0)` (0x754) and `STAT_PORT_PRVTE_CNTR(28)` (0x31d8, 0x31dc) | 3 | counter-like, change between reads |
 | thermal 0x6c | 0-1 | live |
 
 - Two table errors found by this diff and fixed in `sw_defaults_gen.py`: `EGBW_PORT_CTRL` burst is set for port 0 only by stock (ports 8-27 keep reset `0x8000`); `EGBW_*_SET1` (ports 24-27) are global 2D arrays inside the 0xE300 per-port window (port-major, 12 queues), not per-port block registers.

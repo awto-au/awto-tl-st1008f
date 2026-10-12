@@ -114,7 +114,7 @@ Catalogue of RTL9303 hardware that the datasheet omits, the SDK leaves unused, o
 - **Risk:** reads safe in-window; out-of-window reads hang the CPU
 
 ### Stock-only registers 0x98 / 0xD0 (#68)
-- **What:** link-fault mask / status, written by stock `LinkFaultMonIsrThread`, no SDK name
+- **What:** link-fault mask / status, written by stock `LinkFaultMonIsrThread`; no name in SDK 4.0.2 `swcore_rtl9300.h` or 3.6.9 `rtk_longan_reg_list.c`
 - **Evidence:** [BIN]
 - **Measured:** both 0 [LIVE]
 - **Use:** link-fault interrupt

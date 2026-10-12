@@ -15,9 +15,9 @@
 #include "rtk.h"
 
 #define MAX_UNIT	6	/* stock accepts unit < 6 */
-#define PORT_CTRL(p)	(0x3268 + ((p) << 6))	/* MAC_L2_PORT_CTRL, bit0 RX_EN bit1 TX_EN */
-#define LED_SW_EN(p)	(0xcc4c + (((p) >> 3) << 2))	/* 4 bits per port */
-#define LED_SW_CTRL(p)	(0xcc5c + ((p) << 2))	/* 3 bits per LED: copper 0-11, fibre 12-23 */
+#define PORT_CTRL(p)	RTL9300_MAC_L2_PORT_CTRL(p)	/* MAC_L2_PORT_CTRL, bit0 RX_EN bit1 TX_EN */
+#define LED_SW_EN(p)	RTL9300_LED_PORT_SW_EN_CTRL((p) >> 3)	/* 4 bits per port */
+#define LED_SW_CTRL(p)	RTL9300_LED_PORT_SW_CTRL(p)	/* 3 bits per LED: copper 0-11, fibre 12-23 */
 #define LED_ON		7
 #define NLED		3	/* LEDs per port (docs/hardware.md) */
 #define KEY_WAIT_MS	30000	/* "press any": stock waits forever; cap so LEDs are restored */
@@ -351,7 +351,7 @@ static void led_init(void)
 	int i, p;
 
 	for (i = 0; i < 4; i++)
-		led_en_save[i] = sw_r(0xcc4c + 4 * i);
+		led_en_save[i] = sw_r(RTL9300_LED_PORT_SW_EN_CTRL(i));
 	for (i = 0; i < NCAGES; i++) {
 		p = rtk_cage_port[i];
 		led_ctrl_save[p] = sw_r(LED_SW_CTRL(p));
@@ -369,7 +369,7 @@ static void led_restore(void)
 		sw_w(LED_SW_CTRL(p), led_ctrl_save[p]);
 	}
 	for (i = 0; i < 4; i++)
-		sw_w(0xcc4c + 4 * i, led_en_save[i]);
+		sw_w(RTL9300_LED_PORT_SW_EN_CTRL(i), led_en_save[i]);
 }
 
 int rtk_ledtest(int argc, char *const argv[])

@@ -13,7 +13,7 @@
 #include <linux/delay.h>
 #include "rtk.h"
 
-#define MAC_LINK_STS	0xcb10		/* bit per SDK port, latched low */
+#define MAC_LINK_STS	RTL9300_MAC_LINK_STS		/* bit per SDK port, latched low */
 #define MODE_10GR	0x1a
 #define EYE_N		64		/* SDK RTK_EYE_MON_X_MAX / Y_MAX */
 #define BITS_PER_MS	10312500ULL	/* 10GBASE-R line rate */

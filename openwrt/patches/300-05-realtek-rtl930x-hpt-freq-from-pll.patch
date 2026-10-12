@@ -17,13 +17,13 @@ TL-ST1008F v2: stock 0x3e8 / 0x6b439e23 = 800 MHz, 0x3a8 / 0x6b439e13
  
  struct rtl83xx_soc_info soc_info;
  
-+#define RTL930X_PLL_CPU_CTRL0		0xe208	/* [11:4] NCODE, [2] SEL_DIV4, [1:0] PREDIV */
-+#define RTL930X_PLL_CPU_CTRL2		0xe210	/* [6:4] DIVN2_CPU */
++#define RTL930X_PLL_CPU_CTRL0		0xe208	/* CPU_CMU_NCODE_IN 11:4, CPU_CMU_SEL_DIV4 2, CPU_CMU_SEL_PREDIV 1:0 */
++#define RTL930X_PLL_CPU_MISC_CTRL	0xe210	/* REG_CMU_DIVN2_CPU 6:4 */
 +
 +/* CPU clock from the CPU PLL: 25 MHz x (4 if SEL_DIV4) x (NCODE + 2) x 2 / 2^PREDIV / (DIVN2 + 2) */
 +static u32 __init rtl930x_cpu_freq(void)
 +{
-+	u32 ctrl0 = sw_r32(RTL930X_PLL_CPU_CTRL0), ctrl2 = sw_r32(RTL930X_PLL_CPU_CTRL2);
++	u32 ctrl0 = sw_r32(RTL930X_PLL_CPU_CTRL0), ctrl2 = sw_r32(RTL930X_PLL_CPU_MISC_CTRL);
 +	u32 khz = 25000 * ((ctrl0 & BIT(2)) ? 4 : 1) * (((ctrl0 >> 4) & 0xff) + 2) * 2;
 +
 +	khz >>= ctrl0 & 3;

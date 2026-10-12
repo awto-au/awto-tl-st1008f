@@ -32,7 +32,7 @@ static inline void rtl930x_nic_wr(void *ctx, u32 off, u32 v)
 #define rtl930x_nic_udelay	udelay
 #include "rtl930x_nic.h"
 
-#define MAC_LINK_STS		0xcb10
+#define MAC_LINK_STS		RTL9300_MAC_LINK_STS
 #define RX_N			32		/* ring 0: TFTP is lock-step; 32 covers a TCP window burst */
 #define RXS			2		/* rings 1-31: traffic the queue manager sends there anyway (#80) */
 #define NRX			RTL930X_NIC_RX_RINGS
@@ -480,7 +480,8 @@ static int do_ethstat(struct cmd_tbl *cmdtp, int flag, int argc, char *const arg
 	printf("\n");
 	printf("last RX tag: rx port %u, reason %u, queue %u\n", p->last.port, p->last.reason, p->last.queue);
 	/* switch-side drops: STAT_PORT_E_DROP_CNTR2[28][0], STAT_PORT_MIB_CNTR[0].DOT1DTPPORTINDISCARDS */
-	printf("switch drops: CPU queue 0 egress %u, port 0 ingress %u\n", sw_r(0xbd64), sw_r(0x06a8));
+	printf("switch drops: CPU queue 0 egress %u, port 0 ingress %u\n", sw_r(RTL9300_STAT_PORT_E_DROP_CNTR2(0)),
+	       sw_r(RTL9300_STAT_PORT_MIB_CNTR_DOT1DTPPORTINDISCARDS(0)));
 	printf("RX runout 0x%08x, DMA_IF_CTRL 0x%08x, RX_RING_CNTR 0x%08x, CPU port L2 0x%08x force 0x%08x\n",
 	       sw_r(RTL930X_NIC_DMA_INTR_STS), sw_r(RTL930X_NIC_DMA_IF_CTRL), sw_r(RTL930X_NIC_RX_RING_CNTR),
 	       sw_r(RTL930X_NIC_L2_PORT_CTRL), sw_r(RTL930X_NIC_MAC_FORCE));

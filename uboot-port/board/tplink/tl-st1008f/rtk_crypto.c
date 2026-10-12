@@ -17,9 +17,9 @@
 #include <u-boot/sha1.h>
 #include "rtk.h"
 
-#define IP_EN_CTRL	0xb8000600
+#define IP_EN_CTRL	RTL9300_IP_EN_CTRL
 #define IP_EN_IPSEC	BIT(10)
-#define IPS		0xb800c000
+#define IPS		RTL9300_IPSEC_SRC_DESC_ADDR
 #define IPSSDAR		0x0
 #define IPSDDAR		0x4
 #define IPSCSR		0x8

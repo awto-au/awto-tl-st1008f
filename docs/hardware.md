@@ -224,7 +224,7 @@ From the OpenWrt v2 DTS (`SWITCH_PORT_SFP(p,l,s,c,g)` = SoC port, label, SerDes,
 - TX-disable: expander @ `0x38` on an `i2c-gpio` bus, SCL GPIO22 / SDA GPIO23 (`delay-us = 2`). Pin N = cage N+1, **active-high**.
   - Part is a TI TCA9534A (svanheule.net); "PCA9534" in these docs = same register map. The `A` variant's base address `0x38` matches.
 - 3-position mode switch M1/M2/M3 on gpio0 pins 17/18/19. OpenWrt v2 DTS: `gpio-keys` (`BTN_0/1/2`, EV_SW, active-low, 50 ms debounce); our mainline DTS: the mode-switch driver ("Linux driver (#64)" below). Stock behaviour: see "Mode switch (stock firmware)" below.
-  - Read with raw `md.l 0xb800330c 1` (DAT), bits 17-19 (bank C bits 1-3). Not `rtk pinGet` before `rtk network on` (hangs the console).
+  - Read with raw `md.l 0xb800330c 1` (`PABCD_DAT`), bits 17-19 (bank C bits 1-3). Not `rtk pinGet` before `rtk network on` (hangs the console).
 - GPIO21: DTS external-watchdog toggle pin (1.2 s, always-running). Found static output-high at the U-Boot prompt; board does not reset. Low = board reset (stock `switch_reset()`). Unexplained as a watchdog: the managed ST5008F has no `<wtd>` board section and never uses GPIO21; TP-Link's watchdog support is generic (`insmod <wtd> enGpio= feedGpio=`, 500 ms feed) (#18).
   - Board: supervisor U7 (SGM706-S / PT7A7514, MAX706 pinout). Static high safe + low = instant reset fits GPIO21 → MR, not WDI; trace not visible ([BOM.md](BOM.md#u7-supervisor), #87).
 - USB: RTL9303 has a USB 2.0 host (EHCI `0x18021000`, irq 28, 1 port); **not wired on this board** (issue #5, closed).
@@ -245,8 +245,8 @@ Read-only scan 2026-10-12 (`./dev.py bus-scan`, details: [BUS-SCAN.md](BUS-SCAN.
 - I2C MST2: not scanned (SCL1 = GPIO17 = mode switch); idle (CTRL2 `0x5003`).
 - SPI-NOR controller: CS0 = W25Q256 (JEDEC `ef 40 19`); CS1 reads `ff`, nothing attached.
 - Switch-core SPI master (`SPI_CTRL1` `0xbb0003a0` = `0035e000` after stock network on): GPIO3-5 muxed as SPI, no CS routed, idle; nothing attached. Our code muxes the pins back to GPIO ("Cage presence pinmux" above).
-- MAC EEPROM autoload (`0xbb00c6e4..`): runs at every reset; STS NOEEPROM 0 / COMPL 1 / VALID_FAIL 1 → something answers (likely cage-1 SFP EEPROM on the shared SDA), content rejected, nothing loaded.
-- I2C/SPI slave register interface (`0xbb000360-0368`): 0, unused.
+- MAC EEPROM autoload (`MAC_EEPROM_DOWN_LOAD_CNTRL` `0xbb00c6e4..`): runs at every reset; STS NOEEPROM 0 / COMPL 1 / VALID_FAIL 1 → something answers (likely cage-1 SFP EEPROM on the shared SDA), content rejected, nothing loaded.
+- I2C/SPI slave register interface (`MAC_IF_CTRL`, `MAC_SLV_I2C_CTRL`, `MAC_SLV_TIMEOUT` `0xbb000360-0368`): 0, unused.
 
 ## Mode switch (stock firmware)
 
@@ -270,7 +270,7 @@ Source: static RE of stock `rtk.ko` (TP-Link additions, `TP_CHKPATTERN` thread).
 
 - `init_module` (`0x0020e8b0`) starts 3 kthreads: `TP_CHKMEDIA` (`check_media_thread_func` `0x0020b834`), `TP_CHKPATTERN` (`check_pattern_thread_func` `0x0020c490`), `TP_CHKELECP`.
 - `check_pattern_thread_func` loop: `custom_get_pattern_mode` -> if first iteration (`DAT_003576f0` = 1 in .data) print `cur pattern = %d`, latch `DAT_00396840`, call `sfpPatternSet`.
-- `custom_get_pattern_mode` (`0x0020c29c`): for each of `gpio_pin[] = {17,18,19}` (rodata `0x0022078c`): `osal_time_usleep(30000)` then `drv_generalCtrlGPIO_dataBit_get(0,0,pin,&v)` -> `rtl9300_gpio_dataBit_get` (`rtcore.ko` `0x00014550`) = raw read of `0xb800330c` bit n, no inversion.
+- `custom_get_pattern_mode` (`0x0020c29c`): for each of `gpio_pin[] = {17,18,19}` (rodata `0x0022078c`): `osal_time_usleep(30000)` then `drv_generalCtrlGPIO_dataBit_get(0,0,pin,&v)` -> `rtl9300_gpio_dataBit_get` (`rtcore.ko` `0x00014550`) = raw read of `PABCD_DAT` `0xb800330c` bit n, no inversion.
 - `sfpPatternSet` (`0x0020c394`): 1 -> all 8 bytes = 1; 3 -> all = 2; 2 -> bytes 0-3 = 1, 4-7 = 2; then sets `DAT_0039680c` = 1.
 - `tpSfpSetType` (`0x0020b07c`, run by `TP_CHKMEDIA`) first spins `while (DAT_0039680c == 0) osal_time_sleep(1)`: no port is configured before the first pattern read.
 - Per port, module class from SFP EEPROM (`tpSfpGetType` / `tpSfpGetTypeOnce`, `rtcore.ko` `0x000151bc` / `0x000157a4`): 2 = `1G fiber insert`, 3 = `2.5G fiber insert` (EEPROM byte 12 nominal bit rate 0x19..0x20 = 2.5-3.2 GBd), 5 = `10G fiber insert` (10G compliance bits in byte 3). Presence = MOD-DEF0 pins 0-7 (not 17-19).
@@ -366,9 +366,9 @@ rtk i2c read 8 1               # readback
 ### Method B: GPIO bit-bang with `md.l`/`mw.l`
 
 - Pure MMIO, works with no SDK init. Script: [../scripts/st1008_pca9534.py](../scripts/st1008_pca9534.py) (`probe|read|enable-tx --out 0xNN`, ~40 s per enable, ACK-checked).
-- RTL9300 GPIO block `0xb8003300` (OpenWrt `gpio0`, `ranges 0x18000000`): `+0x00` pin enable (`0x00ffffff`), `+0x08` DIR (1 = out), `+0x0C` DAT, `+0x10` ISR, `+0x14/+0x18` IMR A/B, C/D, `+0x38` IER. Bit n = GPIO n.
+- RTL9300 GPIO block `0xb8003300` (OpenWrt `gpio0`, `ranges 0x18000000`): `+0x00` pin enable (`0x00ffffff`; SDK: no name), `+0x08` `PABCD_DIR` (1 = out), `+0x0C` `PABCD_DAT`, `+0x10` `PABCD_ISR`, `+0x14/+0x18` `PAB_IMR` / `PCD_IMR`, `+0x38` `PABCD_C0_IER`. Bit n = GPIO n.
 - Live at prompt: DIR `0x00e00000` (GPIO21/22/23 out), DAT `0x00ec00c4` (21/22/23 high; bits 0/1 low = cages 1/2 present; bit 17 low = mode switch M1). Keep GPIO21 out+high in every write.
-- Open-drain emulation (board pull-ups): line low = DIR bit set with DAT bit 0; line high = DIR bit clear. Clear DAT bits 22/23 once; then each edge is one DIR write: both released `0x00200000`, SDA low `0x00a00000`, SCL low `0x00600000`, both low `0x00e00000`. Sample SDA = `md.l 0xb800330c 1` bit 23.
+- Open-drain emulation (board pull-ups): line low = DIR bit set with DAT bit 0; line high = DIR bit clear. Clear DAT bits 22/23 once; then each edge is one DIR write: both released `0x00200000`, SDA low `0x00a00000`, SCL low `0x00600000`, both low `0x00e00000`. Sample SDA = `md.l 0xb800330c 1` (`PABCD_DAT`) bit 23.
 - I2C framing: START = SDA low, SCL low; bit = set SDA, SCL high, SCL low; ACK = release SDA, SCL high, sample, SCL low; STOP = SDA low, SCL high, SDA high. Write `0x70`, reg, data. Up to 6 `mw.l` per U-Boot line (joined by `;`) worked.
 - Writing reg1 = `0x00`, reg3 = `0x00` lights all 8 lasers (cage-loop hazard below).
 

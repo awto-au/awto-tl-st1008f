@@ -52,16 +52,16 @@ enum { M_DISABLE = 1, M_10GR = 2, M_SGMII = 8, M_1000BX = 10, M_100BX = 11, M_HI
 enum { MEDIA_NONE, MEDIA_10G, MEDIA_1G, MEDIA_2_5G, MEDIA_100M, MEDIA_DAC50, MEDIA_DAC100,
        MEDIA_DAC300, MEDIA_DAC500, MEDIA_SGMII = 15 };
 
-#define MAC_FORCE(p)	(0xca1c + ((p) << 2))	/* bit0 force, bit1 link, [5:3] speed */
-#define SMI_POLL_CTRL	0xca90			/* [27:0] SMI_POLL_MASK (OpenWrt mdio-realtek-otto) */
-#define SMI_PRVTE_POLL	0xca10			/* [27:0] private polling mask */
+#define MAC_FORCE(p)	RTL9300_MAC_FORCE_MODE_CTRL(p)	/* MAC_FORCE_EN 0, FORCE_LINK_EN 1, SPD_SEL 6:3 */
+#define SMI_POLL_CTRL	RTL9300_SMI_POLL_CTRL	/* [27:0] SMI_POLL_MASK (OpenWrt mdio-realtek-otto) */
+#define SMI_PRVTE_POLL	RTL9300_SMI_PRVTE_POLLING_CTRL	/* [27:0] private polling mask */
 #define ETHER_PMASK	0x0f110101		/* ports 0 8 16 20 24-27 (RTL9303_8XGE profile) */
-#define ISO_CTRL	0xb340			/* table access: [17] exec, [16] write, [14:12] type */
-#define ISO_DATA	0xb344			/* PORT_ISO_CTRL entry: [31:3] = ports 0-28 */
+#define ISO_CTRL	RTL9300_TBL_ACCESS_CTRL_0	/* EXEC 17, CMD 16 (1 = write), TBL 15:12, ADDR 11:0 */
+#define ISO_DATA	RTL9300_TBL_ACCESS_DATA_0(0)	/* PORT_ISO_CTRL entry: [31:3] = ports 0-28 */
 #define ISO_TYPE	6
 /* rtl9300_init _rtl9300_smiMacType_init: XGE + SerDes media -> type 0 (link from SerDes, not SMI PHY).
  * Fields P3_P0 [1:0], P11_P8 [5:4], P19_P16 [9:8], P23_P20 [11:10], P24-P27 3 bits each [23:12] */
-#define SMI_MAC_TYPE	0xca04
+#define SMI_MAC_TYPE	RTL9300_SMI_MAC_TYPE_CTRL
 #define SMI_MAC_TYPE_M	0x00ffff33
 /* CPU port force = stock value after its NIC probe (reg-diff, #51): link up, 1G; other bits SPEC */
 #define CPU_FORCE	0x217
@@ -459,17 +459,17 @@ static void phy_enable(int port, bool on)
 
 /* ---- port LEDs: stock mac_led_config 0x83f6f768 (SDK rtl9300_led_config + SW-control tail) ---- */
 
-#define LED_GLB		0xcc00			/* [26:25] stack, [22] active, [3:2] pwr-on blink, [1:0] mode */
-#define LED_NUM(p)	(0xcc04 + ((p) >> 4) * 4)	/* 2 bits/port: LEDs per port - 1 */
-#define LED_SET(s, i)	(0xcc28 - (s) * 8 - ((i) >> 1) * 4)	/* SETs_0 = LED1:LED0, SETs_1 = LED3:LED2 */
-#define LED_COPR_SEL(p)	(0xcc2c + ((p) >> 4) * 4)	/* 2 bits/port: copper LED set */
-#define LED_FIB_SEL(p)	(0xcc34 + ((p) >> 4) * 4)
-#define LED_COPR_MASK	0xcc3c
-#define LED_FIB_MASK	0xcc40
-#define LED_COMBO_MASK	0xcc44
-#define LED_SW_LOAD	0xcc48
-#define LED_SW_EN(p)	(0xcc4c + ((p) >> 3) * 4)	/* 4 bits/port */
-#define LED_SW_CTRL(p)	(0xcc5c + (p) * 4)		/* fibre LED0-3 modes [23:12] */
+#define LED_GLB		RTL9300_LED_GLB_CTRL	/* [26:25] stack, [22] active, [3:2] pwr-on blink, [1:0] mode */
+#define LED_NUM(p)	RTL9300_LED_PORT_NUM_CTRL((p) >> 4)	/* 2 bits/port: LEDs per port - 1 */
+#define LED_SET(s, i)	(RTL9300_LED_SET0_0_CTRL - (s) * 8 - ((i) >> 1) * 4)	/* SETs_0 = LED1:LED0, SETs_1 = LED3:LED2 */
+#define LED_COPR_SEL(p)	RTL9300_LED_PORT_COPR_SET_SEL_CTRL((p) >> 4)	/* 2 bits/port: copper LED set */
+#define LED_FIB_SEL(p)	RTL9300_LED_PORT_FIB_SET_SEL_CTRL((p) >> 4)
+#define LED_COPR_MASK	RTL9300_LED_PORT_COPR_MASK_CTRL
+#define LED_FIB_MASK	RTL9300_LED_PORT_FIB_MASK_CTRL
+#define LED_COMBO_MASK	RTL9300_LED_PORT_COMBO_MASK_CTRL
+#define LED_SW_LOAD	RTL9300_SW_LED_LOAD
+#define LED_SW_EN(p)	RTL9300_LED_PORT_SW_EN_CTRL((p) >> 3)	/* 4 bits/port */
+#define LED_SW_CTRL(p)	RTL9300_LED_PORT_SW_CTRL(p)		/* fibre LED0-3 modes [23:12] */
 
 /* Values: stock RTL9303_8XGE profile (scripts/stock_led_profile.py): 3 LEDs, set 0 copper + fibre,
  * single set, serial, led_active 0 -> GLB[22] = 1. Fields: stock reg table 0x83fa9ad8 idx 0x16-0x27. */
@@ -623,7 +623,7 @@ void rtk_iso_guard(void)
 }
 
 /* MAC_L2_PORT_CTRL(p) bits 1:0 = TX/RX enable (stock `rtk port enable|disable`, rtk_stock.c) */
-#define L2_PORT_CTRL(p)	(0x3268 + (p) * 0x40)
+#define L2_PORT_CTRL(p)	RTL9300_MAC_L2_PORT_CTRL(p)
 
 /* Ours after a stock `rtk network on` (ramload): cages forward to the CPU only, then the ports
  * ramload admin-disabled are enabled again. Untouched when stock did not set the switch up. */
