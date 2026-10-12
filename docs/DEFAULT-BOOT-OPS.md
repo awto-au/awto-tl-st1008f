@@ -49,10 +49,10 @@ sw2 first, all of it; sw1 only after sw2 passes. Rows 1-3 write nothing.
 | 6 | `./dev.py uboot-chain-env apply` | slot check OK, all vars as set |
 | 7 | `./dev.py uboot-chain-env boot`; `./dev.py uboot-chain-env prompt` | boot PASS (`bootsel: M<n>: …` line); prompt PASS (ESC stops ours); also send a non-ESC byte in the window by hand (`scripts/switch_console.py send --raw x`): autoboot continues |
 | 8 | At our prompt (row 7): `clocks set cpu 0x3a8 0x6b439e13 0 force` | `locked after N us (routine M us)`, M > 0 = TC5 counts |
-| 9 | At our prompt: `clocks turbo 1000 650 0`, then `clocks` | `clocks: turbo = cpu 1000 MHz, mem 650 MHz, lx 175 MHz …` |
+| 9 | `./dev.py turbo cpu=1000,ddr=650`; `./dev.py turbo show --no-cycle` | `clocks: turbo OK = cpu 1000 MHz, mem 650 MHz, lx 175 MHz, sram 250 MHz …`; show lists live 1000/650 |
 | 10 | Idle reset: at our prompt `setenv bootretry 30` (manual run of the failed-autoboot path), wait | `Timeout waiting for command`, board resets, chain boots again (30 s here only to keep the test short) |
 | 11 | sw2: `./dev.py uboot-chain-env turbo show`; `apply --ssh --ip 192.168.25.56` and `turbo set cpu=1000,ddr=650 --ssh --ip 192.168.25.56` from its flash OpenWrt | PASS read-back lines; console `turbo show` matches |
-| 12 | sw2 in M3, power-cycle (`./dev.py uboot-chain-env boot`) | `bootsel: M3: turbo cpu 1000 ddr 650 lx 0`, `clocks: turbo = cpu 1000 MHz, mem 650 MHz …` |
+| 12 | sw2 in M3, power-cycle (`./dev.py uboot-chain-env boot`) | `bootsel: M3: turbo cpu 1000 ddr 650 lx 0 sram 0`, `clocks: turbo OK = cpu 1000 MHz, mem 650 MHz …` |
 
 sw1 (SSH only, in service), all before its next power-up, after sw2 passes:
 

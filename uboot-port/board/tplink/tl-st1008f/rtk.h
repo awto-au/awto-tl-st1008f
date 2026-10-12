@@ -141,7 +141,11 @@ int st1008f_bootsel(int mode);
 char *st1008f_stock_env(const char *var, char *out, int len);
 
 /* clocks.c: turbo profile in MHz, 0 = keep (#46, #105); check = NULL when every value is supported */
-const char *otto_turbo_check(u32 cpu, u32 ddr, u32 lx);
-int otto_turbo(u32 cpu, u32 ddr, u32 lx);
+struct otto_turbo {
+	u32 cpu, ddr, lx, sram;	/* MHz, 0 = keep */
+};
+void otto_turbo_live(struct otto_turbo *t);
+const char *otto_turbo_check(const struct otto_turbo *t);
+int otto_turbo(const struct otto_turbo *t);
 
 #endif

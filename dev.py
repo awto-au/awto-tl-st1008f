@@ -179,8 +179,10 @@ def cmd_mem_clock(extra: list[str]) -> int:
     return _script("mem_clock_step.py", extra)
 
 
-@command("repeat-rate of one clock step over N power cycles at our RAM U-Boot: cpu | mem (650) | fast (#101)",
-         args="cpu|mem|fast [--n 20] [--from-flash]", kind="hardware")
+@command("repeat-rate of one clock step over N power cycles at our RAM U-Boot: cpu | mem (650) | fast (#101); "
+         "--session DOMAIN = binary-search sweep stock..max in one powered session (CLAUDE.md Speed sweeps)",
+         args="cpu|mem|fast [--n 20] [--from-flash] | --session cpu|ddr|lx|sram [--lo MHz] [--hi MHz] [--step MHz]",
+         kind="hardware")
 def cmd_clocks_cycle(extra: list[str]) -> int:
     return _script("clocks_cycle.py", extra)
 
@@ -190,6 +192,12 @@ def cmd_clocks_cycle(extra: list[str]) -> int:
          kind="hardware")
 def cmd_ddr_retrain(extra: list[str]) -> int:
     return _script("ddr_retrain.py", extra)
+
+
+@command("clock profile now at our prompt, any mode (#46): power-cycle with the saved chain, ESC, `turbo [PROFILE]`",
+         args="[PROFILE e.g. cpu=1400,ddr=662,lx=306,sram=500] [--no-cycle] | show", kind="hardware")
+def cmd_turbo(extra: list[str]) -> int:
+    return _script("turbo.py", extra)
 
 
 @command("DDR3 probe sweep: `clocks set mem <MHz> nosr probe ...` per setting, canary-bad count each (#48 #49 #56)",
