@@ -5,7 +5,7 @@ Every part identifiable on the board photos: refdes, marking, part, function, ev
 Evidence tags:
 - **[TOP] / [BOT]**: [photos/tl-st1008f-v2-board-top.jpg](photos/tl-st1008f-v2-board-top.jpg), `-bottom.jpg` (svanheule.net unit, heatsink on).
 - **[SVH-nnn]**: svanheule.net close-up `2016_0101_*_nnn.jpg` (`sources/photos-svanheule/`, local); downscaled copies in [photos/](photos/README.md).
-- **[OWN name]**: owner photos of this unit, 2026-10-08 / 2026-10-11, heatsink off (`docs/photos/Photos-1-001.zip`, local, not committed).
+- **[OWN name]**: owner photos of this unit, 2026-10-08 / 2026-10-11, heatsink off (`private/photos/Photos-1-001.zip`, gitignored).
 - **[V1]**: svanheule.net de-heatsinked V1 board (`sources/photos-svanheule/svanheule-v1-deheatsinked.png`, local).
 - **[REF]**: Realtek RTL9302D reference sheet `sources/rtl9302d-reference-schematic-anoatech.pdf`.
 
