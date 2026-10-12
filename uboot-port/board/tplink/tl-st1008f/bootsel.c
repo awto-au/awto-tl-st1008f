@@ -40,18 +40,22 @@
 #define WDT_PHASE1	GENMASK(26, 22)
 #define WDT_PHASE2	GENMASK(19, 15)
 #define WDT_TICKS_MAX	33	/* phase1 32 + phase2 1 */
-/* bootm -> kernel wdt probe: ~9 s expected (flash read + LZMA at stock SPI), x1.25 + rounding */
-#define BOOT_WDT_MS	12000
+/* clocks fast (< 1 s) + bootm -> kernel wdt probe (~9 s: flash read + LZMA at stock SPI) = 10 s, x1.25 + rounding */
+#define BOOT_WDT_MS	13000
 
 /* led boot-end before the clock switch; led fallback/error only run when a bootm returned (#9).
  * bootargs: Linux reads st1008f.mode (switch position) + st1008f.boot (image) (docs/DEFAULT-BOOT.md) */
 #define ARGS(img)	"setenv bootargs st1008f.mode=m%d st1008f.boot=" img "; "
-#define BOOT_PRIMARY	"rtk led boot-end; clocks fast; bootsel wdt on; " ARGS("primary") "bootm 0xb4300000; " \
+/* `bootsel fast` arms the wdt, then `clocks fast` (#101): a hang in the clock change resets the SoC
+ * and the next boot skips the overclock. Legacy (upstream kernel, no keep-running wdt patch) disarms
+ * before bootm; primary/fallback keep it through bootm -> kernel wdt. */
+#define BOOT_PRIMARY	"rtk led boot-end; bootsel fast; " ARGS("primary") "bootm 0xb4300000; " \
 			"bootsel wdt off; rtk led fallback bootm-primary; " ARGS("fallback") "bootm 0xb5900000; " \
 			"rtk led error bootm"
-#define BOOT_FALLBACK	"rtk led boot-end; clocks fast; bootsel wdt on; " ARGS("fallback") "bootm 0xb5900000; " \
+#define BOOT_FALLBACK	"rtk led boot-end; bootsel fast; " ARGS("fallback") "bootm 0xb5900000; " \
 			"bootsel wdt off; rtk led error bootm"
-#define BOOT_LEGACY	"rtk led boot-end; clocks fast; " ARGS("legacy") "bootm 0xb4300000; rtk led error bootm"
+#define BOOT_LEGACY	"rtk led boot-end; bootsel fast; bootsel wdt off; " ARGS("legacy") \
+			"bootm 0xb4300000; rtk led error bootm"
 
 /* uImage header in flash: magic (std or Realtek), header CRC, payload fits the slot */
 static bool slot_ok(ulong off, ulong size, char *name)
@@ -105,6 +109,30 @@ static bool rec_valid(void)
 static u32 rec_attempts(void)
 {
 	return rec_valid() ? __raw_readl(REC + 1) : 0;	/* invalid = cold boot */
+}
+
+/* `bootsel fast` record: REC+3 = magic while `clocks fast` runs. Still set at the next boot = that
+ * change never finished (watchdog reset) -> this boot stays at stock clocks; the one after retries */
+#define REC_CLK		(REC + 3)
+#define REC_CLK_MAGIC	0xc10cfa57
+
+static void wdt_on(u32 ms);
+
+static int clk_fast(void)
+{
+	int ret;
+
+	wdt_on(BOOT_WDT_MS);	/* covers the change (< 1 s) and bootm -> kernel wdt probe */
+	if (__raw_readl(REC_CLK) == REC_CLK_MAGIC) {
+		__raw_writel(0, REC_CLK);
+		puts("clocks: the last `clocks fast` did not finish (reset during the change): stock clocks this boot\n");
+		rtk_led_fallback("clocks");
+		return 0;
+	}
+	__raw_writel(REC_CLK_MAGIC, REC_CLK);	/* KSEG1: in DRAM before the change starts */
+	ret = run_command("clocks fast", 0);
+	__raw_writel(0, REC_CLK);
+	return ret;
 }
 
 static void rec_set(u32 attempts)
@@ -218,6 +246,8 @@ static int do_bootsel(struct cmd_tbl *cmdtp, int flag, int argc, char *const arg
 			wdt_on(!strcmp(argv[2], "on") ? BOOT_WDT_MS : dectoul(argv[2], NULL));
 		return 0;
 	}
+	if (argc == 2 && !strcmp(argv[1], "fast"))
+		return clk_fast() ? CMD_RET_FAILURE : 0;
 	if (argc == 2 && !strcmp(argv[1], "clear")) {
 		rec_set(0);
 		return 0;
@@ -241,4 +271,5 @@ static int do_bootsel(struct cmd_tbl *cmdtp, int flag, int argc, char *const arg
 U_BOOT_CMD(bootsel, 3, 0, do_bootsel, "default-boot selection (#73, docs/DEFAULT-BOOT.md)",
 	   "          - slots, stock env flag, attempt record, decision (read-only)\n"
 	   "bootsel clear      - attempt record = 0 (RAM)\n"
+	   "bootsel fast       - `clocks fast`, skipped once after a boot whose change never finished\n"
 	   "bootsel wdt on|off|<ms> - SoC watchdog, SoC reset on expiry (on = boot value)");

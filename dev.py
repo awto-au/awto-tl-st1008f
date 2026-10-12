@@ -173,6 +173,12 @@ def cmd_mem_clock(extra: list[str]) -> int:
     return _script("mem_clock_step.py", extra)
 
 
+@command("repeat-rate of one clock step over N power cycles at our RAM U-Boot: cpu | mem (650) | fast (#101)",
+         args="cpu|mem|fast [--n 20] [--from-flash]", kind="hardware")
+def cmd_clocks_cycle(extra: list[str]) -> int:
+    return _script("clocks_cycle.py", extra)
+
+
 @command("DDR3 probe sweep: `clocks set mem <MHz> nosr probe ...` per setting, canary-bad count each (#48 #49 #56)",
          args="field|dqshift|mpcr|once --mhz N [--reg A --fields 28:24,20:16 --values 0-31] [--extra OPTS]",
          kind="hardware")

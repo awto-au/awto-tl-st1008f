@@ -253,6 +253,17 @@ change:
 6:	li	a1, 'D'
 	bal	putc
 	 nop
+	li	a1, 20			/* >= 2 refreshes (tREFI <= 7.8 us) at the new clock, then a */
+	bal	delay			/* second PHY FIFO pointer clear before the first access (#101) */
+	 nop
+	lw	t0, 0x500(s2)
+	li	t1, ~0x10
+	and	t0, t0, t1
+	sw	t0, 0x500(s2)
+	sync
+	ori	t0, t0, 0x10
+	sw	t0, 0x500(s2)
+	sync
 	jr	t9
 	 move	v0, zero
 fail_busy:
@@ -354,8 +365,33 @@ canary:
 	move	v1, t3
 	b	2b
 	 move	a2, t4
-4:	jr	ra
+	/* burst pass: the same words through KSEG0, each line invalidated then refilled (8-beat
+	 * line fill, as code and stack refills after the return); a wrong word adds to v0 (#101) */
+4:	lw	t0, DP_CAN_ADDR(s0)
+	lui	t6, 0x2000
+	subu	t0, t0, t6		/* KSEG1 -> KSEG0 alias */
+	lw	t1, DP_CAN_WORDS(s0)
+	move	t3, zero
+	move	t7, zero
+5:	beqz	t1, 8f
 	 nop
+	andi	t6, t3, 31
+	bnez	t6, 6f
+	 nop
+	cache	0x11, 0(t0)		/* Hit_Invalidate_D: next load refills the line */
+6:	lw	t4, 0(t0)
+	xor	t5, t3, t2
+	beq	t4, t5, 7f
+	 nop
+	addiu	t7, t7, 1
+	or	a3, a3, t4
+7:	addiu	t0, t0, 4
+	addiu	t3, t3, 4
+	b	5b
+	 addiu	t1, t1, -1
+8:	sw	t7, DP_CAN_BURST(s0)
+	jr	ra
+	 addu	v0, v0, t7
 
 /* a1 us; loop = 2 instructions >= 2 CPU cycles, so the delay is never shorter */
 delay:

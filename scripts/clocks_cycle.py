@@ -1,0 +1,110 @@
+#!/usr/bin/env python3
+"""clocks_cycle — repeat-rate of one clock step over N power cycles on the bench unit (#101).
+
+- Per cycle: `ramload uboot-mainline --stock-clocks` (power cycle; `--from-flash` = ours copied from
+  jffs2-log, no `rtk network on`, as the power-up chain), then ONE step at our prompt:
+  cpu = `clocks set cpu 0x3a8 0x6b439e13 0 force` (1 GHz); mem = `clocks set mem <--mhz> nosr force`;
+  fast = `clocks fast` (both + tREFI + prefetch). Then `echo ALIVE`.
+- Result per cycle: pass / fail (command reported FAIL) / hang (no prompt; last console lines kept)
+  / boot (ramload failed). JSON lines -> tmp/logs/clocks_cycle.jsonl; summary at the end.
+- RAM U-Boot only: no flash or env writes. Log: tmp/logs/clocks_cycle.log
+"""
+
+from __future__ import annotations
+
+import argparse
+import json
+import re
+import subprocess
+import sys
+import time
+from pathlib import Path
+
+sys.path.insert(0, str(Path(__file__).resolve().parent))
+from st1008_ramload import ROOT, Console  # noqa: E402
+
+LOG = ROOT / "tmp/logs/clocks_cycle.log"
+JSONL = ROOT / "tmp/logs/clocks_cycle.jsonl"
+PROMPT = r"\r?\nst1008f-mainline # "
+STEPS = {
+    "cpu": ("clocks set cpu 0x3a8 0x6b439e13 0 force", r"clocks: locked after \d+ polls"),
+    "mem": ("clocks set mem {mhz} nosr force", r"clocks: (mem set (OK|FAIL[^\n]*)|no bin[^\n]*)"),
+    # same set with all 32 trained DQ read taps rewritten unchanged while clk_oe = 0 (#101 test)
+    "memdq0": ("clocks set mem {mhz} nosr dqshift 0 force", r"clocks: (mem set (OK|FAIL[^\n]*)|no bin[^\n]*)"),
+    "fast": ("clocks fast", r"clocks: (fast = [^\n]*|mem set FAIL[^\n]*|DTR latch[^\n]*)"),
+}
+# step from SRAM: PLL relock (100k-poll bound) + DDR change + 1024-word canary, ~ms; the console
+# prints ~20 lines (~2 KB at 115200 = 0.2 s). 3 s names a hang.
+STEP_S = 3
+BOOT_S = 120  # ramload uboot-mainline: power cycle + network on + TFTP ~25 s; x1.25 + relay retries
+
+
+def log(msg: str) -> None:
+    line = f"{time.strftime('%Y-%m-%dT%H:%M:%S%z')} {msg}"
+    print(line, flush=True)
+    LOG.parent.mkdir(parents=True, exist_ok=True)
+    with LOG.open("a") as fh:
+        fh.write(line + "\n")
+
+
+def cycle(step: str, flash: bool, mhz: int) -> dict:
+    cmd = [sys.executable, str(ROOT / "scripts/st1008_ramload.py"), "uboot-mainline", "--stock-clocks"]
+    r = subprocess.run(cmd + (["--from-flash"] if flash else []), capture_output=True, text=True,
+                       timeout=BOOT_S)
+    if r.returncode not in (0, 1):  # 1 = boot log UNKNOWN only: prompt usable
+        return {"result": "boot", "detail": (r.stdout + r.stderr).strip().splitlines()[-1:]}
+    con = Console()
+    try:
+        con.run("", PROMPT, 2, "our prompt")
+    except SystemExit:
+        return {"result": "boot", "detail": ["no st1008f-mainline prompt after ramload"]}
+    res, detail = "pass", []
+    for part in step.split("+"):  # e.g. cpu+mem: separate commands, in order
+        text, want = STEPS[part]
+        text = text.format(mhz=mhz)
+        mark = con.size()
+        try:
+            _, out = con.run(text, rf"(?s){want}.*?{PROMPT}", STEP_S, f"step {part}")
+        except SystemExit as e:
+            log_tail = Path(ROOT / "private/serial/st1008-console.log").read_bytes()[mark:].decode("latin-1")
+            lines = [ln.strip() for ln in log_tail.splitlines() if ln.strip() and not ln.startswith("[TX")]
+            return {"result": "hang" if str(e).startswith("TIMEOUT") else "fail", "detail": [part] + lines[-3:]}
+        m = re.search(want, out)
+        detail.append(m.group(0))
+        if "FAIL" in m.group(0) or "latch" in m.group(0) or "no bin" in m.group(0):
+            res = "fail"
+            break
+    try:
+        con.run("echo ALIVE", r"\r?\nALIVE" + PROMPT, 2, "alive")
+    except SystemExit:
+        return {"result": "hang", "detail": ["after step: no ALIVE"]}
+    return {"result": res, "detail": detail}
+
+
+def main() -> int:
+    ap = argparse.ArgumentParser(description=__doc__.splitlines()[0])
+    ap.add_argument("step", help="cpu | mem | fast, or a sequence like cpu+mem / mem+cpu")
+    ap.add_argument("--n", type=int, default=20)
+    ap.add_argument("--mhz", type=int, default=650, help="mem step: DDR bin (662 = 662.5 MHz)")
+    ap.add_argument("--stop-on-hang", action="store_true")
+    ap.add_argument("--from-flash", action="store_true", help="ours from jffs2-log, no network on")
+    a = ap.parse_args()
+    if any(p not in STEPS for p in a.step.split("+")):
+        ap.error(f"step parts must be in {list(STEPS)}")
+    tag = f"{a.step}{a.mhz if 'mem' in a.step else ''}{'-flash' if a.from_flash else ''}"
+    counts: dict[str, int] = {}
+    for i in range(1, a.n + 1):
+        res = cycle(a.step, a.from_flash, a.mhz)
+        res.update({"tag": tag, "cycle": i, "when": time.strftime("%Y-%m-%dT%H:%M:%S%z")})
+        counts[res["result"]] = counts.get(res["result"], 0) + 1
+        log(f"[{tag} {i}/{a.n}] {res['result']}: {' | '.join(res['detail'])}")
+        with JSONL.open("a") as fh:
+            fh.write(json.dumps(res) + "\n")
+        if a.stop_on_hang and res["result"] == "hang":
+            break
+    log(f"SUMMARY {tag}: {counts} of {a.n}")
+    return 0 if counts.get("pass", 0) == a.n else 1
+
+
+if __name__ == "__main__":
+    sys.exit(main())

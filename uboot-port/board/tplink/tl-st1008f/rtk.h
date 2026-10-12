@@ -118,6 +118,7 @@ int rtk_sds_cmd(int argc, char *const argv[]);
 /* rtl930x_eth.c: loop probe for `rtk linkcheck` (rtk_linkcheck.c) */
 int rtl930x_eth_loop_probe(int cage, const u8 *magic, int mlen, unsigned int wait_ms, u32 *hits);
 int rtk_linkcheck(int argc, char *const argv[]);
+void rtl930x_eth_quiesce(void);
 
 /* rtk_led.c: port LEDs (3x8 matrix), boot snake, error latch; rtk_net.c: LED engine config */
 int rtk_led(int argc, char *const argv[]);

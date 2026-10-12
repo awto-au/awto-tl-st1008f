@@ -65,7 +65,7 @@ def probe(con: Console, mhz: int, extra: str, setting: str) -> dict:
         raise SystemExit(f"command {len(cmd)} chars > 240 (console drops input): {cmd}")
     _, out = con.run(cmd, r"clocks: (?:probe (?:OK|FAIL)|mem set FAIL|no bin|mem option|reg |DTR0 |MEM would)"
                      r"[^\r\n]*" + PROMPT, CAP_PROBE, f"probe {setting}")
-    m = re.search(r"canary (\d+) bad at the new clock, xor ([0-9a-f]{8}), first \+0x([0-9a-f]+) = "
+    m = re.search(r"canary (\d+) bad at the new clock(?: \(\d+ in the burst pass\))?, xor ([0-9a-f]{8}), first \+0x([0-9a-f]+) = "
                   r"([0-9a-f]{8}) want ([0-9a-f]{8})", out)
     marks = re.search(r"\n(M[SPRXDCF]*)\r?\n", out)
     r = {"setting": setting, "ok": "probe OK" in out, "bad": int(m.group(1)) if m else -1,

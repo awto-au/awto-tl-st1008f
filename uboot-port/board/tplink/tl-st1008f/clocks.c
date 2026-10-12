@@ -22,6 +22,7 @@
 #include <linux/libfdt.h>
 #include <mach/otto.h>
 #include "ddr_sram.h"
+#include "rtk.h"
 
 DECLARE_GLOBAL_DATA_PTR;
 
@@ -225,7 +226,11 @@ static const struct mem_bin {
 	{ 725, { 0x0000007f, 0x400001ef, 0x26a33860, 0x380f0000 }, 0xbb755a3a, 0x0a0a051c, 0x00018000 },
 	{ 700, { 0x0000007f, 0x400001ef, 0x26a33860, 0x360f0000 }, 0xbb75593a, 0x0909051b, 0x00017000 },
 	{ 675, { 0x0000007f, 0x400001ef, 0x26a33860, 0x340f0000 }, 0xbb75593a, 0x0909051a, 0x00016000 },
+	/* 662 = 662.5 MHz (NCODE 51); 625 (NCODE 48): sweep points between bins with the 650 DTRs
+	 * (CL 10 / CWL 7 valid for tCK 1.5-1.875 ns); experiment only (#101) */
+	{ 662, { 0x0000007f, 0x400001ef, 0x26a33860, 0x330f0000 }, 0x99655838, 0x0909061f, 0x00019000 },
 	{ 650, { 0x0000007f, 0x400001ef, 0x26a33860, 0x320f0000 }, 0x99655838, 0x0909061f, 0x00019000 },
+	{ 625, { 0x0000007f, 0x400001ef, 0x26a33860, 0x300f0000 }, 0x99655838, 0x0909061f, 0x00019000 },
 	{ 600, { 0x0000007f, 0x400001ef, 0x26a33860, 0x2e0f0000 }, 0x99644838, 0x0808061f, 0x00016000 },
 	{ 550, { 0x000c607f, 0x4000018f, 0x26a33840, 0x2a0f0000 }, 0x98644738, 0x0808051e, 0x00014000 },
 	{ 500, { 0x000c607f, 0x4000018f, 0x26a23740, 0x260f0000 }, 0x77533d26, 0x0707031b, 0x00013000 },
@@ -316,7 +321,7 @@ static int mem_set(const struct mem_req *q)
 			b = &mem_bins[i];
 	if (!b) {
 		/* above 800: CL 13 / CWL 9 are outside the SPL/SDK MR tables and the SoC's 800 MHz rating */
-		printf("clocks: no bin for %u MHz (800 775 750 725 700 675 650 600 550 500 450 400 350 300)\n",
+		printf("clocks: no bin for %u MHz (800 775 750 725 700 675 662 650 625 600 550 500 450 400 350 300)\n",
 		       mhz);
 		return CMD_RET_FAILURE;
 	}
@@ -412,6 +417,14 @@ static int mem_set(const struct mem_req *q)
 	for (i = DP_STATUS; i < DP_SAVE; i += 4)
 		dp_set(i, 0);
 	dp_set(DP_PROBE, q->probe);
+	if (read_c0_status() & ST0_IE) {	/* U-Boot runs with interrupts off; a handler would run from DRAM */
+		puts("clocks: CP0 Status.IE = 1, refused\n");
+		sram_unload(&w);
+		free(buf);
+		return CMD_RET_FAILURE;
+	}
+	if (IS_ENABLED(CONFIG_NETDEVICES))
+		rtl930x_eth_quiesce();	/* no NIC DMA into DRAM during the change (#101) */
 	uart_drain();
 	t0 = timer_get_us();
 	dcache_wbinv_all();	/* last: no dirty line may be evicted into a DRAM in self-refresh */
@@ -421,9 +434,10 @@ static int mem_set(const struct mem_req *q)
 	       t0, st, dp_get(DP_DMCR_POLLS), dp_get(DP_MPMR0_SR), dp_get(DP_MPMR0_EXIT));
 	/* one parseable line per attempt (scripts/mem_tap_sweep.py) */
 	if (st & (DST_CANARY | DST_PROBE))
-		printf("clocks: canary %u bad at the new clock, xor %08x, first +0x%x = %08x want %08x, "
-		       "revert code %u\n", dp_get(DP_CAN_BAD), dp_get(DP_CAN_XOR), dp_get(DP_CAN_OFF),
-		       dp_get(DP_CAN_VAL), dp_get(DP_CAN_OFF) ^ seed, dp_get(DP_REV_CODE));
+		printf("clocks: canary %u bad at the new clock (%u in the burst pass), xor %08x, first +0x%x = "
+		       "%08x want %08x, revert code %u\n", dp_get(DP_CAN_BAD), dp_get(DP_CAN_BURST),
+		       dp_get(DP_CAN_XOR), dp_get(DP_CAN_OFF), dp_get(DP_CAN_VAL), dp_get(DP_CAN_OFF) ^ seed,
+		       dp_get(DP_REV_CODE));
 	rev = dp_get(DP_REV_CODE);
 	sram_unload(&w);
 	for (i = 0; i < CANARY_WORDS; i++)

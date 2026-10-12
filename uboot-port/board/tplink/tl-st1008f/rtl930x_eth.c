@@ -404,6 +404,14 @@ U_BOOT_DRIVER(rtl930x_eth) = {
 	.flags		= DM_FLAG_ACTIVE_DMA,
 };
 
+/* `clocks set mem`: no NIC DMA into DRAM while it changes clock (stock's rings after its network
+ * on, or ours between commands); register-only, safe when the NIC was never set up. The next eth
+ * start enables it again (#101) */
+void rtl930x_eth_quiesce(void)
+{
+	nic_quiesce();
+}
+
 /* `rtk linkcheck` loop probe (#97): one broadcast out `cage` (physical forward), then every RX
  * frame carrying `magic` for wait_ms; *hits = SDK ports it came back on. Lasers: `cage` only. */
 int rtl930x_eth_loop_probe(int cage, const u8 *magic, int mlen, unsigned int wait_ms, u32 *hits)
