@@ -61,6 +61,7 @@ Narrative & dead ends: see [HISTORY.md](HISTORY.md). Evidence paths under `priva
 - Seen 2026-10-12: relay OFF unprompted at 10:24:30+11:00 and between 10:26:58 and 10:27:42, each 25-60 s after a `dev.py` power-on (10:24:06, 10:26:40). ESPHome `sensor/uptime` read 64 s at ~10:29 = the relay itself had rebooted.
   - Not Home Assistant: no automation references the entity; `light.office_lights` does not include it.
   - Suspect: ESP8266 reset (brownout or EMI) when the relay switches the board load on. HA `sensor.office_bench_lights_reset_reason` would confirm; not yet read.
+  - After that: relay uptime 2164 s at 11:03:53+11:00, so no reboot from 10:27:50 through the #59 session's power cycles. Intermittent, not every switch-on.
 - Detection (`scripts/switch_power.py`): every on/off logs relay uptime before/after (`tmp/relay_uptime.json`); `check` flags a reboot (uptime < recorded + elapsed − 30 s), exit 3; `check --fix` powers on once if a reboot left it OFF. `ramload` (end) and `nic-bench boot` run it.
 - Not done (config in the private awto-terminal repo, `hass/esphome/office-bench-lights.yaml`): `restore_from_flash: true` + `RESTORE_DEFAULT_ON`; snubber or separate ESP supply; entity rename.
 - **Managed-switch convention** (applies when routing goes live):
