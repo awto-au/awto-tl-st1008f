@@ -1,0 +1,46 @@
+#!/bin/sh
+# st1008f-linkcheck: live SFP links before netifd bridges the ports (#97; U-Boot twin: rtk linkcheck).
+# Per lanN (= cage N): module present, DDM RX power, soft RX_LOS (sfp debugfs), carrier.
+# Live = RX >= 5 uW (-23 dBm), LOS 0, or carrier; copper modules count live (PHY not up yet).
+# More than one live port and a bridge with STP off -> STP on in uci (committed), logged.
+# Exit 0 = <= 1 live, 3 = multi live (STP ensured). Output: one line per port + verdict.
+
+RX_LIVE_MW=0.005
+live=0
+names=""
+grep -q debugfs /proc/mounts || mount -t debugfs debugfs /sys/kernel/debug 2>/dev/null
+
+for d in /sys/class/net/lan*; do
+	p=${d##*/}
+	n=${p#lan}
+	st=/sys/kernel/debug/sfp-p$n/state
+	info=$(ethtool -m "$p" 2>/dev/null)
+	[ -n "$info" ] || { echo "linkcheck $p: empty"; continue; }
+	rx=$(echo "$info" | sed -n 's/.*Receiver signal average optical power *: *\([0-9.]*\) mW.*/\1/p')
+	copper=$(echo "$info" | grep -c "1000BASE-T\|10GBASE-T\|BASE-T")
+	los=$(sed -n 's/^LOS: *\([01]\).*/\1/p' "$st" 2>/dev/null)
+	car=$(cat "$d/carrier" 2>/dev/null)
+	is=no
+	if [ -n "$rx" ] && awk "BEGIN{exit !($rx >= $RX_LIVE_MW)}"; then is=YES; fi
+	[ "$los" = 0 ] && is=YES
+	[ "$car" = 1 ] && is=YES
+	[ "$copper" -gt 0 ] && is=YES
+	echo "linkcheck $p: rx ${rx:--} mW, los ${los:--}, carrier ${car:--}, copper $copper, live $is"
+	[ $is = YES ] && { live=$((live + 1)); names="$names $p"; }
+done
+
+verdict=OK
+if [ $live -gt 1 ]; then
+	verdict=MULTI
+	for s in $(uci -q show network | sed -n "s/^network\.\([^.=]*\)\.type='bridge'$/\1/p"); do
+		[ "$(uci -q get network.$s.stp)" = 1 ] && continue
+		uci set network.$s.stp=1
+		uci commit network
+		logger -t st1008f-linkcheck "bridge $s: STP was off with $live live ports ($names): STP on"
+		echo "linkcheck bridge $s: STP turned on"
+	done
+fi
+echo "linkcheck verdict: live $live ($names ), => $verdict"
+logger -t st1008f-linkcheck "live $live ($names ) => $verdict"
+[ $verdict = OK ] || exit 3
+exit 0

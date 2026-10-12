@@ -625,6 +625,8 @@ static int do_rtk(struct cmd_tbl *cmdtp, int flag, int argc, char *const argv[])
 		return rtk_led(argc, argv);
 	if (is(argv, 1, "crypto"))
 		return rtk_crypto(argc, argv);
+	if (is(argv, 1, "linkcheck"))
+		return rtk_linkcheck(argc - 1, argv + 1);
 	if (is(argv, 1, "help-ours"))
 		return rtk_ours_help();
 	return rtk_usage();

@@ -149,6 +149,12 @@ def cmd_spi_quad_test(extra: list[str]) -> int:
     return _script("spi_quad_test.py", extra)
 
 
+@command("live links + cage loops from our U-Boot (`rtk linkcheck`): lasers off, one at a time, frame probe (#97)",
+         args="[--boot] [--noprobe]  (exit 0 OK, 3 MULTI, 4 LOOP)", kind="hardware")
+def cmd_linkcheck(extra: list[str]) -> int:
+    return _script("linkcheck.py", extra)
+
+
 @command("console UART baud ladder (self-restoring; board ends at 115200)",
          args="[divisor ...]  (default 47 24 12 6 5 4 3 2 1; mainline prompt)", kind="check")
 def cmd_serial_speed(extra: list[str]) -> int:

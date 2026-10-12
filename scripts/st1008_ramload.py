@@ -330,6 +330,14 @@ def fast_clocks(con: Console, e208: str, spi: bool = True) -> None:
     log("  " + ", ".join(re.findall(r"^(?:cpu|spi) [\d.]+ MHz", out, re.M)))
 
 
+def linkcheck_gate() -> None:
+    """`linkcheck.py --boot` (power cycle into ours, `rtk linkcheck`); refuse MULTI/LOOP (#97)."""
+    r = subprocess.run([sys.executable, str(ROOT / "scripts/linkcheck.py"), "--boot"],
+                       timeout=150)  # ramload ours ~25 s + check 14 s cap; x1.25 + relay latency
+    if r.returncode:
+        raise SystemExit(f"linkcheck rc {r.returncode} (3 MULTI, 4 LOOP): OpenWrt boot refused (#97)")
+
+
 def main() -> int:
     ap = argparse.ArgumentParser(description=__doc__.splitlines()[0])
     ap.add_argument("image", choices=sorted(IMAGES) + ["stock"],
@@ -354,12 +362,17 @@ def main() -> int:
     ap.add_argument("--cpu", metavar="E208",
                     help="uboot-mainline: CPU e208 for /3 (default 0x3a8 = 1000 MHz; docs/CLOCKS.md)")
     ap.add_argument("--no-network", action="store_true", help="rtk network on already done this boot")
+    ap.add_argument("--no-linkcheck", action="store_true",
+                    help="skip the pre-OpenWrt live-link/loop check (`rtk linkcheck`, #97)")
     ap.add_argument("--bootargs", metavar="ARGS",
                     help="with --then: U-Boot bootargs before bootm, e.g. 'st1008f.mode=m2 st1008f.boot=primary'")
     a = ap.parse_args()
 
     log(f"=== ramload {a.image}, cage {a.cage}")
     console_view()
+    ow_boot = a.image.startswith("openwrt") or (a.then or "").startswith("openwrt") or a.chain_test
+    if ow_boot and a.image != "uboot-mainline" and not a.no_linkcheck:
+        linkcheck_gate()  # its own boot of ours; OpenWrt bridges: refuse > 1 live link (#97)
     con = Console()
     if not a.no_cycle:
         to_stock_uboot(con)
@@ -405,6 +418,12 @@ def main() -> int:
     if a.then and a.spi:
         d, code = (int(x) for x in a.spi.split(":"))
         set_spi(con, d, code)
+    if (a.then or "").startswith("openwrt") and not a.no_linkcheck:
+        from linkcheck import run as linkcheck_run  # late: linkcheck imports this module
+        verdict, live, _ = linkcheck_run(con)
+        if verdict != "OK":
+            raise SystemExit(f"linkcheck {verdict}: {live} live link(s) or a loop; RAM OpenWrt bridges "
+                             "without STP until openwrt_stp -> refused (#97)")
     if a.then:
         ow = IMAGES[a.then]
         if a.bootargs:  # appended to the DT bootargs by DTB_EXTEND kernels (OpenWrt-on-7.3, #73)

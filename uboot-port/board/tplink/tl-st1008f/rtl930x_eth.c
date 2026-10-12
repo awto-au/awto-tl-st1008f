@@ -404,6 +404,54 @@ U_BOOT_DRIVER(rtl930x_eth) = {
 	.flags		= DM_FLAG_ACTIVE_DMA,
 };
 
+/* `rtk linkcheck` loop probe (#97): one broadcast out `cage` (physical forward), then every RX
+ * frame carrying `magic` for wait_ms; *hits = SDK ports it came back on. Lasers: `cage` only. */
+int rtl930x_eth_loop_probe(int cage, const u8 *magic, int mlen, unsigned int wait_ms, u32 *hits)
+{
+	struct udevice *dev;
+	struct rtl930x_eth_priv *p;
+	u8 f[TX_MIN];
+	uchar *pkt;
+	char old[8] = "";
+	bool any;
+	ulong t0;
+	int len, ret;
+
+	*hits = 0;
+	if (uclass_first_device_err(UCLASS_ETH, &dev))
+		return -ENODEV;
+	p = dev_get_priv(dev);
+	if (env_get("ethport"))
+		strlcpy(old, env_get("ethport"), sizeof(old));
+	env_set_ulong("ethport", cage);
+	ret = rtl930x_eth_start(dev);
+	env_set("ethport", old[0] ? old : NULL);
+	if (ret)
+		return ret;
+	memset(f, 0, sizeof(f));
+	memset(f, 0xff, 6);
+	memcpy(f + 6, ((struct eth_pdata *)dev_get_plat(dev))->enetaddr, 6);
+	f[12] = 0x88;		/* 0x88b5: IEEE local experimental ethertype */
+	f[13] = 0xb5;
+	memcpy(f + 14, magic, min(mlen, TX_MIN - 14));
+	any = p->rx_any;
+	p->rx_any = true;
+	while ((len = rtl930x_eth_recv(dev, 0, &pkt)) > 0)	/* drain: only frames after our send count */
+		rtl930x_eth_free_pkt(dev, pkt, len);
+	ret = rtl930x_eth_send(dev, f, sizeof(f));
+	t0 = get_timer(0);
+	while (!ret && get_timer(t0) < wait_ms) {
+		len = rtl930x_eth_recv(dev, 0, &pkt);
+		if (len <= 0)
+			continue;
+		if (len >= 14 + mlen && pkt[12] == 0x88 && pkt[13] == 0xb5 && !memcmp(pkt + 14, magic, mlen))
+			*hits |= BIT(p->last.port);
+		rtl930x_eth_free_pkt(dev, pkt, len);
+	}
+	p->rx_any = any;
+	return ret;
+}
+
 static int do_ethstat(struct cmd_tbl *cmdtp, int flag, int argc, char *const argv[])
 {
 	struct udevice *dev;

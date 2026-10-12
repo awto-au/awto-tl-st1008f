@@ -1,0 +1,8 @@
+#!/bin/sh /etc/rc.common
+# Live-link check before netifd (network START=20) bridges the ports; enforces STP on multi-live (#97)
+START=19
+
+boot() {
+	/usr/sbin/st1008f-linkcheck >/dev/console 2>&1
+	return 0
+}

@@ -343,16 +343,19 @@ def overlay(kernel: str, none: bool) -> None:
 
 
 DEFAULT_BOOT = ROOT / "openwrt/default-boot"
+LINKCHECK = ROOT / "openwrt/linkcheck/files"
 
 
 def default_boot_files(on: bool) -> str:
     """--default-boot: openwrt/default-boot/files -> buildroot files/ (image overlay) + diffconfig lines.
-    Without it the buildroot files/ is removed: images never carry a stale overlay."""
+    Without it files/ holds only openwrt/linkcheck/files: images never carry a stale overlay."""
     dst = TREE / "files"
     shutil.rmtree(dst, ignore_errors=True)
+    shutil.copytree(LINKCHECK, dst, symlinks=True)  # every image: live-link check before bridging (#97)
+    log(f"linkcheck: files/ from {LINKCHECK.relative_to(ROOT)}")
     if not on:
         return ""
-    shutil.copytree(DEFAULT_BOOT / "files", dst, symlinks=True)
+    shutil.copytree(DEFAULT_BOOT / "files", dst, symlinks=True, dirs_exist_ok=True)
     log(f"default-boot: files/ ({sum(1 for _ in dst.rglob('*'))} paths) + diffconfig")
     return "".join(ln + "\n" for ln in (DEFAULT_BOOT / "diffconfig").read_text().splitlines()
                    if ln.startswith("CONFIG_"))

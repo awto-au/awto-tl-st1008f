@@ -15,4 +15,4 @@ obj-y += highmem.o
 obj-y += clocks.o clocks_sram.o ddr_sram.o
 obj-y += bench.o
 obj-y += rtk_crypto.o
-obj-$(CONFIG_NETDEVICES) += rtl930x_eth.o
+obj-$(CONFIG_NETDEVICES) += rtl930x_eth.o rtk_linkcheck.o

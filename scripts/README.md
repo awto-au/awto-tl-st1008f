@@ -117,6 +117,10 @@ End-to-end workflow: [../README.md#workflow](../README.md#workflow).
 - Purpose: tagged bench VLANs on a running OpenWrt bridge `switch` over SSH, hitless: runtime `bridge vlan add/del` + uci `bridge-vlan` section, `uci commit`, no reload; mgmt ping after each step, runtime revert on loss. VLAN 1 never touched (#96).
 - Run: `./dev.py switch-vlan show | stats --ports P | add|remove VIDS --ports P,Q [--ip A.B.C.D]` (`NET_MANAGE`: may target sw1). Log: `tmp/logs/switch_vlan.log`.
 
+### linkcheck.py
+- Purpose: live links + cage loops at our U-Boot (`rtk linkcheck`, #97): lasers off, one at a time, frame probe; verdict OK/MULTI/LOOP. `st1008_ramload.py` calls it before every OpenWrt boot (`linkcheck_gate`, or in-session for `--then openwrt*`).
+- Run: `./dev.py linkcheck [--boot] [--noprobe]`; exit 0 OK, 3 MULTI, 4 LOOP. Log: `tmp/logs/linkcheck.log`. Doc: [../docs/hardware.md](../docs/hardware.md#hazards).
+
 ### board_guard.py
 - Purpose: refuse a `dev.py` hardware flow unless the board is sw2 (#91). Called by `dev.py`; checks args, console log last boot, ARP. Exit 5 = refused.
 - Run: `scripts/board_guard.py <command> [args]`. Log: `tmp/logs/board_guard.log`. Detail: [../docs/hardware.md](../docs/hardware.md#unit-guard-91).

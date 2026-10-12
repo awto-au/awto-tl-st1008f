@@ -161,6 +161,7 @@ int rtk_ours_help(void)
 	       "  rtk led [show|snake|set|all|hw|clear|error] port LEDs (3x8 matrix), error latch\n"
 	       "  rtk mode                                   M1/M2/M3 switch position\n"
 	       "  rtk temp                                   on-die temperature (enables the meter)\n"
-	       "  rtk crypto probe|test|bench                SoC crypto engine (#62)\n");
+	       "  rtk crypto probe|test|bench                SoC crypto engine (#62)\n"
+	       "  rtk linkcheck [noprobe]                    live links + cage loops before bridging (#97)\n");
 	return 0;
 }
