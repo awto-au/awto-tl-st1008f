@@ -44,6 +44,18 @@
 		      <0x20000000 0x10000000>;
 	};
 
+	/* our U-Boot's boot-attempt record (bootsel.c); st1008f-bootok clears it via /dev/mem (#73) */
+	reserved-memory {
+		#address-cells = <1>;
+		#size-cells = <1>;
+		ranges;
+
+		bootrec@e000000 {
+			reg = <0x0e000000 0x1000>;
+			no-map;
+		};
+	};
+
 	chosen {
 		stdout-path = "serial0:115200n8";
 		bootargs = "earlycon";

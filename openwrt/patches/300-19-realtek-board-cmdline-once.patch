@@ -1,0 +1,19 @@
+Subject: realtek: board: bootloader arguments in the command line once, not twice (#73)
+
+- fixup_fdt() runs fw_init_cmdline() (realtek fdt fixups read arcs_cmdline), then the generic
+  plat_mem_setup() runs it again: arcs_cmdline = args twice, no separating space.
+- Latent with MIPS_CMDLINE_FROM_DTB (arcs ignored); with DTB_EXTEND (st1008f.mode from our U-Boot)
+  /proc/cmdline read "...boot=primaryst1008f.mode=m1 ...", and st1008f-mode parsed "primaryst1008f.mode=m1".
+- Clear arcs_cmdline after the fixups; plat_mem_setup() fills it once.
+---
+--- a/arch/mips/generic/board-realtek.c
++++ b/arch/mips/generic/board-realtek.c
+@@ -422,6 +422,8 @@
+ 	if (err)
+ 		panic("Unable to fixup FDT: %d", err);
+ 
++	arcs_cmdline[0] = '\0';	/* plat_mem_setup() runs fw_init_cmdline() again */
++
+ 	return fdt_buf;
+ 
+ }

@@ -78,8 +78,8 @@ def check(fix: bool) -> int:
     rebooted = False
     if up is not None and STAMP.exists():
         rec = json.loads(STAMP.read_text())
-        expect = rec["uptime"] + time.time() - rec["wall"]
-        rebooted = up < expect - 30  # 30 s slack: ESPHome sensor update interval + clock skew
+        # sensor updates every 60 s and lagged ~8 % of wall time (2026-10-12): 0.8 x elapsed - 60 s
+        rebooted = up < rec["uptime"] + 0.8 * (time.time() - rec["wall"]) - 60
     on = '"state":"ON"' in st
     if rebooted:
         boot = time.strftime("%Y-%m-%dT%H:%M:%S%z", time.localtime(time.time() - up))

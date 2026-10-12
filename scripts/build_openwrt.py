@@ -16,7 +16,7 @@
 - Disk: aborts below MIN_FREE_GB before each phase and while make runs (log line + #73 comment).
 - Everything at nice 19 / ionice idle. Log: tmp/logs/build_openwrt.log (make output: build_openwrt-make.log).
 
-Usage: build_openwrt.py [--kernel 6.18|7.3] [--kernel-only] [--jobs N] [--update] [--no-overlay]
+Usage: build_openwrt.py [--kernel 6.18|7.3] [--kernel-only] [--jobs N] [--update] [--no-overlay] [--default-boot]
                         [--prepare-only] [--regen-config] [--no-comment]
 """
 
@@ -326,10 +326,27 @@ def overlay(kernel: str, none: bool) -> None:
     overlay_73() if kernel == "7.3" else overlay_618()
 
 
-def config(kernel: str) -> int:
+DEFAULT_BOOT = ROOT / "openwrt/default-boot"
+
+
+def default_boot_files(on: bool) -> str:
+    """--default-boot: openwrt/default-boot/files -> buildroot files/ (image overlay) + diffconfig lines.
+    Without it the buildroot files/ is removed: images never carry a stale overlay."""
+    dst = TREE / "files"
+    shutil.rmtree(dst, ignore_errors=True)
+    if not on:
+        return ""
+    shutil.copytree(DEFAULT_BOOT / "files", dst, symlinks=True)
+    log(f"default-boot: files/ ({sum(1 for _ in dst.rglob('*'))} paths) + diffconfig")
+    return "".join(ln + "\n" for ln in (DEFAULT_BOOT / "diffconfig").read_text().splitlines()
+                   if ln.startswith("CONFIG_"))
+
+
+def config(kernel: str, dboot: str = "") -> int:
     # 7.3: PREEMPT_NONE needs ARCH_NO_PREEMPT; OpenWrt's default KERNEL_PREEMPT_NONE would leave full
     # PREEMPT. Voluntary = the model the 7.3 port boots with (mainline/st1008f-v2.config).
     extra = "CONFIG_TESTING_KERNEL=y\nCONFIG_KERNEL_PREEMPT_VOLUNTARY=y\n" if kernel == "7.3" else ""
+    extra += dboot
     (TREE / ".config").write_text(SEED + extra)
     rc = run(["make", "defconfig"], T_DEFCONFIG)
     if rc:
@@ -432,6 +449,8 @@ def main() -> int:
     ap.add_argument("--up", action="store_true", help="7.3: one VPE (merge mainline/st1008f-v2-up.config)")
     ap.add_argument("--no-overlay", action="store_true", help="stock OpenWrt main (baseline / rebase base)")
     ap.add_argument("--no-comment", action="store_true", help="no #73 comment on a disk abort")
+    ap.add_argument("--default-boot", action="store_true",
+                    help="image with openwrt/default-boot files/ + diffconfig (modes, DHCP + fallback, bootok)")
     a = ap.parse_args()
     comment = not a.no_comment
     global UP73
@@ -443,7 +462,7 @@ def main() -> int:
     clone(a.update)
     overlay(a.kernel, a.no_overlay)
     disk_check("config", comment)
-    if config(a.kernel):
+    if config(a.kernel, default_boot_files(a.default_boot)):
         return 1
     j = f"-j{a.jobs}"
     if a.regen_config:

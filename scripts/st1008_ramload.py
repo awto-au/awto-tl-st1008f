@@ -258,10 +258,11 @@ def openwrt_stp(con: Console) -> None:
     # checked: right after the login banner the first char was dropped ('mesg: not found', 2026-10-11)
     con.run("dmesg -n 1", OW_PROMPT, 1, "console loglevel 1", checked=True)
     # bridge appears when netifd runs (~27 s uptime; shell is up at ~14 s): wait ON the board,
-    # set STP within 1 s of it existing. Cap 30 s = 13 s expected x ~2 for a slow netifd.
+    # set STP within 1 s of it existing. First-boot dropbear keygen delays rc S19/S20 (network): bridge seen
+    # 14-35 s after the shell (2026-10-12, #73); cap 45 s = 35 s x 1.25. No bridge = no loop while waiting.
     con.run("B=/sys/class/net/switch/bridge", OW_PROMPT, 1, "bridge path")
     try:
-        con.run("until [ -d $B ];do sleep 1;done;echo 1 >$B/stp_state", OW_PROMPT, 30, "stp on")
+        con.run("until [ -d $B ];do sleep 1;done;echo 1 >$B/stp_state", OW_PROMPT, 45, "stp on")
         con.run("cat $B/stp_state", r"\n1\r?\n" + OW_PROMPT, 1, "stp_state = 1")
         # 2 s (sysfs unit 1/100 s) = bridge minimum: ports forward ~4 s after STP on, not 2 x 8 s
         con.run("echo 200 >$B/forward_delay", OW_PROMPT, 1, "forward_delay 2 s", checked=True)
@@ -276,7 +277,7 @@ def openwrt_stp(con: Console) -> None:
             except SystemExit:
                 break
         power("off")
-        raise SystemExit("FAIL: bridge STP not enabled in 30 s: lan* down + relay off (#19)")
+        raise SystemExit("FAIL: bridge STP not enabled in 45 s: lan* down + relay off (#19)")
     # BusyBox wraps lines > 60 chars and breaks the echo check: short commands
     con.run("S=network.switch", OW_PROMPT, 1, "uci section", checked=True)
     con.run("uci set $S.stp='1'; uci set $S.forward_delay='2'", OW_PROMPT, 1, "stp uci", checked=True)
@@ -349,6 +350,8 @@ def main() -> int:
     ap.add_argument("--cpu", metavar="E208",
                     help="uboot-mainline: CPU e208 for /3 (default 0x3a8 = 1000 MHz; docs/CLOCKS.md)")
     ap.add_argument("--no-network", action="store_true", help="rtk network on already done this boot")
+    ap.add_argument("--bootargs", metavar="ARGS",
+                    help="with --then: U-Boot bootargs before bootm, e.g. 'st1008f.mode=m2 st1008f.boot=primary'")
     a = ap.parse_args()
 
     log(f"=== ramload {a.image}, cage {a.cage}")
@@ -400,6 +403,8 @@ def main() -> int:
         set_spi(con, d, code)
     if a.then:
         ow = IMAGES[a.then]
+        if a.bootargs:  # appended to the DT bootargs by DTB_EXTEND kernels (OpenWrt-on-7.3, #73)
+            con.run(f"setenv bootargs {a.bootargs}", r"st1008f-mainline # ", 1, "bootargs")
         con.run(f"bootm 0x{ow[1]:08x}", ow[3], ow[4], f"{a.then} via mainline bootm")
         if a.then.startswith("openwrt"):
             openwrt_stp(con)

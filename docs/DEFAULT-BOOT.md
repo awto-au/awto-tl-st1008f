@@ -214,6 +214,30 @@ Owner decision 2026-10-12 (#73, #46). M2 used to mean "stop at the U-Boot prompt
 | `openwrt/backport-6.18/openwrt-tree.patch`, `scripts/build_openwrt.py` `PORT73` | `MIPS_CMDLINE_DTB_EXTEND` (mode on the cmdline) |
 | `scripts/default_boot.py` (`./dev.py default-boot`) | `check`, `test`, `status`, gated `install primary|recovery`, gated `revert` |
 
+## Measured: modes on OpenWrt-on-7.3, RAM boot (2026-10-12)
+
+Image: `./dev.py build-openwrt --kernel 7.3 --default-boot` (OpenWrt main e5ec5e1, our 7.3 port SMP with 300-18/300-19, mainline DTS with `bootrec@e000000`). Boot: `./dev.py ramload uboot-mainline --then openwrt-ours --bootargs "st1008f.mode=mN st1008f.boot=primary"` (simulates bootsel; mode switch physically at M1). One 10G SR in cage 1 to the house switch.
+
+| Check | M1 | M2 (cmdline) |
+|---|---|---|
+| `/proc/cmdline` | `earlycon st1008f.mode=m1 st1008f.boot=primary` | `... m2 ...` |
+| `/var/run/st1008f-mode` | `m1 primary switch cmdline` | `m2 primary isolated cmdline` |
+| `brif/*/isolated` | all 0 | all 1 (8 ports) |
+| bridge STP | 1 | 1 |
+| bootok | confirmed (switch) | confirmed (isolated) |
+| IPv4 on `switch.1` | 192.168.0.1/24 + DHCP 192.168.25.138 | same |
+
+- DHCP lease .138 is from the pool: the `.48` reservation does not exist yet (owner action).
+- No DHCP/RA server in the image: no dnsmasq/odhcpd, no `/etc/config/dhcp`; the `dhcp.lan.*` lines of `90-st1008f-defaults` do nothing.
+- Mode-switch sysfs: `power_total_mw` 1000, `power_cage_mw` `1000 0 0 0 0 0 0 0`, budget 15000; debugfs `position ... = M1`.
+- Bridge appears 21-24 s after the shell; first-boot dropbear key generation delays rc S19/S20 (one boot: `st1008f-mode` ran at 42 s uptime). ramload's STP wait is 45 s.
+- Not run: two-host isolation ping and `PORT_ISOLATION` drop counter (one fitted module; `drop_counters` debugfs path not found on 7.3); M2->M1 change commit; M3/recovery image.
+
+### Fixed for this test
+- Mainline DTS had no `reserved-memory`: `st1008f-bootok`'s `/dev/mem` write hit kernel RAM. Added `bootrec@e000000` (no-map).
+- `300-19`: bootloader args were in `/proc/cmdline` twice without a space (`...primaryst1008f.mode=m1 ...`): OpenWrt's realtek `fixup_fdt()` and generic `plat_mem_setup()` both run `fw_init_cmdline()`. `st1008f-mode` parsed garbage and bootok reported "no mode".
+- `build-openwrt --default-boot` copies `openwrt/default-boot/files` + `diffconfig` into the buildroot; without the flag no overlay is included.
+
 ## Open
 
 - Owner decisions: #73 comment of 2026-10-12.

@@ -359,7 +359,7 @@ def cmd_build_kernel(extra: list[str]) -> int:
 
 
 @command("local OpenWrt main buildroot (rtl930x, TL-ST1008F v2): 6.18 + backports or our 7.3 port -> tmp/tftp/openwrt-ours*.bin (#73)",
-         args="[--kernel 6.18|7.3] [--kernel-only] [--jobs N] [--update] [--no-overlay]  (docs/OPENWRT-BUILD.md)",
+         args="[--kernel 6.18|7.3] [--kernel-only] [--jobs N] [--update] [--no-overlay] [--default-boot]  (docs/OPENWRT-BUILD.md)",
          kind="build")
 def cmd_build_openwrt(extra: list[str]) -> int:
     return _script("build_openwrt.py", extra)
