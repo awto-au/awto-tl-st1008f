@@ -3,9 +3,9 @@
   "tasks": [
     {
       "label": "ST1008 console",
-      "detail": "Follow the switch console log (written by scripts/switch_console_daemon.py)",
+      "detail": "Follow the switch console log live, error lines red (./dev.py console-watch)",
       "type": "shell",
-      "command": "tail -n 200 -F ${workspaceFolder}/private/serial/st1008-console.log",
+      "command": "${workspaceFolder}/dev.py console-watch",
       "isBackground": true,
       "problemMatcher": [],
       "runOptions": {

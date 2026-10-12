@@ -173,7 +173,7 @@ def cmd_openwrt_flash_stp(extra: list[str]) -> int:
 
 
 @command("boot the flash OpenWrt as an unattended power-up would; log STP/ports/uptime/temp (#43)",
-         args="[--minutes 10] [--every 30]  (run storm-watch alongside)", kind="hardware")
+         args="[--minutes 10] [--every 30]", kind="hardware")
 def cmd_flash_openwrt_watch(extra: list[str]) -> int:
     return _script("flash_openwrt_watch.py", extra)
 
@@ -238,6 +238,12 @@ def cmd_spi_linux(extra: list[str]) -> int:
          args="[--ip A.B.C.D]", kind="check")
 def cmd_mode_watch(extra: list[str]) -> int:
     return _script("mode_watch.py", extra)
+
+
+@command("follow the serial console log live, error-looking lines red (known #NN yellow); read-only",
+         args="[--lines N]", kind="check")
+def cmd_console_watch(extra: list[str]) -> int:
+    return _script("console_watch.py", extra)
 
 
 @command("CPU-path NAT/routing throughput, one-armed over lan1 VLANs 991/992 (docs/NAT-OPS.md)",
