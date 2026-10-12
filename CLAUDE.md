@@ -11,7 +11,8 @@
 
 ## Speed sweeps (owner, 2026-10-13)
 
-- Start at the fastest setting the hardware can be programmed to; binary-search down to the fastest **viable** one = passes ONE quick test. No repeat runs (n=5/n=20) during the sweep.
+- Range = stock (known good) to the fastest setting the hardware can be programmed to. Binary search: start at the midpoint; pass → go higher, fail/hang → go lower; stop at the fastest **viable** point = passes ONE quick test. No repeat runs (n=5/n=20) during the sweep.
+- Run sweeps in one powered session (`clocks-cycle --session`): passing points need no power-cycle; power-cycle only after a fail or hang.
 - Overview table per domain (CPU, SRAM, LX, DDR, SPI) first, then discuss with the owner before repeats or making a setting the default.
 
 ## Entry point: `./dev.py`
