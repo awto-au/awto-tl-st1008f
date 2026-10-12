@@ -53,6 +53,13 @@ One quick test per point: the change reports OK, prompt, 16 MiB `crc32`, tempera
 | SPI-NOR | 204, 153 | fail | CRC wrong | codes 1, 2 |
 | SPI-NOR | 122.5 | pass | flash_c 37.0 MB/s, chip CRC 3.5 s | code 3 (as Dual I/O) |
 
+## Linux at the picks (sw2, 2026-10-13T10:36-10:45+11:00, mainline next + SRAM patches, partial)
+
+- Stock clocks (CPU 800, DDR 600, SRAM 250): `./dev.py sram-bench` per access: SRAM uc read 63.9 cycles, cached miss 76.5, uc write 17.5; DDR 86.0 / 89.5 / 48.9; cached hit 3.1 both. nic-bench `lin-stock` run 1 recorded (tag in `tmp/logs/nat_bench.jsonl`).
+- `turbo cpu=1400,ddr=662,lx=306,sram=500` before `bootm`: kernel console garbled from the first line (LX 306 → the kernel UART clock does not follow); Linux state unknown.
+- `turbo cpu=1400,ddr=662,sram=500`: hung once in the CPU change after the DDR change (`clocks: write 0xbb00e208=0x00000368 …`, no lock line). The same three steps as separate commands (`clocks-cycle mem+sram500+cpu`, 662 and 650): pass, one run each. Not yet explained.
+- Not done: Linux load test, nic-bench at the picks, sram-bench at SRAM 500, NIC DMA into SRAM.
+
 ## CPU above 1000 MHz (sw2, 2026-10-13, CPU_SRAM_ASY_TIMING written)
 
 | CPU | e208 / DIVN2 (VCO) | `clocks-cycle cpu` n=5 | Real rate (`cpu-clock`, host-timed `sleep 5`) |
