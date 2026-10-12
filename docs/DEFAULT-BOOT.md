@@ -120,14 +120,19 @@ Chained boot only (`ramload` boots never autoboot). First match wins:
 - Confirmed by Linux: `/etc/init.d/st1008f-bootok` (START=99) writes magic + 0 via `devmem` once bridge `switch` is loop-safe for its mode: `switch` = STP on; `isolated` = every bridge port `isolated` 1. O_SYNC `/dev/mem` = uncached mapping, so the write is in DRAM before any reset.
 - Unconfirmed boots: panic (`CONFIG_PANIC_TIMEOUT=1` in OpenWrt: reboot after 1 s), watchdog reset, hang, no bridge, STP off (switch), a port not isolated (isolated; forced on), no mode state. Two in a row → recovery.
 - Recovery is sticky until a power cycle (DRAM loses the record) or `bootsel clear` / `devmem` clear.
-- Depends on DRAM keeping the page across a SoC reset through the stock preloader and stock U-Boot: not measured. Fallback if it does not: reset cause from `RST_GLB_STS` (watchdog reset → recovery once), address to confirm (#62).
+- DRAM keeps the record across a SoC watchdog reset and a switch-core reset through the stock preloader and stock U-Boot (sw2, 2026-10-13T10:05-10:07+11:00: `5b007ec0 00000000 ffffffff` read back at the stock prompt after each, #105).
 
 ### Watchdog
 
 - SoC watchdog `WDTCNTRR` `0xb8003260`, `WDTINTRR` `+4`, `WDT_CTRL` `+8` (Linux `realtek_otto_wdt`; `WDT_RESET_MODE` 0 = SDK "full chip"). Tick = 2^(25+prescale) / LX kHz; LX 175 MHz → 192/383/767/1534 ms, max 33 ticks = 50.6 s.
 - `bootsel wdt on` = 12 s (prescale 2, 16 ticks of 767 ms). Covers `bootm` → kernel watchdog probe: chain log 2026-10-11 = ~23 s ours → console, of which kernel 14.3 s and bootdelay 1 s → ~8 s `bootm` (flash read + LZMA at stock SPI) + ~1 s to probe ≈ 9 s, x1.25 → 12 s. Expiry = SoC reset → counted attempt.
 - `openwrt/patches/300-15`: probe used to write `CTRL_DEFAULT` (watchdog off). Now an enabled watchdog stays on, `WDOG_HW_RUNNING`: the core pings until procd opens `/dev/watchdog` (procd: 30 s timeout, 5 s ping). Without it, probe (~1 s) → procd (~13 s) is uncovered. The recovery kernel (6.18) needs the same patch.
-- Not measured: that a watchdog reset resets the whole board (and whether `RST_GLB_CTRL_0` WD_RST_EN gates it), LX at boot.
+- `bootsel fast` (#101) arms it (13 s) before `clocks fast`; legacy boots disarm before `bootm`.
+- Warm resets come back by themselves (sw2, 2026-10-13, chain on, #105):
+  - flash OpenWrt (W25Q256 in 4-byte mode), procd feeding stopped (`ubus call system watchdog '{"stop":true}'`): SoC reset 30 s later → stock → ours (`bootsel fast`, 1000/650) → OpenWrt console, no relay;
+  - our U-Boot after `sf probe` (EN4B): `reset` (switch-core RST_GLB_CTRL) → stock banner, SPL reads flash fine;
+  - our U-Boot `bootsel wdt 1000`: SoC reset after ~1.2 s → stock banner.
+- Not measured: LX at boot.
 
 ## Modes
 
