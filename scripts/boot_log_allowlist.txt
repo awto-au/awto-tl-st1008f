@@ -347,12 +347,12 @@ Initrd not found or empty - disabling initrd  # no external initrd passed; known
 Failed to get CPU clock: -2  # no CPU clk provider, falls back to DT 800 MHz; known #28
 UNKNOWN_MC_PMASK: 000000001fffffff  # driver debug print of a constant port mask; known #28
 gpio_button_hotplug: loading out-of-tree module taints kernel\.  # OpenWrt package module; known #28
-Cannot parse config file '/etc/fw_env\.config': No such file or directory  # no fw_env for RAM boots; known #28
-Failed to find NVMEM device  # no MAC source in the image -> random MAC; known #29
-realtek-otto-pcs 1b000000\.switchcore:pcs: pcs_config\(10gbase-r\) for port (0|8|27) and sds [239] not yet fully implemented  # upstream PCS stub (cages 1/2/8); known #29
-realtek-otto-pcs 1b000000\.switchcore:pcs: pcs_config\(sgmii\) for port (16|20|24|25|26) and sds [4-8] not yet fully implemented  # upstream PCS stub (empty cages 3-7); known #29
-rtpcs_930x_sds_10g_idle WARNING: Waiting for RX idle timed out, SDS [4-8]  # empty cages 3-7, RX never idles; known #29
-rtpcs_930x_sds_force_mode: SDS 9 could not reset state machine  # seen once on lan8; known #29
+Cannot parse config file '/etc/fw_env\.config': No such file or directory  # no fw_env.config in the image: real gap, fix tracked; known #86
+Failed to find NVMEM device  # no NVMEM MAC source in the image -> random MAC: real gap; known #86
+realtek-otto-pcs 1b000000\.switchcore:pcs: pcs_config\(10gbase-r\) for port (0|8|27) and sds [239] not yet fully implemented  # OpenWrt 25.12.4 / kernel 6.12 flash image only (gone in 6.18 and 7.3 builds); goes when flash moves to ours; known #73
+realtek-otto-pcs 1b000000\.switchcore:pcs: pcs_config\(sgmii\) for port (16|20|24|25|26) and sds [4-8] not yet fully implemented  # OpenWrt 25.12.4 / kernel 6.12 flash image only (gone in 6.18 and 7.3 builds); known #73
+rtpcs_930x_sds_10g_idle WARNING: Waiting for RX idle timed out, SDS [4-8]  # empty cages 3-7, RX never idles; OpenWrt 6.12 images only (not seen on 6.18 / 7.3); known #73
+rtpcs_930x_sds_force_mode: SDS 9 could not reset state machine  # seen on lan8, OpenWrt 6.12 images only (not seen on 6.18 / 7.3); known #73
 rtl838x-eth 1b00a300\.ethernet eth0: Ring contention: r: 0, last a38000[0-9a-f]{2}, cur a38000[0-9a-f]{2}  # CPU-port RX ring swamped during the cage-loop storm; known #19
 
 [mainline]
