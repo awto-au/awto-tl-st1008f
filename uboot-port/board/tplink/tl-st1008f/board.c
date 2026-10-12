@@ -55,6 +55,7 @@ int board_late_init(void)
 
 	/* undo stock network on's SPI pinmux (ramload flows, #29); board_init() is not called: BOARD_INIT=n */
 	rtk_presence_pins_gpio();
+	rtk_guard_after_stock();	/* stock network on forwards front<->front: CPU-only, ports back on (#100) */
 	if (chained)
 		__raw_writel(0, CHAIN_MARK_ADDR);
 	if (!mode)

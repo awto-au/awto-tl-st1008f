@@ -622,6 +622,22 @@ void rtk_iso_guard(void)
 		iso_set(rtk_cage_port[i], BIT(CPU_PORT));
 }
 
+/* MAC_L2_PORT_CTRL(p) bits 1:0 = TX/RX enable (stock `rtk port enable|disable`, rtk_stock.c) */
+#define L2_PORT_CTRL(p)	(0x3268 + (p) * 0x40)
+
+/* Ours after a stock `rtk network on` (ramload): cages forward to the CPU only, then the ports
+ * ramload admin-disabled are enabled again. Untouched when stock did not set the switch up. */
+void rtk_guard_after_stock(void)
+{
+	int i;
+
+	if ((sw_r(MAC_FORCE(CPU_PORT)) & 3) != 3)	/* stock network on forces the CPU port link */
+		return;
+	rtk_iso_guard();
+	for (i = 0; i < NCAGES; i++)
+		sw_rmw(L2_PORT_CTRL(rtk_cage_port[i]), 3, 3);
+}
+
 /* ---- media per cage: Linux sfp_select_interface, unless env rtk_media=stock ---- */
 
 static int cage_media(int cage)

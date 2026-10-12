@@ -91,6 +91,7 @@ int rtk_port_isolation(int argc, char *const argv[]);
 int rtk_sdsdump(int argc, char *const argv[]);
 bool rtk_net_is_on(void);
 void rtk_iso_guard(void);	/* cages forward to the CPU port only (cage loop #19) */
+void rtk_guard_after_stock(void);	/* iso guard + ports enabled, if stock network on ran */
 const char *rtk_media_name(int port);
 
 /* rtk_sfpmode.c: SerDes interface Linux would pick for the module (sfp-bus.c, sfp.c quirks) */

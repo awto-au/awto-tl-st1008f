@@ -229,6 +229,17 @@ def laser(con: Console, cage: int, prompt: str = "RTL9300#") -> None:
         raise SystemExit(f"laser readback 0x{m.group(1)} != 0x{mask:02x}")
 
 
+CAGE_PORT = (0, 8, 16, 20, 24, 25, 26, 27)  # cage 1-8 -> SDK port (docs/hardware.md)
+
+
+def ports_only(con: Console, cage: int) -> None:
+    """Stock `rtk network on` forwards front<->front; copper modules (GLC-T, AQR113C) ignore laser
+    TX-disable, so one lit cage is not enough (storms 2026-10-12, #100). Admin-disable every other cage
+    port; ours re-enables them behind its CPU-only isolation (board_late_init)."""
+    cmd = "; ".join(f"rtk port disable {p}" for c, p in enumerate(CAGE_PORT, 1) if c != cage)
+    con.run(cmd, r"(?s)(Disable port \(0,\d+\).*){7}RTL9300#", 3, f"ports: cage {cage} only")
+
+
 def tftp(con: Console, fname: str, addr: int, retransmits: int = 1) -> None:
     ensure_server_ip()
     size = (TFTP_ROOT / fname).stat().st_size
@@ -330,10 +341,14 @@ def fast_clocks(con: Console, e208: str, spi: bool = True) -> None:
     log("  " + ", ".join(re.findall(r"^(?:cpu|spi) [\d.]+ MHz", out, re.M)))
 
 
-def linkcheck_gate() -> None:
-    """`linkcheck.py --boot` (power cycle into ours, `rtk linkcheck`); refuse MULTI/LOOP (#97)."""
+def linkcheck_gate(ours: bool) -> None:
+    """`linkcheck.py --boot` (power cycle into ours, `rtk linkcheck`); refuse LOOP always, MULTI unless
+    the image is ours (`openwrt-ours*`: st1008f-linkcheck turns STP on before netifd) (#97)."""
     r = subprocess.run([sys.executable, str(ROOT / "scripts/linkcheck.py"), "--boot"],
                        timeout=150)  # ramload ours ~25 s + check 14 s cap; x1.25 + relay latency
+    if r.returncode == 3 and ours:
+        log("linkcheck MULTI: allowed, image enforces STP before bridging (st1008f-linkcheck)")
+        return
     if r.returncode:
         raise SystemExit(f"linkcheck rc {r.returncode} (3 MULTI, 4 LOOP): OpenWrt boot refused (#97)")
 
@@ -372,7 +387,7 @@ def main() -> int:
     console_view()
     ow_boot = a.image.startswith("openwrt") or (a.then or "").startswith("openwrt") or a.chain_test
     if ow_boot and a.image != "uboot-mainline" and not a.no_linkcheck:
-        linkcheck_gate()  # its own boot of ours; OpenWrt bridges: refuse > 1 live link (#97)
+        linkcheck_gate(a.image.startswith("openwrt-ours"))  # own boot of ours; OpenWrt bridges (#97)
     con = Console()
     if not a.no_cycle:
         to_stock_uboot(con)
@@ -390,6 +405,7 @@ def main() -> int:
     if a.no_network and a.image == "stock":
         return 0  # rtk i2c before `rtk network on` hangs the console: no laser mask yet
     laser(con, a.cage)
+    ports_only(con, a.cage)
     if a.image == "stock":
         return 0
     fname, addr, start, done, cap = IMAGES[a.image]
@@ -421,7 +437,7 @@ def main() -> int:
     if (a.then or "").startswith("openwrt") and not a.no_linkcheck:
         from linkcheck import run as linkcheck_run  # late: linkcheck imports this module
         verdict, live, _ = linkcheck_run(con)
-        if verdict != "OK":
+        if verdict == "LOOP" or (verdict == "MULTI" and not a.then.startswith("openwrt-ours")):
             raise SystemExit(f"linkcheck {verdict}: {live} live link(s) or a loop; RAM OpenWrt bridges "
                              "without STP until openwrt_stp -> refused (#97)")
     if a.then:
