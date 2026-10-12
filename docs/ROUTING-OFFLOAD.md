@@ -38,6 +38,7 @@ Stock driver (OpenWrt `main` up to `e5ec5e199f`, 2026-10-11): both gaps are deli
 - Issues: #25129 (old rhltable keyed on `gw_ip`; CPU routing estimated "~20-50 MBit"), #25555 (RA default routes never offloaded), #25731 (closed: HW routing bypasses firewall and NAT "as already happens between VLAN interfaces"; any upstream PR must state that neighbour host routes extend this), #20139 (open, stale: inter-VLAN routing on physical ports broken on 24.10).
 - Maintainer merges small bench-tested series quickly ("fully featured unicast routing for RTL930x within one month", #25731).
 - Forum (OpenWrt realtek thread, 2026-09-22, SKS8300-8X / RTL9303, 6.18.52): inter-VLAN 7.71 Gbit/s with 4 streams and forwarding /32 host entries for on-link hosts. That is pre-rework code; current `main` traps on-link.
+- Mainline (netdev) path, shared helper proposal and kernel-side survey: [UPSTREAM-L3.md](UPSTREAM-L3.md) (#85). No Otto switch/L3 code has been posted to netdev; no generic router helper exists.
 - `300-17` upstream PR: drafted, compiles `W=1` against `main` with the whole rtl83xx dir on 7.3, checkpatch --strict clean; not posted (owner approval required).
 
 `openwrt/patches/300-17` (mainline 7.3 port; same change against `main` drafted for upstream) closes both. **Off by default**: what the ASIC routes bypasses nftables (firewall, NAT, conntrack).
@@ -113,7 +114,7 @@ What still sees them, or how upstream restores visibility:
 - Packet copies: port mirroring (`tc ... matchall mirred`, `mirror.c`) to a capture port; sFlow sampling (ASIC sampler, `hsflowd`) for statistical visibility.
 - Filtering: rules must be offloaded too (`tc flower` → PIE); otherwise the route stays `trap` (#66).
 
-Gaps in ours (OpenWrt `l3.c` + `300-17`):
+Gaps in ours (OpenWrt `l3.c` + `300-17`; how a shared helper would close them: [UPSTREAM-L3.md](UPSTREAM-L3.md#proposal-fib_offload-helper)):
 - IPv6 routes report offload flags; IPv4 routes do not (no `fib_alias_hw_flags_set` in `l3.c`), so `ip route` cannot show which v4 routes are in hardware.
 - `300-17` takes RTNL in a 5 s poll (neighbour refresh, parameter apply); upstream expects notifier-driven updates.
 - No check that nftables forward rules exist before offloading: `l3_default_v4`/`l3_onlink` on a box with a forward firewall or NAT silently bypasses it (params default off for this reason).
