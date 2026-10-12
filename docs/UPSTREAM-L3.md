@@ -154,7 +154,7 @@ Line counts are approximate; function names are the anchors.
 
 **Recommendation: combine, FIB mirror first.**
 - FIB mirror is the upstream-accepted model for switch ASICs (mlxsw, prestera). The RTL930x tables are FIB-shaped.
-- Make netfilter awareness part of the helper (below) so a FIB-mirror driver can refuse to forward when forward hooks or NAT exist, instead of the operator-set module parameters in `300-17`.
+- Netfilter awareness: not planned (owner 2026-10-12: no in-tree driver does it; keep the operator-set `300-17` parameters). Design kept below for reference.
 - Flowtable via PIE: research item; it is also the only path that keeps nftables in charge on this chip.
 
 ## Proposal: `fib_offload` helper
@@ -230,7 +230,7 @@ What the core does:
 - Neighbours: resolves gateways and holds them; calls `nh_update` on `NETEVENT_NEIGH_UPDATE`; traps routes whose next hop is unresolved.
 - Refresh: polls `route_active()` at `DELAY_PROBE_TIME`; HIT plus `NUD_STALE` → `neigh_event_send()`. Replaces mlxsw RAUHTD, prestera `k_arb_hw_evt` and our `otto_l3_poll`.
 - Failure: `route_add` error → re-add as `FO_TRAP` and set `offload_failed`. Reports `offload` / `trap` via `fib_alias_hw_flags_set` / `fib6_info_hw_flags_set` for **both** families (fixes the l3.c v4 gap).
-- Netfilter awareness (new; needs netfilter maintainers):
+- Netfilter awareness (not planned, reference only; needs netfilter maintainers):
   - If `net->nf.hooks_ipv4/6[NF_INET_FORWARD]` is non-empty, or a NAT hook is registered at POST_ROUTING, demote every FWD route to TRAP and report `trap`.
   - A hook-change notifier from netfilter would make this event-driven.
   - Over-cautious (conntrack-only setups also trap) but never wrong. Replaces the `l3_default_v4`/`l3_onlink` operator guard.
@@ -260,7 +260,7 @@ What the core does:
    - Draft cover letter: `tmp/issue-drafts/85-rfc-fib-offload.md` (local, not posted).
    - Reviewers: Ido Schimmel and David Ahern (IPv4/IPv6 and FIB notifier owners; Ido maintains mlxsw), Jiri Pirko (switchdev, wrote the 2016 notifier move), Elad Nachman (prestera), Vladimir Oltean and Andrew Lunn (DSA consumers), Jakub Kicinski / Paolo Abeni (net-next).
    - Expect mlxsw to stay out (Oltean: "mlxsw will probably not benefit").
-3. **Netfilter guard as a separate small series.**
+3. **Netfilter guard: not planned** (owner 2026-10-12: no other driver has one; the operator enables offload). Kept for reference:
    - Forward/NAT hook presence query or notifier. Owners: Pablo Neira Ayuso, Florian Westphal (netfilter-devel).
 4. **Realtek L3 on top of the helper,** after the switch driver merges: per-SoC table ops only. Start with RTL930x; 838x/839x later.
 5. **Research, parallel:** PIE-backed flowtable for routed non-NAT flows. Needs a DSA change to deliver `TC_SETUP_FT` to the switch, not only the conduit. Prototype in OpenWrt before proposing.
