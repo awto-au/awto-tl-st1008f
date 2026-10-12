@@ -1,7 +1,7 @@
 // SPDX-License-Identifier: GPL-2.0-only
 /*
  * RTL930x CPU-port NIC (switch port 28): DM_ETH glue, polling, one-cage loop guard (#80, #83).
- * Hardware facts live in the shared core rtl930x_nic.h (same file as Linux 300-19; copied at build).
+ * Hardware facts live in the shared core rtl930x_nic.h (same file as Linux 300-20; copied at build).
  * Loop guard: TX = physical forward to the one `ethport` cage; RX from other ports is dropped.
  */
 

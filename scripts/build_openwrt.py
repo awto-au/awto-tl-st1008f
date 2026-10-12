@@ -288,7 +288,7 @@ def overlay_73() -> None:
         src, dst = OWRT_FILES_DIR / rel, fdir / rel
         dst.parent.mkdir(parents=True, exist_ok=True)
         (shutil.copytree if src.is_dir() else shutil.copy2)(src, dst)
-    for rel, src in SHARED_FILES.items():  # shared with U-Boot (#83); 300-19 includes it
+    for rel, src in SHARED_FILES.items():  # shared with U-Boot (#83); 300-20 includes it
         shutil.copy2(src, fdir / rel)
     for kind, names in (("pending", PENDING73), ("hack", HACK73)):
         gdir = TREE / GEN / f"{kind}-7.3"

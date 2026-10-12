@@ -190,7 +190,7 @@ Implementation: [RTK-COMMANDS.md](RTK-COMMANDS.md#stage-4-network-on-10g-macsds-
 ## Ethernet (#80)
 
 - Driver: `board/tplink/tl-st1008f/rtl930x_eth.c`, DM_ETH, node `ethernet@df00` (`realtek,rtl9301-eth`). Polled, no IRQ. Built, not yet run on the board.
-- Shared core (#83): `shared/rtl930x-nic/rtl930x_nic.h` = registers, descriptor + CPU-tag layout, NIC reset, HOL ring size/counter, reason map, ring base, max length, enable/stop, doorbell value. Same file in Linux (`300-19`).
+- Shared core (#83): `shared/rtl930x-nic/rtl930x_nic.h` = registers, descriptor + CPU-tag layout, NIC reset, HOL ring size/counter, reason map, ring base, max length, enable/stop, doorbell value. Same file in Linux (`300-20`).
   - Boundary: core = hardware facts and register sequences; U-Boot glue = DM_ETH, rings in KSEG1, cache ops, polling, loop guard, `ethport`; Linux glue = page_pool, NAPI, BQL, DSA.
   - Platform shim: the includer defines `rtl930x_nic_rd/wr(ctx, off)` (U-Boot `sw_r/sw_w`, Linux regmap), `rtl930x_nic_msleep`, `rtl930x_nic_udelay`.
   - Sync rule: edit only `shared/`; `build_uboot_mainline.py` (`SHARED`), `mainline_build_check.py` and `build_openwrt.py` (`SHARED_FILES`) copy it. Linux `static_assert`s tie `RTETH_930X_*`, ring bits and `rteth_frag` to the core.
@@ -259,7 +259,7 @@ Stage 0 uses none of them.
 
 Owner 2026-10-12: U-Boot drivers reuse Linux/OpenWrt code where possible (one OS-independent core + thin platform glue, awto-unvr pattern). Audit 2026-10-12 (on branch `worktree-agent-a224c1e0dfdf94299`; hashes change on merge). Mainline U-Boot v2026.07 has no Realtek Otto driver of any kind.
 
-- **Shared core (branch `worktree-agent-a224c1e0dfdf94299`, with #80's U-Boot Ethernet; not yet merged to main):** NIC `rtl930x_eth.c` ↔ OpenWrt `rtl838x_eth.c` + `300-11/12`: `shared/rtl930x-nic/rtl930x_nic.h` (registers, descriptor/tag, reset, HOL, reason map, ring base, max length, enable/stop, doorbell); Linux via `300-19` (main's `300-18` = irqchip affinity). Linux glue (page_pool, NAPI, DSA) cannot run in U-Boot.
+- **Shared core (with #80's U-Boot Ethernet):** NIC `rtl930x_eth.c` ↔ OpenWrt `rtl838x_eth.c` + `300-11/12`: `shared/rtl930x-nic/rtl930x_nic.h` (registers, descriptor/tag, reset, HOL, reason map, ring base, max length, enable/stop, doorbell); Linux via `300-20`. Linux glue (page_pool, NAPI, DSA) cannot run in U-Boot.
 - **Share a core (to do), in suggested order:**
   - SFP power `rtk_sfppower.c` ↔ `300-06` `st_power_mw()`: pure function on A0 bytes, same rules written twice (drift risk). Trivial.
   - Mode-switch decode (`board.c`) ↔ `300-06`: one-hot pin table written twice. Trivial.
