@@ -371,6 +371,7 @@ rtk i2c read 8 1               # readback
 - Our U-Boot `rtk port` / `rtk sds status`: PCS link (10GR block lock, 1G BMSR), MAC link + speed (`0xcb18`). Cage 1 on the house fibre reads `pcs up, mac up 10G` after our `rtk network on` (2026-10-11, #51).
 - SerDes mode for SGMII / 100BX / 1000BX / 2500BX / 10GBASE-R is forced inside the SerDes: page `0x1f` (WDIG) reg 9, `FRC_SDS_MD_ON` bit 6, mode bits 11:7. The MAC-side `SDS_MODE_SEL` (`0x194/0x2a0/0x2a4/0x198`) then stays `0x1f` ("off"); only XSGMII/USXGMII/QSGMII are MAC-driven. All 8 cages read `0x1a` (10GBASE-R) after stock `rtk network on` (2026-10-11, #42).
 - Open (#44): with the stock network on and cage 1 lit, `MAC_LINK_STS 0xcb10` showed cage 2 "mac up" (laser off) and cage 1 "mac down" (2026-10-10/11).
+- Port counters (#94): `/proc/net/dev` (`get_stats64`) of a DSA port = the switch hardware MIB, CPU path included. sw1 lan5 2026-10-12T14:51+11:00: rx 25,320,515,134 B / 31,444,618 pkts = MIB `rx_PktsFlexibleOctetsSet0`; tx likewise. Read with `./dev.py switch-vlan stats --ports P --ip A` (read-only).
 
 ## Hazards
 
