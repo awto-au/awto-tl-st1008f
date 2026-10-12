@@ -143,6 +143,12 @@ def cmd_spi_dirmap_test(extra: list[str]) -> int:
     return _script("spi_dirmap_test.py", extra)
 
 
+@command("on-chip SRAM vs DDR ns per access under the mainline kernel, cached + uncached (#103)",
+         args="[--reps 3]  (run `ramload mainline-kernel` first)", kind="check")
+def cmd_sram_bench(extra: list[str]) -> int:
+    return _script("sram_bench.py", extra)
+
+
 @command("SPI-NOR window quad read test at our prompt: SFCR2 -> 0x6B / 0xEB, whole-chip CRC vs Dual I/O, restore (#61)",
          args="[quad-out-6b] [quad-io-eb]  (run `ramload uboot-mainline` first)", kind="check")
 def cmd_spi_quad_test(extra: list[str]) -> int:

@@ -56,6 +56,19 @@
 		};
 	};
 
+	/* 64 KiB on-chip SRAM, bus address (OpenWrt 838x/839x dtsi use the KSEG0 VA 0x9f000000).
+	 * Mapped by the PLR, re-mapped after the highmem remap (300-21). Whole-device gen_pool,
+	 * no children: gen_pool_get(dev, NULL) as OpenWrt clk-rtl83xx. no-memory-wc: plain
+	 * uncached (KSEG1); the 34Kc ioremap_wc would be uncached-accelerated (#103). */
+	sram0: sram@1f000000 {
+		compatible = "mmio-sram";
+		reg = <0x1f000000 0x10000>;
+		#address-cells = <1>;
+		#size-cells = <1>;
+		ranges = <0 0x1f000000 0x10000>;
+		no-memory-wc;
+	};
+
 	chosen {
 		stdout-path = "serial0:115200n8";
 		bootargs = "earlycon";

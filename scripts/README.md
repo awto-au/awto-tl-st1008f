@@ -480,6 +480,11 @@ Desk-only; no switch access. Needs `tmp/openwrt` (sparse clone of openwrt, `targ
 - Run: `./dev.py ramload mainline-kernel`, then `./dev.py spi-dirmap-test [--part firmware] [--modes 0,2,1]`.
 - PASS = dirmap active at probe, equal md5 in every mode, cached faster than PIO. Read-only. Log: `tmp/logs/spi_dirmap_test.log`.
 
+### sram_bench.py
+- Purpose: on-chip SRAM vs DDR ns per access under the mainline kernel (#103): reads `/sys/kernel/debug/st1008f_sram_bench` (patch 300-22) `--reps` times; tests `uc_rd`, `c_miss`, `c_hit`, `uc_wr` per region.
+- Run: `./dev.py ramload mainline-kernel`, then `./dev.py sram-bench [--reps 3]`.
+- PASS = all 8 lines on every pass (kernel refuses when SRAM segment 0 is unmapped). Read-only. Log: `tmp/logs/sram_bench.log`.
+
 - `rtk_parity.py` + `rtk_parity_cmds.json`: run the `rtk` command list on stock and on our U-Boot and diff (`./dev.py rtk-parity`; see docs/RTK-COMMANDS.md). Never sends flash writers. Both sides run `rtk network on` between the pre and post phases.
 
 ### sds_tables_gen.py

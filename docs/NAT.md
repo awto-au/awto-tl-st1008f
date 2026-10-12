@@ -167,6 +167,37 @@ Same boot and topology as "NIC path" (DDR 600, CPU 1 GHz, UP, `300-12`). `./dev.
 - Generic `300-12` parts (reclaim, ring 128, kick batch) apply to RTL838x/839x/931x: build-tested only.
 - SMP measurements (UP vs SMP, eth0 on CPU0 / CPU1): [MAINLINE-PORT.md](MAINLINE-PORT.md) section 9.
 
+### On-chip SRAM on the NIC path (#103, code reading)
+
+- Basis: `rtl838x_eth.c` + `300-11/12/20` on next-20261009. One forwarded frame = 1 RX slot + 1 TX slot + its reclaim. Counts = loads/stores the C code issues; not measured.
+- SRAM: 64 KiB at bus `0x1f000000`, Linux gen_pool since `300-21` ([HARDWARE-INVENTORY.md](HARDWARE-INVENTORY.md#64-kib-sram)). Latency: `./dev.py sram-bench` (`300-22`; not run yet).
+- Descriptors: `rx_data` + `tx_data` from `dmam_alloc_coherent` = uncached DDR (KSEG1). 2 RX + 2 TX rings x (128 ring words x 4 B + 128 frags x 32 B) = 18 KiB: fits.
+
+Uncached DDR accesses per forwarded frame:
+
+- RX `rteth_hw_receive`: ring word, `frag->len`, `frag->more`, `len` again in `rteth_create_skb`, `cpu_tag[0,1,2,7]` in `decode_tag`: 8 R. `frag->dma`, ring word: 2 W.
+- TX `rteth_start_xmit`: ring word 1 R. `frag->len`, `frag->dma`, 10 halfword `cpu_tag` stores (`rtl930x_nic_tx_tag`), ring word: 13 W.
+- TX reclaim: ring word, `frag.dma`: 2 R.
+- Total: ~11 R (each a full DDR round trip, CPU stalled), ~15 W (write buffer).
+- Barriers: `rmb` + `dma_wmb` per RX slot, `dma_wmb` + `wmb` per TX frame = 4 `sync` per frame; each drains the queued uncached writes.
+
+Not movable to SRAM:
+
+- MMIO (SoC registers): `rx_release` 1 W per NAPI poll; `enable_rx_irq` 2 RMW at poll end; `confirm_disable_irqs` 2 R + 2 RMW + 2 W per IRQ; doorbell 1 W per <= 16 TX frames. Estimate < 0.2 accesses per frame at budget 64.
+- Cache maintenance on DDR packet buffers (RX pool 2 x 128 x 2 KiB = 512 KiB):
+  - RX: `PP_FLAG_DMA_SYNC_DEV`, `max_len` 4 KiB: one 4 KiB invalidate per recycled page (2 frames) = ~64 line ops per frame. `sync_for_cpu` is a no-op on the 34Kc (`cpu_needs_post_dma_flush` false).
+  - TX: `dma_map_single` writeback of the frame: len / 32 lines (64 B: 3, 1514 B: 48).
+
+SRAM candidates:
+
+- (a) NIC DMA reaches SRAM: rings + frags (18 KiB) from the gen_pool, ring base = pool phys. All ~11 R + ~15 W per frame move to SRAM; gain = 11 x (DDR - SRAM `uc_rd`) + faster write drain at the 4 `sync`s.
+- (b) NIC DMA does not reach SRAM: CPU-only data through the cached alias (`CKSEG0ADDR`); only L1 misses get faster (gain per miss = DDR - SRAM `c_miss`). Descriptors stay in DDR.
+  - Flowtable rhashtable buckets + `flow_offload` entries of the hot flows.
+  - Conntrack hash bucket heads: default table > 64 KiB, needs a sized-down table.
+  - FIB trie nodes + neighbour entries of the few routes.
+  - Driver bookkeeping `rx_info.page[]/offset[]`, `tx_info.skb[]` (3 KiB): usually L1-resident, low value.
+- NIC DMA reach (#103 plan step 4) decides (a); `sram-bench` `uc_rd` / `c_miss` sets the gain of each.
+
 ## Clock sensitivity (2026-10-11, `./dev.py nat-clock-variants`)
 
 - Flash OpenWrt booted from our U-Boot after `clocks fast` plus one change. SPI stays stock throughout.

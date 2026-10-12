@@ -216,6 +216,8 @@ Built with `./dev.py build-kernel` (GCC 16.2); booted 2026-10-12 with IP traffic
 | `300-17` | `l3.c`: on-link neighbour host entries (v4+v6) + default-route offload, opt-in module parameters `l3_onlink` / `l3_default_v4` / `l3_default_v6` ([ROUTING-OFFLOAD.md](ROUTING-OFFLOAD.md), #59) |
 | `300-18` | irqchip `realtek-rtl`: one effective target CPU per IRQ + parent IM bits opened on secondary VPEs (cpuhp STARTING hook) ([section 9](#irq-affinity-300-18-devpy-irq-check), #73) |
 | `300-20` | rteth RTL930x paths on the NIC core shared with U-Boot (`shared/rtl930x-nic/rtl930x_nic.h`, copied in by the build; #83) |
+| `300-21` | RTL930x: re-map the 64 KiB on-chip SRAM at bus `0x1f000000` after the highmem remap (which clears it); PLR values ([HARDWARE-INVENTORY.md](HARDWARE-INVENTORY.md#64-kib-sram), #103) |
+| `300-22` | `drivers/misc/st1008f-sram-bench.c`: debugfs `st1008f_sram_bench`, SRAM vs DDR ns per access (`./dev.py sram-bench`, #103) |
 
 - Not applied: `300-14` (SMP doorbell + TX NAPI) is parked in `openwrt/patches-parked/` ([measured](#parked-300-14-both-ring-doorbell--tx-napi-on-smp-2026-10-12)).
 
@@ -252,6 +254,7 @@ Built with `./dev.py build-kernel` (GCC 16.2); booted 2026-10-12 with IP traffic
 - Interrupt controller overridden to 2 cells, parents IP2-6, outputs as OpenWrt (section 9; the mainline dtsi's 1-cell routing hangs SMP).
 - Mode-switch children are `cage@N`, not `port@N`: rtl83xx `rtldsa_ports_probe()` walks every node named `port` in the tree (`for_each_node_by_name`). Named `port@0`, the mode switch's reg-0 child cleared `has_pcs` of switch port 0 (lan1), so lan1 was never added to the CPU port's isolation mask: no traffic to the CPU, `Port node N has neither pcs-handle nor phy-handle` x8 (#16). Only lan1 was hit (other switch ports are 8..27). Upstream candidate (rtl83xx bug, #73).
 - `pinmux@1b0003a0` (`pinctrl-single`, nodes as OpenWrt `rtl930x.dtsi`), `&gpio0` `pinctrl-0` = disable-spi0, -cs1, -cs0: GPIO3-5 back to GPIO. Stock `rtk network on` muxes them to the switch-core SPI master (`SPI_CTRL1` `0035e000`), so empty cages 4-6 read MOD-DEF0 "present" and the SFP state machine logged `failed to read EEPROM: -EIO` (#29). `CONFIG_PINCTRL_SINGLE=y`. Boot line `pinctrl-single 1b0003a0.pinmux: 32 pins, size 4`.
+- `sram@1f000000`: `mmio-sram`, 64 KiB, bus address, no children = one whole-device gen_pool (`gen_pool_get(dev, NULL)`, the OpenWrt `clk-rtl83xx` lookup), `no-memory-wc` (the 34Kc `ioremap_wc` is uncached-accelerated). Cached users take `CKSEG0ADDR(gen_pool_virt_to_phys())`. Config `SRAM`, `ST1008F_SRAM_BENCH` (#103).
 - `ethernet` gets `nvmem-cells = <&macaddr_uboot 0>` from a `u-boot,env` nvmem layout on `u-boot-env`: eth0 = env `ethaddr` (`16:b0:46:e9:0d:c0`, same as the flash OpenWrt bridge). Stock `rtk network on` leaves the switch MAC registers at `00:e0:4c:00:00:00`.
 - Not carried: OpenWrt `gpio-keys` (replaced by the mode switch, 300-06); `#thermal-sensor-cells` on SFP nodes + `sfp-thermal` zone (provider not in 7.3 or the ported set); GPIO21 watchdog stays disabled.
 
@@ -382,6 +385,7 @@ Method: `scripts/openwrt_patch_status.py --tree <base>` (series order; reverse-a
 | `300-16` port LEDs | refreshed | Kconfig context after `300-06` (fuzz 2 on both bases; one copy serves both) |
 | `300-17` L3 on-link / default route | refreshed | its own `arp_tbl` uses -> `arp_table(&init_net)` |
 | `300-18`, `300-19` | applied | none |
+| `300-21`, `300-22` | new on next | written on next-20261009; W=1 clean (2026-10-13) |
 
 - None of ours is in next. Generic `pending-6.18/700`, `701` and `hack-6.18/910`, `911`, `940` apply to next as-is.
 - Build: `./dev.py build-kernel --w1` on `next-20261009` (2026-10-12, GCC 16.2, SMP default config): 0 warnings, W=1 on the 12 objects our patches touch: 0 warnings; 618 `=y`; kernel raw 12,366,208 B, `mainline.bin` 4,891,140 B (16 MiB bootm limit).
