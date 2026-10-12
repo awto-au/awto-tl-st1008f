@@ -1,0 +1,265 @@
+From: Dan <dan@awto.au>
+Subject: [PATCH] misc: st1008f-sram-bench: SRAM vs DDR latency in debugfs
+
+Board bring-up aid for the TL-ST1008F (RTL9303). Reading
+/sys/kernel/debug/st1008f_sram_bench allocates 16 KiB from the mmio-sram
+gen_pool and 16 KiB of lowmem DDR and reports ns per access, timed with CP0
+Count with IRQs off: uncached pointer chase (KSEG1), cached chase from a cold
+D-cache (KSEG0 line refills), cached hits, uncached stores incl. the write
+buffer drain. Line order is shuffled so the DRAM controller prefetch does not
+hide latency. Refuses when SRAM segment 0 is not mapped at the pool address.
+
+--- a/drivers/misc/Kconfig
++++ b/drivers/misc/Kconfig
+@@ -403,6 +403,13 @@
+ config SRAM_EXEC
+ 	bool
+ 
++config ST1008F_SRAM_BENCH
++	bool "TL-ST1008F on-chip SRAM vs DDR latency bench (debugfs)"
++	depends on SRAM && MACH_REALTEK_RTL && DEBUG_FS
++	help
++	  debugfs file st1008f_sram_bench: ns per access to the RTL930x on-chip SRAM
++	  and to DDR, cached and uncached. Board bring-up aid; say N otherwise.
++
+ config DW_XDATA_PCIE
+ 	depends on PCI
+ 	tristate "Synopsys DesignWare xData PCIe driver"
+--- a/drivers/misc/Makefile
++++ b/drivers/misc/Makefile
+@@ -44,6 +44,7 @@
+ obj-$(CONFIG_LATTICE_ECP3_CONFIG)	+= lattice-ecp3-config.o
+ obj-$(CONFIG_SRAM)		+= sram.o
+ obj-$(CONFIG_SRAM_EXEC)		+= sram-exec.o
++obj-$(CONFIG_ST1008F_SRAM_BENCH)	+= st1008f-sram-bench.o
+ obj-$(CONFIG_GENWQE)		+= genwqe/
+ obj-$(CONFIG_DW_XDATA_PCIE)	+= dw-xdata-pcie.o
+ obj-$(CONFIG_PCI_ENDPOINT_TEST)	+= pci_endpoint_test.o
+--- /dev/null
++++ b/drivers/misc/st1008f-sram-bench.c
+@@ -0,0 +1,225 @@
++// SPDX-License-Identifier: GPL-2.0
++/*
++ * RTL930x on-chip SRAM vs DDR access latency (TL-ST1008F, awto-tl-st1008f #103).
++ * `cat /sys/kernel/debug/st1008f_sram_bench` runs it: ns per access, CP0 Count timed, IRQs off.
++ * SRAM comes from the mmio-sram gen_pool, found like OpenWrt clk-rtl83xx (whole-device pool).
++ */
++
++#include <linux/debugfs.h>
++#include <linux/genalloc.h>
++#include <linux/init.h>
++#include <linux/irqflags.h>
++#include <linux/math64.h>
++#include <linux/mutex.h>
++#include <linux/of.h>
++#include <linux/of_platform.h>
++#include <linux/platform_device.h>
++#include <linux/seq_file.h>
++#include <linux/slab.h>
++#include <asm/addrspace.h>
++#include <asm/barrier.h>
++#include <asm/io.h>
++#include <asm/mipsregs.h>
++#include <asm/time.h>
++
++#define LINE		32			/* 34Kc D-cache line */
++#define NLINES		512			/* 16 KiB: half the D-cache, no evictions */
++#define BYTES		(NLINES * LINE)
++#define REPS		5
++#define SRAMSAR0	((void __iomem *)0xb8004000)	/* CPU_SRAM_SEG0_ADDR */
++
++struct region {
++	const char *name;
++	unsigned long k0, k1;	/* cached / uncached alias */
++};
++
++static DEFINE_MUTEX(bench_lock);
++static struct region regs[2] = { { .name = "sram" }, { .name = "ddr" } };
++static u16 perm[NLINES];
++static unsigned long sink;
++
++static struct gen_pool *sram_pool(void)
++{
++	struct platform_device *pdev = NULL;
++	struct device_node *np;
++	struct gen_pool *pool;
++
++	for_each_compatible_node(np, NULL, "mmio-sram") {
++		pdev = of_find_device_by_node(np);
++		if (pdev) {
++			of_node_put(np);
++			break;
++		}
++	}
++	if (!pdev)
++		return NULL;
++	pool = gen_pool_get(&pdev->dev, NULL);
++	put_device(&pdev->dev);
++	return pool;
++}
++
++static int bench_setup(struct seq_file *m)
++{
++	struct gen_pool *pool;
++	unsigned long va;
++	phys_addr_t pa;
++	void *ddr;
++	u32 x = 1;
++	int i;
++
++	if (regs[0].k0)
++		return 0;
++	pool = sram_pool();
++	if (!pool) {
++		seq_puts(m, "sram_bench: no mmio-sram pool (CONFIG_SRAM, DT node?)\n");
++		return -ENODEV;
++	}
++	va = gen_pool_alloc(pool, BYTES);
++	ddr = kmalloc(BYTES, GFP_KERNEL);
++	if (!va || !ddr) {
++		if (va)
++			gen_pool_free(pool, va, BYTES);
++		kfree(ddr);
++		seq_puts(m, "sram_bench: allocation failed\n");
++		return -ENOMEM;
++	}
++	pa = gen_pool_virt_to_phys(pool, va);
++	regs[0].k0 = CKSEG0ADDR(pa);
++	regs[0].k1 = CKSEG1ADDR(pa);
++	regs[1].k0 = (unsigned long)ddr;
++	regs[1].k1 = CKSEG1ADDR(virt_to_phys(ddr));
++
++	/* fixed LCG shuffle: random line order so DRAM prefetch (MCR) cannot hide latency */
++	for (i = 0; i < NLINES; i++)
++		perm[i] = i;
++	for (i = NLINES - 1; i > 0; i--) {
++		int j;
++		u16 t;
++
++		x = x * 1103515245 + 12345;
++		j = (x >> 16) % (i + 1);
++		t = perm[i];
++		perm[i] = perm[j];
++		perm[j] = t;
++	}
++	return 0;
++}
++
++/* Lines of r hold a pointer chain through `base` (k0 or k1); built uncached, D-cache left cold */
++static unsigned long chain(const struct region *r, unsigned long base)
++{
++	int i;
++
++	dma_cache_wback_inv(r->k0, BYTES);
++	for (i = 0; i < NLINES; i++)
++		*(volatile unsigned long *)(r->k1 + perm[i] * LINE) =
++			base + perm[(i + 1) % NLINES] * LINE;
++	wmb();
++	return base + perm[0] * LINE;
++}
++
++static u32 chase(unsigned long p)
++{
++	u32 t0, t1;
++	int i;
++
++	t0 = read_c0_count();
++	for (i = 0; i < NLINES; i++)
++		p = *(volatile unsigned long *)p;
++	t1 = read_c0_count();
++	sink = p;
++	return t1 - t0;
++}
++
++static u32 store_uc(const struct region *r)
++{
++	u32 t0, t1;
++	int i;
++
++	t0 = read_c0_count();
++	for (i = 0; i < NLINES; i++)
++		*(volatile u32 *)(r->k1 + perm[i] * LINE) = i;
++	wmb();	/* sync: count until the write buffer drained */
++	t1 = read_c0_count();
++	return t1 - t0;
++}
++
++enum test { UC_RD, C_MISS, C_HIT, UC_WR, NTESTS };
++static const char * const test_name[NTESTS] = { "uc_rd", "c_miss", "c_hit", "uc_wr" };
++
++static u32 run_one(const struct region *r, enum test t)
++{
++	unsigned long flags, start;
++	u32 cyc;
++
++	start = chain(r, t == UC_RD || t == UC_WR ? r->k1 : r->k0);
++	local_irq_save(flags);
++	switch (t) {
++	case UC_RD:
++	case C_MISS:
++		cyc = chase(start);
++		break;
++	case C_HIT:
++		chase(start);
++		cyc = chase(start);
++		break;
++	default:
++		cyc = store_uc(r);
++		break;
++	}
++	local_irq_restore(flags);
++	return cyc;
++}
++
++/* Count cycles for NLINES accesses -> tenths of ns per access */
++static u32 dns(u32 cyc)
++{
++	return div_u64((u64)cyc * 10000000000ULL, (u64)mips_hpt_frequency * NLINES);
++}
++
++static int bench_show(struct seq_file *m, void *v)
++{
++	u32 sar = __raw_readl(SRAMSAR0);
++	int ret, i, t, k;
++
++	mutex_lock(&bench_lock);
++	ret = bench_setup(m);
++	if (ret)
++		goto out;
++	seq_printf(m, "sram_bench: SRAMSAR0 %08x, sram phys %08x, ddr phys %08x, count %u Hz, %d lines x %d B, min/max of %d\n",
++		   sar, (u32)CPHYSADDR(regs[0].k1), (u32)CPHYSADDR(regs[1].k1), mips_hpt_frequency,
++		   NLINES, LINE, REPS);
++	/* an unmapped segment decodes nowhere: never touch it (#103) */
++	if (!(sar & 1) || (sar & ~0xffu) != ((u32)CPHYSADDR(regs[0].k1) & ~0xffffu)) {
++		seq_puts(m, "sram_bench: SRAM segment 0 not mapped at the pool address, refused\n");
++		ret = -ENXIO;
++		goto out;
++	}
++	for (i = 0; i < ARRAY_SIZE(regs); i++) {
++		for (t = 0; t < NTESTS; t++) {
++			u32 lo = U32_MAX, hi = 0;
++
++			for (k = 0; k < REPS; k++) {
++				u32 c = run_one(&regs[i], t);
++
++				lo = min(lo, c);
++				hi = max(hi, c);
++			}
++			/* Count runs at CPU/2 on the 34Kc: 2 CPU cycles per tick */
++			seq_printf(m, "sram_bench: %-4s %-6s min %u.%u ns max %u.%u ns (%u.%u cpu cycles)\n",
++				   regs[i].name, test_name[t], dns(lo) / 10, dns(lo) % 10,
++				   dns(hi) / 10, dns(hi) % 10, 2 * lo / NLINES, (20 * lo / NLINES) % 10);
++		}
++	}
++out:
++	mutex_unlock(&bench_lock);
++	return ret;
++}
++DEFINE_SHOW_ATTRIBUTE(bench);
++
++static int __init st1008f_sram_bench_init(void)
++{
++	debugfs_create_file("st1008f_sram_bench", 0400, NULL, NULL, &bench_fops);
++	return 0;
++}
++late_initcall(st1008f_sram_bench_init);
