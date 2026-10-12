@@ -15,6 +15,8 @@ import subprocess
 import time
 from pathlib import Path
 
+import kernel_base
+
 ROOT = Path(__file__).resolve().parent.parent
 LOG = ROOT / "tmp/logs/patch_from_tree.log"
 
@@ -24,7 +26,7 @@ def main() -> int:
     ap.add_argument("patch", type=Path)
     ap.add_argument("paths", nargs="+")
     ap.add_argument("--orig-dir", type=Path, required=True)
-    ap.add_argument("--tree", type=Path, default=ROOT / "tmp/linux-v7.3")
+    ap.add_argument("--tree", type=Path, default=kernel_base.tree())
     a = ap.parse_args()
     text = a.patch.read_text() if a.patch.exists() else "Subject: \n\n---\n"
     m = re.search(r"^(diff |--- a/)", text, re.M)

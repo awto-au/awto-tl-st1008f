@@ -5,14 +5,15 @@ Forward-port of OpenWrt realtek patches-6.18 hooks that no longer apply to 7.3
 - 700: DSA_MAX_PORTS 56, u64 phys_mii_mask / dsa_user_ports / dsa_cpu_ports
   (7.3: platform_data/dsa.h lost the DSA_MAX_SWITCHES/DSA_RTABLE_NONE context).
 - 716: NET_RTL838X (+ NET_VENDOR_REALTEK on MACH_REALTEK_RTL); 7.3 Kconfig/Makefile context.
-- 721: NET_DSA_TAG_RTL_OTTO; tag value 36 (7.3 took 32-35 for MXL862/NETC/KSZ8463/MT7628).
+- 721: NET_DSA_TAG_RTL_OTTO; tag value 37 (linux-next took 32-36 for MXL862/NETC/KSZ8463/MT7628/
+  KS8995; 7.3 copy in openwrt/patches-v7.3-rc6/ uses 36).
 - 730: PCS_RTL_OTTO; 7.3 has no PCS_MTK_USXGMII context. RTL8224 SerDes hunk (743) dropped:
   no RTL8224 on this board.
 - 806/808: MDIO_REALTEK_OTTO(+_SERDES) without the aux-MDIO (723, RTL8231 only) context;
   both gain depends on MFD_SYSCON (syscon_node_to_regmap).
 ---
 diff --git a/drivers/net/ethernet/realtek/Kconfig b/drivers/net/ethernet/realtek/Kconfig
-index 9b0f4f963..0ebd03ac2 100644
+index 5818a9a50..414af773b 100644
 --- a/drivers/net/ethernet/realtek/Kconfig
 +++ b/drivers/net/ethernet/realtek/Kconfig
 @@ -6,7 +6,7 @@
@@ -47,12 +48,12 @@ index 12a9c399f..3ed2686d7 100644
  obj-$(CONFIG_RTASE) += rtase/
 +obj-$(CONFIG_NET_RTL838X) += rtl838x_eth.o
 diff --git a/drivers/net/mdio/Kconfig b/drivers/net/mdio/Kconfig
-index 82029c748..8f0aed72c 100644
+index c1d0dad6d..492e86529 100644
 --- a/drivers/net/mdio/Kconfig
 +++ b/drivers/net/mdio/Kconfig
 @@ -189,6 +189,20 @@ config MDIO_REALTEK_RTL9300
  	  This driver supports the MDIO interface found in the Realtek
- 	  RTL9300 family of Ethernet switches with integrated SoC.
+ 	  RTL83xx/RTL93xx family of Ethernet switches with integrated SoC.
  
 +config MDIO_REALTEK_OTTO
 +	tristate "Realtek Otto MDIO interface support"
@@ -129,26 +130,26 @@ index 77424bb24..26ae7ee7a 100644
  struct dsa_chip_data {
  	/*
 diff --git a/include/net/dsa.h b/include/net/dsa.h
-index 7507d632e..29ccae432 100644
+index 5d12191b6..662a5a39f 100644
 --- a/include/net/dsa.h
 +++ b/include/net/dsa.h
-@@ -61,6 +61,7 @@ struct tc_action;
- #define DSA_TAG_PROTO_NETC_VALUE		33
+@@ -62,6 +62,7 @@ struct tc_action;
  #define DSA_TAG_PROTO_KSZ8463_VALUE		34
  #define DSA_TAG_PROTO_MT7628_VALUE		35
-+#define DSA_TAG_PROTO_RTL_OTTO_VALUE		36
+ #define DSA_TAG_PROTO_KS8995_VALUE		36
++#define DSA_TAG_PROTO_RTL_OTTO_VALUE		37
  
  enum dsa_tag_protocol {
  	DSA_TAG_PROTO_NONE		= DSA_TAG_PROTO_NONE_VALUE,
-@@ -99,6 +100,7 @@ enum dsa_tag_protocol {
- 	DSA_TAG_PROTO_NETC		= DSA_TAG_PROTO_NETC_VALUE,
+@@ -101,6 +102,7 @@ enum dsa_tag_protocol {
  	DSA_TAG_PROTO_KSZ8463		= DSA_TAG_PROTO_KSZ8463_VALUE,
  	DSA_TAG_PROTO_MT7628		= DSA_TAG_PROTO_MT7628_VALUE,
+ 	DSA_TAG_PROTO_KS8995		= DSA_TAG_PROTO_KS8995_VALUE,
 +	DSA_TAG_PROTO_RTL_OTTO		= DSA_TAG_PROTO_RTL_OTTO_VALUE,
  };
  
  struct dsa_switch;
-@@ -482,7 +484,7 @@ struct dsa_switch {
+@@ -484,7 +486,7 @@ struct dsa_switch {
  	/*
  	 * User mii_bus and devices for the individual ports.
  	 */
@@ -157,7 +158,7 @@ index 7507d632e..29ccae432 100644
  	struct mii_bus		*user_mii_bus;
  
  	/* Ageing Time limits in msecs */
-@@ -618,24 +620,24 @@ static inline bool dsa_is_user_port(struct dsa_switch *ds, int p)
+@@ -620,24 +622,24 @@ static inline bool dsa_is_user_port(struct dsa_switch *ds, int p)
  	dsa_switch_for_each_port_continue_reverse((_dp), (_ds)) \
  		if (dsa_port_is_cpu((_dp)))
  
@@ -189,10 +190,10 @@ index 7507d632e..29ccae432 100644
  	return mask;
  }
 diff --git a/net/dsa/Kconfig b/net/dsa/Kconfig
-index 23b4b7400..db138c96b 100644
+index 4f44bf3ed..ac013c1b5 100644
 --- a/net/dsa/Kconfig
 +++ b/net/dsa/Kconfig
-@@ -181,6 +181,12 @@ config NET_DSA_TAG_RTL8_4
+@@ -187,6 +187,12 @@ config NET_DSA_TAG_RTL8_4
  	  Say Y or M if you want to enable support for tagging frames for Realtek
  	  switches with 8 byte protocol 4 tags, such as the Realtek RTL8365MB-VC.
  
@@ -206,10 +207,10 @@ index 23b4b7400..db138c96b 100644
  	tristate "Tag driver for Renesas RZ/N1 A5PSW switch"
  	help
 diff --git a/net/dsa/Makefile b/net/dsa/Makefile
-index d15bcf5c6..bed63611b 100644
+index 1f9cc30e9..ac3a65540 100644
 --- a/net/dsa/Makefile
 +++ b/net/dsa/Makefile
-@@ -38,6 +38,7 @@ obj-$(CONFIG_NET_DSA_TAG_OCELOT_8021Q) += tag_ocelot_8021q.o
+@@ -39,6 +39,7 @@ obj-$(CONFIG_NET_DSA_TAG_OCELOT_8021Q) += tag_ocelot_8021q.o
  obj-$(CONFIG_NET_DSA_TAG_QCA) += tag_qca.o
  obj-$(CONFIG_NET_DSA_TAG_RTL4_A) += tag_rtl4_a.o
  obj-$(CONFIG_NET_DSA_TAG_RTL8_4) += tag_rtl8_4.o

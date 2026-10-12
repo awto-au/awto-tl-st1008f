@@ -66,7 +66,7 @@ Disk:
 
 ## Step 2: our 7.3 port as OpenWrt testing kernel
 
-`--kernel 7.3`: OpenWrt's `KERNEL_TESTING_PATCHVER` mechanism, same OpenWrt main tree and userspace.
+`--kernel mainline` (old name `7.3`; base from `scripts/kernel_base.py`, linux-next since 2026-10-12, [MAINLINE-PORT.md](MAINLINE-PORT.md#baselines)): OpenWrt's `KERNEL_TESTING_PATCHVER` mechanism, same OpenWrt main tree and userspace.
 
 | Piece | Source |
 |---|---|
@@ -109,7 +109,7 @@ Build result 2026-10-12:
 
 Build gotchas (2026-10-12):
 
-- `--kernel-only` does not rebuild kmods. After a kernel config change (PREEMPT, SMP) nf_tables and other kmods fail to load with `section size must match ... struct module size`; a full `build-openwrt --kernel 7.3` (57 s incremental) fixes it. Use the full build after any config change.
+- `--kernel-only` does not rebuild kmods. After a kernel config change (PREEMPT, SMP) nf_tables and other kmods fail to load with `section size must match ... struct module size`; a full `build-openwrt --kernel mainline` (57 s incremental) fixes it. Use the full build after any config change.
 - `config-7.3` regenerated with `MIPS_CMDLINE_DTB_EXTEND=y`: U-Boot `bootargs` (`st1008f.mode`) are appended to the DT ones (OpenWrt realtek default `MIPS_CMDLINE_FROM_DTB` ignores them).
 
 ## Board results (2026-10-12)

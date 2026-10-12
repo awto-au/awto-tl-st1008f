@@ -161,7 +161,7 @@ Owner decision 2026-10-12 (#73, #46). M2 used to mean "stop at the U-Boot prompt
 
 - OpenWrt realtek default `MIPS_CMDLINE_FROM_DTB` ignores U-Boot `bootargs`. Both images use `MIPS_CMDLINE_DTB_EXTEND`: DT `bootargs` (`earlycon`) + U-Boot argv (`fw_init_cmdline()` in `realtek_fixup_fdt`).
   - 6.18 (recovery): `openwrt/backport-6.18/openwrt-tree.patch` (`config-6.18`).
-  - 7.3 (primary): `PORT73` in `scripts/build_openwrt.py`; needs `build-openwrt --kernel 7.3 --regen-config` (the overlay logs a WARN while `config-7.3` lacks it).
+  - 7.3 (primary): `PORT73` in `scripts/build_openwrt.py`; needs `build-openwrt --kernel mainline --regen-config` (the overlay logs a WARN while `config-7.3` lacks it).
 - Stock U-Boot `bootargs` is empty (`ramload` paths): nothing added. `MTD_CMDLINE_PARTS=y`: a `mtdparts=` in `bootargs` would override the DT layout; neither U-Boot sets one.
 
 ### Mode switch hardware

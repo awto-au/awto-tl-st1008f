@@ -1,8 +1,8 @@
 #!/usr/bin/env python3
-"""Classify every OpenWrt realtek patches-6.18 patch against our Linux 7.3 tree (#16).
+"""Classify every OpenWrt realtek patches-6.18 patch against the kernel_base.py tree (#16).
 
 Per patch, in series order, on a clean tree:
-  upstream = reverse-applies (content already in 7.3)
+  upstream = reverse-applies (content already in the base)
   applies  = applies forward (then kept applied so later patches in a series can stack);
              can be a false positive (705 lands in another function: already upstream there)
   fails    = neither (needs a forward-port, or partly upstream)
@@ -12,6 +12,8 @@ Output: tmp/openwrt_patch_status.tsv (name, status, files touched).
 import argparse
 import subprocess
 from pathlib import Path
+
+import kernel_base
 
 ROOT = Path(__file__).resolve().parent.parent
 OWRT = ROOT / "tmp/openwrt/target/linux/realtek/patches-6.18"
@@ -37,7 +39,7 @@ def reset(tree, log):
 
 def main():
     ap = argparse.ArgumentParser()
-    ap.add_argument("--tree", default=str(ROOT / "tmp/linux-v7.3"))
+    ap.add_argument("--tree", default=str(kernel_base.tree()))
     ap.add_argument("--dir", default=str(OWRT), help="patch dir (e.g. generic/pending-6.18)")
     ap.add_argument("--glob", default="*.patch")
     ap.add_argument("--out", default=str(OUT))

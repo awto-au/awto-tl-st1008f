@@ -3,13 +3,15 @@
 
 - a/: upstream files as fetched (scripts/upstream_rtl83xx_fetch.py); b/: edited copies.
 - Out: <out>/l3-upstream.diff, paths target/linux/realtek/files-6.18/drivers/net/dsa/rtl83xx/l3.[ch].
-- checkpatch: tmp/linux-v7.3/scripts/checkpatch.pl --no-tree on that diff.
+- checkpatch: <kernel_base tree>/scripts/checkpatch.pl --no-tree on that diff.
 Log: tmp/logs/l3_upstream_diff.log
 """
 import argparse
 import subprocess
 import time
 from pathlib import Path
+
+import kernel_base
 
 ROOT = Path(__file__).resolve().parent.parent
 LOG = ROOT / "tmp/logs/l3_upstream_diff.log"
@@ -43,7 +45,7 @@ def main():
     out.write_text(body)
     log(f"{out}: {len(body.splitlines())} lines")
     # checkpatch on ~1 k lines takes a few s; 60 s names a hang
-    r = subprocess.run(["perl", str(ROOT / "tmp/linux-v7.3/scripts/checkpatch.pl"), "--no-tree",
+    r = subprocess.run(["perl", str(kernel_base.tree() / "scripts/checkpatch.pl"), "--no-tree",
                         "--no-signoff", "--strict", "--max-line-length=100", str(out)],
                        capture_output=True, text=True, timeout=60)
     log(r.stdout.strip()[-3000:])

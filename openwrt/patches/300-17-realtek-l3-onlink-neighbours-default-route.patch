@@ -15,7 +15,10 @@ e5ec5e199f: upstream PR draft, docs/ROUTING-OFFLOAD.md. Both opt-in: HW routing 
   FIB replay, requested on the next delete). A v6 source-specific default traps the row.
 - Poll every DELAY_PROBE_TIME: entry hit + neighbour STALE -> neigh_event_send() (kernel re-probes,
   as mlxsw); next hops still without an L2 entry retried; parameter changes applied.
+- linux-next: ARP table per netns, arp_table(&init_net) (7.3 copy: openwrt/patches-v7.3-rc6/).
 ---
+diff --git a/drivers/net/dsa/rtl83xx/l3.c b/drivers/net/dsa/rtl83xx/l3.c
+index 5ee59ea79..f12a10cfd 100644
 --- a/drivers/net/dsa/rtl83xx/l3.c
 +++ b/drivers/net/dsa/rtl83xx/l3.c
 @@ -40,6 +40,20 @@
@@ -99,7 +102,7 @@ e5ec5e199f: upstream PR draft, docs/ROUTING-OFFLOAD.md. Both opt-in: HW routing 
  struct otto_l3_net_event_work {
  	struct work_struct work;
  	struct otto_l3_ctrl *ctrl;
-@@ -233,6 +272,26 @@
+@@ -233,6 +272,26 @@ static u32 otto_l3_930x_hash4(u32 ip, int algorithm, bool move_dip)
  	return hash;
  }
  
@@ -126,7 +129,7 @@ e5ec5e199f: upstream PR draft, docs/ROUTING-OFFLOAD.md. Both opt-in: HW routing 
  /*
   * Get the Destination-MAC of an L3 egress interface or the Source MAC for routed packets
   * from the SoC's L3_EGR_INTF_MAC table. Indexes 0-2047 are DMACs, 2048+ are SMACs
-@@ -261,6 +320,12 @@
+@@ -261,6 +320,12 @@ static int otto_l3_930x_set_egress_mac(struct otto_l3_ctrl *ctrl, u32 idx, u64 m
  	return otto_table_write(RTL9300_TBL_L3_EGR_INTF_MAC, idx, &data);
  }
  
@@ -139,7 +142,7 @@ e5ec5e199f: upstream PR draft, docs/ROUTING-OFFLOAD.md. Both opt-in: HW routing 
  /* Decode a host route entry fetched into @data. Returns false unless it is a
   * valid unicast entry; valid is set for any entry, type for any valid one.
   */
-@@ -323,6 +388,7 @@
+@@ -323,6 +388,7 @@ static void otto_l3_930x_host_route_read(struct otto_l3_ctrl *ctrl, int idx, str
  static void otto_l3_930x_host_route_write(struct otto_l3_ctrl *ctrl, int idx, struct otto_l3_route *rt)
  {
  	/* Only the unicast layout is handled below */
@@ -147,7 +150,7 @@ e5ec5e199f: upstream PR draft, docs/ROUTING-OFFLOAD.md. Both opt-in: HW routing 
  	u32 data[5];
  	u32 v;
  
-@@ -366,13 +432,17 @@
+@@ -366,13 +432,17 @@ static void otto_l3_930x_host_route_write(struct otto_l3_ctrl *ctrl, int idx, st
  	}
  
  	otto_table_write(RTL9300_TBL_L3_HOST_ROUTE_IPUC, idx, &data);
@@ -170,7 +173,7 @@ e5ec5e199f: upstream PR draft, docs/ROUTING-OFFLOAD.md. Both opt-in: HW routing 
  
  static int otto_l3_930x_find_slot(struct otto_l3_ctrl *ctrl, struct otto_l3_route *rt, bool must_exist)
  {
-@@ -384,7 +454,10 @@
+@@ -384,7 +454,10 @@ static int otto_l3_930x_find_slot(struct otto_l3_ctrl *ctrl, struct otto_l3_rout
  
  	for (int t = 0; t < 2; t++) {
  		algorithm = (sw_r32(RTL930X_L3_HOST_TBL_CTRL) >> (2 + t)) & 0x1;
@@ -182,7 +185,7 @@ e5ec5e199f: upstream PR draft, docs/ROUTING-OFFLOAD.md. Both opt-in: HW routing 
  
  		dev_dbg(ctrl->dev, "table %d, algorithm %d, hash %04x\n", t, algorithm, hash);
  
-@@ -394,6 +467,12 @@
+@@ -394,6 +467,12 @@ static int otto_l3_930x_find_slot(struct otto_l3_ctrl *ctrl, struct otto_l3_rout
  			idx = ((addr / 8) * 6) + (addr % 8);
  			dev_dbg(ctrl->dev, "logical address %d\n", idx);
  
@@ -195,7 +198,7 @@ e5ec5e199f: upstream PR draft, docs/ROUTING-OFFLOAD.md. Both opt-in: HW routing 
  			otto_l3_930x_host_route_read(ctrl, idx, &route_entry);
  			dev_dbg(ctrl->dev, "route valid %d, route dest: %pI4, hit %d\n",
  				rt->attr.valid, &rt->dst_ip, rt->attr.hit);
-@@ -1224,6 +1303,24 @@
+@@ -1224,6 +1303,24 @@ static int otto_l3_prefix_rows(struct otto_l3_ctrl *ctrl, u8 type, int min_len)
  	return n;
  }
  
@@ -220,7 +223,7 @@ e5ec5e199f: upstream PR draft, docs/ROUTING-OFFLOAD.md. Both opt-in: HW routing 
  /* A row move that fails partway leaves the block half shifted: some rows have
   * moved, and the list still names the rows they were at. Every placement and
   * every compaction after that is computed from those names, so the next route
-@@ -1266,6 +1363,10 @@
+@@ -1266,6 +1363,10 @@ static int otto_l3_route_place(struct otto_l3_ctrl *ctrl, struct otto_l3_route *
  				    r->prefix_len + (r->tb_id == RT_TABLE_LOCAL));
  	rows = otto_l3_prefix_rows(ctrl, r->attr.type, 0);
  
@@ -231,7 +234,7 @@ e5ec5e199f: upstream PR draft, docs/ROUTING-OFFLOAD.md. Both opt-in: HW routing 
  	if (r->attr.type == ROUTE_TYPE_IP6UC) {
  		int v4_rows = otto_l3_prefix_rows(ctrl, ROUTE_TYPE_IP4UC, 0);
  
-@@ -1443,6 +1544,34 @@
+@@ -1443,6 +1544,34 @@ static bool otto_l3_fwd_off(struct otto_l3_ctrl *ctrl, u8 type)
  	return type == ROUTE_TYPE_IP6UC ? ctrl->v6_fwd_off : ctrl->v4_fwd_off;
  }
  
@@ -266,7 +269,7 @@ e5ec5e199f: upstream PR draft, docs/ROUTING-OFFLOAD.md. Both opt-in: HW routing 
  /* The kernel looks the local table up whole before main, so a local prefix
   * shorter than a host address (AnyIP: ip route add local ... table local)
   * takes the destinations of a longer main route inside it, which the switch,
-@@ -1526,6 +1655,8 @@
+@@ -1526,6 +1655,8 @@ static int otto_l3_route_install(struct otto_l3_ctrl *ctrl, struct otto_l3_route
  	char dst[INET6_ADDRSTRLEN + sizeof("/128")];
  	int slot;
  
@@ -275,7 +278,7 @@ e5ec5e199f: upstream PR draft, docs/ROUTING-OFFLOAD.md. Both opt-in: HW routing 
  	if (otto_l3_host_shadowed(ctrl, r)) {
  		dev_dbg(ctrl->dev, "%pI4 is an address of the switch, its entry stays\n",
  			&r->dst_ip);
-@@ -1537,7 +1668,14 @@
+@@ -1537,7 +1668,14 @@ static int otto_l3_route_install(struct otto_l3_ctrl *ctrl, struct otto_l3_route
  		if (slot < 0)
  			slot = ctrl->cfg->find_slot(ctrl, r, false);
  		if (slot < 0) {
@@ -291,7 +294,7 @@ e5ec5e199f: upstream PR draft, docs/ROUTING-OFFLOAD.md. Both opt-in: HW routing 
  			return -ENOSPC;
  		}
  
-@@ -1551,6 +1689,7 @@
+@@ -1551,6 +1689,7 @@ static int otto_l3_route_install(struct otto_l3_ctrl *ctrl, struct otto_l3_route
  	if (r->row < 0) {
  		dev_err(ctrl->dev, "no row for prefix route %s\n",
  			otto_l3_route_dst(r, dst, sizeof(dst)));
@@ -299,7 +302,7 @@ e5ec5e199f: upstream PR draft, docs/ROUTING-OFFLOAD.md. Both opt-in: HW routing 
  		return -ENOSPC;
  	}
  
-@@ -1700,7 +1839,8 @@
+@@ -1700,7 +1839,8 @@ static void otto_l3_route_update_hw(struct otto_l3_ctrl *ctrl, struct otto_l3_ro
  				 &r->gw_ip, otto_l3_route_dst(r, dst, sizeof(dst)));
  	}
  
@@ -309,7 +312,7 @@ e5ec5e199f: upstream PR draft, docs/ROUTING-OFFLOAD.md. Both opt-in: HW routing 
  
  	r->attr.valid = true;
  	r->attr.action = trap ? ROUTE_ACT_TRAP2CPU : ROUTE_ACT_FORWARD;
-@@ -2092,14 +2232,14 @@
+@@ -2092,14 +2232,14 @@ static void otto_l3_route_remove(struct otto_l3_ctrl *ctrl, struct otto_l3_route
  	if (otto_l3_host_shadowed(ctrl, r)) {
  		/* The entry for the address is the local route's */
  	} else if (r->is_host_route) {
@@ -328,7 +331,7 @@ e5ec5e199f: upstream PR draft, docs/ROUTING-OFFLOAD.md. Both opt-in: HW routing 
  		}
  
  		if (r->tb_id == RT_TABLE_LOCAL && !r->replaced)
-@@ -2228,6 +2368,22 @@
+@@ -2228,6 +2368,22 @@ static struct otto_l3_route *otto_l3_route_alloc(struct otto_l3_ctrl *ctrl,
  	return r;
  }
  
@@ -351,7 +354,7 @@ e5ec5e199f: upstream PR draft, docs/ROUTING-OFFLOAD.md. Both opt-in: HW routing 
  static int otto_l3_fib_check_v4(struct otto_l3_ctrl *ctrl,
  				struct fib_entry_notifier_info *info,
  				enum fib_event_type event)
-@@ -2244,8 +2400,16 @@
+@@ -2244,8 +2400,16 @@ static int otto_l3_fib_check_v4(struct otto_l3_ctrl *ctrl,
  		 event == FIB_EVENT_ENTRY_ADD ? "add" : "delete",
  		 &info->dst, info->dst_len, gw_message, vlan, ndev->dev_addr);
  
@@ -370,7 +373,7 @@ e5ec5e199f: upstream PR draft, docs/ROUTING-OFFLOAD.md. Both opt-in: HW routing 
  		return -EINVAL;
  	}
  
-@@ -2260,8 +2424,10 @@
+@@ -2260,8 +2424,10 @@ static void otto_l3_host_route_trap(struct otto_l3_ctrl *ctrl,
  
  	ipv6_addr_set_v4mapped(0, &gw);
  	route = otto_l3_route_alloc(ctrl, &gw, ROUTE_HOST);
@@ -382,7 +385,7 @@ e5ec5e199f: upstream PR draft, docs/ROUTING-OFFLOAD.md. Both opt-in: HW routing 
  
  	route->dst_ip = info->dst;
  	route->prefix_len = info->dst_len;
-@@ -2270,8 +2436,10 @@
+@@ -2270,8 +2436,10 @@ static void otto_l3_host_route_trap(struct otto_l3_ctrl *ctrl,
  	route->attr.action = ROUTE_ACT_TRAP2CPU;
  	route->attr.type = ROUTE_TYPE_IP4UC;
  
@@ -394,7 +397,7 @@ e5ec5e199f: upstream PR draft, docs/ROUTING-OFFLOAD.md. Both opt-in: HW routing 
  }
  
  /* A route this driver leaves out still has to keep a shorter prefix in
-@@ -2297,6 +2465,7 @@
+@@ -2297,6 +2465,7 @@ static void otto_l3_fib_trap_v4(struct otto_l3_ctrl *ctrl, struct fib_entry_noti
  	route = otto_l3_route_alloc(ctrl, &gw, ROUTE_PREFIX);
  	if (!route) {
  		dev_err(ctrl->dev, "no row to trap %pI4/%d\n", &info->dst, info->dst_len);
@@ -402,7 +405,7 @@ e5ec5e199f: upstream PR draft, docs/ROUTING-OFFLOAD.md. Both opt-in: HW routing 
  		return;
  	}
  
-@@ -2311,6 +2480,7 @@
+@@ -2311,6 +2480,7 @@ static void otto_l3_fib_trap_v4(struct otto_l3_ctrl *ctrl, struct fib_entry_noti
  	if (route->row < FIRST_PREFIX_ROW) {
  		dev_err(ctrl->dev, "no row to trap %pI4/%d\n", &info->dst, info->dst_len);
  		otto_l3_route_teardown(ctrl, route);
@@ -410,7 +413,7 @@ e5ec5e199f: upstream PR draft, docs/ROUTING-OFFLOAD.md. Both opt-in: HW routing 
  		return;
  	}
  
-@@ -2403,6 +2573,7 @@
+@@ -2403,6 +2573,7 @@ static int otto_l3_fib_add_v4(struct otto_l3_ctrl *ctrl, struct fib_entry_notifi
  	else {
  		dev_err(ctrl->dev, "could not allocate a route for gw %pI4\n",
  			&nh->fib_nh_gw4);
@@ -418,7 +421,7 @@ e5ec5e199f: upstream PR draft, docs/ROUTING-OFFLOAD.md. Both opt-in: HW routing 
  		return -ENOSPC;
  	}
  
-@@ -2458,6 +2629,7 @@
+@@ -2458,6 +2629,7 @@ static int otto_l3_fib_add_v4(struct otto_l3_ctrl *ctrl, struct fib_entry_notifi
  out_free_rt:
  	otto_l3_route_put_intf(ctrl, route);
  	otto_l3_route_free(ctrl, route);
@@ -426,7 +429,7 @@ e5ec5e199f: upstream PR draft, docs/ROUTING-OFFLOAD.md. Both opt-in: HW routing 
  	return 0;
  }
  
-@@ -2548,14 +2720,11 @@
+@@ -2548,14 +2720,11 @@ static int otto_l3_fib_check_v6(struct otto_l3_ctrl *ctrl, struct fib6_info *rt,
  	if (rt->fib6_flags & RTF_ADDRCONF)
  		return -EOPNOTSUPP;
  
@@ -445,7 +448,7 @@ e5ec5e199f: upstream PR draft, docs/ROUTING-OFFLOAD.md. Both opt-in: HW routing 
  		return -EOPNOTSUPP;
  
  	if (rt->fib6_nh->fib_nh_gw_family != AF_INET6)
-@@ -2607,6 +2776,7 @@
+@@ -2607,6 +2776,7 @@ static int otto_l3_fib_trap_v6(struct otto_l3_ctrl *ctrl, struct fib6_info *rt,
  	if (!route) {
  		dev_err(ctrl->dev, "no row to trap %pI6c/%d\n",
  			&rt->fib6_dst.addr, rt->fib6_dst.plen);
@@ -453,7 +456,7 @@ e5ec5e199f: upstream PR draft, docs/ROUTING-OFFLOAD.md. Both opt-in: HW routing 
  		return -ENOSPC;
  	}
  
-@@ -2621,6 +2791,7 @@
+@@ -2621,6 +2791,7 @@ static int otto_l3_fib_trap_v6(struct otto_l3_ctrl *ctrl, struct fib6_info *rt,
  	route->row = otto_l3_route_place(ctrl, route);
  	if (route->row < FIRST_PREFIX_ROW) {
  		otto_l3_route_teardown(ctrl, route);
@@ -461,7 +464,7 @@ e5ec5e199f: upstream PR draft, docs/ROUTING-OFFLOAD.md. Both opt-in: HW routing 
  		return -ENOSPC;
  	}
  
-@@ -2690,7 +2861,10 @@
+@@ -2690,7 +2861,10 @@ static int otto_l3_fib_add_v6_src(struct otto_l3_ctrl *ctrl, struct fib6_info *r
  	unsigned int plain = 0;
  	int err;
  
@@ -473,7 +476,7 @@ e5ec5e199f: upstream PR draft, docs/ROUTING-OFFLOAD.md. Both opt-in: HW routing 
  		return 0;
  
  	/* A row that forwards here is the route without a source, which the
-@@ -2897,6 +3071,7 @@
+@@ -2897,6 +3071,7 @@ static int otto_l3_fib_add_v6(struct otto_l3_ctrl *ctrl, struct fib6_entry_notif
  	route->attr.valid = true;
  	route->row = otto_l3_route_place(ctrl, route);
  	if (route->row < 0) {
@@ -481,7 +484,7 @@ e5ec5e199f: upstream PR draft, docs/ROUTING-OFFLOAD.md. Both opt-in: HW routing 
  		fib6_info_hw_flags_set(&init_net, rt, false, false, true);
  	} else {
  		ctrl->cfg->route_write(ctrl, route->row, route);
-@@ -2930,6 +3105,7 @@
+@@ -2930,6 +3105,7 @@ static int otto_l3_fib_add_v6(struct otto_l3_ctrl *ctrl, struct fib6_entry_notif
  	if (route)
  		otto_l3_route_teardown(ctrl, route);
  	fib6_info_hw_flags_set(&init_net, rt, false, false, true);
@@ -489,7 +492,7 @@ e5ec5e199f: upstream PR draft, docs/ROUTING-OFFLOAD.md. Both opt-in: HW routing 
  
  	return -ENOSPC;
  }
-@@ -3217,12 +3393,309 @@
+@@ -3217,12 +3393,309 @@ static void otto_l3_local_prefix_check(struct otto_l3_ctrl *ctrl, struct fib_not
  	}
  }
  
@@ -512,7 +515,7 @@ e5ec5e199f: upstream PR draft, docs/ROUTING-OFFLOAD.md. Both opt-in: HW routing 
 +		return NULL;
 +
 +	if (r->attr.type == ROUTE_TYPE_IP4UC)
-+		return neigh_lookup(&arp_tbl, &r->gw_ip.s6_addr32[3], dev);
++		return neigh_lookup(arp_table(&init_net), &r->gw_ip.s6_addr32[3], dev);
 +
 +	if (IS_REACHABLE(CONFIG_IPV6))
 +		return neigh_lookup(&nd_tbl, &r->gw_ip, dev);
@@ -799,7 +802,7 @@ e5ec5e199f: upstream PR draft, docs/ROUTING-OFFLOAD.md. Both opt-in: HW routing 
  	int err;
  
  	/* Protect internal structures from changes */
-@@ -3237,7 +3710,14 @@
+@@ -3237,7 +3710,14 @@ static void otto_l3_fib_event_work_do(struct work_struct *work)
  			dev_err(ctrl->dev, "fib_add() failed\n");
  
  		otto_l3_local_prefix_check(ctrl, &fib_work->fen_info.info);
@@ -815,7 +818,7 @@ e5ec5e199f: upstream PR draft, docs/ROUTING-OFFLOAD.md. Both opt-in: HW routing 
  		break;
  	case FIB_EVENT_ENTRY_DEL:
  		err = otto_l3_fib_del_v4(ctrl, &fib_work->fen_info);
-@@ -3245,6 +3725,7 @@
+@@ -3245,6 +3725,7 @@ static void otto_l3_fib_event_work_do(struct work_struct *work)
  			dev_err(ctrl->dev, "fib_del() failed\n");
  
  		otto_l3_local_prefix_check(ctrl, &fib_work->fen_info.info);
@@ -823,7 +826,7 @@ e5ec5e199f: upstream PR draft, docs/ROUTING-OFFLOAD.md. Both opt-in: HW routing 
  		fib_info_put(fib_work->fen_info.fi);
  		break;
  	case FIB_EVENT_RULE_ADD:
-@@ -3266,6 +3747,7 @@
+@@ -3266,6 +3747,7 @@ static void otto_l3_fib6_event_work_do(struct work_struct *work)
  	struct otto_l3_fib_event_work *fib_work =
  		container_of(work, struct otto_l3_fib_event_work, work);
  	struct otto_l3_ctrl *ctrl = fib_work->ctrl;
@@ -831,7 +834,7 @@ e5ec5e199f: upstream PR draft, docs/ROUTING-OFFLOAD.md. Both opt-in: HW routing 
  	int err = 0;
  
  	/* Protect internal structures from changes */
-@@ -3275,10 +3757,16 @@
+@@ -3275,10 +3757,16 @@ static void otto_l3_fib6_event_work_do(struct work_struct *work)
  	case FIB_EVENT_ENTRY_APPEND:
  		err = otto_l3_fib_add_v6(ctrl, &fib_work->fen6_info, fib_work->members);
  		otto_l3_local_prefix_check(ctrl, &fib_work->fen6_info.info);
@@ -848,7 +851,7 @@ e5ec5e199f: upstream PR draft, docs/ROUTING-OFFLOAD.md. Both opt-in: HW routing 
  		break;
  	}
  	if (err)
-@@ -3418,6 +3906,8 @@
+@@ -3418,6 +3906,8 @@ static void otto_l3_net_event_work_do(struct work_struct *work)
  
  	otto_l3_nexthop_update(net_work->ctrl, net_work->type, net_work->ifindex,
  			       &net_work->gw_addr, net_work->mac, net_work->valid);
@@ -857,7 +860,7 @@ e5ec5e199f: upstream PR draft, docs/ROUTING-OFFLOAD.md. Both opt-in: HW routing 
  
  	kfree(net_work);
  }
-@@ -3503,6 +3993,108 @@
+@@ -3503,6 +3993,108 @@ static int otto_l3_netevent_notifier(struct notifier_block *this, unsigned long
  	return NOTIFY_DONE;
  }
  
@@ -877,7 +880,7 @@ e5ec5e199f: upstream PR draft, docs/ROUTING-OFFLOAD.md. Both opt-in: HW routing 
 +	if (!READ_ONCE(l3_onlink) || !ctrl->cfg->host_route_write)
 +		return;
 +
-+	neigh_for_each(&arp_tbl, otto_l3_neigh_replay_one, ctrl);
++	neigh_for_each(arp_table(&init_net), otto_l3_neigh_replay_one, ctrl);
 +	if (IS_REACHABLE(CONFIG_IPV6))
 +		neigh_for_each(&nd_tbl, otto_l3_neigh_replay_one, ctrl);
 +}
@@ -935,7 +938,7 @@ e5ec5e199f: upstream PR draft, docs/ROUTING-OFFLOAD.md. Both opt-in: HW routing 
 + */
 +static unsigned long otto_l3_poll_delay(void)
 +{
-+	return max_t(unsigned long, NEIGH_VAR(&arp_tbl.parms, DELAY_PROBE_TIME), HZ);
++	return max_t(unsigned long, NEIGH_VAR(&arp_table(&init_net)->parms, DELAY_PROBE_TIME), HZ);
 +}
 +
 +/* Runs on the driver's queue, so nothing else walks the routes meanwhile */
@@ -966,7 +969,7 @@ e5ec5e199f: upstream PR draft, docs/ROUTING-OFFLOAD.md. Both opt-in: HW routing 
  /* debugfs dump of the RTL930x L3 route tables (realtek_otto_l3/routes,
   * realtek_otto_l3/clear_route_hits). Requested on issue #25129; RTL930x
   * only, since the other families' L3 tables have different layouts and are
-@@ -4006,6 +4598,7 @@
+@@ -4006,6 +4598,7 @@ const struct otto_l3_config otto_l3_930x_cfg = {
  	.get_egress_mac = otto_l3_930x_get_egress_mac,
  	.set_egress_mac = otto_l3_930x_set_egress_mac,
  	.set_egress_intf = otto_l3_930x_set_egress_intf,
@@ -974,7 +977,7 @@ e5ec5e199f: upstream PR draft, docs/ROUTING-OFFLOAD.md. Both opt-in: HW routing 
  	.host_route_write = otto_l3_930x_host_route_write,
  	.get_router_mac = otto_l3_930x_get_router_mac,
  	.set_router_mac = otto_l3_930x_set_router_mac,
-@@ -4038,6 +4631,7 @@
+@@ -4038,6 +4631,7 @@ void otto_l3_remove(struct rtl838x_switch_priv *priv)
  
  	/* A replay would register the FIB notifier again */
  	disable_delayed_work_sync(&ctrl->resync_work);
@@ -982,7 +985,7 @@ e5ec5e199f: upstream PR draft, docs/ROUTING-OFFLOAD.md. Both opt-in: HW routing 
  
  	if (ctrl->nd_nb.notifier_call) {
  		unregister_netdevice_notifier(&ctrl->nd_nb);
-@@ -4086,7 +4680,13 @@
+@@ -4086,7 +4680,13 @@ static void otto_l3_fib_flush_work_do(struct work_struct *work)
  	list_for_each_entry_safe(r, tmp, &fw->ctrl->routes_list, list)
  		if (r->tb_id)
  			otto_l3_route_teardown(fw->ctrl, r);
@@ -996,7 +999,7 @@ e5ec5e199f: upstream PR draft, docs/ROUTING-OFFLOAD.md. Both opt-in: HW routing 
  }
  
  /* A dump that raced a change to the FIB leaves programmed what it saw, and the
-@@ -4161,6 +4761,7 @@
+@@ -4161,6 +4761,7 @@ int otto_l3_probe(struct device *dev, struct rtl838x_switch_priv *priv)
  	/* Until the FIB notifier is in place there is nothing to replay */
  	INIT_DELAYED_WORK(&ctrl->resync_work, otto_l3_resync_work_do);
  	disable_delayed_work(&ctrl->resync_work);
@@ -1004,7 +1007,7 @@ e5ec5e199f: upstream PR draft, docs/ROUTING-OFFLOAD.md. Both opt-in: HW routing 
  
  	match = of_match_node(otto_l3_of_ids, dev->of_node);
  	if (!match)
-@@ -4232,6 +4833,7 @@
+@@ -4232,6 +4833,7 @@ int otto_l3_probe(struct device *dev, struct rtl838x_switch_priv *priv)
  		smp_mb(); /* pairs with the one in otto_l3_resync_request() */
  		if (READ_ONCE(ctrl->resync_wanted))
  			queue_delayed_work(system_long_wq, &ctrl->resync_work, 0);
@@ -1012,9 +1015,11 @@ e5ec5e199f: upstream PR draft, docs/ROUTING-OFFLOAD.md. Both opt-in: HW routing 
  	}
  
  	if (ctrl->cfg->dbgfs_init)
+diff --git a/drivers/net/dsa/rtl83xx/l3.h b/drivers/net/dsa/rtl83xx/l3.h
+index bd58c0f41..8503868d0 100644
 --- a/drivers/net/dsa/rtl83xx/l3.h
 +++ b/drivers/net/dsa/rtl83xx/l3.h
-@@ -17,6 +17,8 @@
+@@ -17,6 +17,8 @@ struct fib6_info;
  #define MAX_ROUTER_MACS 64
  #define MAX_HOST_ROUTES		1536
  #define MAX_ROUTES		512
@@ -1023,7 +1028,7 @@ e5ec5e199f: upstream PR draft, docs/ROUTING-OFFLOAD.md. Both opt-in: HW routing 
  
  #define HASH_PICK(val, lsb, len) ((val & (((1 << len) - 1) << lsb)) >> lsb)
  
-@@ -89,6 +91,8 @@
+@@ -89,6 +91,8 @@ struct otto_l3_route {
  	struct in6_addr dst_ip6;
  	int prefix_len;			/* Network prefix len of the destination net */
  	bool is_host_route;
@@ -1032,7 +1037,7 @@ e5ec5e199f: upstream PR draft, docs/ROUTING-OFFLOAD.md. Both opt-in: HW routing 
  	bool replaced;			/* torn down for a route to the same destination */
  	int id;				/* ID number of this route */
  	int row;			/* Row it occupies in the prefix route table */
-@@ -115,6 +119,7 @@
+@@ -115,6 +119,7 @@ struct otto_l3_config {
  	void (*set_egress_intf)(struct otto_l3_ctrl *ctrl, int idx, struct otto_l3_intf *intf);
  	u64 (*get_egress_mac)(struct otto_l3_ctrl *ctrl, u32 idx);
  	int (*set_egress_mac)(struct otto_l3_ctrl *ctrl, u32 idx, u64 mac);
@@ -1040,7 +1045,7 @@ e5ec5e199f: upstream PR draft, docs/ROUTING-OFFLOAD.md. Both opt-in: HW routing 
  	void (*host_route_write)(struct otto_l3_ctrl *ctrl, int idx, struct otto_l3_route *rt);
  	void (*get_router_mac)(struct otto_l3_ctrl *ctrl, u32 idx, struct otto_l3_router_mac *m);
  	void (*set_router_mac)(struct otto_l3_ctrl *ctrl, u32 idx, struct otto_l3_router_mac *m);
-@@ -138,6 +143,10 @@
+@@ -138,6 +143,10 @@ struct otto_l3_ctrl {
  	struct delayed_work resync_work;
  	unsigned int resync_delay;
  	bool resync_wanted;

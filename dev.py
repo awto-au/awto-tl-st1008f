@@ -419,8 +419,8 @@ def cmd_build_uboot(extra: list[str]) -> int:
 
 
 @command("build mainline Linux (SMP: both VPEs) and wrap it as tmp/tftp/mainline.bin",
-         args="[--dtb-only] [--up] [--no-highmem] [--latency]  (--up: one VPE, A/B #16; --no-highmem: 256 MiB "
-              "reference #27; --latency: irqsoff/timerlat tracers #73)",
+         args="[--dtb-only] [--up] [--no-highmem] [--latency] [--w1]  (base: kernel-base; --up: one VPE, A/B #16; "
+              "--no-highmem: 256 MiB reference #27; --latency: irqsoff/timerlat tracers #73; --w1: W=1 on our patched objects)",
          kind="build")
 def cmd_build_kernel(extra: list[str]) -> int:
     rc = _script("mainline_build_check.py", extra)
@@ -433,8 +433,15 @@ def cmd_build_kernel(extra: list[str]) -> int:
                    str(b / "arch/mips/boot/dts/realtek/tplink-tl-st1008f-v2.dtb")])
 
 
-@command("local OpenWrt main buildroot (rtl930x, TL-ST1008F v2): 6.18 + backports or our 7.3 port -> tmp/tftp/openwrt-ours*.bin (#73)",
-         args="[--kernel 6.18|7.3] [--kernel-only] [--jobs N] [--update] [--no-overlay] [--default-boot]  (docs/OPENWRT-BUILD.md)",
+@command("Linux base for build-kernel / build-openwrt --kernel mainline: linux-next PIN in scripts/kernel_base.py "
+         "(env KERNEL_BASE=v7.3-rc6 = fallback); update = newest next-YYYYMMDD tag (#16)",
+         args="[show | update [--tag next-YYYYMMDD] | checkout]", kind="build")
+def cmd_kernel_base(extra: list[str]) -> int:
+    return _script("kernel_base.py", extra)
+
+
+@command("local OpenWrt main buildroot (rtl930x, TL-ST1008F v2): 6.18 + backports or our mainline port -> tmp/tftp/openwrt-ours*.bin (#73)",
+         args="[--kernel 6.18|mainline] [--kernel-only] [--jobs N] [--update] [--no-overlay] [--default-boot]  (docs/OPENWRT-BUILD.md)",
          kind="build")
 def cmd_build_openwrt(extra: list[str]) -> int:
     return _script("build_openwrt.py", extra)
