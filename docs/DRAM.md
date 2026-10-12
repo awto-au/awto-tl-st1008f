@@ -113,6 +113,23 @@ Code reading, 2026-10-13. Sources: `SDK` = GPL SDK 4.0.2 `loader/u-boot-2011.12/
 | PHY FIFO pointer reset | after PHY changes | done twice: OK |
 | Read gate / read DQ / write DQ retrain | `DDR_Calibration` at init | **skipped** (lead 1) |
 
+### Leads tested on sw2 (2026-10-13T10:15-10:45+11:00, one quick test per point: change OK + 16 MiB `crc32` + prompt)
+
+Each config adds to the previous one; points 800 → 725 → down to the first pass.
+
+| Config | 800 | 725 | 700 | 675 |
+|---|---|---|---|---|
+| (a) `dll`: MR1 DLL off/on, MR0 DLL reset, MR2, MR3, ZQCL every change | fail | fail | fail | fail |
+| (b) + SPL 650 PHY preset (DCSDCR0-3) | fail | fail | fail | fail (540 bad) |
+| (c) + BIS PLL row (MPCR1 `c00001ef`, MPCR2 `2ea23980`) | hang | hang | hang | hang |
+| (d) (a) + per-DQ read-tap retrain (`./dev.py ddr-retrain`) | no window (DQ1/DQ4) | no window | **pass** | **pass** |
+| (e) (d) + DQS PI 4 / 8 / 12 (MPCR0 26:22, 31:27) | no window (PI 8) | no window (all three) | — | — |
+
+- "no window" = some DQ fails at every read shift −16…+10 from the 600 training (its taps would have to go below 0). DQ1/DQ4 are the earliest to fail, as on sw1.
+- Fail = canary bad, reverted cleanly; hang = no prompt after the change (PLL row).
+- (d) at 700: read-tap shifts −13 (window −16…−11), taps RR 5-8, FR 0-4. Write taps not retrained: `bench` writes not run (they hung at 675/700 on sw1).
+- Not done: refresh kept on through the change (the ~1.8 ms gap), write-tap/DQS-group retrain, PI ≥ 16 (needs the MPCR3 oesync bits).
+
 ### Leads for 675-800, ranked
 
 1. **Retrain read + write DQ taps at the target speed.** Port `DDR_Calibration_Full_Scan_Reduce` (`boot0412/memctl_cali_dram.c:566-847`) into the SRAM routine: 8 KiB scratch target, 2-tap steps, 16 x 16 writes + reads per pass. Only DRAM contents in the scratch buffer are lost. Covers the measured read failure (DQ4 late at 675) and the `bench` write hang (write taps still at the 600 result).
