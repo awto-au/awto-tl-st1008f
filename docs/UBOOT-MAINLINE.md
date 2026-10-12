@@ -189,40 +189,57 @@ Implementation: [RTK-COMMANDS.md](RTK-COMMANDS.md#stage-4-network-on-10g-macsds-
 
 ## Ethernet (#80)
 
-- Driver: `board/tplink/tl-st1008f/rtl930x_eth.c`, DM_ETH, node `ethernet@df00` (`realtek,rtl9301-eth`). Polled, no IRQ. Built, not yet run on the board.
+- Driver: `board/tplink/tl-st1008f/rtl930x_eth.c`, DM_ETH, node `ethernet@df00` (`realtek,rtl9301-eth`). Polled, no IRQ. Works on the board without stock (results below).
 - Shared core (#83): `shared/rtl930x-nic/rtl930x_nic.h` = registers, descriptor + CPU-tag layout, NIC reset, HOL ring size/counter, reason map, ring base, max length, enable/stop, doorbell value. Same file in Linux (`300-20`).
   - Boundary: core = hardware facts and register sequences; U-Boot glue = DM_ETH, rings in KSEG1, cache ops, polling, loop guard, `ethport`; Linux glue = page_pool, NAPI, BQL, DSA.
   - Platform shim: the includer defines `rtl930x_nic_rd/wr(ctx, off)` (U-Boot `sw_r/sw_w`, Linux regmap), `rtl930x_nic_msleep`, `rtl930x_nic_udelay`.
   - Sync rule: edit only `shared/`; `build_uboot_mainline.py` (`SHARED`), `mainline_build_check.py` and `build_openwrt.py` (`SHARED_FILES`) copy it. Linux `static_assert`s tie `RTETH_930X_*`, ring bits and `rteth_frag` to the core.
 - Stack: legacy U-Boot net (`NET_LEGACY`): `dhcp`, `ping`, `tftpboot`, `wget` (HTTP only; HTTPS needs lwIP + mbedTLS), netconsole (`nc`), `fastboot udp` (RAM download only: `FASTBOOT_FLASH` off, buffer `0x84f00000` 32 MiB).
-- Size: `u-boot.bin` 444849 B with net + shared core (375 KiB before net); build fails above the 512 KiB chain copy (`CHAIN_COPY_MAX`).
+- Size: `u-boot.bin` 456593 B (375 KiB before net); build fails above the 512 KiB chain copy (`CHAIN_COPY_MAX`).
 - Env defaults: `ethport=1` (mgmt cage), `ipaddr=192.168.25.48` (st1008f-1-mgmt), `serverip=192.168.25.30`, `gatewayip=192.168.25.254`, `netmask=255.255.255.0`, `autoload=no`. MAC: stock flash env `ethaddr` (same as Linux nvmem); random MAC + warning if absent.
-- Debug: `ethstat` (ring indices, drop counters, last RX tag, NIC registers); `setenv ethrxany 1` accepts frames from every cage.
+- Debug: `ethstat` (ring index, TX re-kicks, frames per RX ring, last RX tag, switch drops: CPU queue 0 egress + port 0 ingress, RX runout status, NIC registers); `setenv ethrxany 1` accepts frames from every cage.
 
 | Item | Value | Source / why |
 |---|---|---|
-| Rings | RX ring 0: 32 x 1664 B; TX ring 0: 4 x 1664 B; RX rings 1-31 + TX ring 1 -> one CPU-owned null entry | stock left all 32 RX rings armed in its own memory; null entry = NIC never writes there |
+| RX rings | all 32 armed: ring 0 32 x 1664 B, rings 1-31 2 each (94 buffers); polled 31 -> 0 | a CPU-owned null ring on 1-31 left a runout bit set (ring 31, 2026-10-12); all traffic seen so far is on ring 0 |
+| TX rings | ring 0: 4 x 1664 B; ring 1 -> one CPU-owned null entry | TX ring 1 never kicked |
 | Descriptor | 32 B header (buf, size, more/offset, len, 10 x u16 CPU tag); ring entry = phys(header) \| OWN(0) \| WRAP(1) | OpenWrt `rtl838x_eth` |
 | Memory | headers via KSEG1 (uncached); buffers cached: flush before TX, invalidate after RX and before re-arm | non-coherent DMA |
-| RX accounting | `DMA_IF_RX_RING_SIZE` ring 0 = 32; write 1 to `RX_RING_CNTR` per released frame | queue manager drops at the limit otherwise (RX runout) |
-| Reason map | all `QM_RSN2CPUQID` / `FLAG2CPUQID` fields -> ring 0 | one ring polled |
+| RX accounting | `DMA_IF_RX_RING_SIZE` = 0 (no HOL limit) on every ring; write 1 to `RX_RING_CNTR` per released frame | SDK `nic.c` sets 0. Limit 32 stalled RX; without the release the 10-bit counter climbs to 0x3ff (below) |
+| Reason map | all `QM_RSN2CPUQID` / `FLAG2CPUQID` fields -> ring 0 | one main ring |
 | Frame limit | `MAC_L2_CPU_MAX_LEN` = 1600 | one frame = one descriptor; no `MORE` chains |
 | CPU port | `MAC_FORCE(28)` = 0x217 (link, 1G); `L2_UNKN_UC_FLD_PMSK` += port 28 | stock + OpenWrt values |
-| TX | CPU tag: FWD_TYPE physical, BP_FLTR + BP_STP + BP_VLAN_EGR, DPM = `ethport` cage port only | never flooded; bit layout SDK `nic_rtl9300.h` |
+| TX | CPU tag: FWD_TYPE physical, BP_FLTR + BP_STP + BP_VLAN_EGR, DPM = `ethport` cage port only; doorbell, then wait for the fetch, re-ring every 29 us | never flooded; lost doorbells (below) |
 | RX filter | frames whose tag rx port != `ethport` port dropped (`rx other-port`) | isolated cages still reach the CPU |
 | Start (first) | no network on yet (CPU force bits clear) -> our `rtk network on`; NIC + queue reset (`RST_GLB_CTRL_0` bits 1-2, never bit 0 = chip reset); rings; laser of `ethport` only | once per boot |
 | Start (every) | `rtk_iso_guard` (cages -> CPU only); DMA RX/TX on; CPU port MAC on | stock network on does not isolate |
-| Stop | wait for TX fetch, then DMA + CPU port MAC off | netconsole sends one frame and halts |
+| Stop | wait for TX fetch, then CPU port MAC off; DMA stays on | DMA off between commands desynced the RX ring (below) |
+| Remove (`bootm`) | `DM_FLAG_ACTIVE_DMA`: DMA + MAC off, IRQs masked | no DMA into memory the kernel reuses |
 
 | Wait | Limit | Basis | On expiry |
 |---|---|---|---|
 | NIC reset self-clear | 62.5 ms | SDK `r9300_swQueRst_set` fixed 50 ms, x1.25 | start fails, prints limit + register |
 | Settle before/after reset | 100 ms each, once per boot | OpenWrt `rteth_nic_reset` (no measurement) | - |
-| TX slot free | 115 us | Linux 17-23 us per packet incl. DMA ([DATASHEET-AUDIT.md](DATASHEET-AUDIT.md)), 4 slots, x1.25 | frame dropped, logged, `tx timeout` counted |
+| TX slot fetched | 115 us | Linux 17-23 us per packet incl. DMA ([DATASHEET-AUDIT.md](DATASHEET-AUDIT.md)), 4 slots, x1.25 | frame dropped, logged, `tx timeout` counted |
+| TX doorbell re-ring | every 29 us inside the 115 us | 1518 B frame at 1G = 12 us, + DMA, x1.25 rounded up | next ring; counted as `tx re-kicks` |
 
-- Tests: `./dev.py uboot-test net` (ping gateway, dhcp, tftp + wget CRC32 vs host, netconsole line received on the host). Explicit only.
-- Switch defaults (#80, owner: work as if stock never ran): our `rtk network on` now writes stock's SDK init too, from `shared/rtl930x-sw/` ([RTK-COMMANDS.md](RTK-COMMANDS.md#stage-4-network-on-10g-macsds-port-isolation)). Proof pending: `reg-diff --window` stock vs ours on a cold boot.
-- Primary test path: `./dev.py uboot-chain-install`, then `./dev.py ramload uboot-mainline --from-flash` (stock only copies ours; no stock network on), then `./dev.py uboot-test net`. Bisect of the stock defaults: `./dev.py uboot-test --sw-defaults none net` on a fresh boot, then `all`, then per purpose.
+- Tests: `./dev.py uboot-test net` (ping gateway, dhcp, tftp + wget CRC32 vs host, netconsole line received on the host). Explicit only. Check output is inside `interactive-begin/-end`, so `check-log` judges only boot lines.
+- Primary test path: `./dev.py uboot-chain-install`, then `./dev.py ramload uboot-mainline --from-flash` (stock only copies ours; no stock network on), then `./dev.py uboot-test net`. Defaults bisect: `./dev.py uboot-test --sw-defaults none|all|cpu,perf,policy net` on a fresh boot.
+
+### Results 2026-10-12 (cage 1 SFP-10GSR-85 to the house LAN, host 192.168.25.30, branch `worktree-agent-a224c1e0dfdf94299`)
+
+- Primary path (cold power-up, stock only copies ours, no stock network on; first eth start runs our `rtk network on`):
+  - 8 consecutive `uboot-test net` on one boot: 8/8 PASS (ping, dhcp, tftp + wget CRC32 equal to host, netconsole line received). TFTP of `uboot-mainline.bin` (456593 B): 10.6-19.8 MiB/s, no `T` timeout. `tx re-kicks` 6-15 per run. Switch drops: CPU queue 0 egress 0, port 0 ingress 0-2.
+  - Defaults bisect, fresh boot each: `rtk_sw_defaults=none` (0 rows) 3/3 PASS, 11.8-13.6 MiB/s; `all` (640 rows) 8/8 PASS. The stock SDK defaults are not needed for CPU traffic on this path.
+  - `check-log` CLEAN; `Core: 24 devices, 11 uclasses`; `Net: eth0: ethernet@df00`; NIC reset self-clear reads 0 us.
+- Secondary path (stock `rtk network on` + stock TFTP of ours, CPU 1 GHz): `uboot-test net` PASS, `check-log` CLEAN.
+- Chain boot (stock bootcmd -> ours -> flash OpenWrt, eth never started): unchanged, PASS (`uboot-chain-env boot`, 6 times).
+- Bugs found and fixed on the board:
+  - HOL limit 32: `RX_RING_CNTR` reached 32 = `RX_RING_SIZE` and stayed there (writes no longer lowered it); RX stopped after the first `wget`. Now size 0, as the SDK.
+  - Without per-frame release the counter only climbs (it also counts while eth is stopped, 0x10f -> 0x14d in seconds), towards the 10-bit 0x3ff. With release it stays at 1-6.
+  - DMA off in `stop()`: on a later command RX stalled (HW pointer at the slot after ours, CPU queue 0 egress drops 194-392). Now only the CPU port MAC stops between commands.
+  - Lost TX doorbells: host capture `tcpdump -i any`, `scripts/tftp_pcap_gaps.py`: 6 of 6 TFTP stalls were "lost ACK (board TX)", 0 "lost DATA": the ACK sat 5 s in the TX ring until the next send rang the doorbell. Before the fix 1-3 `T` per transfer, 29-88 KiB/s; after, none.
+- Not a loss: `STAT_PORT_PRVTE_CNTR[28].RXMACDISCARDSRT` counts +1 per frame we send (CPU-tagged TX), also on frames that arrive.
 
 ## Sources for later stages (GPL-2.0, attribute on port)
 
