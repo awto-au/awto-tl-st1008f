@@ -187,7 +187,21 @@ change:
 	 nop
 	bnez	v0, fail_mrs
 	 nop
-	lw	a2, DS_MR2(s6)		/* SDK order: MR2 (CWL), then MR0 (CL, WR) with DLL reset */
+	lw	t0, DS_FLAGS(s6)	/* SDK memctlc_ddr3_dll_reset: MR1 DLL off, MR1 on (MR1 0x0004) */
+	andi	t0, t0, DSF_DLLZQ
+	beqz	t0, 10f
+	 nop
+	li	a2, 0x00110005		/* MR_MODE_EN | MR1 | 0x0004 | DLL disable */
+	bal	mrs
+	 nop
+	bnez	v0, fail_mrs
+	 nop
+	li	a2, 0x00110004
+	bal	mrs
+	 nop
+	bnez	v0, fail_mrs
+	 nop
+10:	lw	a2, DS_MR2(s6)		/* SDK order: MR2 (CWL), then MR0 (CL, WR) with DLL reset */
 	bal	mrs
 	 nop
 	bnez	v0, fail_mrs
@@ -205,7 +219,25 @@ change:
 	 nop
 	bnez	v0, fail_mrs
 	 nop
-	li	a1, 'R'
+	lw	t0, DS_FLAGS(s6)	/* ZQCL: D3ZQCCR 0xb8001080 bit 31, busy until done (tZQoper 512 clk < 1 us) */
+	andi	t0, t0, DSF_DLLZQ
+	beqz	t0, 11f
+	 nop
+	lw	t0, 0x80(s2)
+	lui	t1, 0x8000
+	or	t0, t0, t1
+	sw	t0, 0x80(s2)
+	sync
+	li	t1, DMCR_POLL		/* >= 3.2 us of polls; expiry -> DST_MRS */
+12:	lw	t0, 0x80(s2)
+	bgez	t0, 11f
+	 nop
+	addiu	t1, t1, -1
+	bnez	t1, 12b
+	 nop
+	b	fail_mrs
+	 nop
+11:	li	a1, 'R'
 	bal	putc
 	 nop
 7:	lw	t0, DP_METHOD(s0)

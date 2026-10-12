@@ -14,6 +14,7 @@
 #define DS_FLAGS	0x1c
 #define  DSF_DTR_FIRST	1	/* new DTR fields >= old: apply before the clock change */
 #define  DSF_MRS	2	/* after the PLL, refresh still off: DTRs, MR2, MR0 + DLL reset, MR3 */
+#define  DSF_DLLZQ	4	/* with DSF_MRS: MR1 DLL off/on first, ZQCL (D3ZQCCR) after MR3 (SDK order) */
 #define DS_MR0		0x20	/* DMCR word: MR_MODE_EN | MR0 data (no DLL reset bit) */
 #define DS_MR2		0x24	/* DMCR word: MR_MODE_EN | 2 << 16 | MR2 data */
 #define DS_DLLK_US	0x28	/* wait after the DLL reset: tDLLK 512 clk x 1.25 at this set's clock */

@@ -185,6 +185,13 @@ def cmd_clocks_cycle(extra: list[str]) -> int:
     return _script("clocks_cycle.py", extra)
 
 
+@command("per-DQ read-tap retrain at a DDR bin from probe sweeps, then a real set + crc32 (#48)",
+         args="--mhz M [--extra 'dll ...'] [--shifts -16,10]  (run `ramload uboot-mainline --stock-clocks` first)",
+         kind="hardware")
+def cmd_ddr_retrain(extra: list[str]) -> int:
+    return _script("ddr_retrain.py", extra)
+
+
 @command("DDR3 probe sweep: `clocks set mem <MHz> nosr probe ...` per setting, canary-bad count each (#48 #49 #56)",
          args="field|dqshift|mpcr|once --mhz N [--reg A --fields 28:24,20:16 --values 0-31] [--extra OPTS]",
          kind="hardware")

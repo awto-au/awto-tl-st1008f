@@ -288,7 +288,7 @@ static u32 dp_get(u32 off)
 
 /* `clocks set mem` request: bin + experiment overrides (docs/CLOCKS.md (b), #48 #49 #56) */
 struct mem_req {
-	u32 mhz, method, probe, cl11, dtr0, mpcr_set, mpcr[3], nreg, reg[DS_REG_MAX][2];
+	u32 mhz, method, probe, cl11, dll, dtr0, mpcr_set, mpcr[3], nreg, reg[DS_REG_MAX][2];
 };
 
 /* PHY registers an override may touch: DIDER + DDPDR0/1, DACCR .. DWDQSOR */
@@ -356,6 +356,8 @@ static int mem_set(const struct mem_req *q)
 		return CMD_RET_FAILURE;
 	}
 	flags = (mr0 != omr0 || mr2 != omr2) ? DSF_MRS : 0;
+	if (q->dll)	/* SDK DLL sequence + ZQCL on every change, both directions (#48 lead a) */
+		flags = DSF_MRS | DSF_DLLZQ;
 	if (flags && !method) {
 		printf("clocks: %u MHz changes MR0/MR2 (MRS): nosr method only\n", mhz);
 		return CMD_RET_FAILURE;
@@ -557,6 +559,10 @@ static int mem_cmd(int n, char *const v[])
 	for (i = 1; i < n; i++) {
 		if (!strcmp(v[i], "nosr")) {
 			q.method = 1;
+		} else if (!strcmp(v[i], "rtaps") && i + 1 < n) {
+			i++;	/* applied below */
+		} else if (!strcmp(v[i], "dll")) {
+			q.dll = 1;
 		} else if (!strcmp(v[i], "probe")) {
 			q.probe = 1;
 		} else if (!strcmp(v[i], "cl11")) {
@@ -586,6 +592,21 @@ static int mem_cmd(int n, char *const v[])
 			return CMD_RET_USAGE;
 		}
 	}
+	/* rtaps <64 hex>: read tap (cur_tap 12:8) per DACDQ entry, 0x1510.. (16 RR) then 0x1550.. (16 FR),
+	 * two hex digits each, from scripts/ddr_retrain.py (#48 lead d) */
+	for (i = 1; i < n; i++)
+		if (!strcmp(v[i], "rtaps") && i + 1 < n && strlen(v[i + 1]) == 64 && !dqs) {
+			char hx[3] = "";
+			int k;
+
+			for (k = 0; k < 32; k++) {
+				u32 a = (k < 16 ? 0xb8001510 : 0xb8001550) + 4 * (k % 16);
+
+				memcpy(hx, v[i + 1] + 2 * k, 2);
+				q.reg[q.nreg][0] = a;
+				q.reg[q.nreg++][1] = (R(a) & ~GENMASK(12, 8)) | (hextoul(hx, NULL) & 31) << 8;
+			}
+		}
 	/* dqshift: every DQ's trained read tap (DACDQ_IDX_RR/FR cur_tap 12:8) + shift, clamped 0..31 */
 	for (i = 0; dqs && i < 32; i++) {
 		u32 a = (i < 16 ? 0xb8001510 : 0xb8001550) + 4 * (i % 16), r = R(a);
