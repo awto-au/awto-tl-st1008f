@@ -50,7 +50,7 @@ SOCK_PATH = RUNTIME / "tio-st1008.daemon.sock"
 PID_PATH = RUNTIME / "tio-st1008.daemon.pid"
 DEV = os.environ.get(
     "ST1008_SERIAL",
-    "/dev/serial/by-id/usb-Prolific_Technology_Inc._USB-Serial_Controller-if00-port0",
+    "/dev/serial/by-id/usb-1a86_USB2.0-Serial-if00-port0",  # sw2 bench UART (CH340); same as scripts/boards.py
 )
 LOG = Path(__file__).resolve().parent.parent / "private/serial/st1008-console.log"
 

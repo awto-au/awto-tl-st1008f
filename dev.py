@@ -33,7 +33,9 @@ LOGS = TMP / "logs"
 LOG = LOGS / "dev.log"
 SCRIPTS = REPO / "scripts"
 CONSOLE_LOG = REPO / "private/serial/st1008-console.log"
-CONSOLE_DEV = "/dev/serial/by-id/usb-Prolific_Technology_Inc._USB-Serial_Controller-if00-port0"
+sys.path.insert(0, str(Path(__file__).resolve().parent / "scripts"))
+from boards import BENCH_CONSOLE  # noqa: E402
+CONSOLE_DEV = BENCH_CONSOLE
 SOCK = Path(os.environ.get("XDG_RUNTIME_DIR", f"/run/user/{os.getuid()}")) / "tio-st1008.daemon.sock"
 
 
@@ -244,6 +246,12 @@ def cmd_mode_watch(extra: list[str]) -> int:
          args="[--ip A.B.C.D] [--wait S]", kind="check")
 def cmd_switch_check(extra: list[str]) -> int:
     return _script("switch_check.py", extra)
+
+
+@command("power the bench unit (sw2) on via the relay and report boot stages from the console",
+         args="[--off-first]", kind="hardware")
+def cmd_power_boot(extra: list[str]) -> int:
+    return _script("power_boot.py", extra)
 
 
 @command("reset the running OpenWrt's ports to plain bridge members (drop per-port interfaces / forced speeds)",

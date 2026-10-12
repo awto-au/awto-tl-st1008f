@@ -6,3 +6,4 @@
 
 SW1_IP = "192.168.25.48"     # st1008f-1-mgmt (production)
 BENCH_IP = "192.168.25.56"   # st1008f-2-mgmt (bench: ramload, nat-bench, U-Boot ipaddr)
+BENCH_CONSOLE = "/dev/serial/by-id/usb-1a86_USB2.0-Serial-if00-port0"  # sw2 UART (CH340), 2026-10-12

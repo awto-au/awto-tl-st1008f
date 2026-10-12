@@ -28,7 +28,8 @@ ROOT = Path(__file__).resolve().parent.parent
 LOG = ROOT / "tmp/logs/st1008_ramload.log"
 CONSOLE = ROOT / "private/serial/st1008-console.log"
 SOCK = Path(os.environ.get("XDG_RUNTIME_DIR", f"/run/user/{os.getuid()}")) / "tio-st1008.daemon.sock"
-DEV = "/dev/serial/by-id/usb-Prolific_Technology_Inc._USB-Serial_Controller-if00-port0"
+from boards import BENCH_CONSOLE  # noqa: E402
+DEV = BENCH_CONSOLE
 TFTP_ROOT = ROOT / "tmp/tftp"
 # awto-dan docs/network/ip-registry.toml: st1008f-1-mgmt .48, selwyn-enp7s0 .30 (was .148/.147)
 from boards import BENCH_IP  # noqa: E402  sw2 = bench unit
