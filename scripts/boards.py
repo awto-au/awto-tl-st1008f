@@ -6,5 +6,6 @@
 
 SW1_IP = "192.168.25.48"     # st1008f-1-mgmt (production)
 SW1_MAC = "16:b0:46:e9:0d:c0"  # sw1 base MAC (u-boot-env ethaddr; docs/hardware.md)
+SW2_MAC = "3a:de:0a:91:10:d0"  # sw2 base MAC (set-mac 2026-10-12)
 BENCH_IP = "192.168.25.56"   # st1008f-2-mgmt (bench: ramload, nat-bench, U-Boot ipaddr)
 BENCH_CONSOLE = "/dev/serial/by-id/usb-Prolific_Technology_Inc._USB-Serial_Controller-if00-port0"  # sw2 UART (PL2303)
