@@ -97,3 +97,12 @@ Carried over from the retired `awto-st1008f` notes repo (2026-08-18).
 - Revision: OpenWrt 24.10.7 (2026-05-31), arch `mips_24kc` (the 24.10 realtek/rtl930x arch), musl 1.2.5. Packages: libc, libgcc1, libatomic1, libmnl0, libnftnl11, nftables-nojson 1.1.1, zlib, libelf1, libbpf1, libnl-tiny1, tc-tiny 6.11.0, ip-full 6.11.0, ethtool 6.11, libiperf3 + iperf3 3.17.1, dropbear 2024.86-r2 (`targets/realtek/rtl930x/packages/`).
 - `Packages-base`, `Packages-target`: feed indexes (`packages/mips_24kc/base/Packages`, `targets/realtek/rtl930x/packages/Packages`), fetched 2026-10-12 to pin versions/sha256. Good copy: plain text starting `Package: `.
 - Good copy: sha256 per file pinned in `scripts/initramfs_tools.py` (from the feed `Packages` index; libc/libgcc1 also match `targets/realtek/rtl930x/sha256sums`). Each `.ipk` is a gzip tar holding `data.tar.gz`. Gitignored; the script fetches missing files with `playwrong --pdf`.
+
+## winbond-W25Q256JV-RevL.pdf
+- URL: https://www.winbond.com/resource-files/W25Q256JV%20SPI%20RevL%2010182022%20Plus.pdf (linked from svanheule.net tl-st1008f page), fetched 2026-10-12 with playwrong `pdf`.
+- Revision L, 2022-10-18. Good copy: 95 pages, 2,617,644 bytes; contains `25Q256JVFQ` (ordering table) and "factory fixed default for part numbers with ordering options “IQ/IN”".
+
+## photos-svanheule/ (`*.jpg` gitignored)
+- Source: https://www.svanheule.net/switches/tl-st1008f (photos by Oliver, CC BY-SA 4.0), `_media/2016_0101_*.jpg`, fetched 2026-10-12 with playwrong `download`.
+- 7 files, 4032x3024 each, 3.1-3.2 MB: `_001`, `_002`, `_005`, `_006`, `_007` (flash U11, `25Q256JVFQ 2222`), `_008`, `_011`. `_003` returns 404.
+- Good copy: JPEG, 4032x3024; sha256 of `_007` = `375c48e0b4dc36a2b6e19f1a3cf76754a54eff4909cbcdf9f1c589fc7c1c5700`.

@@ -282,6 +282,7 @@ Source tags: **[SRC]** GPL file:line (`dms1250/` = `sources/rtk-dms1250/`, `xgs1
 - W25Q256JV supports Quad I/O `0xEB`. Board routing of flash IO2/IO3 (WP#/HOLD#) to SIO2/3 and the QE bit (SR2) are unknown: quad not tried.
 - Board photo (docs/photos, top): flash = U11, SOIC-16, below the heatsink next to the JTAG pads. Marking too faint to read (IQ = QE fixed 1, IM = QE default 0). SOIC-16 pin 1 = IO3/HOLD# (top-right, by the dot), pin 9 = IO2/WP# (bottom-left); traces not resolvable at photo resolution. Needs a close-up or the read-only quad test (#61).
   - Owner, 2026-10-12: pin 1 (IO3/HOLD#) has a trace. Not yet known whether it goes to SoC `SIO3` or to a pull-up; pin 9 (IO2/WP#) unchecked.
+  - Close-up photo (svanheule.net, `sources/photos-svanheule/…_007.jpg`): marking `25Q256JVFQ` `2222` = **W25Q256JVFIQ** (SOIC-16 300 mil). Winbond datasheet Rev L §7.1.4: "IQ" parts have **QE = 1 factory fixed**, IO2/IO3 always data pins, /HOLD disabled. No status-register write is needed for quad; only the board wiring to SoC SIO2/SIO3 is open.
 
 ### Linux
 
