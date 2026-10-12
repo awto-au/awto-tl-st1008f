@@ -183,8 +183,9 @@ Owner decision 2026-10-12 (#73, #46); U-Boot side changed 2026-10-13 (#46): the 
   - Keys `cpu`, `ddr`, `lx` in MHz, any subset (missing = stock); `sram=250`, `spi=25` accepted at stock only (SRAM 500 not in this build; SPI #50). ≤ 62 chars, values ≤ 4 digits.
   - Supported: cpu 1000 1050 1100 1150 1200 1300 (tested points, [OVERCLOCK.md](OVERCLOCK.md)); ddr = a `clocks set mem` bin; lx 175 204 245 306.
   - Missing, bad env CRC, unknown key, bad number, unsupported value → stock clocks, one `bootsel: M3: …: stock clocks` line, LED fallback latch `turbo`.
-  - Apply = `clocks turbo <cpu> <ddr> <lx>`: DDR (nosr), CPU, tREFI 4608 clk if DDR ≥ 600 and changed, DRAM prefetch, LX last.
-  - Written by `./dev.py uboot-chain-env turbo set PROFILE [--ssh --ip A.B.C.D]` (host checks it with the same rules first); `apply` writes `cpu=1000,ddr=650` (= `clocks fast`) when the env has none, so installing changes no clock in M3.
+  - Apply = `clocks turbo <cpu> <ddr> <lx>`: DDR (nosr), CPU, tREFI 4608 clk if DDR ≥ 600 and changed, DRAM prefetch if CPU or DDR changed, LX last.
+  - Written only by `./dev.py uboot-chain-env turbo set PROFILE [--ssh --ip A.B.C.D]` (host checks it with the same rules first); `apply` and the installers never write one.
+- **Default = stock clocks, as TP-Link ships (CPU 800, DDR 600, LX 175, SRAM 250, SPI 25.5), in every mode** (owner 2026-10-13): no `st1008f_turbo`, or one at stock values → stock. Installing this slot therefore lowers sw1/sw2 from today's `clocks fast` 1000/650 to stock at the next power-up, until a profile is written and the slider is in M3. `uboot-chain-install` and `uboot-chain-env apply` print this.
 - Turbo needs the switch in M3 on each unit; M1/M2 run stock 800/600 whatever the profile.
   - sw2: M1 (console log, every chained boot through 2026-10-13T10:23+11:00, `Mode:  M1 switch, pins 17/18/19 = 0/1/1`).
   - sw1: not known (no console; flash OpenWrt 6.18 has no mode readout). Owner to check the slider before its next power-up.

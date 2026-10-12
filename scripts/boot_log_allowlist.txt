@@ -411,7 +411,7 @@ wdt: on, \d+ ms \(prescale [0-3], \d+ x \d+ ms ticks at lx 175000 kHz\), SoC res
 Autoboot in 2 s, ESC for the prompt  # our countdown: ESC-only stop, 2 s (owner #46, #105)
 bootsel: M[12]: stock clocks \(turbo profile only in M3\)  # mode switch picks clocks (#46): M1/M2 stock
 bootsel: M3: turbo cpu \d+ ddr \d+ lx \d+ \(0 = stock\)  # M3: st1008f_turbo profile parsed and applied (#46)
-clocks: turbo = cpu \d+ MHz, mem \d+ MHz, lx \d+ MHz, dram prefetch on \(MCR [0-9a-f]{8}\), spi unchanged  # M3 turbo result (#46)
+clocks: turbo = cpu \d+ MHz, mem \d+ MHz, lx \d+ MHz, MCR [0-9a-f]{8}, spi unchanged  # M3 turbo result (#46)
 
 [mainline]
 rtl838x_eth 1b000000\.switch:ethernet eth0: Failed to create a device link to DSA switch 1b000000\.switch  # same in OpenWrt 6.18 (eth is a child of the switch node); harmless; known #16

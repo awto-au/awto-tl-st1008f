@@ -87,6 +87,11 @@ def install_ssh(ip: str, data: bytes, md5: str) -> int:
     return 0 if ok else 1
 
 
+STOCK_NOTE = ("NOTE: this slot boots at stock clocks (CPU 800, DDR 600, LX 175, SRAM 250, SPI 25.5) in every "
+              "mode unless the stock env has st1008f_turbo AND the mode switch is in M3: today's 1000/650 drops "
+              "to stock at the next power-up. Set it: ./dev.py uboot-chain-env turbo set PROFILE [--ssh --ip IP] (#46)")
+
+
 def main() -> int:
     ap = argparse.ArgumentParser(description=__doc__.splitlines()[0])
     ap.add_argument("--overwrite", action="store_true", help="partition may hold an older copy of ours")
@@ -105,6 +110,7 @@ def main() -> int:
         return 1
     flash_guard.check_mtd(PART, "uboot-chain-install")  # #81, before any console command
     flash_guard.check_range(0x200000, len(data), "uboot-chain-install")
+    log(STOCK_NOTE)
     if a.ssh:
         return install_ssh(a.ssh, data, md5)
     con = Console()

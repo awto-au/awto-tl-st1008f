@@ -57,10 +57,10 @@ sw2 first, all of it; sw1 only after sw2 passes. Rows 1-3 write nothing.
 sw1 (SSH only, in service), all before its next power-up, after sw2 passes:
 
 1. `./dev.py uboot-chain-install-ssh --ip 192.168.25.48` → read-back CRC PASS.
-2. `./dev.py uboot-chain-env apply --ssh --ip 192.168.25.48` → slot OK, chain vars + `st1008f_turbo=cpu=1000,ddr=650` read back.
-3. Owner: slider to M3 (M1/M2 = stock 800/600 from now on). Position today: unknown.
+2. `./dev.py uboot-chain-env apply --ssh --ip 192.168.25.48` → slot OK, chain vars read back.
+3. Stock clocks from the next power-up (default, owner 2026-10-13). To keep a turbo: `./dev.py uboot-chain-env turbo set PROFILE --ssh --ip 192.168.25.48` and the owner moves the slider to M3 (position today: unknown).
 
-- The new slot follows the mode switch and the env profile: after step 1 alone sw1 boots at 800/600. Do 1-3 together, before any power-up.
+- The new slot follows the mode switch and the env profile: without both, sw1 boots at stock 800/600.
 - Revert: `./dev.py uboot-chain-env revert` (stock `boota`); old U-Boot: `uboot-chain-install --overwrite` with a previous slot build.
 
 ## Mode tests (step 10)

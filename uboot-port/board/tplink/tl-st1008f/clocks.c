@@ -594,15 +594,18 @@ int otto_turbo(u32 cpu, u32 ddr, u32 lx)
 		ret = refi_set();
 	if (ret)
 		return ret;
-	__raw_writel(R(MCR_REG) & ~MCR_PREF, (void __iomem *)MCR_REG);
-	__raw_writel(R(MCR_REG) | MCR_PREF, (void __iomem *)MCR_REG);
+	/* DRAM prefetch only with a CPU or DDR change: a stock-valued profile leaves the board stock */
+	if ((cpu && cpu != c.cpu_khz / 1000) || (ddr && ddr != c.mem_khz / 1000)) {
+		__raw_writel(R(MCR_REG) & ~MCR_PREF, (void __iomem *)MCR_REG);
+		__raw_writel(R(MCR_REG) | MCR_PREF, (void __iomem *)MCR_REG);
+	}
 	/* SPI stays stock: Linux JFFS2 writes at 102.1 MHz left CRC errors (#50) */
 	__asm__ __volatile__("sync");
 	for (i = 2; lx && lx != c.lx_khz / 1000 && i <= 5; i++)
 		if (lx_pts[i] == lx)
 			ret = lx_set(i);
 	otto_clocks_read(&c);
-	printf("clocks: turbo = cpu %u MHz, mem %u MHz, lx %u MHz, dram prefetch on (MCR %08x), spi unchanged\n",
+	printf("clocks: turbo = cpu %u MHz, mem %u MHz, lx %u MHz, MCR %08x, spi unchanged\n",
 	       c.cpu_khz / 1000, c.mem_khz / 1000, c.lx_khz / 1000, R(MCR_REG));
 	return ret;
 }

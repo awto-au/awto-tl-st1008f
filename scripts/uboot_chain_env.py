@@ -11,7 +11,7 @@
 - revert: stock prompt: setenv bootcmd boota; clear the chain vars; saveenv.
 - prompt: power cycle with the saved chain, ESC in our 2 s window -> our prompt (#46).
 - turbo show|set PROFILE: `st1008f_turbo` in the stock env (#46; applied by our U-Boot in M3 only).
-  apply also writes the default TURBO_DEFAULT when the env has no profile (= `clocks fast`).
+  No profile (or stock values) = stock clocks in every mode; apply never writes one (owner 2026-10-13).
 - --ssh --ip A.B.C.D (apply, revert, turbo): from a running OpenWrt (sw1: no console) with
   `fw_setenv -s` (uboot-envtools, /etc/fw_env.config = u-boot-env mtd 0x0 0x10000, #86): one env
   write, then `fw_printenv` read-back. apply --ssh pulls the jffs2-log slot and CRC-checks it first.
@@ -50,7 +50,7 @@ VARS = {  # saved in this order; bootcmd last
 }
 # Turbo profile (#46). Value sets mirror uboot-port clocks.c cpu_pts / mem_bins / lx_pts + stock
 TURBO_VAR = "st1008f_turbo"
-TURBO_DEFAULT = "cpu=1000,ddr=650"  # = `clocks fast` (owner 2026-10-13): installing changes no clock
+STOCK_NOTE = "NOTE: default = stock clocks (CPU 800, DDR 600, LX 175, SRAM 250, SPI 25.5) in every mode; this unit leaves today's 1000/650 at its next power-up until a profile is written: ./dev.py uboot-chain-env turbo set PROFILE [--ssh --ip IP] + mode switch M3 (#46)"
 TURBO_SETS = {"cpu": {800, 1000, 1050, 1100, 1150, 1200, 1300},
               "ddr": {800, 775, 750, 725, 700, 675, 662, 650, 625, 600, 550, 500, 450, 400, 350, 300},
               "lx": {175, 204, 245, 306}, "sram": {250}, "spi": {25}}
@@ -221,8 +221,9 @@ def env_ssh(ip: str, mode: str, profile: str | None, allow_fallback: bool) -> in
             log("FAIL apply --ssh: slot does not verify; nothing written (uboot-chain-install-ssh first)")
             return 1
         want = dict(VARS)
+        log(f"{TURBO_VAR} on {ip}: {env.get(TURBO_VAR, '(unset)')}")
         if TURBO_VAR not in env:
-            want[TURBO_VAR] = TURBO_DEFAULT
+            log(STOCK_NOTE)
     elif mode == "revert":
         want = {"bootcmd": "boota", "ub_ld": "", "ub_ck": "", "ub_go": ""}
     else:
@@ -327,7 +328,7 @@ def main() -> int:
             return 1
         _, out = con.run(f"printenv {TURBO_VAR}", STOCK, 1, "turbo profile present?")
         if f"{TURBO_VAR}=" not in out:
-            con.run(f"setenv {TURBO_VAR} {TURBO_DEFAULT}", STOCK, 1, "default turbo profile")
+            log(STOCK_NOTE)
     else:
         con.run("setenv bootcmd boota", STOCK, 1, "stock bootcmd")
         for k in ("ub_ld", "ub_ck", "ub_go"):
