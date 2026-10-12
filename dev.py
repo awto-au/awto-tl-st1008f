@@ -278,6 +278,19 @@ def cmd_console_watch(extra: list[str]) -> int:
     return _script("console_watch.py", extra)
 
 
+@command("open a desktop terminal window running console-watch (when the VS Code task isn't open)",
+         args="", kind="check")
+def cmd_console_window(_extra: list[str]) -> int:
+    term = shutil.which("ptyxis") or shutil.which("gnome-terminal")
+    if not term:
+        log("no ptyxis/gnome-terminal found", "ERROR")
+        return 1
+    subprocess.Popen([term, "--", str(REPO / "dev.py"), "console-watch"], cwd=REPO,
+                     stdout=subprocess.DEVNULL, stderr=subprocess.DEVNULL, start_new_session=True)
+    log(f"console window opened ({Path(term).name})")
+    return 0
+
+
 @command("CPU-path NAT/routing throughput, one-armed over lan1 VLANs 991/992 (docs/NAT-OPS.md)",
          args="setup | mode nat|nat-ft|route|route-ft | run|local [--secs N] [-P N] [--reverse] "
               "[--udp MBPS --len B] [--dst A] | pktgen | rxdrop | v6-setup | v6-run [--onlink] [--dst A] | "
