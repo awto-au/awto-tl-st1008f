@@ -188,6 +188,7 @@ Source tags: **[SRC]** GPL file:line (`dms1250/` = `sources/rtk-dms1250/`, `xgs1
 - DRAM part (owner, board photo 2026-10-11): **Zentel A3T4GF40BBF-HP**, 4 Gbit 256M x16, 96-ball FBGA, DDR3-1866 13-13-13, 1.35 V with 1.5 V backward compatibility (#48). OpenWrt commit `39b9b491bb` lists Samsung K4B4G1646E-BYMA: not this board. Matches DCR/DTR2 (4 Gbit x16). Board VDD (1.35 / 1.5 V) not measured.
 - Datasheet minima (DSA3T4GF340BBFF rev 06): tRCD = tRP = 13.91 ns, tRAS 34 ns, tWR 15 ns, tRTP/tWTR max(4 clk, 7.5 ns), tRFC 260 ns, tREFI 7.8 µs (≤ 85 °C) / 3.9 µs (> 85 °C), tDLLK 512 clk, tMOD max(12 clk, 15 ns), tMRD 4 clk. The stock 650 bin (tRP/tRCD 10 clk = 15.4 ns, tRAS 26 = 40 ns) is inside it.
 - `clocks fast` set (CPU 1000, DDR 650 `nosr`, tREFI 7.09 µs, MCR prefetch; SPI stock) validated 2026-10-11 (#54): uboot-test 39/40 (`sfp_a0` since skips swapped modules), 256 MiB pattern test 0 errors, flash OpenWrt rootfs hash = stock, ~8 min Linux load (CPU hog + 32 MiB RAM re-hash loop) clean. No long soak (owner 2026-10-12, [DECISIONS.md](DECISIONS.md)).
+- sw2 (st1008f-2), autoboot `clocks fast` from flash `jffs2-log` (2026-10-12T15:52-16:11+11:00): 3 of 5 power-ups PASS, 2 hung right after the DDR 600 → 650 canary line. sw2 is back on stock `boota` at stock clocks (#101).
 
 ## UART rates (2026-10-10, #32)
 

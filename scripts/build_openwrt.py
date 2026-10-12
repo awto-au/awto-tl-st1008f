@@ -61,6 +61,12 @@ KERNEL_PATCHES = {
     "300-13-mips-highmem-lowmem-fast-paths.patch": OURS,
 }
 TREE_PATCH = BACKPORT / "openwrt-tree.patch"
+# --parked: untested candidates from openwrt/patches-parked, 6.18 only; name -> OpenWrt patch dir
+PARKED = ROOT / "openwrt/patches-parked"
+PARKED_DEST = {
+    "727-net-phy-aquantia-sfp-pause-rate-adaptation.patch": GEN + "/hack-6.18",  # #90
+    "713-net-mdio-smbus-rollball-poll-bound.patch": RT + "/patches-6.18",  # #90
+}
 
 # --- step 2: mainline testing kernel = our port on kernel_base.py, same inputs as scripts/mainline_build_check.py
 sys.path.insert(0, str(ROOT / "scripts"))
@@ -250,7 +256,12 @@ def reset_overlay() -> None:
     git("clean", "-fdq", "--", "target/linux")
 
 
-def overlay_618() -> None:
+def overlay_618(parked: list[str]) -> None:
+    for name in parked:
+        if name not in PARKED_DEST:
+            sys.exit(f"--parked {name}: not in PARKED_DEST ({', '.join(PARKED_DEST)})")
+        shutil.copy2(PARKED / name, TREE / PARKED_DEST[name] / name)
+        log(f"overlay: {PARKED_DEST[name]}/{name} (parked, untested)")
     for name, src in KERNEL_PATCHES.items():
         shutil.copy2(src / name, TREE / RT / "patches-6.18" / name)
         log(f"overlay: {RT}/patches-6.18/{name} (from {src.relative_to(ROOT)})")
@@ -334,12 +345,14 @@ def override(cfg: str, frag: str) -> str:
     return "\n".join(out + list(new.values())) + "\n"
 
 
-def overlay(kernel: str, none: bool) -> None:
+def overlay(kernel: str, none: bool, parked: list[str]) -> None:
     reset_overlay()
     if none:
         log("overlay: none (--no-overlay): stock OpenWrt main")
         return
-    overlay_73() if kernel == "mainline" else overlay_618()
+    if parked and kernel == "mainline":
+        sys.exit("--parked is for --kernel 6.18 only")
+    overlay_73() if kernel == "mainline" else overlay_618(parked)
 
 
 DEFAULT_BOOT = ROOT / "openwrt/default-boot"
@@ -468,6 +481,8 @@ def main() -> int:
     ap.add_argument("--kernel", choices=["6.18", "mainline", "7.3"], default="6.18",
                     help="6.18 = OpenWrt kernel + backports (step 1); mainline = our port on the kernel_base.py "
                          "base (step 2; `7.3` = old name, same thing)")
+    ap.add_argument("--parked", nargs="+", default=[], metavar="PATCH",
+                    help="also apply these openwrt/patches-parked/ patches (untested candidates; 6.18)")
     ap.add_argument("--kernel-only", action="store_true",
                     help="re-patch + rebuild the kernel and images only (needs one full build first)")
     ap.add_argument("--jobs", type=int, default=8)
@@ -498,7 +513,7 @@ def main() -> int:
         return regen_config_73()
     disk_check("clone", comment)
     clone(a.update)
-    overlay(a.kernel, a.no_overlay)
+    overlay(a.kernel, a.no_overlay, a.parked)
     disk_check("config", comment)
     if config(a.kernel, default_boot_files(a.default_boot)):
         return 1

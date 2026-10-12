@@ -23,8 +23,12 @@ for d in /sys/class/net/lan*; do
 		[ $(( $(byte 93) & 0x10 )) -ne 0 ] && los=$(( ($(byte 366) >> 1) & 1 ))	# soft RX_LOS
 	fi
 	b36=$(byte 36)
-	copper=0	# 1000BASE-T (A0 6 bit 3), 10GBASE-T (A0 36 = 0x16 / 0x1c)
-	{ [ $(( $(byte 6) & 0x08 )) -ne 0 ] || [ "$b36" = 22 ] || [ "$b36" = 28 ]; } && copper=1
+	# copper: 1000BASE-T (A0 6 bit 3), RJ45 (A0 2 = 0x22), 10GBASE-T (A0 36 = 0x16/0x1c), or PN "...-T"
+	# (FS SFP-10G-T claims 10GBASE-SR + LC and fakes DDM: RX 0, LOS 1)
+	pn=$(echo "$hex" | awk '{ s = ""; for (i = 41; i <= 56; i++) { c = ("0x" $i) + 0; if (c > 32 && c < 127) s = s sprintf("%c", c) } print s }')
+	copper=0
+	{ [ $(( $(byte 6) & 0x08 )) -ne 0 ] || [ "$(byte 2)" = 34 ] || [ "$b36" = 22 ] || [ "$b36" = 28 ] ||
+	  case "$pn" in *-T) true ;; *) false ;; esac; } && copper=1
 	car=$(cat "$d/carrier" 2>/dev/null)
 	is=no
 	[ "$rx" -ge $RX_LIVE ] && is=YES

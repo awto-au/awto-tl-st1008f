@@ -115,9 +115,11 @@ static void scan(struct lc *c, bool ids)
 			for (i = 15; i >= 0 && (c->pn[i] == ' ' || !c->pn[i]); i--)
 				c->pn[i] = 0;
 			c->ddm = id[92] & 0x40;
-			/* 1000BASE-T bit, RJ45 connector, or 10GBASE-T ext. compliance (0x16/0x1c):
-			 * no laser, TX-disable often ignored; SFP-10G-T fakes DDM (RX 0, LOS 1) */
-			c->copper = (id[6] & 0x08) || id[2] == 0x22 || id[36] == 0x16 || id[36] == 0x1c;
+			/* 1000BASE-T bit, RJ45 connector, 10GBASE-T ext. compliance (0x16/0x1c), or a
+			 * PN ending "-T": FS SFP-10G-T claims 10GBASE-SR + LC and fakes DDM (RX 0, LOS 1).
+			 * Copper: no laser, TX-disable often ignored. */
+			c->copper = (id[6] & 0x08) || id[2] == 0x22 || id[36] == 0x16 || id[36] == 0x1c ||
+				    (strlen(c->pn) > 2 && !strcmp(c->pn + strlen(c->pn) - 2, "-T"));
 		} else if (!c->pres || !c->ddm) {
 			continue;
 		} else {

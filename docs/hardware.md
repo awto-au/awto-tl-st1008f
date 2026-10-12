@@ -41,7 +41,11 @@ Narrative & dead ends: see [HISTORY.md](HISTORY.md). Evidence paths under `priva
 - `ethtool` (2026-10-12T14:20+11:00, `./dev.py switch-check`, read-only): **Supported** = 100baseT Half/Full, 1000baseT/Full, 10000baseT/Full, 1000baseKX/Full: **no 2500baseT/5000baseT**. Link partners advertise up to 1000baseT.
 - Source audit (6.18 tree): MAC caps include 2500/5000/10000FD + pause; PCS accepts every interface; `aqr_gen2_get_rate_matching(10GBASER)` = PAUSE. So the missing modes come from the PHY's own abilities (PMA 1.11/1.21) or the module firmware's per-speed provisioning words, not from phylink.
 - `aqr_gen1_read_status failed: -145` = `phy_read_mmd_poll_timeout` on the 100 ms wait for the host interface to leave OFF after copper link-up; not an I2C error. RollBall poll today 11 x `msleep(20)` (220-330 ms at HZ 100) vs 70 ms documented worst case.
-- Candidate patches (untested): log + fix per-speed provisioning words (XFI without rate adaptation → XFI + pause) on SFP-attached AQR PHYs; RollBall completion poll 1-2 ms, 90 ms bound. Test needs an AQR module in sw2 (#97).
+- **Fixed by newer OpenWrt** (2026-10-12T16:03-16:09+11:00, sw2 cage 2, same module sn F2220688305 that showed no NBASE-T in sw1 lan8; partner Selwyn enp6s0f1, 1G):
+  - OpenWrt main 1daf141, 6.18.55, both with our overlay and stock (`build-openwrt --no-overlay`): Supported **and** Advertised include 2500baseT/Full and 5000baseT/Full (plus 10000baseKX4/KR). sw1 r36962: neither.
+  - Provisioning words (parked patch 727 log): `global cfg 10M 0100 100M 0100 1G 0100 2.5G 0100 5G 0100 10G 0000` = XFI with pause rate adaptation below 10G. 727 changes nothing on this module (no `adding pause rate adaptation`); 713 (RollBall 90 ms bound) built and booted, effect unmeasured (no -145 seen).
+  - Upstream diff r36962 → 1daf141 touching the PHY path: only `hack-6.18/726` (Aquantia USXGMII provisioning, ea3d1aeb5d). Not proven to be the cause.
+  - Open: a real 2.5G link needs a 2.5G partner (Selwyn enp5s0, RTL8125), with an iperf3 run to check pause-based rate matching (#90).
 - Suspect second defect: `rtldsa_93xx_phylink_mac_link_up` sets `RTL930X_FORCE_EN` only for the CPU port and phy-handle ports, so SFP ports may ignore rate-matching pause at 10G.
 
 ### Fitted SFP modules (2026-10-10, all 8 cages; our U-Boot `rtk sfp`)
