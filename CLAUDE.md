@@ -4,6 +4,11 @@
 - Public repo: never commit anything from `private/`; no host paths or secrets in tracked files. IPs, MACs and SFP serials are fine (owner decision 2026-10-10: meaningless here) — do not redact them.
 - **House LAN IPs come from the registry:** `awto-dan` repo (private, clone alongside this one) -> `docs/network/ip-registry.toml`, rules in `docs/network/README.md`. Blocks `st1008f-1` = `.48-.55`, `st1008f-2` = `.56-.63`. Never ping-scan for a free IP; never static inside the DHCP pool `.100-.179`. Static values: `/24`, gateway/DNS `.254`, domain `dnt.com.au`.
 
+## Units (owner, 2026-10-12; `scripts/boards.py`)
+
+- **sw1 = st1008f-1**: in service as a house switch, mgmt `.48`, no relay, no serial. Never power-cycle, ramload or flash it; network checks only (`./dev.py switch-check`).
+- **sw2 = st1008f-2**: bench unit on the relay (`.49`) and the serial console; every hardware flow targets it. Bench mgmt `.56`.
+
 ## Entry point: `./dev.py`
 
 - Every hardware, build and check flow goes through `./dev.py` (`./dev.py describe` = JSON command list). Do not hand-type console sequences; extend `dev.py` / its scripts instead.

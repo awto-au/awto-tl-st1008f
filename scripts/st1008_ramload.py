@@ -31,7 +31,8 @@ SOCK = Path(os.environ.get("XDG_RUNTIME_DIR", f"/run/user/{os.getuid()}")) / "ti
 DEV = "/dev/serial/by-id/usb-Prolific_Technology_Inc._USB-Serial_Controller-if00-port0"
 TFTP_ROOT = ROOT / "tmp/tftp"
 # awto-dan docs/network/ip-registry.toml: st1008f-1-mgmt .48, selwyn-enp7s0 .30 (was .148/.147)
-SWITCH_IP, SERVER_IP, SERVER_NIC = "192.168.25.48", "192.168.25.30", "enp7s0"
+from boards import BENCH_IP  # noqa: E402  sw2 = bench unit
+SWITCH_IP, SERVER_IP, SERVER_NIC = BENCH_IP, "192.168.25.30", "enp7s0"
 
 
 def ensure_server_ip() -> None:

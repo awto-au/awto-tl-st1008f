@@ -45,7 +45,8 @@ LOG = ROOT / "tmp/logs/routing_wirespeed.log"
 
 # --- fixed test topology ---------------------------------------------------
 HOST_NIC = "enp7s0"                 # the single 10G host NIC (mlx4), mgmt + trunk
-SW_IP = "192.168.25.48"             # st1008f-1-mgmt (awto-dan ip-registry)
+from boards import BENCH_IP  # noqa: E402
+SW_IP = BENCH_IP                    # sw2 bench unit (scripts/boards.py)
 SW_PORT = "lan1"                    # hairpin front port (host is here)
 CPU_PORT = "eth0"                   # switch CPU port -- must stay flat
 VLANS = {                           # vlan -> (svi_ip, gw_host_ip, netns, far_ip)

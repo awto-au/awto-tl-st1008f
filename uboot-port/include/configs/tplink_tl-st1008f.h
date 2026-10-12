@@ -14,7 +14,7 @@
 /* boardmodel: stock default, `rtk boardmodel` reads it; led_boot: rtk_led.c boot snake.
  * Net (#80): ethport = mgmt cage; IPs = st1008f-1-mgmt / TFTP host (awto-dan ip-registry.toml). */
 #define CFG_EXTRA_ENV_SETTINGS	"boardmodel=RTL9303_8XGE\0" "led_boot=snake\0" \
-				"ethport=1\0" "autoload=no\0" "ipaddr=192.168.25.48\0" \
+				"ethport=1\0" "autoload=no\0" "ipaddr=192.168.25.56\0" \
 				"netmask=255.255.255.0\0" "gatewayip=192.168.25.254\0" \
 				"serverip=192.168.25.30\0"
 

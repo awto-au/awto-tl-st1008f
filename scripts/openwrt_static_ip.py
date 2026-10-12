@@ -1,7 +1,7 @@
 #!/usr/bin/env python3
 """openwrt_static_ip — give the running OpenWrt its registry address, static (no DHCP, no drift).
 
-- awto-dan docs/network/ip-registry.toml: st1008f-1-mgmt = 192.168.25.48/24, gw + DNS .254.
+- awto-dan docs/network/ip-registry.toml: bench sw2 = st1008f-2-mgmt 192.168.25.56/24 (scripts/boards.py), gw + DNS .254.
 - On the FLASH OpenWrt `uci commit` persists in its overlay; on a RAM boot it lasts until power-off.
 - Shows `network.lan` before/after, then `/etc/init.d/network reload`. Log: tmp/logs/openwrt_static_ip.log
 """

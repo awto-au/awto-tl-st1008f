@@ -22,6 +22,7 @@ from pathlib import Path
 
 sys.path.insert(0, str(Path(__file__).resolve().parent))
 from st1008_ramload import OW_READY, ROOT, Console, openwrt_stp, to_stock_uboot  # noqa: E402
+from boards import BENCH_IP  # noqa: E402  sw2 = bench unit
 
 LOG = ROOT / "tmp/logs/nat_clock_variants.log"
 JSONL = ROOT / "tmp/logs/nat_bench.jsonl"
@@ -39,7 +40,7 @@ VARIANTS = {
 }
 CONSOLE_GARBLED = {"lx204"}  # 2026-10-11: Linux console bytes unreadable after `clocks set lx 4` (DTB rate patch)
 SSH = ["ssh", "-o", "StrictHostKeyChecking=no", "-o", "UserKnownHostsFile=/dev/null", "-o", "LogLevel=ERROR",
-       "-o", "BatchMode=yes", "-o", "ConnectTimeout=3", "root@192.168.25.48"]
+       "-o", "BatchMode=yes", "-o", "ConnectTimeout=3", f"root@{BENCH_IP}"]
 # `clocks set lx` accepts codes 2..5 only (5 = stock 175): no slower LX step exists in the command.
 
 
@@ -100,7 +101,7 @@ def wait_ssh(cap: float = 120) -> None:
     while time.monotonic() - t0 < cap:
         r = subprocess.run(["ssh", "-o", "StrictHostKeyChecking=no", "-o", "UserKnownHostsFile=/dev/null",
                             "-o", "LogLevel=ERROR", "-o", "BatchMode=yes", "-o", "ConnectTimeout=2",
-                            "root@192.168.25.48", "cat /sys/class/net/lan1/operstate"],
+                            f"root@{BENCH_IP}", "cat /sys/class/net/lan1/operstate"],
                            capture_output=True, text=True, timeout=6)  # 2 s connect + login
         if r.returncode == 0 and "up" in r.stdout:
             log(f"  ssh + lan1 up after {time.monotonic() - t0:.0f}s")

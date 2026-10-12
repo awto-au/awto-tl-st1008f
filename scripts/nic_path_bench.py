@@ -24,6 +24,7 @@ ROOT = Path(__file__).resolve().parent.parent
 LOG = ROOT / "tmp/logs/nic_path_bench.log"
 JSONL = ROOT / "tmp/logs/nat_bench.jsonl"
 sys.path.insert(0, str(ROOT / "scripts"))
+from boards import BENCH_IP  # noqa: E402  sw2 = bench unit
 
 # (label, nat_bench run args)
 SUITE = [
@@ -56,7 +57,7 @@ def boot(ramload: bool = True) -> int:
         # kernel lines (DSA route notices) otherwise interleave with the prompt
         con.run("dmesg -n 1", r"st1008f-linux # ", 3, "console loglevel 1")
         # port-up: link + dropbear < 3 s; 10 s cap
-        con.run("port-up 1 192.168.25.48/24", r"lan1@?\S*\s+(UP|DOWN|UNKNOWN|LOWERLAYERDOWN)[\s\S]*st1008f-linux # ",
+        con.run(f"port-up 1 {BENCH_IP}/24", r"lan1@?\S*\s+(UP|DOWN|UNKNOWN|LOWERLAYERDOWN)[\s\S]*st1008f-linux # ",
                 10, "port-up 1")
         con.run("ip route add default via 192.168.25.254", r"st1008f-linux # ", 3, "default route")
     import nat_bench

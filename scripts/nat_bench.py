@@ -41,7 +41,8 @@ LOG = ROOT / "tmp/logs/nat_bench.log"
 JSONL = ROOT / "tmp/logs/nat_bench.jsonl"
 
 HOST_NIC = "enp7s0"            # host 10G (mlx4); also house mgmt, untouched
-SW_IP = "192.168.25.48"        # st1008f-1 (ip-registry)
+from boards import BENCH_IP  # noqa: E402
+SW_IP = BENCH_IP               # sw2 bench unit (scripts/boards.py)
 SW_PORT = "lan1"
 LAN_VID, WAN_VID = 991, 992    # test-only VIDs, tagged on lan1 only
 SW_LAN, SW_WAN = "10.99.1.1", "10.99.2.1"
