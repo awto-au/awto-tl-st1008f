@@ -219,7 +219,7 @@ tap0_coef_bin = \d+  # SerDes RX calibration debug print
 vth_set_bin = \d+  # SerDes RX calibration debug print
 
 [mainline]
-Linux version 7\.\d+\.\d+(-rc\d+)?(-dirty)? \(.*\) #\d+ .*  # our mainline build (tmp/linux-v7.3)
+Linux version 7\.\d+\.\d+(-rc\d+)?(-next-\d{8})?(-dirty)? \(.*\) #\d+ .*  # our mainline build (tmp/linux-v7.3)
 Linux version 7\.\d+(\.\d+)?(-rc\d+)? \(\w+@\w+\) \(mips-openwrt-linux-musl-gcc \(OpenWrt GCC [0-9.]+ toolchain-[0-9a-f]+\) [0-9.]+, GNU ld \(GNU Binutils\) [0-9.]+\) #0 SMP( PREEMPT)? [A-Z][a-z]{2} [A-Z][a-z]{2} +\d+ \d\d:\d\d:\d\d 20\d\d  # OpenWrt-on-7.3 banner, local build (#73)
 Serial: 8250/16550 driver, 2 ports, IRQ sharing disabled  # serial driver, OpenWrt-on-7.3 config (#73)
 jffs2: version 2\.2\. \(NAND\) \(SUMMARY\)  © 2001-2006 Red Hat, Inc\.  # jffs2 init, OpenWrt-on-7.3 config (#73)
@@ -234,7 +234,7 @@ Memory: \d+K/\d+K available \(.*\)  # 512 MiB (HIGHMEM) or 256 MiB (--no-highmem
 SLUB: HWalign=32, Order=0-3, MinObjects=0, CPUs=1, Nodes=1  # allocator info
 futex hash table entries: \d+ \(.*\)\.?  # core info
 posixtimers hash table entries: \d+ \(.*\)  # core info
-Linux version 7\.\d+\.\d+(-rc\d+)?(-dirty)? \(\w+@\w+\) \(mips64-linux-gnu-gcc \(GCC\) [0-9.]+ \d+ \(Red Hat Cross [0-9.-]+\), GNU ld version [0-9.-]+\.fc\d+\) #\d+ SMP [A-Z][a-z]{2} [A-Z][a-z]{2} +\d+ \d\d:\d\d:\d\d [A-Z]{3,4} 20\d\d  # mainline kernel banner (Fedora cross toolchain)
+Linux version 7\.\d+\.\d+(-rc\d+)?(-next-\d{8})?(-dirty)? \(\w+@\w+\) \(mips64-linux-gnu-gcc \(GCC\) [0-9.]+ \d+ \(Red Hat Cross [0-9.-]+\), GNU ld version [0-9.-]+\.fc\d+\) #\d+ SMP [A-Z][a-z]{2} [A-Z][a-z]{2} +\d+ \d\d:\d\d:\d\d [A-Z]{3,4} 20\d\d  # mainline kernel banner (Fedora cross toolchain)
 Adding initrd info from environment  # MIPS prom: U-Boot env has no initrd (see 'Initrd not found' in triage)
 Kernel command line: earlycon earlycon  # command line pinned
 printk: log buffer data \+ meta data: 131072 \+ 409600 = 540672 bytes  # printk ring sizing
@@ -285,7 +285,7 @@ Freeing unused kernel image \(initmem\) memory: \d+K  # init memory freed (size 
 This architecture does not have kernel memory protection\.  # MIPS has no strict kernel RWX
 Run /init as init process  # initramfs init start
 \s+(/init|with arguments:|with environment:|HOME=/|TERM=linux)  # init argv/env dump
-st1008f-initramfs: up \(Linux 7\.\d+\.\d+(-rc\d+)?(-dirty)?\)  # scripts/mainline_initramfs.py /init marker before the shell (#16)
+st1008f-initramfs: up \(Linux 7\.\d+\.\d+(-rc\d+)?(-next-\d{8})?(-dirty)?\)  # scripts/mainline_initramfs.py /init marker before the shell (#16)
 
 # ---- mainline 7.3 + OpenWrt realtek network drivers (#16), reviewed 2026-10-12 ----
 sfp sfp-p[1-8]: module .+ rev +\S* +sn \S+ +dc \d+  # SFP ID EEPROM read: vendor/PN/rev are free text (#16)
@@ -320,7 +320,7 @@ rtldsa_93xx_setup called  # rtl83xx setup (#16)
 realtek-otto-pcs 1b000000\.switch:pcs: Realtek PCS driver initialized  # PCS provider (#16)
 realtek-otto-pcs 1b000000\.switch:pcs: SerDes \d+ configured for (10gbase-r|1000base-x|2500base-x|sgmii) mode  # PCS on port up (#16)
 realtek-otto-serdes-mdio 1b000000\.switch:mdio-serdes: Realtek SerDes mdio bus initialized, 12 SerDes, 64 pages, 32 registers  # SerDes MDIO (#16)
-rtl838x_eth 1b000000\.switch:ethernet: Using MAC 16:b0:46:e9:0d:c0  # eth0 MAC from U-Boot env ethaddr via nvmem (#16); a change shows up
+rtl838x_eth 1b000000\.switch:ethernet: Using MAC (16:b0:46:e9:0d:c0|3a:de:0a:91:10:d0)  # eth0 MAC from U-Boot env ethaddr via nvmem (#16): sw1 | sw2 (#91); a change shows up
 rtl838x_eth 1b000000\.switch:ethernet eth0: (Link is Up - 1Gbps/Full - flow control off|configuring for fixed/internal link mode|entered promiscuous mode)  # CPU port (#16)
 rtl838x_eth 1b000000\.switch:ethernet eth0: receive page pool below \d+ MB  # rteth page_pool sizing info (#16)
 rtl83xx-switch 1b000000\.switch lan[1-8]: (Link is Up - (10Gbps|1Gbps|2\.5Gbps)/Full - flow control off|Link is Down)  # port link (#16)
