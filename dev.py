@@ -248,6 +248,12 @@ def cmd_switch_check(extra: list[str]) -> int:
     return _script("switch_check.py", extra)
 
 
+@command("full-flash backup of a RAM-booted OpenWrt over SSH (every MTD, sha256 both ends) to private/mtd-backup-<ts>/",
+         args="[--host A.B.C.D] [--out DIR]", kind="hardware")
+def cmd_backup(extra: list[str]) -> int:
+    return _script("st1008_mtd_backup.py", extra)
+
+
 @command("power the bench unit (sw2) on via the relay and report boot stages from the console",
          args="[--off-first]", kind="hardware")
 def cmd_power_boot(extra: list[str]) -> int:
