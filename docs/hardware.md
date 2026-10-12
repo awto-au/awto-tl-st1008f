@@ -51,6 +51,7 @@ Narrative & dead ends: see [HISTORY.md](HISTORY.md). Evidence paths under `priva
 
 - **No factory MAC.** Stock `printsys` → `Invalid system information`; stock env `ethaddr` was a Realtek-OUI placeholder (#36).
 - **No per-unit data in flash.** sw2 (st1008f-2) full-flash backup 2026-10-12 is byte-identical to sw1's stock backup of 2026-10-08 (every MTD and `full-flash.bin` sha256 equal; env `ethaddr=00:E0:4C:00:00:00`). Each unit needs its own MAC written at install (#91).
+- **No MAC anywhere else either** (sw2, 2026-10-12, `./dev.py mem-dump` at our prompt after stock `rtk network on`): on-chip SRAM (64 KiB, 64304 non-zero bytes) holds no MAC; RAM-resident stock U-Boot holds only `ethaddr=00:E0:4C:00:00:00` (from the env); its text matches the flash loader for the first `0x922a5` bytes (rest = runtime data). No case-sticker MAC recorded yet.
 - **MACs per unit** (2026-10-12):
   - sw1 (st1008f-1): base `16:b0:46:e9:0d:c0` = bridge `switch`, `switch.1` (mgmt .48) and lan1; lan2-lan8 = `16:b0:46:e9:0d:c1`-`c7`.
   - sw2 (st1008f-2): stock env `ethaddr=00:E0:4C:00:00:00` (placeholder). RAM-booted OpenWrt 25.12.4 picks a random MAC per boot (`72:f3:fb:cf:08:ac` on 2026-10-12, bench .56). No assigned MAC yet (#91).

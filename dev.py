@@ -248,6 +248,12 @@ def cmd_switch_check(extra: list[str]) -> int:
     return _script("switch_check.py", extra)
 
 
+@command("bench unit: copy on-chip SRAM + RAM-resident stock U-Boot to private/ over Ethernet (our U-Boot tftpput)",
+         args="[--no-boot]", kind="hardware")
+def cmd_mem_dump(extra: list[str]) -> int:
+    return _script("mem_dump.py", extra)
+
+
 @command("full-flash backup of a RAM-booted OpenWrt over SSH (every MTD, sha256 both ends) to private/mtd-backup-<ts>/",
          args="[--host A.B.C.D] [--out DIR]", kind="hardware")
 def cmd_backup(extra: list[str]) -> int:
