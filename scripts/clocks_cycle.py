@@ -27,7 +27,7 @@ LOG = ROOT / "tmp/logs/clocks_cycle.log"
 JSONL = ROOT / "tmp/logs/clocks_cycle.jsonl"
 PROMPT = r"\r?\nst1008f-mainline # "
 STEPS = {
-    "cpu": ("clocks set cpu 0x3a8 0x6b439e13 0 force", r"clocks: locked after \d+ polls"),
+    "cpu": ("clocks set cpu {e208} {e210} 0 force", r"clocks: (locked after \d+ polls[^\n]*|CPU PLL did not lock[^\n]*)"),
     "mem": ("clocks set mem {mhz} nosr force", r"clocks: (mem set (OK|FAIL[^\n]*)|no bin[^\n]*)"),
     # same set with all 32 trained DQ read taps rewritten unchanged while clk_oe = 0 (#101 test)
     "memdq0": ("clocks set mem {mhz} nosr dqshift 0 force", r"clocks: (mem set (OK|FAIL[^\n]*)|no bin[^\n]*)"),
@@ -36,6 +36,7 @@ STEPS = {
 # step from SRAM: PLL relock (100k-poll bound) + DDR change + 1024-word canary, ~ms; the console
 # prints ~20 lines (~2 KB at 115200 = 0.2 s). 3 s names a hang.
 STEP_S = 3
+CPU = ["0x3a8", "0x6b439e13"]  # 1000 MHz; --cpu
 BOOT_S = 120  # ramload uboot-mainline: power cycle + network on + TFTP ~25 s; x1.25 + relay retries
 
 
@@ -61,7 +62,7 @@ def cycle(step: str, flash: bool, mhz: int) -> dict:
     res, detail = "pass", []
     for part in step.split("+"):  # e.g. cpu+mem: separate commands, in order
         text, want = STEPS[part]
-        text = text.format(mhz=mhz)
+        text = text.format(mhz=mhz, e208=CPU[0], e210=CPU[1])
         mark = con.size()
         try:
             _, out = con.run(text, rf"(?s){want}.*?{PROMPT}", STEP_S, f"step {part}")
@@ -71,13 +72,17 @@ def cycle(step: str, flash: bool, mhz: int) -> dict:
             return {"result": "hang" if str(e).startswith("TIMEOUT") else "fail", "detail": [part] + lines[-3:]}
         m = re.search(want, out)
         detail.append(m.group(0))
-        if "FAIL" in m.group(0) or "latch" in m.group(0) or "no bin" in m.group(0):
+        if "FAIL" in m.group(0) or "latch" in m.group(0) or "no bin" in m.group(0) or "did not lock" in m.group(0):
             res = "fail"
             break
     try:
         con.run("echo ALIVE", r"\r?\nALIVE" + PROMPT, 2, "alive")
+        # 16 MiB CRC: CPU + DRAM work at the new clocks; ~0.3 s at 1 GHz (bench), cap x5 for slow settings
+        con.run("crc32 0x81000000 0x1000000", r"==> [0-9a-f]{8}" + PROMPT, 2, "crc32 16 MiB")
+        _, t = con.run("rtk temp", r"(?s)rtk temp.*?" + PROMPT, 2, "temp")  # meter enable + 1 sample, ~ms
+        detail.append(" ".join(re.findall(r"(\d+) ?C\b", t))[:20] + " C")
     except SystemExit:
-        return {"result": "hang", "detail": ["after step: no ALIVE"]}
+        return {"result": "hang", "detail": detail + ["after step: no ALIVE / crc32 / temp"]}
     return {"result": res, "detail": detail}
 
 
@@ -87,11 +92,14 @@ def main() -> int:
     ap.add_argument("--n", type=int, default=20)
     ap.add_argument("--mhz", type=int, default=650, help="mem step: DDR bin (662 = 662.5 MHz)")
     ap.add_argument("--stop-on-hang", action="store_true")
+    ap.add_argument("--cpu", default="0x3a8:0x6b439e13", help="cpu step: E208:E210 (scripts/clock_calc.py cpu <MHz>)")
     ap.add_argument("--from-flash", action="store_true", help="ours from jffs2-log, no network on")
     a = ap.parse_args()
+    global CPU
+    CPU = a.cpu.split(":")
     if any(p not in STEPS for p in a.step.split("+")):
         ap.error(f"step parts must be in {list(STEPS)}")
-    tag = f"{a.step}{a.mhz if 'mem' in a.step else ''}{'-flash' if a.from_flash else ''}"
+    tag = f"{a.step}{a.mhz if 'mem' in a.step else ''}{'@' + CPU[0] if 'cpu' in a.step else ''}{'-flash' if a.from_flash else ''}"
     counts: dict[str, int] = {}
     for i in range(1, a.n + 1):
         res = cycle(a.step, a.from_flash, a.mhz)
