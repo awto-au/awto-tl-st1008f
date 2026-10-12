@@ -13,6 +13,7 @@ import functools
 import hashlib
 import http.server
 import re
+import subprocess
 import sys
 import threading
 import time
@@ -42,9 +43,46 @@ def sh(con: Console, cmd: str, want: str = "", cap: float = 2) -> str:
     return con.run(cmd, (want + r"[\s\S]*?" if want else "") + OW_PROMPT, cap, cmd)[1]
 
 
+SSH_S = 5  # dropbear connect ~1 s on the LAN; x5
+
+
+def ssh(ip: str, cmd: str, cap: float, stdin: bytes | None = None) -> str:
+    r = subprocess.run(["ssh", "-o", f"ConnectTimeout={SSH_S}", "-o", "BatchMode=yes", f"root@{ip}", cmd],
+                       input=stdin, capture_output=True, timeout=cap)
+    if r.returncode:
+        raise SystemExit(f"FAIL ssh {ip}: rc {r.returncode} {r.stderr.decode(errors='replace').strip()} ({cmd[:60]})")
+    return r.stdout.decode(errors="replace")
+
+
+def install_ssh(ip: str, data: bytes, md5: str) -> int:
+    """Running OpenWrt over SSH (sw1 has no console): replaces OUR older U-Boot in jffs2-log only."""
+    n = re.search(rf'mtd(\d+): 00100000 00010000 "{PART}"', ssh(ip, "cat /proc/mtd", SSH_S * 2)).group(1)
+    if f"mtdblock{n} " in ssh(ip, "mount", SSH_S * 2):
+        log(f"FAIL: mtd{n} ({PART}) is mounted on {ip}")
+        return 1
+    # only over an older copy of ours: its banner string must be in the first 600 KB (~0.1 s read)
+    if ssh(ip, f"head -c 600000 /dev/mtdblock{n} | grep -c -a 'U-Boot 20'; true", SSH_S * 2).strip() in ("", "0"):
+        log(f"FAIL: {PART} (mtd{n}) on {ip} does not hold our U-Boot; refusing")
+        return 1
+    ssh(ip, "cat > /tmp/u.bin", SSH_S * 3, stdin=data)  # ~460 KB over the LAN: < 1 s
+    got = ssh(ip, "md5sum /tmp/u.bin", SSH_S * 2).split()[0]
+    if got != md5:
+        log(f"FAIL: transfer md5 {got} != {md5}")
+        return 1
+    # mtd write = erase up to 8 x 64 KiB blocks (W25Q256 max 2 s each) + ~460 KB program: ~18 s worst, x1.25
+    ssh(ip, f"mtd write /tmp/u.bin {PART}", 25)
+    rb = ssh(ip, f"head -c {len(data)} /dev/mtdblock{n} | md5sum", SSH_S * 2).split()[0]
+    ok = rb == md5
+    log(f"{'PASS' if ok else 'FAIL'}: {PART} (mtd{n}, flash 0x200000) read-back md5 {rb}"
+        f"{'' if ok else ' != ' + md5}; switch {ip} (ssh)")
+    return 0 if ok else 1
+
+
 def main() -> int:
     ap = argparse.ArgumentParser(description=__doc__.splitlines()[0])
     ap.add_argument("--overwrite", action="store_true", help="partition may hold an older copy of ours")
+    ap.add_argument("--ssh", metavar="IP", help="install over SSH on a running OpenWrt (no console; "
+                    "replaces an older copy of ours only)")
     a = ap.parse_args()
     data = IMAGE.read_bytes()
     md5 = hashlib.md5(data).hexdigest()
@@ -54,6 +92,8 @@ def main() -> int:
         return 1
     flash_guard.check_mtd(PART, "uboot-chain-install")  # #81, before any console command
     flash_guard.check_range(0x200000, len(data), "uboot-chain-install")
+    if a.ssh:
+        return install_ssh(a.ssh, data, md5)
     con = Console()
     sh(con, "dmesg -n 1")
     n = re.search(rf'mtd(\d+): 00100000 00010000 "{PART}"', sh(con, "cat /proc/mtd", r"mtd0:")).group(1)

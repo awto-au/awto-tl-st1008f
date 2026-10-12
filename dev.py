@@ -222,6 +222,15 @@ def cmd_uboot_chain_install(extra: list[str]) -> int:
     return _script("uboot_chain_install.py", extra)
 
 
+@command("replace OUR older U-Boot in jffs2-log on a running OpenWrt over SSH (sw1: no console; owner OK 2026-10-13, #101)",
+         args="--ip A.B.C.D", kind="hardware")
+def cmd_uboot_chain_install_ssh(extra: list[str]) -> int:
+    if extra[:1] != ["--ip"] or len(extra) != 2:
+        log("usage: ./dev.py uboot-chain-install-ssh --ip A.B.C.D", "ERROR")
+        return 2
+    return _script("uboot_chain_install.py", ["--ssh", extra[1]])
+
+
 @command("stock env for chainloading our U-Boot from flash (#47 A): test (no save) | apply | revert | set-mac (#91)",
          args="test|apply|revert|boot | set-mac [MAC]  (default MAC: random locally administered)", kind="hardware")
 def cmd_uboot_chain_env(extra: list[str]) -> int:
@@ -568,7 +577,8 @@ def main(argv: list[str] | None = None) -> int:
 HOST_ONLY = {"storm-watch", "check-log", "flash-guard", "doc-check", "console-watch", "console-window",
              "switch-check", "mode-watch", "switch-logs"}
 # Owner-approved management of a running switch over SSH (any unit, sw1 included): no power, console or flash.
-NET_MANAGE = {"openwrt-snmp", "openwrt-luci", "switch-net-clean", "switch-snmp", "switch-vlan"}
+NET_MANAGE = {"openwrt-snmp", "openwrt-luci", "switch-net-clean", "switch-snmp", "switch-vlan",
+              "uboot-chain-install-ssh"}  # last: jffs2-log write only (flash_guard), owner OK 2026-10-13
 
 
 def _storm_guard() -> None:
