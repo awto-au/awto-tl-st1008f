@@ -7,13 +7,13 @@ Facts, patch status, sizes: [OPENWRT-BUILD.md](OPENWRT-BUILD.md). Log: `tmp/logs
 ```
 ./dev.py build-openwrt                      # step 1: OpenWrt 6.18 + backports -> tmp/tftp/openwrt-ours-6.18-initramfs[-std].bin
 ./dev.py build-openwrt --kernel-only        # re-patch + kernel + images only (after one full build)
-./dev.py build-openwrt --kernel 7.3         # step 2: our 7.3 port as OpenWrt testing kernel -> tmp/tftp/openwrt-ours-initramfs[-std].bin
+./dev.py build-openwrt --kernel mainline    # step 2: our port on the kernel-base (linux-next) as OpenWrt testing kernel -> tmp/tftp/openwrt-ours-initramfs[-std].bin
 ./dev.py build-openwrt --update             # pull newest OpenWrt main first (re-check every rebased patch)
 ./dev.py build-openwrt --no-overlay         # stock OpenWrt main (baseline)
 ```
 
 - Defaults: `-j8`, nice 19, ionice idle. Disk floor 4 GB: checked before each phase and every 30 s during make; on abort a comment goes to #73 (`--no-comment` to skip).
-- After any kernel config change (PREEMPT, SMP, `--regen-config`): full `./dev.py build-openwrt --kernel 7.3`, not `--kernel-only` (stale kmods fail with `section size must match`).
+- After any kernel config change (PREEMPT, SMP, `--regen-config`): full `./dev.py build-openwrt --kernel mainline`, not `--kernel-only` (stale kmods fail with `section size must match`).
 - A rebased patch that stops applying after `--update`: `--prepare-only` (unpacks + patches the kernel tree, stops), fix in a scratch copy, regenerate with `scripts/patch_from_tree.py`.
 
 ## Board test (step 1 image)

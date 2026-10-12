@@ -1,0 +1,29 @@
+Subject: realtek: rtl83xx DSA: 7.3 API drift fixes on the OpenWrt files-6.18 sources
+
+Applied on top of files copied verbatim from OpenWrt files-6.18 (scripts/mainline_build_check.py
+OWRT_FILES). One line per fix:
+- l3.c otto_l3_prefix_rows(): parameter at_least -> min_len; 7.3 compiler_types.h defines
+  at_least as a macro (array-parameter "static"), which broke the prototype.
+(NET_RTL838X select PAGE_POOL: nothing else selects it in our allnoconfig base; in 300-09.)
+---
+diff --git a/drivers/net/dsa/rtl83xx/l3.c b/drivers/net/dsa/rtl83xx/l3.c
+index 53d5349d2..b9826abe2 100644
+--- a/drivers/net/dsa/rtl83xx/l3.c
++++ b/drivers/net/dsa/rtl83xx/l3.c
+@@ -1210,14 +1210,14 @@ static int otto_l3_v6_slot(int row)
+  * matching row rather than the most specific one. A lookup carries the entry
+  * type, so a block is only ever matched against its own family.
+  */
+-static int otto_l3_prefix_rows(struct otto_l3_ctrl *ctrl, u8 type, int at_least)
++static int otto_l3_prefix_rows(struct otto_l3_ctrl *ctrl, u8 type, int min_len)
+ {
+ 	struct otto_l3_route *q;
+ 	int n = 0;
+ 
+ 	list_for_each_entry(q, &ctrl->routes_list, list) {
+ 		if (!q->is_host_route && q->row >= 0 &&
+-		    q->attr.type == type && q->prefix_len >= at_least)
++		    q->attr.type == type && q->prefix_len >= min_len)
+ 			n++;
+ 	}
+ 

@@ -1,13 +1,13 @@
 # TP-Link TL-ST1008F v2 (RTL9303): open firmware
 
 8-port 10G SFP+ unmanaged switch: RTL9303 SoC (`RTL9303_8XGE`), 512 MiB RAM, 32 MiB SPI NOR, stock U-Boot `2011.12.(3.6.6.55087)`.
-This repo turns it into a managed switch/router on open firmware: our mainline U-Boot + Linux 7.3 with OpenWrt's RTL930x drivers.
+This repo turns it into a managed switch/router on open firmware: our mainline U-Boot + Linux on linux-next (7.4 dev) with OpenWrt's RTL930x drivers.
 
 ## Headline: two tracks
 
 | Track | What | State |
 |---|---|---|
-| **Linux 7.3 port** | mainline 7.3 + all of OpenWrt's realtek target (DSA, NIC, L3 offload, PCS/SerDes, SFP) + our patches `openwrt/patches/300-*` | boots, switches, routes, NAT; RAM-boot (#16) |
+| **Linux port (linux-next, 7.4 dev)** | linux-next (pinned tag; 7.3-rc6 fallback) + all of OpenWrt's realtek target (DSA, NIC, L3 offload, PCS/SerDes, SFP) + our patches `openwrt/patches/300-*` | boots, switches, routes, NAT on 7.3-rc6; RAM-boot; linux-next builds, board test pending (#16) |
 | **OpenWrt tracking** | local OpenWrt buildroot on OpenWrt main; our patches backported to 6.18; then OpenWrt userspace on our 7.3 kernel | in progress (#73) |
 | **Default boot** | OpenWrt on 7.3 (22 MiB) + recovery OpenWrt 6.18 (7 MiB), selected by our U-Boot | designed, not flashed (#73, [docs/DEFAULT-BOOT.md](docs/DEFAULT-BOOT.md)) |
 
@@ -34,7 +34,7 @@ Wiring and measurements: [docs/hardware.md](docs/hardware.md).
 |---|---|---|---|
 | CPU / RAM | 800 MHz, DDR3 600, prefetch off | inherits U-Boot clocks | 1 GHz, DDR3 650, DRAM prefetch (RAM write +68 %, read +49 %) |
 | Bootloader | 2011 U-Boot, no network | stock | mainline U-Boot: `rtk` parity incl. `network on`, SerDes eye/PRBS, LEDs, crypto test, boot fallback |
-| Kernel | Linux 3.18 (EOL) | 6.18 | 7.3, minimal config, 512 MiB with fixed highmem path |
+| Kernel | Linux 3.18 (EOL) | 6.18 | linux-next (7.4 dev; tested on 7.3), minimal config, 512 MiB with fixed highmem path |
 | NAT + flowtable (TCP) | none (unmanaged) | 243-248 Mbit/s | 365-370 Mbit/s; UDP 1400 B ~750 Mbit/s |
 | L3 offload | — | gateway routes only | + on-link hosts, default route v4/v6: 9.1-9.25 Gbit/s measured on 7.3 (opt-in, `300-17`, #59) |
 
@@ -63,7 +63,7 @@ Wiring and measurements: [docs/hardware.md](docs/hardware.md).
 
 | | Managed ST5008F v2 1.2.0 | Ours |
 |---|---|---|
-| Kernel / userspace | Linux 3.18 (EOL), uClibc, 2015 Buildroot | Linux 7.3 (+ OpenWrt userspace, in progress) |
+| Kernel / userspace | Linux 3.18 (EOL), uClibc, 2015 Buildroot | linux-next, 7.4 dev (+ OpenWrt userspace, in progress) |
 | Management UI | web UI, CLI, SSH, SNMP, Omada | SSH + shell today; LuCI/uci with OpenWrt on 7.3 |
 | CPU packet path | NIC driver in userspace; CPU port capped at 600 pps | kernel NAPI driver, ~65 kpps forwarded |
 | Routing / NAT | L3 features in the SDK; no NAT | ASIC L3 incl. IPv6; CPU NAT + flowtable |

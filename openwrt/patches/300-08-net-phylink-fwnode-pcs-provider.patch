@@ -358,7 +358,7 @@ index 000000000..fef560edd
 +}
 +EXPORT_SYMBOL_GPL(fwnode_phylink_pcs_parse);
 diff --git a/drivers/net/phy/phylink.c b/drivers/net/phy/phylink.c
-index 1bbcf46c8..c638cea7b 100644
+index a7d086cdc..b0c41fe5a 100644
 --- a/drivers/net/phy/phylink.c
 +++ b/drivers/net/phy/phylink.c
 @@ -12,6 +12,7 @@
@@ -816,9 +816,9 @@ index 1bbcf46c8..c638cea7b 100644
 +}
 +
  /**
-  * phylink_create() - create a phylink instance
-  * @config: a pointer to the target &struct phylink_config
-@@ -1852,9 +2129,20 @@ struct phylink *phylink_create(struct phylink_config *config,
+  * phylink_update_pause_state() - Update the phylink pause frame configuration
+  * @pl: a pointer to a &struct phylink instance
+@@ -1972,9 +2249,20 @@ struct phylink *phylink_create(struct phylink_config *config,
  			       phy_interface_t iface,
  			       const struct phylink_mac_ops *mac_ops)
  {
@@ -839,7 +839,7 @@ index 1bbcf46c8..c638cea7b 100644
  	/* Validate the supplied configuration */
  	if (phy_interface_empty(config->supported_interfaces)) {
  		dev_err(config->dev,
-@@ -1869,8 +2157,10 @@ struct phylink *phylink_create(struct phylink_config *config,
+@@ -1989,8 +2277,10 @@ struct phylink *phylink_create(struct phylink_config *config,
  	mutex_init(&pl->phydev_mutex);
  	mutex_init(&pl->state_mutex);
  	INIT_WORK(&pl->resolve, phylink_resolve);
@@ -850,7 +850,7 @@ index 1bbcf46c8..c638cea7b 100644
  	if (config->type == PHYLINK_NETDEV) {
  		pl->netdev = to_net_dev(config->dev);
  		netif_carrier_off(pl->netdev);
-@@ -1906,13 +2196,37 @@ struct phylink *phylink_create(struct phylink_config *config,
+@@ -2026,13 +2316,37 @@ struct phylink *phylink_create(struct phylink_config *config,
  	__set_bit(PHYLINK_DISABLE_STOPPED, &pl->phylink_disable_state);
  	timer_setup(&pl->link_poll, phylink_fixed_poll, 0);
  
@@ -889,7 +889,7 @@ index 1bbcf46c8..c638cea7b 100644
  
  	if (pl->cfg_link_an_mode == MLO_AN_FIXED) {
  		ret = phylink_parse_fixedlink(pl, fwnode);
-@@ -1931,7 +2245,19 @@ struct phylink *phylink_create(struct phylink_config *config,
+@@ -2051,7 +2365,19 @@ struct phylink *phylink_create(struct phylink_config *config,
  release_link_gpio:
  	if (pl->link_gpio)
  		gpiod_put(pl->link_gpio);
@@ -909,7 +909,7 @@ index 1bbcf46c8..c638cea7b 100644
  	kfree(pl);
  	return ERR_PTR(ret);
  }
-@@ -1948,11 +2274,30 @@ EXPORT_SYMBOL_GPL(phylink_create);
+@@ -2068,11 +2394,30 @@ EXPORT_SYMBOL_GPL(phylink_create);
   */
  void phylink_destroy(struct phylink *pl)
  {
@@ -940,7 +940,7 @@ index 1bbcf46c8..c638cea7b 100644
  	kfree(pl);
  }
  EXPORT_SYMBOL_GPL(phylink_destroy);
-@@ -2027,7 +2372,7 @@ static int phylink_validate_phy(struct phylink *pl, struct phy_device *phy,
+@@ -2147,7 +2492,7 @@ static int phylink_validate_phy(struct phylink *pl, struct phy_device *phy,
  		 * those which the host supports.
  		 */
  		phy_interface_and(interfaces, phy->possible_interfaces,
@@ -949,7 +949,7 @@ index 1bbcf46c8..c638cea7b 100644
  
  		if (phy_interface_empty(interfaces)) {
  			phylink_err(pl, "PHY has no common interfaces\n");
-@@ -2418,8 +2763,15 @@ void phylink_pcs_change(struct phylink_pcs *pcs, bool up)
+@@ -2538,8 +2883,15 @@ void phylink_pcs_change(struct phylink_pcs *pcs, bool up)
  {
  	struct phylink *pl = pcs->phylink;
  
@@ -967,7 +967,7 @@ index 1bbcf46c8..c638cea7b 100644
  }
  EXPORT_SYMBOL_GPL(phylink_pcs_change);
  
-@@ -2841,12 +3193,12 @@ static phy_interface_t phylink_sfp_select_interface(struct phylink *pl,
+@@ -2961,12 +3313,12 @@ static phy_interface_t phylink_sfp_select_interface(struct phylink *pl,
  		return interface;
  	}
  
@@ -982,7 +982,7 @@ index 1bbcf46c8..c638cea7b 100644
  		return PHY_INTERFACE_MODE_NA;
  	}
  
-@@ -3774,14 +4126,14 @@ static int phylink_sfp_config_optical(struct phylink *pl)
+@@ -3845,14 +4197,14 @@ static int phylink_sfp_config_optical(struct phylink *pl)
  
  	phylink_dbg(pl, "optical SFP: interfaces=[mac=%*pbl, sfp=%*pbl]\n",
  		    (int)PHY_INTERFACE_MODE_MAX,
@@ -999,7 +999,7 @@ index 1bbcf46c8..c638cea7b 100644
  			  pl->sfp_interfaces);
  	if (phy_interface_empty(pl->sfp_interfaces)) {
  		phylink_err(pl, "unsupported SFP module: no common interface modes\n");
-@@ -3952,7 +4304,7 @@ static int phylink_sfp_connect_phy(void *upstream, struct phy_device *phy)
+@@ -4023,7 +4375,7 @@ static int phylink_sfp_connect_phy(void *upstream, struct phy_device *phy)
  
  	/* Set the PHY's host supported interfaces */
  	phy_interface_and(phy->host_interfaces, phylink_sfp_interfaces,
@@ -1265,7 +1265,7 @@ index 000000000..00a636c82
 +
 +#endif /* __LINUX_PCS_H */
 diff --git a/include/linux/phylink.h b/include/linux/phylink.h
-index 1dda5c7ed..87dc0f27d 100644
+index 3a88a6988..f03c1dc0a 100644
 --- a/include/linux/phylink.h
 +++ b/include/linux/phylink.h
 @@ -12,6 +12,7 @@ struct ethtool_cmd;

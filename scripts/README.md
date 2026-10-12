@@ -305,8 +305,8 @@ End-to-end workflow: [../README.md#workflow](../README.md#workflow).
 - Log: `tmp/logs/clock_calc.log`.
 
 ### build_openwrt.py
-- Purpose: local OpenWrt main buildroot (`tmp/openwrt-build`, realtek/rtl930x, TL-ST1008F v2 only) with our kernel work: `--kernel 6.18` = OpenWrt kernel + backports (`openwrt/backport-6.18/`), `--kernel 7.3` = our mainline port as OpenWrt testing kernel (`openwrt/kernel-7.3/`) (#73).
-- Run via `./dev.py build-openwrt [--kernel 6.18|7.3] [--kernel-only] [--jobs N] [--update] [--no-overlay] [--prepare-only]`.
+- Purpose: local OpenWrt main buildroot (`tmp/openwrt-build`, realtek/rtl930x, TL-ST1008F v2 only) with our kernel work: `--kernel 6.18` = OpenWrt kernel + backports (`openwrt/backport-6.18/`), `--kernel mainline` (old name `7.3`) = our mainline port on the `kernel_base.py` base as OpenWrt testing kernel (`openwrt/kernel-<PV>/`) (#73).
+- Run via `./dev.py build-openwrt [--kernel 6.18|mainline] [--kernel-only] [--jobs N] [--update] [--no-overlay] [--prepare-only] [--regen-config]`. `--regen-config` leaves the buildroot untouched (falls back to the patched `kernel_base` tree when OpenWrt has none prepared).
 - Output: `tmp/tftp/openwrt-ours[-6.18]-initramfs.bin` (Realtek magic) + `-std.bin`. Log: `tmp/logs/build_openwrt.log`, make output `tmp/logs/build_openwrt-make.log`.
 - Notes: nice 19 / ionice idle, -j8; aborts below 4 GB free (before each phase + every 30 s in make) with a #73 comment. Docs: [../docs/OPENWRT-BUILD.md](../docs/OPENWRT-BUILD.md).
 
@@ -357,7 +357,7 @@ Kept as used on 2026-10-07/08. New tooling is Python. Run from the repo root wit
 
 ## Mainline port (issue #16)
 
-Desk-only; no switch access. Needs `tmp/openwrt` (sparse clone of openwrt, `target/linux/realtek` + `target/linux/generic`), `tmp/linux.git` (blobless bare clone of torvalds/linux), `tmp/linux-v7.3` (shallow clone of `v7.3-rc6`) and a `mips64-linux-gnu-` cross gcc. Results: [../docs/MAINLINE-PORT.md](../docs/MAINLINE-PORT.md).
+Desk-only; no switch access. Needs `tmp/openwrt` (sparse clone of openwrt, `target/linux/realtek` + `target/linux/generic`), `tmp/linux.git` (blobless bare clone of torvalds/linux), `tmp/linux-v7.3` (shallow clone of `v7.3-rc6` + linux-next tags; `kernel_base.py`) and a `mips64-linux-gnu-` cross gcc. Results: [../docs/MAINLINE-PORT.md](../docs/MAINLINE-PORT.md).
 
 ### mainline_inventory.py
 - Purpose: compare OpenWrt `files-6.18` and version-tagged `patches-6.18` against a mainline ref (exists? first release? subject merged?).
@@ -370,14 +370,23 @@ Desk-only; no switch access. Needs `tmp/openwrt` (sparse clone of openwrt, `targ
 - Output: `tmp/logs/mainline_patch_check.log` (patch table, then make output), build tree `tmp/build-fp`.
 
 ### mainline_build_check.py
-- Purpose: build the mainline kernel against `tmp/linux-v7.3`: OpenWrt realtek patches applied verbatim (`OWRT_VERBATIM`), driver files copied from `files-6.18` (`OWRT_FILES`), then `openwrt/patches/*.patch` (300-04..11: ours + forward-ports); `allnoconfig` + `mainline/st1008f-v2.config` (+ `st1008f-v2-smp.config` with `--smp`) + generated initramfs fragment. Checks `tmp/openwrt` is at the pinned OpenWrt commit.
-- Run: `scripts/mainline_build_check.py [--dtb-only] [--apply-only] [--smp] [--jobs N]` (or `./dev.py build-kernel [...]`, which also wraps `tmp/tftp/mainline.bin`). Runs at nice 19, default `-j8` (owner limit).
-- Output: `tmp/logs/mainline_build_check.log`, build tree `tmp/build-mips`; prints the `=y` count.
+- Purpose: build the mainline kernel against the `kernel_base.py` tree (linux-next PIN `tmp/linux-next`; `KERNEL_BASE=v7.3-rc6` -> `tmp/linux-v7.3`): OpenWrt realtek patches applied verbatim (`OWRT_VERBATIM`), driver files copied from `files-6.18` (`OWRT_FILES`), then `kernel_base.patches()` (`openwrt/patches/*.patch`, ours + forward-ports; 7.3 copies in `openwrt/patches-v7.3-rc6/`); `allnoconfig` + `mainline/st1008f-v2.config` (+ `st1008f-v2-smp.config` with `--smp`) + generated initramfs fragment. Checks `tmp/openwrt` is at the pinned OpenWrt commit.
+- Run: `scripts/mainline_build_check.py [--dtb-only] [--apply-only] [--up] [--w1] [--jobs N]` (or `./dev.py build-kernel [...]`, which also wraps `tmp/tftp/mainline.bin`). Runs at nice 19, default `-j8` (owner limit).
+- Output: `tmp/logs/mainline_build_check.log`, build tree `tmp/build-mips` (`-v7.3-rc6` suffix on the fallback); prints the `=y` and warning counts; `--w1` rebuilds the objects our patches touch with W=1 (any warning fails).
 - Fails, listing them, if `olddefconfig` drops or changes any fragment line.
 - Notes: `--out` must be absolute (relative paths resolve inside the kernel tree). Patch/file status table: [../docs/MAINLINE-PORT.md](../docs/MAINLINE-PORT.md).
 
+### kernel_base.py
+- Purpose: one setting for the kernel base: `PIN` (linux-next `next-YYYYMMDD`, default) or env `KERNEL_BASE=v7.3-rc6` (fallback). Used by `mainline_build_check.py`, `build_openwrt.py`, `patch_rebase.py` and the patch helpers.
+- Run: `./dev.py kernel-base [show | update [--tag next-YYYYMMDD] | checkout]`. `update` = newest tag from `ls-remote`, depth-1 fetch into `tmp/linux-v7.3` (remote `linux-next`), worktree `tmp/linux-next`, rewrites `PIN`.
+- Log: `tmp/logs/kernel_base.log`. After `update`: rebase the series (`patch_rebase.py`), record it in MAINLINE-PORT §8 and Baselines.
+
+### patch_rebase.py
+- Purpose: refresh one patch of the series onto the current base: `prepare 300-NN` applies the series up to it, snapshots the tree in a private index (`tmp/patch_rebase.index`), applies it keeping `.rej`; fix by hand; `write 300-NN` regenerates its body (`git diff` vs the snapshot, header kept).
+- Copy the old patch to `openwrt/patches-v7.3-rc6/` first when the fallback still needs it. Log: `tmp/logs/patch_rebase.log`.
+
 ### openwrt_patch_status.py
-- Purpose: classify each OpenWrt patch against the 7.3 tree in series order: `upstream` (reverse-applies), `applies` (kept applied so series stack), `fails`. Resets the tree before and after.
+- Purpose: classify each OpenWrt patch against the `kernel_base.py` tree (`--tree`) in series order: `upstream` (reverse-applies), `applies` (kept applied so series stack), `fails`. Resets the tree before and after.
 - Run: `scripts/openwrt_patch_status.py [--dir tmp/openwrt/target/linux/generic/pending-6.18] [--glob '7*.patch'] [--out tmp/x.tsv]`.
 - Output: `tmp/openwrt_patch_status.tsv`; log `tmp/logs/openwrt_patch_status.log`.
 - Notes: `applies` can be a false positive (705 applies into another function; its line is already upstream). `fails` often means upstream in a different form; check the source.

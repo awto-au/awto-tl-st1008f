@@ -32,11 +32,13 @@ engine setup (0xcc00-0xcc44, rtl83xx DSA led-set) is left alone.
 
 Signed-off-by: Dan <dan@awto.au>
 ---
+diff --git a/drivers/platform/mips/Kconfig b/drivers/platform/mips/Kconfig
+index ff4bfe372..eb23c0686 100644
 --- a/drivers/platform/mips/Kconfig
 +++ b/drivers/platform/mips/Kconfig
-@@ -48,4 +48,15 @@
- 	  stock firmware and applies its 1G/2.5G speed pattern to 1G and 2.5G
- 	  SFP modules. 10G modules are not touched.
+@@ -49,4 +49,15 @@ config TPLINK_ST1008F_MODE_SWITCH
+ 	  SFP modules. 10G modules are not touched. Also sums the power
+ 	  every fitted module declares and warns over a budget.
  
 +config TPLINK_ST1008F_LEDS
 +	tristate "TP-Link TL-ST1008F v2 port LED patterns (boot, error, panic)"
@@ -50,13 +52,18 @@ Signed-off-by: Dan <dan@awto.au>
 +	  showing after the CPU stops.
 +
  endif # MIPS_PLATFORM_DEVICES
+diff --git a/drivers/platform/mips/Makefile b/drivers/platform/mips/Makefile
+index a71dcfc4d..adb563343 100644
 --- a/drivers/platform/mips/Makefile
 +++ b/drivers/platform/mips/Makefile
-@@ -3,3 +3,4 @@
+@@ -3,3 +3,4 @@ obj-$(CONFIG_CPU_HWMON) += cpu_hwmon.o
  obj-$(CONFIG_RS780E_ACPI) += rs780e-acpi.o
  obj-$(CONFIG_LS2K_RESET) += ls2k-reset.o
  obj-$(CONFIG_TPLINK_ST1008F_MODE_SWITCH) += tplink-st1008f-mode.o
 +obj-$(CONFIG_TPLINK_ST1008F_LEDS) += tplink-st1008f-leds.o
+diff --git a/drivers/platform/mips/tplink-st1008f-leds.c b/drivers/platform/mips/tplink-st1008f-leds.c
+new file mode 100644
+index 000000000..8a0dbc232
 --- /dev/null
 +++ b/drivers/platform/mips/tplink-st1008f-leds.c
 @@ -0,0 +1,300 @@

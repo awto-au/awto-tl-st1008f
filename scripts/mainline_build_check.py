@@ -1,17 +1,18 @@
 #!/usr/bin/env python3
-"""Build the mainline ST1008F v2 kernel: Linux v7.3 + forward-ported OpenWrt realtek drivers (#16).
+"""Build the mainline ST1008F v2 kernel: linux-next (kernel_base.py) + forward-ported OpenWrt realtek drivers (#16).
 
-Needs: tmp/linux-v7.3 (clone of v7.3-rc6), tmp/openwrt at OWRT_COMMIT, mips big-endian cross gcc
+Needs: the kernel_base.py tree (default PIN linux-next tag -> tmp/linux-next, checked out on demand;
+KERNEL_BASE=v7.3-rc6 -> tmp/linux-v7.3), tmp/openwrt at OWRT_COMMIT, mips big-endian cross gcc
 (default mips64-linux-gnu-, -mabi=32). Log: tmp/logs/mainline_build_check.log
 Derived tree state, rebuilt each run (patched files reset via git, copied/created files deleted):
-- OWRT_VERBATIM patches-6.18, OWRT_FILES from files-6.18, then openwrt/patches/*.patch (ours and
-  forward-ports, 300-04..). Status of every OpenWrt patch/file: docs/MAINLINE-PORT.md.
+- OWRT_VERBATIM patches-6.18, OWRT_FILES from files-6.18, then kernel_base.patches() (ours and
+  forward-ports, 300-04..; per-base copies in openwrt/patches-<base>/). Status of every OpenWrt patch/file: docs/MAINLINE-PORT.md.
 - DTS + dts Makefile line; allnoconfig + mainline/st1008f-v2.config (MT SMP, both VPEs: default)
   (+ st1008f-v2-up.config with --up, + st1008f-v2-nohighmem.config with --no-highmem,
   + st1008f-v2-latency.config with --latency) + generated
   initramfs fragment (mainline_initramfs.py); olddefconfig; fail if a fragment option did not
   survive (a later fragment wins); build vmlinux + dtb at nice 19, -j8 max.
-- Out dir: tmp/build-mips[-nohighmem][-up][-lat] (out_dir(); dev.py build-kernel uses the same).
+- Out dir: tmp/build-mips[-v7.3-rc6][-nohighmem][-up][-lat] (out_dir(); dev.py build-kernel uses the same).
 """
 import argparse
 import os
@@ -22,6 +23,7 @@ import sys
 import time
 from pathlib import Path
 
+import kernel_base
 import mainline_initramfs
 
 ROOT = Path(__file__).resolve().parent.parent
@@ -48,7 +50,7 @@ OWRT_FILES = [
     "net/dsa/tag_rtl_otto.c",
 ]
 PATCHES = [*(next((OWRT / "patches-6.18").glob(f"{n}-*.patch")) for n in OWRT_VERBATIM),
-           *sorted((ROOT / "openwrt/patches").glob("*.patch"))]
+           *kernel_base.patches()]
 
 
 def owrt_commit():
@@ -67,8 +69,9 @@ def owrt_copied():
     return out
 
 
-def apply_patches(tree):
-    """Derived state: reset every file the series touches to git, then copy + apply it all fresh."""
+def apply_patches(tree, upto=None):
+    """Derived state: reset every file the series touches to git, then copy + apply it all fresh.
+    upto: stop before the first patch whose name starts with it (patch_rebase.py)."""
     touched, created = set(), set()
     for p in PATCHES:
         lines = p.read_text().splitlines()
@@ -93,6 +96,8 @@ def apply_patches(tree):
             dst.parent.mkdir(parents=True, exist_ok=True)
             shutil.copy2(src, dst)
     for p in PATCHES:
+        if upto and p.name.startswith(upto):
+            return
         if run(["patch", "-p1", "--forward", "--batch", "-i", str(p)], tree):
             sys.exit(f"{p.name} does not apply, see log")
 
@@ -114,8 +119,9 @@ def check_fragments(config: Path, fragments: list[Path]) -> list[str]:
 
 
 def out_dir(no_highmem: bool, up: bool, lat: bool = False) -> Path:
-    return ROOT / ("tmp/build-mips" + ("-nohighmem" if no_highmem else "") + ("-up" if up else "")
-                   + ("-lat" if lat else ""))
+    base = kernel_base.selected()  # fallback base gets its own out dir: no mixed-tree objects
+    return ROOT / ("tmp/build-mips" + ("" if kernel_base.is_next(base) else f"-{base}")
+                   + ("-nohighmem" if no_highmem else "") + ("-up" if up else "") + ("-lat" if lat else ""))
 
 
 def run(cmd, cwd):
@@ -130,7 +136,7 @@ def run(cmd, cwd):
 
 def main():
     ap = argparse.ArgumentParser()
-    ap.add_argument("--tree", default=str(ROOT / "tmp/linux-v7.3"))
+    ap.add_argument("--tree", default=None, help="default: kernel_base tree (checked out on demand)")
     ap.add_argument("--cross", default="mips64-linux-gnu-")
     ap.add_argument("--jobs", default="8", help="owner: at most 8, keep host cores free")
     ap.add_argument("--dtb-only", action="store_true")
@@ -141,12 +147,15 @@ def main():
                     help="merge mainline/st1008f-v2-nohighmem.config (256 MiB reference, #27)")
     ap.add_argument("--latency", action="store_true",
                     help="merge mainline/st1008f-v2-latency.config (irqsoff/timerlat tracers; not for benches, #73)")
+    ap.add_argument("--w1", action="store_true",
+                    help="after the build, rebuild the objects our openwrt/patches touch with W=1; warnings fail")
     a = ap.parse_args()
     a.out = a.out or str(out_dir(a.no_highmem, a.up, a.latency))
     os.nice(19)  # owner: builds yield to interactive host work
-    tree, out = Path(a.tree), Path(a.out)
     LOG.parent.mkdir(parents=True, exist_ok=True)
     LOG.write_text("")
+    tree, out = Path(a.tree) if a.tree else kernel_base.checkout(), Path(a.out)
+    print(f"kernel base {kernel_base.selected()}: {tree.relative_to(ROOT) if tree.is_relative_to(ROOT) else tree}")
     if (c := owrt_commit()) != OWRT_COMMIT:
         sys.exit(f"tmp/openwrt is at {c or '?'}; patches are against {OWRT_COMMIT}")
 
@@ -178,8 +187,26 @@ def main():
     print(f"config: {ny} =y (allnoconfig + fragments)")
     targets = [f"realtek/{DTS}.dtb"] if a.dtb_only else ["vmlinux", f"realtek/{DTS}.dtb"]
     rc = run(base + [f"-j{a.jobs}", *targets], tree)
-    print("build", "OK" if rc == 0 else f"FAILED ({rc})", "- log:", LOG)
+    nwarn = LOG.read_text(errors="replace").count("warning:")
+    print("build", "OK" if rc == 0 else f"FAILED ({rc})", f"- {nwarn} warning lines - log:", LOG)
+    if rc == 0 and a.w1:
+        rc = w1_check(base, tree, out, a.jobs)
     sys.exit(rc)
+
+
+def w1_check(base, tree, out, jobs):
+    """Rebuild the objects of every .c our openwrt/patches series touches with W=1; any warning fails."""
+    srcs = sorted({ln[6:].split("\t")[0].strip() for p in kernel_base.patches()
+                   for ln in p.read_text().splitlines() if ln.startswith("+++ b/") and ln.split("\t")[0].endswith(".c")})
+    objs = [s[:-2] + ".o" for s in srcs if (out / (s[:-2] + ".o")).exists()]
+    start = len(LOG.read_text(errors="replace"))
+    rc = run(base + [f"-j{jobs}", "W=1", *objs], tree)
+    warn = [ln for ln in LOG.read_text(errors="replace")[start:].splitlines() if "warning:" in ln]
+    for ln in warn:
+        print("  W=1:", ln.replace(str(tree) + "/", ""))
+    print(f"W=1: {len(objs)} objects of our patches ({len(srcs) - len(objs)} .c not built in this config), "
+          f"{len(warn)} warnings, make rc {rc}")
+    return rc or (1 if warn else 0)
 
 
 if __name__ == "__main__":

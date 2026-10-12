@@ -4,10 +4,12 @@ Applied on top of files copied verbatim from OpenWrt files-6.18 (scripts/mainlin
 OWRT_FILES). One line per fix:
 - l3.c otto_l3_prefix_rows(): parameter at_least -> min_len; 7.3 compiler_types.h defines
   at_least as a macro (array-parameter "static"), which broke the prototype.
+- l3.c (linux-next): global arp_tbl is gone, ARP tables are per netns: arp_table(&init_net),
+  the netns the FIB notifier is on. 7.3 copy: openwrt/patches-v7.3-rc6/.
 (NET_RTL838X select PAGE_POOL: nothing else selects it in our allnoconfig base; in 300-09.)
 ---
 diff --git a/drivers/net/dsa/rtl83xx/l3.c b/drivers/net/dsa/rtl83xx/l3.c
-index 53d5349d2..b9826abe2 100644
+index 53d5349d2..5ee59ea79 100644
 --- a/drivers/net/dsa/rtl83xx/l3.c
 +++ b/drivers/net/dsa/rtl83xx/l3.c
 @@ -1210,14 +1210,14 @@ static int otto_l3_v6_slot(int row)
@@ -27,3 +29,59 @@ index 53d5349d2..b9826abe2 100644
  			n++;
  	}
  
+@@ -1856,8 +1856,8 @@ static int otto_l3_port_gw_resolve(struct otto_l3_ctrl *ctrl, struct net_device
+ 	/* An ARP neighbour is keyed on four bytes, which in a v4-mapped
+ 	 * address are the last word of it.
+ 	 */
+-	const void *key = tbl == &arp_tbl ? (const void *)&gw->s6_addr32[3] : gw;
+-	u8 type = tbl == &arp_tbl ? ROUTE_TYPE_IP4UC : ROUTE_TYPE_IP6UC;
++	const void *key = tbl == arp_table(&init_net) ? (const void *)&gw->s6_addr32[3] : gw;
++	u8 type = tbl == arp_table(&init_net) ? ROUTE_TYPE_IP4UC : ROUTE_TYPE_IP6UC;
+ 	struct neighbour *n = neigh_lookup(tbl, key, dev);
+ 	int err = 0;
+ 	u64 mac;
+@@ -2448,7 +2448,7 @@ static int otto_l3_fib_add_v4(struct otto_l3_ctrl *ctrl, struct fib_entry_notifi
+ 
+ 	/* We need to resolve the mac address of the GW */
+ 	if (nh->fib_nh_gw4)
+-		otto_l3_port_gw_resolve(ctrl, ndev, &arp_tbl, &gw);
++		otto_l3_port_gw_resolve(ctrl, ndev, arp_table(&init_net), &gw);
+ 
+ 	nh->fib_nh_flags |= RTNH_F_OFFLOAD;
+ 
+@@ -3129,7 +3129,7 @@ static void otto_l3_rules_check(struct otto_l3_ctrl *ctrl, int family)
+ {
+ 	u8 type = family == AF_INET6 ? ROUTE_TYPE_IP6UC : ROUTE_TYPE_IP4UC;
+ 	bool *off = family == AF_INET6 ? &ctrl->v6_fwd_off : &ctrl->v4_fwd_off;
+-	struct neigh_table *tbl = &arp_tbl;
++	struct neigh_table *tbl = arp_table(&init_net);
+ 	struct otto_l3_route *r;
+ 	struct net_device *dev;
+ 
+@@ -3181,7 +3181,7 @@ static void otto_l3_rules_check(struct otto_l3_ctrl *ctrl, int family)
+  */
+ static void otto_l3_local_prefix_check(struct otto_l3_ctrl *ctrl, struct fib_notifier_info *info)
+ {
+-	struct neigh_table *tbl = &arp_tbl;
++	struct neigh_table *tbl = arp_table(&init_net);
+ 	struct fib_entry_notifier_info *fen;
+ 	struct otto_l3_route *r;
+ 	struct net_device *dev;
+@@ -3445,7 +3445,7 @@ static int otto_l3_netevent_notifier(struct notifier_block *this, unsigned long
+ 		if (!ctrl->cfg->setup)
+ 			return NOTIFY_DONE;
+ 
+-		if (n->tbl != &arp_tbl && !otto_l3_is_nd_tbl(n->tbl))
++		if (n->tbl != arp_table(&init_net) && !otto_l3_is_nd_tbl(n->tbl))
+ 			return NOTIFY_DONE;
+ 
+ 		/* Only where the L3 tables carry an IPv6 destination can a
+@@ -3485,7 +3485,7 @@ static int otto_l3_netevent_notifier(struct notifier_block *this, unsigned long
+ 		net_work->mac = ether_addr_to_u64(n->ha);
+ 		read_unlock_bh(&n->lock);
+ 		net_work->ifindex = dev->ifindex;
+-		if (n->tbl == &arp_tbl) {
++		if (n->tbl == arp_table(&init_net)) {
+ 			ipv6_addr_set_v4mapped(*(__be32 *)n->primary_key,
+ 					       &net_work->gw_addr);
+ 			net_work->type = ROUTE_TYPE_IP4UC;

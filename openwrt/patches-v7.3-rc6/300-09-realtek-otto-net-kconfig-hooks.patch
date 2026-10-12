@@ -1,0 +1,219 @@
+Subject: realtek: Kconfig/Makefile hooks for the OpenWrt Otto network drivers on 7.3
+
+Forward-port of OpenWrt realtek patches-6.18 hooks that no longer apply to 7.3
+(driver sources are copied from files-6.18 by scripts/mainline_build_check.py):
+- 700: DSA_MAX_PORTS 56, u64 phys_mii_mask / dsa_user_ports / dsa_cpu_ports
+  (7.3: platform_data/dsa.h lost the DSA_MAX_SWITCHES/DSA_RTABLE_NONE context).
+- 716: NET_RTL838X (+ NET_VENDOR_REALTEK on MACH_REALTEK_RTL); 7.3 Kconfig/Makefile context.
+- 721: NET_DSA_TAG_RTL_OTTO; tag value 36 (7.3 took 32-35 for MXL862/NETC/KSZ8463/MT7628).
+- 730: PCS_RTL_OTTO; 7.3 has no PCS_MTK_USXGMII context. RTL8224 SerDes hunk (743) dropped:
+  no RTL8224 on this board.
+- 806/808: MDIO_REALTEK_OTTO(+_SERDES) without the aux-MDIO (723, RTL8231 only) context;
+  both gain depends on MFD_SYSCON (syscon_node_to_regmap).
+---
+diff --git a/drivers/net/ethernet/realtek/Kconfig b/drivers/net/ethernet/realtek/Kconfig
+index 9b0f4f963..0ebd03ac2 100644
+--- a/drivers/net/ethernet/realtek/Kconfig
++++ b/drivers/net/ethernet/realtek/Kconfig
+@@ -6,7 +6,7 @@
+ config NET_VENDOR_REALTEK
+ 	bool "Realtek devices"
+ 	default y
+-	depends on PCI
++	depends on PCI || MACH_REALTEK_RTL
+ 	help
+ 	  If you have a network (Ethernet) card belonging to this class, say Y.
+ 
+@@ -126,4 +126,12 @@ config RTASE
+ 	  To compile this driver as a module, choose M here: the module
+ 	  will be called rtase. This is recommended.
+ 
++config NET_RTL838X
++	tristate "Realtek Otto (RTL83xx/RTL93xx) switch CPU port Ethernet"
++	depends on MACH_REALTEK_RTL
++	select PAGE_POOL
++	select PHYLINK
++	help
++	  Say Y here if you want to use the Realtek Otto switch SoC CPU port NIC.
++
+ endif # NET_VENDOR_REALTEK
+diff --git a/drivers/net/ethernet/realtek/Makefile b/drivers/net/ethernet/realtek/Makefile
+index 12a9c399f..3ed2686d7 100644
+--- a/drivers/net/ethernet/realtek/Makefile
++++ b/drivers/net/ethernet/realtek/Makefile
+@@ -9,3 +9,4 @@ r8169-y += r8169_main.o r8169_firmware.o r8169_phy_config.o
+ r8169-$(CONFIG_R8169_LEDS) += r8169_leds.o
+ obj-$(CONFIG_R8169) += r8169.o
+ obj-$(CONFIG_RTASE) += rtase/
++obj-$(CONFIG_NET_RTL838X) += rtl838x_eth.o
+diff --git a/drivers/net/mdio/Kconfig b/drivers/net/mdio/Kconfig
+index 82029c748..8f0aed72c 100644
+--- a/drivers/net/mdio/Kconfig
++++ b/drivers/net/mdio/Kconfig
+@@ -189,6 +189,20 @@ config MDIO_REALTEK_RTL9300
+ 	  This driver supports the MDIO interface found in the Realtek
+ 	  RTL9300 family of Ethernet switches with integrated SoC.
+ 
++config MDIO_REALTEK_OTTO
++	tristate "Realtek Otto MDIO interface support"
++	depends on MACH_REALTEK_RTL || COMPILE_TEST
++	depends on MFD_SYSCON
++	help
++	  This driver supports the MDIO bus on RTL83xx/RTL93xx SoCs.
++
++config MDIO_REALTEK_OTTO_SERDES
++	tristate "Realtek Otto MDIO SerDes interface support"
++	depends on MACH_REALTEK_RTL || COMPILE_TEST
++	depends on MFD_SYSCON
++	help
++	  This driver provides MDIO access to the RTL83xx/RTL93xx SerDes.
++
+ config MDIO_REGMAP
+ 	tristate
+ 	help
+diff --git a/drivers/net/mdio/Makefile b/drivers/net/mdio/Makefile
+index 55aa10906..36e5ca2ea 100644
+--- a/drivers/net/mdio/Makefile
++++ b/drivers/net/mdio/Makefile
+@@ -22,6 +22,8 @@ obj-$(CONFIG_MDIO_MVUSB)		+= mdio-mvusb.o
+ obj-$(CONFIG_MDIO_OCTEON)		+= mdio-octeon.o
+ obj-$(CONFIG_MDIO_PIC64HPSC)		+= mdio-pic64hpsc.o
+ obj-$(CONFIG_MDIO_REALTEK_RTL9300)	+= mdio-realtek-rtl9300.o
++obj-$(CONFIG_MDIO_REALTEK_OTTO)	+= mdio-realtek-otto.o
++obj-$(CONFIG_MDIO_REALTEK_OTTO_SERDES)	+= mdio-realtek-otto-serdes.o
+ obj-$(CONFIG_MDIO_REGMAP)		+= mdio-regmap.o
+ obj-$(CONFIG_MDIO_SMBUS)		+= mdio-smbus.o
+ obj-$(CONFIG_MDIO_SUN4I)		+= mdio-sun4i.o
+diff --git a/drivers/net/pcs/Kconfig b/drivers/net/pcs/Kconfig
+index ba2caec86..4979d2c84 100644
+--- a/drivers/net/pcs/Kconfig
++++ b/drivers/net/pcs/Kconfig
+@@ -32,6 +32,16 @@ config PCS_MTK_LYNXI
+ 	  This module provides helpers to phylink for managing the LynxI PCS
+ 	  which is part of MediaTek's SoC and Ethernet switch ICs.
+ 
++config PCS_RTL_OTTO
++	tristate "Realtek Otto SerDes PCS"
++	depends on MACH_REALTEK_RTL || COMPILE_TEST
++	select FWNODE_PCS
++	select PHY_COMMON_PROPS
++	select PHYLINK
++	select REGMAP
++	help
++	  This module provides a driver for the Realtek SerDes PCS
++
+ config PCS_RZN1_MIIC
+ 	tristate "Renesas RZ/N1, RZ/N2H, RZ/T2H MII converter"
+ 	depends on OF
+diff --git a/drivers/net/pcs/Makefile b/drivers/net/pcs/Makefile
+index 3005cdd89..bab6f963a 100644
+--- a/drivers/net/pcs/Makefile
++++ b/drivers/net/pcs/Makefile
+@@ -8,4 +8,5 @@ pcs_xpcs-$(CONFIG_PCS_XPCS)	:= pcs-xpcs.o pcs-xpcs-plat.o \
+ obj-$(CONFIG_PCS_XPCS)		+= pcs_xpcs.o
+ obj-$(CONFIG_PCS_LYNX)		+= pcs-lynx.o
+ obj-$(CONFIG_PCS_MTK_LYNXI)	+= pcs-mtk-lynxi.o
++obj-$(CONFIG_PCS_RTL_OTTO)	+= pcs-rtl-otto.o
+ obj-$(CONFIG_PCS_RZN1_MIIC)	+= pcs-rzn1-miic.o
+diff --git a/include/linux/platform_data/dsa.h b/include/linux/platform_data/dsa.h
+index 77424bb24..26ae7ee7a 100644
+--- a/include/linux/platform_data/dsa.h
++++ b/include/linux/platform_data/dsa.h
+@@ -4,7 +4,7 @@
+ 
+ struct device;
+ 
+-#define DSA_MAX_PORTS		12
++#define DSA_MAX_PORTS		56
+ 
+ struct dsa_chip_data {
+ 	/*
+diff --git a/include/net/dsa.h b/include/net/dsa.h
+index 7507d632e..29ccae432 100644
+--- a/include/net/dsa.h
++++ b/include/net/dsa.h
+@@ -61,6 +61,7 @@ struct tc_action;
+ #define DSA_TAG_PROTO_NETC_VALUE		33
+ #define DSA_TAG_PROTO_KSZ8463_VALUE		34
+ #define DSA_TAG_PROTO_MT7628_VALUE		35
++#define DSA_TAG_PROTO_RTL_OTTO_VALUE		36
+ 
+ enum dsa_tag_protocol {
+ 	DSA_TAG_PROTO_NONE		= DSA_TAG_PROTO_NONE_VALUE,
+@@ -99,6 +100,7 @@ enum dsa_tag_protocol {
+ 	DSA_TAG_PROTO_NETC		= DSA_TAG_PROTO_NETC_VALUE,
+ 	DSA_TAG_PROTO_KSZ8463		= DSA_TAG_PROTO_KSZ8463_VALUE,
+ 	DSA_TAG_PROTO_MT7628		= DSA_TAG_PROTO_MT7628_VALUE,
++	DSA_TAG_PROTO_RTL_OTTO		= DSA_TAG_PROTO_RTL_OTTO_VALUE,
+ };
+ 
+ struct dsa_switch;
+@@ -482,7 +484,7 @@ struct dsa_switch {
+ 	/*
+ 	 * User mii_bus and devices for the individual ports.
+ 	 */
+-	u32			phys_mii_mask;
++	u64			phys_mii_mask;
+ 	struct mii_bus		*user_mii_bus;
+ 
+ 	/* Ageing Time limits in msecs */
+@@ -618,24 +620,24 @@ static inline bool dsa_is_user_port(struct dsa_switch *ds, int p)
+ 	dsa_switch_for_each_port_continue_reverse((_dp), (_ds)) \
+ 		if (dsa_port_is_cpu((_dp)))
+ 
+-static inline u32 dsa_user_ports(struct dsa_switch *ds)
++static inline u64 dsa_user_ports(struct dsa_switch *ds)
+ {
+ 	struct dsa_port *dp;
+-	u32 mask = 0;
++	u64 mask = 0;
+ 
+ 	dsa_switch_for_each_user_port(dp, ds)
+-		mask |= BIT(dp->index);
++		mask |= BIT_ULL(dp->index);
+ 
+ 	return mask;
+ }
+ 
+-static inline u32 dsa_cpu_ports(struct dsa_switch *ds)
++static inline u64 dsa_cpu_ports(struct dsa_switch *ds)
+ {
+ 	struct dsa_port *cpu_dp;
+-	u32 mask = 0;
++	u64 mask = 0;
+ 
+ 	dsa_switch_for_each_cpu_port(cpu_dp, ds)
+-		mask |= BIT(cpu_dp->index);
++		mask |= BIT_ULL(cpu_dp->index);
+ 
+ 	return mask;
+ }
+diff --git a/net/dsa/Kconfig b/net/dsa/Kconfig
+index 23b4b7400..db138c96b 100644
+--- a/net/dsa/Kconfig
++++ b/net/dsa/Kconfig
+@@ -181,6 +181,12 @@ config NET_DSA_TAG_RTL8_4
+ 	  Say Y or M if you want to enable support for tagging frames for Realtek
+ 	  switches with 8 byte protocol 4 tags, such as the Realtek RTL8365MB-VC.
+ 
++config NET_DSA_TAG_RTL_OTTO
++	tristate "Tag driver for Realtek Otto switches (RTL83xx/RTL93xx)"
++	help
++	  Say Y or M if you want to enable support for tagging frames for the
++	  Realtek Otto family of switches.
++
+ config NET_DSA_TAG_RZN1_A5PSW
+ 	tristate "Tag driver for Renesas RZ/N1 A5PSW switch"
+ 	help
+diff --git a/net/dsa/Makefile b/net/dsa/Makefile
+index d15bcf5c6..bed63611b 100644
+--- a/net/dsa/Makefile
++++ b/net/dsa/Makefile
+@@ -38,6 +38,7 @@ obj-$(CONFIG_NET_DSA_TAG_OCELOT_8021Q) += tag_ocelot_8021q.o
+ obj-$(CONFIG_NET_DSA_TAG_QCA) += tag_qca.o
+ obj-$(CONFIG_NET_DSA_TAG_RTL4_A) += tag_rtl4_a.o
+ obj-$(CONFIG_NET_DSA_TAG_RTL8_4) += tag_rtl8_4.o
++obj-$(CONFIG_NET_DSA_TAG_RTL_OTTO) += tag_rtl_otto.o
+ obj-$(CONFIG_NET_DSA_TAG_RZN1_A5PSW) += tag_rzn1_a5psw.o
+ obj-$(CONFIG_NET_DSA_TAG_SJA1105) += tag_sja1105.o
+ obj-$(CONFIG_NET_DSA_TAG_TRAILER) += tag_trailer.o

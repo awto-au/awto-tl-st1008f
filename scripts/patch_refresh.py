@@ -3,13 +3,15 @@
 
 - For each `--- /dev/null` / `+++ b/<path>` section in the patch, replace its body with the
   current content of <tree>/<path>. Other sections (edits to existing files) are kept as is.
-- Use after editing a file the patch creates (e.g. 300-06 mode-switch driver) in tmp/linux-v7.3.
+- Use after editing a file the patch creates (e.g. 300-06 mode-switch driver) in the kernel_base.py tree (tmp/linux-next).
 
-    python3 scripts/patch_refresh.py openwrt/patches/300-06-*.patch [--tree tmp/linux-v7.3]
+    python3 scripts/patch_refresh.py openwrt/patches/300-06-*.patch [--tree tmp/linux-next]
 """
 import argparse
 import time
 from pathlib import Path
+
+import kernel_base
 
 ROOT = Path(__file__).resolve().parent.parent
 LOG = ROOT / "tmp/logs/patch_refresh.log"
@@ -42,7 +44,7 @@ def refresh(patch: Path, tree: Path) -> list[str]:
 def main():
     ap = argparse.ArgumentParser(description=__doc__.splitlines()[0])
     ap.add_argument("patch", type=Path)
-    ap.add_argument("--tree", type=Path, default=ROOT / "tmp/linux-v7.3")
+    ap.add_argument("--tree", type=Path, default=kernel_base.tree())
     a = ap.parse_args()
     done = refresh(a.patch, a.tree)
     LOG.parent.mkdir(parents=True, exist_ok=True)

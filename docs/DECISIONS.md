@@ -4,6 +4,7 @@ Index of owner decisions, newest first. One line each: date (AEDT), decision, li
 
 ## 2026-10-12
 
+- **Kernel base: track linux-next** (pinned `next-YYYYMMDD` in `scripts/kernel_base.py`, `./dev.py kernel-base update`), not v7.3-rc6: newest Realtek MDIO/SPI/GPIO fixes (the 7.4 sets), 7.3 not released. v7.3-rc6 stays selectable (`KERNEL_BASE=v7.3-rc6`). [MAINLINE-PORT.md](MAINLINE-PORT.md#baselines), #16.
 - **SFP power: no per-cage limits.** Every cage 2000 mW (SFF-8472 max; OpenWrt's borrowed 2.9/1.5/2.0 W split made modules fail in cages 2/3/6/7). Instead sum the power all fitted modules declare and warn if over the board budget. #30.
 - **SFP power budget:** default 16 W = 24 W input (12 V 2 A) − est. 6-8 W board draw (unmeasured); copper modules counted from a datasheet table; warn only, never block. Configurable (U-Boot env `sfp_budget_mw`, Linux `power_budget_mw`). [hardware.md](hardware.md#sfp-power), #30.
 - **README stays high-level:** no pins, register values or measurements; link to docs/. [README.md](../README.md).
