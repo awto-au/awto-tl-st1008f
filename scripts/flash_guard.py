@@ -189,6 +189,10 @@ def selftest() -> int:
         "saveenv",
         "fw_setenv st1008f_boot fallback",
         "setenv bootcmd 'mw.l 0xa0f80000 0xa5a51008; cp.b 0x94200000 0x81000000 0x80000; go 0x81000000'",
+        "setenv ub_ld cp.b 0x94200000 0x81000000 0x80000",
+        "setenv ub_ck 'crc32 0x81000000 0x7fffc 0x80ffff00; cmp.l 0x80ffff00 0x8107fffc 1'",
+        "setenv ub_go 'mw.l 0xa0f80000 0xa5a51008; go 0x81000000'",
+        "setenv bootcmd 'run ub_ld ub_ck ub_go; run bootcmd_stock'",
         "sf write 0x86100000 0x1ff0000 0x100",
         "sf erase 0x1ff0000 0x1000",
         "sf erase 0xff000 0x1000",  # env2: host allows, our U-Boot driver refuses (#81 test)

@@ -140,4 +140,8 @@ int st1008f_bootsel(int mode);
 /* value of `var` in the stock flash env (CRC-checked), or NULL */
 char *st1008f_stock_env(const char *var, char *out, int len);
 
+/* clocks.c: turbo profile in MHz, 0 = keep (#46, #105); check = NULL when every value is supported */
+const char *otto_turbo_check(u32 cpu, u32 ddr, u32 lx);
+int otto_turbo(u32 cpu, u32 ddr, u32 lx);
+
 #endif

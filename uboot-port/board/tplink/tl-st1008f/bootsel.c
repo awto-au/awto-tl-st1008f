@@ -17,6 +17,10 @@
 #include <mach/otto.h>
 #include "rtk.h"
 
+#if !IS_ENABLED(CONFIG_AUTOBOOT_KEYED) || !IS_ENABLED(CONFIG_BOOT_RETRY)
+#error "owner #46/#105: ESC-only autoboot stop and the prompt idle reset are not optional"
+#endif
+
 #define FLASH		0xb4000000UL	/* mmio window, KSEG1 */
 #define PRIMARY_OFF	0x0300000	/* `firmware`, 22 MiB after the split */
 #define PRIMARY_SIZE	0x1600000
@@ -48,13 +52,17 @@
 #define ARGS(img)	"setenv bootargs st1008f.mode=m%d st1008f.boot=" img "; "
 /* `bootsel fast` arms the wdt, then `clocks fast` (#101): a hang in the clock change resets the SoC
  * and the next boot skips the overclock. Legacy (upstream kernel, no keep-running wdt patch) disarms
- * before bootm; primary/fallback keep it through bootm -> kernel wdt. */
-#define BOOT_PRIMARY	"rtk led boot-end; bootsel fast; " ARGS("primary") "bootm 0xb4300000; " \
-			"bootsel wdt off; rtk led fallback bootm-primary; " ARGS("fallback") "bootm 0xb5900000; " \
-			"rtk led error bootm"
-#define BOOT_FALLBACK	"rtk led boot-end; bootsel fast; " ARGS("fallback") "bootm 0xb5900000; " \
+ * before bootm; primary/fallback keep it through bootm -> kernel wdt, re-armed for the fallback bootm. */
+/* Failed-autoboot prompt: waits for a person to start typing, expected <= 240 s (owner OK 2026-10-13),
+ * x1.25 = 300 s; expiry = reset (RESET_TO_RETRY) -> attempt count -> fallback (#105). Set by bootcmd
+ * itself, so an ESC prompt never times out. */
+#define BOOT_IDLE	"setenv bootretry 300; "
+#define BOOT_PRIMARY	BOOT_IDLE "rtk led boot-end; bootsel fast; " ARGS("primary") "bootm 0xb4300000; " \
+			"bootsel wdt on; rtk led fallback bootm-primary; " ARGS("fallback") "bootm 0xb5900000; " \
 			"bootsel wdt off; rtk led error bootm"
-#define BOOT_LEGACY	"rtk led boot-end; bootsel fast; bootsel wdt off; " ARGS("legacy") \
+#define BOOT_FALLBACK	BOOT_IDLE "rtk led boot-end; bootsel fast; " ARGS("fallback") "bootm 0xb5900000; " \
+			"bootsel wdt off; rtk led error bootm"
+#define BOOT_LEGACY	BOOT_IDLE "rtk led boot-end; bootsel fast; bootsel wdt off; " ARGS("legacy") \
 			"bootm 0xb4300000; rtk led error bootm"
 
 /* uImage header in flash: magic (std or Realtek), header CRC, payload fits the slot */
@@ -111,27 +119,101 @@ static u32 rec_attempts(void)
 	return rec_valid() ? __raw_readl(REC + 1) : 0;	/* invalid = cold boot */
 }
 
-/* `bootsel fast` record: REC+3 = magic while `clocks fast` runs. Still set at the next boot = that
+/* `bootsel fast` record: REC+3 = magic while the turbo change runs. Still set at the next boot = that
  * change never finished (watchdog reset) -> this boot stays at stock clocks; the one after retries */
 #define REC_CLK		(REC + 3)
 #define REC_CLK_MAGIC	0xc10cfa57
 
+/* Turbo profile (#46): stock env `st1008f_turbo=cpu=1100,ddr=650,lx=175` (MHz, any subset; missing
+ * = stock). sram/spi accepted at their stock values only. Applied in M3 only. */
+#define TURBO_VAR	"st1008f_turbo"
+#define TURBO_MAX	64	/* value incl. NUL; longer = refused */
+
+struct turbo {
+	u32 cpu, ddr, lx;
+};
+
+/* NULL = parsed; else why not. Bounded: <= 63 chars, values <= 4 digits */
+static const char *turbo_parse(char *s, struct turbo *t)
+{
+	char *kv, *v, *end;
+	u32 n;
+
+	memset(t, 0, sizeof(*t));
+	if (strlen(s) >= TURBO_MAX - 1)
+		return "too long";
+	while ((kv = strsep(&s, ","))) {
+		v = strchr(kv, '=');
+		if (!v)
+			return "item without '='";
+		*v++ = 0;
+		n = simple_strtoul(v, &end, 10);
+		if (end == v || *end || end - v > 4)
+			return "value not a decimal MHz";
+		if (!strcmp(kv, "cpu"))
+			t->cpu = n;
+		else if (!strcmp(kv, "ddr"))
+			t->ddr = n;
+		else if (!strcmp(kv, "lx"))
+			t->lx = n;
+		else if (!strcmp(kv, "sram") ? n != 250 : !strcmp(kv, "spi") ? n != 25 : 1)
+			return "unknown key, or sram/spi not at stock (250 / 25: SRAM 500 not in this build, SPI #50)";
+	}
+	return NULL;
+}
+
 static void wdt_on(u32 ms);
 
+/* M3: turbo profile from the stock env; M1/M2/invalid: stock clocks (#46). A failure never stops the boot. */
 static int clk_fast(void)
 {
+	char val[TURBO_MAX] = "", raw[TURBO_MAX];
+	int mode = st1008f_boot_mode(NULL);
+	struct otto_clocks c;
+	const char *why;
+	struct turbo t;
 	int ret;
 
-	wdt_on(BOOT_WDT_MS);	/* covers the change (< 1 s) and bootm -> kernel wdt probe */
+	wdt_on(BOOT_WDT_MS);	/* every path: covers bootm -> kernel wdt probe */
+	if (mode != 3) {
+		printf("bootsel: M%d: stock clocks (turbo profile only in M3)\n", mode ?: 1);
+		return 0;
+	}
+	if (!st1008f_stock_env(TURBO_VAR, val, sizeof(val))) {
+		puts("bootsel: M3: no " TURBO_VAR " in the stock env (or env CRC bad): stock clocks\n");
+		return 0;
+	}
+	strlcpy(raw, val, sizeof(raw));
+	why = turbo_parse(val, &t);
+	if (!why)
+		why = otto_turbo_check(t.cpu, t.ddr, t.lx);
+	if (why) {
+		printf("bootsel: M3: " TURBO_VAR "=%s: %s: stock clocks\n", raw, why);
+		rtk_led_fallback("turbo");
+		return 0;
+	}
 	if (__raw_readl(REC_CLK) == REC_CLK_MAGIC) {
 		__raw_writel(0, REC_CLK);
-		puts("clocks: the last `clocks fast` did not finish (reset during the change): stock clocks this boot\n");
+		puts("clocks: the last turbo change did not finish (reset during the change): stock clocks this boot\n");
 		rtk_led_fallback("clocks");
 		return 0;
 	}
+	printf("bootsel: M3: turbo cpu %u ddr %u lx %u (0 = stock)\n", t.cpu, t.ddr, t.lx);
 	__raw_writel(REC_CLK_MAGIC, REC_CLK);	/* KSEG1: in DRAM before the change starts */
-	ret = run_command("clocks fast", 0);
+	ret = otto_turbo(t.cpu, t.ddr, t.lx);
+	otto_clocks_read(&c);
+	if (!c.cpu_on_pll) {
+		/* no lock, restore failed too: REC_CLK stays set so the next boot skips the overclock;
+		 * if the reset returns, the wdt armed above expires */
+		puts("bootsel: CPU not on its PLL after the turbo change: reset\n");
+		do_reset(NULL, 0, 0, NULL);
+	}
 	__raw_writel(0, REC_CLK);
+	wdt_on(BOOT_WDT_MS);	/* again at the new LX: covers bootm -> kernel wdt probe */
+	if (ret) {
+		puts("bootsel: turbo change failed, booting at the clocks it left (CPU on its PLL)\n");
+		rtk_led_fallback("clocks");
+	}
 	return ret;
 }
 
@@ -175,10 +257,11 @@ static void wdt_off(void)
 }
 
 enum { SEL_LEGACY, SEL_PROMPT, SEL_PRIMARY, SEL_FALLBACK };
-static const char *fb_auto;	/* fallback chosen by a fault (not M3 / owner flag): LED latch tag */
+static const char *fb_auto;	/* fallback chosen by a fault (not the owner flag): LED latch tag */
 static const char *const sel_name[] = { "legacy", "prompt", "primary", "fallback" };
 
-/* Decision for a chained boot at mode switch position `mode` (1-3; M2 selects like M1); `why` = reason */
+/* Image decision for a chained boot; the mode switch picks clocks only (#46: M3 = turbo), not the
+ * image. `why` = reason */
 static int decide(int mode, char *why, int len, bool count)
 {
 	char flag[16] = "";
@@ -186,11 +269,7 @@ static int decide(int mode, char *why, int len, bool count)
 
 	if (!slot_ok(FALLBACK_OFF, FALLBACK_SIZE, NULL)) {
 		snprintf(why, len, "no image in recovery slot: single-image boot as before");
-		return mode == 3 ? SEL_PROMPT : SEL_LEGACY;
-	}
-	if (mode == 3) {
-		snprintf(why, len, "mode switch M3");
-		return SEL_FALLBACK;
+		return SEL_LEGACY;
 	}
 	st1008f_stock_env(FLAG_VAR, flag, sizeof(flag));
 	if (!strcmp(flag, "prompt") || !strcmp(flag, "fallback")) {
@@ -217,7 +296,7 @@ static int decide(int mode, char *why, int len, bool count)
 /* board_late_init, chained boot (mode 1-3, invalid passed as 1): set bootcmd, bootargs, bootdelay */
 int st1008f_bootsel(int mode)
 {
-	char why[96], cmd[320];
+	char why[96], cmd[384];
 	int s = decide(mode, why, sizeof(why), true);
 
 	printf("Boot:  %s (%s)\n", sel_name[s], why);
@@ -230,7 +309,10 @@ int st1008f_bootsel(int mode)
 	else
 		snprintf(cmd, sizeof(cmd), s == SEL_LEGACY ? BOOT_LEGACY : BOOT_FALLBACK, mode);
 	env_set("bootcmd", cmd);
-	env_set("bootdelay", "1");
+	/* owner #46: 2 s window, ESC only (CONFIG_AUTOBOOT_STOP_STR); no env key may replace it */
+	env_set("bootdelay", "2");
+	env_set("bootstopkey", NULL);
+	env_set("bootdelaykey", NULL);
 	return 0;
 }
 

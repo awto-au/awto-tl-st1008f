@@ -118,7 +118,6 @@ extern char otto_ddr_sram[], otto_ddr_sram_end[];
 #define SRAM_WIN	0x1f000001
 #define UART_LSR	0xb8002014
 #define LSR_TEMT	BIT(6)
-#define TEMT_POLL	100000	/* 16-byte FIFO at 115200 = 1.4 ms; bound only names a stuck UART */
 
 #define CPU_SRAM_ASY_TIMING	0xb80040f8	/* SDK register_map.h; CPU/SRAM async pulse timing */
 
@@ -153,12 +152,19 @@ static void sram_unload(const struct sram_win *w)
 	__asm__ __volatile__("sync");
 }
 
+/* UART TEMT before a clock change: 16-byte FIFO + shift register = 17 chars x 10 bits at the
+ * console baud, x1.25. Expiry = stuck UART: logged, the change goes ahead. */
 static void uart_drain(void)
 {
-	u32 i;
+	u32 lim = DIV_ROUND_UP(17 * 10 * 1250000U, gd->baudrate) + 1;
+	ulong t0 = timer_get_us();
 
-	for (i = 0; i < TEMT_POLL && !(__raw_readb((void __iomem *)UART_LSR) & LSR_TEMT); i++)
-		;
+	while (!(__raw_readb((void __iomem *)UART_LSR) & LSR_TEMT))
+		if (timer_get_us() - t0 > lim) {
+			printf("clocks: UART TEMT not set after %u us (limit %u us at %u baud)\n",
+			       (u32)(timer_get_us() - t0), lim, gd->baudrate);
+			return;
+		}
 }
 
 /* docs/CLOCKS.md (a): run the stock sequence from SRAM with the lines locked in the I-cache */
@@ -169,9 +175,9 @@ static int cpu_set(u32 e208, u32 e210, u32 relock)
 {
 	u32 sram_sel = sram_req < 0 ? !!(R(0xb8000700) & BIT(1)) : sram_req;
 	u32 (*fn)(u32, u32, u32, u32);
-	struct sram_win w;
 	struct otto_clocks c;
-	u32 left, mhz, asy, sram, ocp;
+	struct sram_win w;
+	u32 left, mhz, asy, sram, ocp, t0, us;
 
 	/* CPU_SRAM_ASY_TIMING 0xb80040f8 (SDK register_map.h, cg.c rules, written on every CPU change):
 	 * oc0_sram_pulse [1:0]: OCP0 = CPU/2 < SRAM -> 0, < 2 x SRAM -> 1, else 2; sram_oc0_pulse bit 6 =
@@ -189,14 +195,19 @@ static int cpu_set(u32 e208, u32 e210, u32 relock)
 	       relock ? "e220 bit 17" : "e200 bit 30");
 	fn = sram_load(&w, otto_cpu_pll_sram, otto_cpu_pll_sram_end);
 	uart_drain();
+	otto_us_start(c.lx_khz);	/* lock bound in the routine */
+	t0 = otto_us_now();
 	left = fn(e208, e210, (relock & 1) | sram_sel << 8, asy);
+	us = otto_us_since(t0);
+	otto_us_stop();
 	sram_unload(&w);
 	if (!left) {
-		puts("clocks: CPU PLL did not lock in 100000 polls; CPU left on the alternate clock\n");
+		printf("clocks: CPU PLL not locked after %u us; CPU left on the alternate clock\n",
+		       OTTO_CPU_LOCK_US);
 		return CMD_RET_FAILURE;
 	}
-	printf("clocks: locked after %u polls, CPU_SRAM_ASY_TIMING %08x (%u MHz), PLL_SRAM_CTRL %08x (SRAM %u)\n",
-	       100000 - left, R(CPU_SRAM_ASY_TIMING), mhz, R(0xb8000700), sram);
+	printf("clocks: locked after %u us (routine %u us), CPU_SRAM_ASY_TIMING %08x (%u MHz), PLL_SRAM_CTRL %08x (SRAM %u)\n",
+	       left - 1, us, R(CPU_SRAM_ASY_TIMING), mhz, R(0xb8000700), sram);
 	return 0;
 }
 
@@ -209,7 +220,6 @@ static int lx_set(u32 code)
 	struct ns16550_plat *plat;
 	struct otto_clocks c;
 	struct udevice *dev;
-	u32 i;
 
 	if (code < 2 || code > 5) {	/* 5 = 175 MHz stock; 2 = 306 MHz */
 		puts("clocks: lx code 2..5 only\n");
@@ -219,8 +229,7 @@ static int lx_set(u32 code)
 		return CMD_RET_FAILURE;
 	plat = dev_get_plat(dev);
 	printf("clocks: 0xbb00e220[12:9] = %u via LXB_CLK_SEL; console follows\n", code);
-	for (i = 0; i < TEMT_POLL && !(__raw_readb((void __iomem *)UART_LSR) & LSR_TEMT); i++)
-		;
+	uart_drain();
 	__raw_writel(R(PLL_E200) | BIT(17), (void __iomem *)PLL_E200);
 	__raw_writel((R(PLL_E220) & ~GENMASK(12, 9)) | (code << 9), (void __iomem *)PLL_E220);
 	__raw_writel(R(PLL_E200) & ~BIT(17), (void __iomem *)PLL_E200);
@@ -526,26 +535,91 @@ static int refi_set(void)
 	return 0;
 }
 
-static int fast_set(void)
-{
-	struct mem_req q = { .mhz = FAST_MEM_MHZ, .method = 1 };
-	/* DDR first, CPU after: the DDR change at CPU 1000 hung 3-4 in 20 power-ups on sw2, at CPU 800
-	 * 0 in 45; `clocks set mem 650` then `set cpu` 20/20 (#101, docs/CLOCKS.md) */
-	int ret = mem_set(&q);
+/* Turbo CPU points tested on sw2 (docs/OVERCLOCK.md): e208 + DIVN2 code (e210 6:4, /(code + 2)) */
+static const struct { u16 mhz, e208, div; } cpu_pts[] = {
+	{ 1000, 0x3a8, 1 }, { 1050, 0x3d8, 1 }, { 1100, 0x2a8, 0 }, { 1150, 0x2c8, 0 },
+	{ 1200, 0x2e8, 0 }, { 1300, 0x328, 0 },
+};
+/* LX MHz -> DIVN2_LXB code (lx_set): 2450 / (2 x (code + 2)) */
+static const u16 lx_pts[] = { [2] = 306, [3] = 245, [4] = 204, [5] = 175 };
 
-	if (!ret)
-		ret = cpu_set(FAST_E208, FAST_E210, 0);
-	if (!ret)
+/* Profile check without touching hardware: NULL = every value is supported; 0 = keep the current rate */
+const char *otto_turbo_check(u32 cpu, u32 ddr, u32 lx)
+{
+	struct otto_clocks c;
+	u32 i, ok;
+
+	otto_clocks_read(&c);
+	for (i = 0, ok = !cpu || cpu == c.cpu_khz / 1000; i < ARRAY_SIZE(cpu_pts); i++)
+		ok |= cpu_pts[i].mhz == cpu;
+	if (!ok)
+		return "cpu: not a tested point (1000 1050 1100 1150 1200 1300)";
+	for (i = 0, ok = !ddr || ddr == c.mem_khz / 1000; i < ARRAY_SIZE(mem_bins); i++)
+		ok |= mem_bins[i].mhz == ddr;
+	if (!ok)
+		return "ddr: no bin (`clocks set mem` list)";
+	for (i = 2, ok = !lx || lx == c.lx_khz / 1000; i <= 5; i++)
+		ok |= lx_pts[i] == lx;
+	return ok ? NULL : "lx: 175 204 245 306 only";
+}
+
+/*
+ * Turbo profile (#46, #105): DDR first, CPU after (the DDR change at CPU 1000 hung 3-4 in 20
+ * power-ups on sw2, at CPU 800 0 in 45; #101), tREFI + prefetch, LX last (console follows).
+ * 0 = keep. CPU no lock -> re-lock at the previous values so the boot goes on at known clocks.
+ */
+int otto_turbo(u32 cpu, u32 ddr, u32 lx)
+{
+	struct mem_req q = { .mhz = ddr, .method = 1 };
+	u32 e208 = R(0xbb00e208), e210 = R(0xbb00e210), i;
+	const char *why = otto_turbo_check(cpu, ddr, lx);
+	struct otto_clocks c;
+	int ret = 0;
+
+	if (why) {
+		printf("clocks: turbo refused: %s\n", why);
+		return CMD_RET_FAILURE;
+	}
+	otto_clocks_read(&c);
+	if (ddr && ddr != c.mem_khz / 1000)
+		ret = mem_set(&q);
+	for (i = 0; !ret && cpu && cpu != c.cpu_khz / 1000 && i < ARRAY_SIZE(cpu_pts); i++) {
+		if (cpu_pts[i].mhz != cpu)
+			continue;
+		ret = cpu_set((e208 & ~GENMASK(11, 0)) | cpu_pts[i].e208, (e210 & ~GENMASK(6, 4)) |
+			      cpu_pts[i].div << 4, 0);
+		if (ret && !cpu_set(e208, e210, 0))
+			puts("clocks: CPU back on its PLL at the previous rate\n");
+	}
+	/* tREFI 4608 clk <= 7.8 us needs DDR >= 591 MHz */
+	if (!ret && ddr >= 600 && ddr != c.mem_khz / 1000)
 		ret = refi_set();
 	if (ret)
 		return ret;
-	__raw_writel(R(MCR_REG) & ~MCR_PREF, (void __iomem *)MCR_REG);
-	__raw_writel(R(MCR_REG) | MCR_PREF, (void __iomem *)MCR_REG);
+	/* DRAM prefetch only with a CPU or DDR change: a stock-valued profile leaves the board stock */
+	if ((cpu && cpu != c.cpu_khz / 1000) || (ddr && ddr != c.mem_khz / 1000)) {
+		__raw_writel(R(MCR_REG) & ~MCR_PREF, (void __iomem *)MCR_REG);
+		__raw_writel(R(MCR_REG) | MCR_PREF, (void __iomem *)MCR_REG);
+	}
 	/* SPI stays stock: Linux JFFS2 writes at 102.1 MHz left CRC errors (#50) */
 	__asm__ __volatile__("sync");
-	printf("clocks: fast = cpu 1000 MHz, mem %u MHz, tREFI 4608 clk, dram prefetch on (MCR %08x), "
-	       "spi unchanged\n", FAST_MEM_MHZ, R(MCR_REG));
-	return 0;
+	for (i = 2; lx && lx != c.lx_khz / 1000 && i <= 5; i++)
+		if (lx_pts[i] == lx)
+			ret = lx_set(i);
+	otto_clocks_read(&c);
+	printf("clocks: turbo = cpu %u MHz, mem %u MHz, lx %u MHz, MCR %08x, spi unchanged\n",
+	       c.cpu_khz / 1000, c.mem_khz / 1000, c.lx_khz / 1000, R(MCR_REG));
+	return ret;
+}
+
+static int fast_set(void)
+{
+	int ret = otto_turbo(1000, FAST_MEM_MHZ, 0);
+
+	if (!ret)
+		printf("clocks: fast = cpu 1000 MHz, mem %u MHz, tREFI 4608 clk, dram prefetch on (MCR %08x), "
+		       "spi unchanged\n", FAST_MEM_MHZ, R(MCR_REG));
+	return ret;
 }
 
 #define CLI_REG_MAX	4	/* command line < 240 chars (console) */
@@ -687,6 +761,9 @@ static int do_clocks(struct cmd_tbl *cmdtp, int flag, int argc, char *const argv
 		sram_req = -1;
 		return ret;
 	}
+	if (argc == 5 && !strcmp(argv[1], "turbo"))
+		return otto_turbo(dectoul(argv[2], NULL), dectoul(argv[3], NULL), dectoul(argv[4], NULL)) ?
+		       CMD_RET_FAILURE : 0;
 	if (argc > 1) {
 		if (argc < 5 || strcmp(argv[1], "set") || strcmp(argv[argc - 1], "force"))
 			return CMD_RET_USAGE;
@@ -705,7 +782,7 @@ static int do_clocks(struct cmd_tbl *cmdtp, int flag, int argc, char *const argv
 	khz(" (ocp0; vco", c.cpu_vco_khz);
 	printf(" = 25 MHz x%s(%u + 2) x 2 / %u, / (%u + 2)); src %s\n",
 	       (e208 & BIT(2)) ? "4 x " : "", F(e208, 11, 4), 1 << (e208 & 3), F(e210, 6, 4),
-	       c.cpu_on_pll ? "pll" : "ALT (SSR.ckse_ocp0 = 0, rate unknown)");
+	       c.cpu_on_pll ? "pll" : "ALT (SSR.ckse_ocp0 = 0, rate measured, vco not in use)");
 	khz("timer", c.cpu_khz / 2);
 	printf(" (CP0 Count = cpu / 2)\n");
 	khz("lx", c.lx_khz);
@@ -731,6 +808,7 @@ U_BOOT_CMD(clocks, 24, 0, do_clocks, "show CPU/LX/SPI/MEM clocks and DDR3 timing
 	   "clocks fast  - CPU 1000 MHz, DDR 650 MHz, tREFI 7.1 us, DRAM controller prefetch (SPI left alone)\n"
 	   "clocks membench - ns per access, on-chip SRAM vs DRAM (#103)\n"
 	   "clocks set sram 250|500 force - SRAM clock (PLL_SRAM_CTRL) via a CPU PLL re-lock at the live rate\n"
+	   "clocks turbo <cpu> <ddr> <lx>  - turbo profile in MHz (0 = keep), as bootsel applies st1008f_turbo in M3\n"
 	   "clocks set cpu <e208> <e210> [relock 0|1] force\n"
 	   "  - CPU PLL from SRAM (stock sequence); relock 0 = e200 bit 30 (default), 1 = e220 bit 17\n"
 	   "clocks set lx <code 2..5> force  - LX = 2450 / (2 x (code + 2)) MHz; 5 = stock 175\n"
@@ -764,6 +842,7 @@ int ft_board_setup(void *blob, struct bd_info *bd)
 	fdt_for_each_node_by_compatible(off, blob, -1, "ns16550a")
 		if (fdt_getprop(blob, off, "clock-frequency", NULL))
 			fdt_setprop_u32(blob, off, "clock-frequency", c.lx_khz * 1000);
-	printf("fdt: clocks cpu %u kHz, lx %u kHz\n", c.cpu_khz, c.lx_khz);
+	printf("fdt: clocks cpu %u kHz%s, lx %u kHz\n", c.cpu_khz,
+	       c.cpu_on_pll ? "" : " (alternate clock, measured)", c.lx_khz);
 	return 0;
 }

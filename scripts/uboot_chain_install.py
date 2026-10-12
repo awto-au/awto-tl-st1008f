@@ -2,8 +2,13 @@
 """uboot_chain_install — put our U-Boot into flash `jffs2-log` from the running flash OpenWrt (#47 A).
 
 - Checks: `jffs2-log` exists in /proc/mtd, is not mounted, and is all 0xff (unused) unless --overwrite.
+- Image: the 512 KiB self-checking slot `uboot-mainline-chain.bin` (scripts/uboot_chain_image.py, #105);
+  its CRCs are checked on the host before anything is sent.
 - Transfer: host HTTP (this script, one file, bound to SERVER_IP) -> switch `wget`; md5 on both ends.
-- `mtd write <file> jffs2-log`, then read back the image length and compare md5.
+- `mtd write <file> jffs2-log`, then read back the slot: md5 compare (console); SSH also pulls the
+  read-back and re-checks its CRCs on the host. PASS = flash holds a slot the chain env will accept.
+- Code stays at slot offset 0: an older chain env (no check) still boots it, so install and
+  `uboot-chain-env apply` can come in either order.
 - Does NOT touch the stock env (bootcmd change is a separate step, #47).
 - Log: tmp/logs/uboot_chain_install.log
 """
@@ -21,11 +26,12 @@ from pathlib import Path
 
 sys.path.insert(0, str(Path(__file__).resolve().parent))
 import flash_guard  # noqa: E402
+import uboot_chain_image  # noqa: E402
 from st1008_ramload import OW_PROMPT, SERVER_IP, SWITCH_IP, TFTP_ROOT, Console  # noqa: E402
 
 ROOT = Path(__file__).resolve().parent.parent
 LOG = ROOT / "tmp/logs/uboot_chain_install.log"
-IMAGE = TFTP_ROOT / "uboot-mainline.bin"
+IMAGE = TFTP_ROOT / "uboot-mainline-chain.bin"
 PART, PART_SIZE = "jffs2-log", 0x100000
 PORT = 8008
 
@@ -64,18 +70,26 @@ def install_ssh(ip: str, data: bytes, md5: str) -> int:
     if ssh(ip, f"head -c 600000 /dev/mtdblock{n} | grep -c -a 'U-Boot 20'; true", SSH_S * 2).strip() in ("", "0"):
         log(f"FAIL: {PART} (mtd{n}) on {ip} does not hold our U-Boot; refusing")
         return 1
-    ssh(ip, "cat > /tmp/u.bin", SSH_S * 3, stdin=data)  # ~460 KB over the LAN: < 1 s
+    ssh(ip, "cat > /tmp/u.bin", SSH_S * 3, stdin=data)  # 512 KiB over the LAN: < 1 s
     got = ssh(ip, "md5sum /tmp/u.bin", SSH_S * 2).split()[0]
     if got != md5:
         log(f"FAIL: transfer md5 {got} != {md5}")
         return 1
     # mtd write = erase up to 8 x 64 KiB blocks (W25Q256 max 2 s each) + ~460 KB program: ~18 s worst, x1.25
     ssh(ip, f"mtd write /tmp/u.bin {PART}", 25)
-    rb = ssh(ip, f"head -c {len(data)} /dev/mtdblock{n} | md5sum", SSH_S * 2).split()[0]
-    ok = rb == md5
-    log(f"{'PASS' if ok else 'FAIL'}: {PART} (mtd{n}, flash 0x200000) read-back md5 {rb}"
-        f"{'' if ok else ' != ' + md5}; switch {ip} (ssh)")
+    r = subprocess.run(["ssh", "-o", f"ConnectTimeout={SSH_S}", "-o", "BatchMode=yes", f"root@{ip}",
+                        f"head -c {len(data)} /dev/mtdblock{n}"], capture_output=True, timeout=SSH_S * 2)
+    rb = r.stdout
+    crc_ok, detail = uboot_chain_image.check(rb)
+    ok = not r.returncode and crc_ok and hashlib.md5(rb).hexdigest() == md5
+    log(f"{'PASS' if ok else 'FAIL'}: {PART} (mtd{n}, flash 0x200000) read-back {len(rb)} B md5 "
+        f"{hashlib.md5(rb).hexdigest()}{'' if ok else ' (want ' + md5 + ')'}, {detail}; switch {ip} (ssh)")
     return 0 if ok else 1
+
+
+STOCK_NOTE = ("NOTE: this slot boots at stock clocks (CPU 800, DDR 600, LX 175, SRAM 250, SPI 25.5) in every "
+              "mode unless the stock env has st1008f_turbo AND the mode switch is in M3: today's 1000/650 drops "
+              "to stock at the next power-up. Set it: ./dev.py uboot-chain-env turbo set PROFILE [--ssh --ip IP] (#46)")
 
 
 def main() -> int:
@@ -86,12 +100,17 @@ def main() -> int:
     a = ap.parse_args()
     data = IMAGE.read_bytes()
     md5 = hashlib.md5(data).hexdigest()
-    log(f"image {IMAGE.name}: {len(data)} B md5 {md5}")
+    ok, detail = uboot_chain_image.check(data)
+    log(f"image {IMAGE.name}: {len(data)} B md5 {md5}, {detail}")
+    if not ok or len(data) != uboot_chain_image.SLOT:
+        log("FAIL: not a chain slot image; rebuild (./dev.py build-uboot)")
+        return 1
     if len(data) > PART_SIZE:
         log(f"FAIL: image larger than {PART} ({PART_SIZE:#x})")
         return 1
     flash_guard.check_mtd(PART, "uboot-chain-install")  # #81, before any console command
     flash_guard.check_range(0x200000, len(data), "uboot-chain-install")
+    log(STOCK_NOTE)
     if a.ssh:
         return install_ssh(a.ssh, data, md5)
     con = Console()
@@ -109,7 +128,7 @@ def main() -> int:
         (SERVER_IP, PORT), functools.partial(http.server.SimpleHTTPRequestHandler, directory=str(TFTP_ROOT)))
     threading.Thread(target=srv.serve_forever, daemon=True).start()
     try:
-        # ~300 KB over the LAN: well under 1 s; cap 5 s names a routing/firewall problem
+        # 512 KiB over the LAN: well under 1 s; cap 5 s names a routing/firewall problem
         sh(con, f"U=http://{SERVER_IP}:{PORT}")
         # right after boot STP holds the ports: listen + learn = 2 x 15 s forward delay; x1.25 = 8 x 5 s
         for _ in range(8):
@@ -122,13 +141,13 @@ def main() -> int:
     if not got or got.group(1) != md5:
         log(f"FAIL: transfer md5 {got and got.group(1)} != {md5}")
         return 1
-    # mtd write = erase 5 x 64 KiB blocks (W25Q256 max 2 s each) + ~300 KB program; ~11 s worst, x1.25
-    sh(con, f"mtd write /tmp/u.bin {PART} && echo MTD_OK", r"\nMTD_OK", cap=15)
+    # mtd write = erase 8 x 64 KiB blocks (W25Q256 max 2 s each) + 512 KiB program; ~18 s worst, x1.25
+    sh(con, f"mtd write /tmp/u.bin {PART} && echo MTD_OK", r"\nMTD_OK", cap=23)
     rb = sh(con, f"head -c {len(data)} /dev/mtdblock{n} | md5sum", r"[0-9a-f]{32}")
     rb_md5 = re.search(r"\n([0-9a-f]{32})\s", rb).group(1)
     ok = rb_md5 == md5
     log(f"{'PASS' if ok else 'FAIL'}: {PART} (mtd{n}, flash 0x200000) read-back md5 {rb_md5}"
-        f"{'' if ok else ' != ' + md5}; switch {SWITCH_IP}")
+        f"{'' if ok else ' != ' + md5} (md5 equal = slot CRCs as checked on the host); switch {SWITCH_IP}")
     return 0 if ok else 1
 
 

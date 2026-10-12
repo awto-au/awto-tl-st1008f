@@ -74,7 +74,7 @@ int board_late_init(void)
 		return 0;
 	if (!mode)
 		rtk_led_error("mode invalid");	/* still autoboots (M1); latch survives into Linux */
-	/* M1/M2/invalid: primary with fallback; M3: fallback; no recovery image: as before (#73) */
+	/* image: primary with fallback, no recovery image: as before (#73); mode = clocks: M3 turbo (#46) */
 	st1008f_bootsel(mode ? mode : 1);
 	/* snake only when bootsel armed an autoboot countdown */
 	rtk_led_boot_start(env_get("bootcmd") ? (int)simple_strtol(env_get("bootdelay") ?: "0", NULL, 10) : 0);
