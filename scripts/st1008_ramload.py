@@ -164,8 +164,10 @@ class Console:
 
 def power(op: str) -> None:
     r = subprocess.run([sys.executable, str(ROOT / "scripts/switch_power.py"), op],
-                       capture_output=True, text=True, timeout=27)  # 2 POSTs + 3 GETs, 5 s cap each
+                       capture_output=True, text=True, timeout=30)  # 2 POSTs + 3 GETs 5 s each + 2 sw1 pings 0.7 s
     log(f"relay {op}: {r.stdout.strip().splitlines()[-1] if r.stdout.strip() else r.stderr.strip()}")
+    if r.returncode:
+        raise SystemExit(f"relay {op} failed rc={r.returncode} (4 = relay powers sw1, #91): {r.stdout.strip()}")
 
 
 def relay_check() -> int:

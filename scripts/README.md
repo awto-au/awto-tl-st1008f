@@ -103,6 +103,11 @@ End-to-end workflow: [../README.md#workflow](../README.md#workflow).
 - Run: `scripts/switch_power.py cycle|off|on [--gap 1.0]`. Log: `tmp/logs/switch_power.log`.
 - Notes: the state read right after a command can lag (shows the old state); re-read before trusting it. Prefer separate `off` then `on` calls a few seconds apart: back-to-back off/on in the same second left the board half-reset.
 - **After any power cut, restart `switch_console_daemon.py` before power-on**: the PL2303 RX URB stalls (`urb stopped: -32`) and the daemon keeps running deaf.
+- sw1 tripwire: `off`/`cycle` ping sw1 before and after; sw1 lost → relay on, exit 4 (#91).
+
+### board_guard.py
+- Purpose: refuse a `dev.py` hardware flow unless the board is sw2 (#91). Called by `dev.py`; checks args, console log last boot, ARP. Exit 5 = refused.
+- Run: `scripts/board_guard.py <command> [args]`. Log: `tmp/logs/board_guard.log`. Detail: [../docs/hardware.md](../docs/hardware.md#unit-guard-91).
 
 ### storm_watch.py
 - Purpose: watch a host NIC's rx broadcast+multicast rate (`ethtool -S`) and cut the switch relay (`switch_power.py off`) on a storm. Unicast/iperf ignored.

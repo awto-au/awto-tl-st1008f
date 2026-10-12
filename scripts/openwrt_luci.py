@@ -12,6 +12,9 @@ import sys
 import time
 from pathlib import Path
 
+sys.path.insert(0, str(Path(__file__).resolve().parent))
+from boards import BENCH_IP  # noqa: E402  sw2; sw1 is never ssh-configured
+
 ROOT = Path(__file__).resolve().parent.parent
 LOG = ROOT / "tmp/logs/openwrt_luci.log"
 SSH_S = 5        # dropbear connect on the LAN ~1 s; x5
@@ -36,7 +39,7 @@ def log(msg: str) -> None:
 
 def main() -> int:
     ap = argparse.ArgumentParser(description=__doc__.splitlines()[0])
-    ap.add_argument("--ip", default="192.168.25.48")
+    ap.add_argument("--ip", default=BENCH_IP)
     a = ap.parse_args()
     for name, cmd, limit in STEPS:
         t0 = time.monotonic()

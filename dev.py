@@ -499,9 +499,19 @@ def main(argv: list[str] | None = None) -> int:
     if any(a in ("-h", "--help") for a in extra):  # never run a command when asked for help
         print(f"./dev.py {name}{' ' + meta['args'] if meta['args'] else ''}\n\n{meta['summary']}")
         return 0
+    if meta["kind"] in ("hardware", "check") and name not in HOST_ONLY:
+        rc = subprocess.call([sys.executable, str(SCRIPTS / "board_guard.py"), name, *extra], cwd=REPO)
+        if rc:
+            log(f"{name}: refused by scripts/board_guard.py (not sw2; #91)", "ERROR")
+            return rc
     if meta["kind"] == "hardware" and name != "storm-watch":
         _storm_guard()
     return meta["fn"](extra)
+
+
+# no board contact, or read-only network checks that may target sw1 (#91)
+HOST_ONLY = {"storm-watch", "check-log", "flash-guard", "doc-check", "console-watch", "console-window",
+             "switch-check", "mode-watch", "switch-logs"}
 
 
 def _storm_guard() -> None:

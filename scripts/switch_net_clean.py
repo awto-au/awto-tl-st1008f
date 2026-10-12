@@ -13,6 +13,9 @@ import sys
 import time
 from pathlib import Path
 
+sys.path.insert(0, str(Path(__file__).resolve().parent))
+from boards import BENCH_IP  # noqa: E402  sw2; sw1 is never ssh-configured
+
 ROOT = Path(__file__).resolve().parent.parent
 LOG = ROOT / "tmp/logs/switch_net_clean.log"
 SSH_S = 5  # LAN dropbear connect ~1 s; x5
@@ -43,7 +46,7 @@ def ssh(ip: str, cmd: str, limit: int) -> str:
 
 def main() -> int:
     ap = argparse.ArgumentParser(description=__doc__.splitlines()[0])
-    ap.add_argument("--ip", default="192.168.25.48")
+    ap.add_argument("--ip", default=BENCH_IP)
     ap.add_argument("--dry-run", action="store_true")
     a = ap.parse_args()
     # uci show on a ~2 KB config: well under 1 s; 15 s limit = connect + margin

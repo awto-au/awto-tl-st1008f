@@ -60,6 +60,16 @@ Narrative & dead ends: see [HISTORY.md](HISTORY.md). Evidence paths under `priva
 - **Management address** (owner, 2026-10-12): DHCP client + static fallback `192.168.0.1/24`; house LAN reserves `192.168.25.48` (registry block `st1008f-1` = `.48`-`.55`). Today's flash OpenWrt: static `.48/24` on bridge `switch.1`, gateway/DNS `.254`. [DECISIONS.md](DECISIONS.md).
 - **Lab hosts** (registry): host `enp7s0` TFTP server `192.168.25.30` (static NM entry + DHCP reservation); power relay `192.168.25.49` (DHCP-reserved; [Bench power relay](#bench-power-relay-84)).
 
+## Unit guard (#91)
+
+- `./dev.py` runs `scripts/board_guard.py` before every hardware/check command except host-only and read-only network ones (`switch-check`, `mode-watch`, `check-log`, ...). Exit 5 = refused.
+  - args naming sw1's IP `192.168.25.48` → refused;
+  - console log, last boot (since the last stock `U-Boot 2011.12` banner), contains sw1's MAC `16:b0:46:e9:0d:c0` → refused (the console is on sw1);
+  - ARP cache maps the bench IP `.56` to sw1's MAC → refused.
+- Relay tripwire (`scripts/switch_power.py off|cycle`): sw1 pinged before and after `off`; answered before, silent after → relay back on at once, exit 4; `ramload` aborts on it.
+- Verified 2026-10-12: `power off` on sw2 kept sw1 answering (rc 0); `switch-net-clean --ip 192.168.25.48` refused; a synthetic console log with sw1's MAC after the banner refused.
+- `switch-net-clean` / `openwrt-luci` default to the bench IP (were `.48`).
+
 ## Bench power relay (#84)
 
 - ESPHome node `office-bench-lights` (ESP8266, HA entity `Office Bench Lights relay`), `192.168.25.49`; switches the board's 12 V supply. No power metering.
