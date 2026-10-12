@@ -25,6 +25,7 @@
 - [UBOOT-FUNCMAP.md](UBOOT-FUNCMAP.md) — SDK function addresses in the stock loader.
 - [UBOOT-MAINLINE.md](UBOOT-MAINLINE.md) — our mainline U-Boot port (#23).
 - [RTK-COMMANDS.md](RTK-COMMANDS.md) — `rtk` command parity, stock vs ours.
+- [SW-DEFAULTS.md](SW-DEFAULTS.md) — stock switch defaults in our `rtk network on`: reg-diff vs stock, per-row verdict (#80).
 - [SDS-TOOLS.md](SDS-TOOLS.md) — SerDes test tools `rtk sds` (#74).
 
 ## Boot and OS
