@@ -88,7 +88,7 @@ def reload(ip: str) -> int:
 
 def main() -> int:
     ap = argparse.ArgumentParser(description=__doc__.splitlines()[0])
-    ap.add_argument("op", choices=["show", "stats", "add", "remove", "reload"])
+    ap.add_argument("op", choices=["show", "stats", "fdb", "stp", "add", "remove", "reload"])
     ap.add_argument("vids", nargs="?", default="", help="comma list, e.g. 991,992")
     ap.add_argument("--ports", default="", help="comma list, e.g. lan4,lan5")
     ap.add_argument("--ip", default=BENCH_IP)
@@ -98,6 +98,18 @@ def main() -> int:
         return 0
     if a.op == "reload":  # owner-approved once on sw1 (#96): netifd loads the saved bridge-vlan config
         return reload(a.ip)
+    if a.op == "stp":  # read-only: bridge STP view (root, timers, per-port role/state)
+        b = "/sys/class/net/switch/bridge"
+        log(ssh(a.ip, f"for f in bridge_id root_id root_port root_path_cost forward_delay hello_time max_age "
+                      f"topology_change_detected; do echo $f=$(cat {b}/$f); done; "
+                      f"for p in {b}/../brif/*; do n=${{p##*/}}; echo $n state=$(cat $p/state) "
+                      f"desig_root=$(cat $p/designated_root) desig_bridge=$(cat $p/designated_bridge) "
+                      f"cost=$(cat $p/path_cost); done").rstrip())
+        return 0
+    if a.op == "fdb":  # read-only: learned MACs per --ports port (what is behind it)
+        for p in a.ports.split(","):
+            log(ssh(a.ip, f"bridge fdb show br switch | grep -v permanent | grep ' dev {p} '").rstrip() or f"{p}: none")
+        return 0
     if a.op == "stats":  # read-only: non-zero MIB counters of each --ports port
         for p in a.ports.split(","):
             stats(a.ip, p)
