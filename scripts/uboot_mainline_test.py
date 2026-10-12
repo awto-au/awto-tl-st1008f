@@ -514,7 +514,11 @@ def main() -> int:
     special = {"timer": timer, "gpio": gpio, "sfp_a0": sfp_a0, "sfp_all": sfp_all, "ddm": ddm_sane, "laser": laser,
                "sf_read": sf_read, "reset": reset, "i2c_scan": i2c_scan, "sfp_phy": sfp_phy,
                "fdt_clocks": fdt_clocks, "cr_idle": cr_idle, "network": network, "net": net}
-    results = {n: (special[n](con) if n in special else check(con, n)) for n in a.checks}
+    con.note("interactive-begin")  # check output is not boot output (boot_log_check skips it)
+    try:
+        results = {n: (special[n](con) if n in special else check(con, n)) for n in a.checks}
+    finally:
+        con.note("interactive-end")
     bad = [n for n, ok in results.items() if not ok]
     log(f"=== {len(results) - len(bad)}/{len(results)} pass" + (f"; FAIL: {', '.join(bad)}" if bad else ""))
     return 1 if bad else 0
