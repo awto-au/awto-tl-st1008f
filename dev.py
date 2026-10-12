@@ -143,6 +143,12 @@ def cmd_spi_dirmap_test(extra: list[str]) -> int:
     return _script("spi_dirmap_test.py", extra)
 
 
+@command("SPI-NOR window quad read test at our prompt: SFCR2 -> 0x6B / 0xEB, whole-chip CRC vs Dual I/O, restore (#61)",
+         args="[quad-out-6b] [quad-io-eb]  (run `ramload uboot-mainline` first)", kind="check")
+def cmd_spi_quad_test(extra: list[str]) -> int:
+    return _script("spi_quad_test.py", extra)
+
+
 @command("console UART baud ladder (self-restoring; board ends at 115200)",
          args="[divisor ...]  (default 47 24 12 6 5 4 3 2 1; mainline prompt)", kind="check")
 def cmd_serial_speed(extra: list[str]) -> int:

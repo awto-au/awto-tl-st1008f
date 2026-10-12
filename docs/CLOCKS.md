@@ -279,7 +279,16 @@ Source tags: **[SRC]** GPL file:line (`dms1250/` = `sources/rtk-dms1250/`, `xgs1
   - `[19:18]` cmd_io 0 (x1), `[17:16]` addr_io 1 (x2), `[12:11]` data_io 1 (x2); `[15:13]` dummy 2; `[9]` 1 = 4-byte address (stock `sfcr2_set_4byte_addr`).
 - Memory-mapped window `0xb4000000` (32 MiB) reads in that mode: the U-Boot whole-chip CRC and `flash_*` figures above use it.
 - [DS] §8.2: serial/dual/quad data width, memory-mapped read interface, cached reads; pins `SPI_MST_SIO2` (F2) / `SIO3` (F1) exist.
-- W25Q256JV supports Quad I/O `0xEB`. Board routing of flash IO2/IO3 (WP#/HOLD#) to SIO2/3 and the QE bit (SR2) are unknown: quad not tried.
+- **Quad works** (2026-10-12T14:13+11:00, sw2, our U-Boot, CPU 1000 MHz, SPI 122.5 MHz, `./dev.py spi-quad-test`): IO2/IO3 are wired and QE = 1. Whole-chip `crc32` of the uncached window equal in all three modes (`49a3eb5c`); stock SFCR2 restored after.
+
+| Mode (SFCR2) | flash_uc MB/s | flash_c MB/s | chip CRC s |
+|---|---|---|---|
+| Dual I/O 0xBB `bbc14a00` (stock) | 7.66 | 22.3 | 4.4 |
+| Quad Output 0x6B `6bc09200` | 6.45 | 29.7 | 5.3 |
+| Quad I/O 0xEB `ebc27200` | **9.80** | **37.0** | **3.5** |
+
+  - Encoding: dummy field in 2-clock units (Realtek SDK `flash_spi.c`): 0xEB = 2 mode + 4 dummy clocks → 3; 0x6B = 8 clocks → 4; addr/data io code 2 = x4.
+  - Quad I/O = +66 % cached, +28 % uncached vs stock Dual I/O. Not yet used by our U-Boot or Linux (#61).
 - Board photo (docs/photos, top): flash = U11, SOIC-16, below the heatsink next to the JTAG pads. Marking too faint to read (IQ = QE fixed 1, IM = QE default 0). SOIC-16 pin 1 = IO3/HOLD# (top-right, by the dot), pin 9 = IO2/WP# (bottom-left); traces not resolvable at photo resolution. Needs a close-up or the read-only quad test (#61).
   - Owner, 2026-10-12: pin 1 (IO3/HOLD#) has a trace. Not yet known whether it goes to SoC `SIO3` or to a pull-up; pin 9 (IO2/WP#) unchecked.
   - Close-up photo (svanheule.net, `sources/photos-svanheule/…_007.jpg`): marking `25Q256JVFQ` `2222` = **W25Q256JVFIQ** (SOIC-16 300 mil). Winbond datasheet Rev L §7.1.4: "IQ" parts have **QE = 1 factory fixed**, IO2/IO3 always data pins, /HOLD disabled. No status-register write is needed for quad; only the board wiring to SoC SIO2/SIO3 is open.
@@ -302,6 +311,13 @@ Source tags: **[SRC]** GPL file:line (`dms1250/` = `sources/rtk-dms1250/`, `xgs1
 - 102.1 MHz with flash OpenWrt (2026-10-11T21:20+11:00): JFFS2 overlay `jffs2_get_inode_nodes: Node header CRC failed`, `read_dnode: node CRC failed`, `crccheck of ino #462`; /etc/config/network read as default (LAN at 192.168.1.1). Same flash at 25.5 MHz next boot: 0 CRC errors, config intact. The bulk md5 passed; JFFS2's small node reads did not (#50).
 - So Linux runs stock 25.5 MHz; fast SPI only in U-Boot-only sessions (#50, [DECISIONS.md](DECISIONS.md)).
 - Dirmap (`openwrt/patches/300-07`): self-check fails on every 7.3 boot (2026-10-11/12), Linux stays on PIO. Ranked causes, fix and diag: [MAINLINE-PORT.md](MAINLINE-PORT.md#self-check-failure-61) (#61).
+- **linux-next (next-20261009, has the SFCSR init fix): dirmap active** (2026-10-12T14:10+11:00, sw2, stock ramload, SPI 25.5 MHz, `./dev.py spi-dirmap-test`): `dirmap: 0x0+0x2000000 via window, SFCR2 0xbbc14a00, op 0x13, mode 2`; md5 of the 29 MiB `firmware` equal in all modes.
+
+| dirmap mode | MB/s | dd s |
+|---|---|---|
+| 0 PIO | 2.23 | 13.6 |
+| 2 cached window (default) | **4.73** | 6.4 |
+| 1 uncached window | 1.95 | 15.6 |
 
 ## CPU overclock: measured (2026-10-10, mainline U-Boot RAM-loaded, heatsink off, stock core voltage)
 

@@ -149,6 +149,7 @@ Upstream-hostile items to carry out-of-tree: #7 (`700`, `722`), #8 until merged,
 #### Self-check failure (#61)
 
 - Every 7.3 boot 2026-10-11/12 (stock ramload and via our U-Boot): `dirmap: window != PIO at 0x0 (SFCR2 0xbbc14a00), using PIO`. Linux stays on PIO. Allowlisted `known #61`.
+- linux-next (next-20261009) 2026-10-12: dirmap active, cached window 4.73 MB/s vs PIO 2.23 ([CLOCKS.md](CLOCKS.md#linux)).
 - Same window and the same PIO sequence agree in U-Boot: our U-Boot `sf read` (port of this driver) vs `crc32 0xb4000000` match; `bootm 0xb4300000` boots the uImage straight from the window.
 - So the cause is something Linux does between U-Boot and `dirmap_create`. Ranked:
 
