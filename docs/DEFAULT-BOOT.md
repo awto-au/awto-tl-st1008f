@@ -12,7 +12,7 @@ Design + code 2026-10-12 (modes: owner 2026-10-12); nothing run on the board. Fl
 
 ## Today
 
-- Power-up: stock U-Boot → saved `bootcmd` → our U-Boot from `jffs2-log` (0x200000) → `clocks fast; bootm 0xb4300000` → flash OpenWrt 25.12.4 (6.18).
+- Power-up: stock U-Boot → saved `bootcmd` → CRC check → our U-Boot from `jffs2-log` (0x200000) → 2 s ESC window → `bootsel fast` (clocks by mode, [below](#clocks-by-mode-46)) → `bootm 0xb4300000` → flash OpenWrt.
 - `firmware` 0x300000-0x2000000 (29 MiB), split by OpenWrt `mtdsplit` (boot log 2026-10-11):
 
 | Part | Flash | Size |
@@ -27,17 +27,27 @@ Design + code 2026-10-12 (modes: owner 2026-10-12); nothing run on the board. Fl
 
 Chain-load from stock (#47 option A, live since 2026-10-11, fd16464).
 
-- Stock env (`./dev.py uboot-chain-env apply`, one `saveenv`, 0.7 s):
-  - `bootcmd_stock=boota`
-  - `bootcmd=mw.l 0xa0f80000 0xa5a51008; cp.b 0x94200000 0x81000000 0x80000; go 0x81000000` (marker, copy 512 KiB of `jffs2-log` from the mmio window, run).
+- Stock env (`./dev.py uboot-chain-env apply`, one `saveenv`, 0.7 s; #105):
+  - `bootcmd_stock=boota` (stock's own flash boot)
+  - `ub_ld=cp.b 0x94200000 0x81000000 0x80000` (512 KiB slot from the mmio window)
+  - `ub_ck=crc32 0x81000000 0x7fffc 0x80ffff00; cmp.l 0x80ffff00 0x8107fffc 1` (slot CRC vs its last word)
+  - `ub_go=mw.l 0xa0f80000 0xa5a51008; go 0x81000000` (marker, run)
+  - `bootcmd=run ub_ld ub_ck ub_go; run bootcmd_stock`
+  - Stock has no hush and no `crc32 -v`: `run` stops at the first var whose last command fails (`cmp.l` rc 1, U-Boot 2011.12 `do_run`), `;` goes on → mismatch = stock `boota` = flash OpenWrt at stock clocks, not a hang. Not yet verified on the board: `uboot-chain-env test-bad` ([OPS](DEFAULT-BOOT-OPS.md#chain-slot-check-105)).
+  - Stock `crc32` = zlib CRC32 (whole-flash `dd984f95` matched the host, 2026-10-08).
+  - Each var ≤ 14 words (stock `CONFIG_SYS_MAXARGS` 16).
   - `bootdelay=1` kept: stock's 1 s Esc window is the only serial path in if our U-Boot or its env breaks; `bootdelay=0` dropped (owner 2026-10-12, #81; [UBOOT-REFERENCE.md](UBOOT-REFERENCE.md#boot-timing-before-the-countdown-81)).
-- Our U-Boot: `./dev.py uboot-chain-install` → `jffs2-log` (mtd4, 0x200000-0x2fffff, unmounted by OpenWrt; overlay is `rootfs_data`); blank check before the first write, read-back md5 checked. Image must stay ≤ 512 KiB (the `cp.b` length).
+- Slot (`tmp/tftp/uboot-mainline-chain.bin`, `scripts/uboot_chain_image.py`): 512 KiB; `u-boot.bin` at 0, 0xff pad, trailer at 0x7ffc0 = magic `ST1008F-UBOOT` + v1, image size, image CRC32, build name; last word = CRC32 of bytes 0-0x7fffb.
+  - Image ≤ 0x7ffc0 B (build fails above).
+  - Code at offset 0: the pre-#105 env (`cp.b …; go`, no check) still boots a new slot; the new env falls back to `boota` on a pre-#105 raw image (its last word is erased flash). Install and env apply work in either order.
+- Our U-Boot: `./dev.py uboot-chain-install` → `jffs2-log` (mtd4, 0x200000-0x2fffff, unmounted by OpenWrt; overlay is `rootfs_data`); host checks the slot CRCs before sending; blank check before the first write; read-back md5 (console) or read-back + CRC re-check on the host (SSH).
+- `uboot-chain-env apply` checks the flash slot with the stock commands before `saveenv`; refuses on a mismatch unless `--allow-fallback`.
 - Marker `0xa5a51008` @ `0xa0f80000` (cleared on read) = chained boot → autoboot; RAM-loaded (no marker) = prompt.
 - Our U-Boot accepts the Realtek uImage magic, so `bootm 0xb4300000` boots the flash OpenWrt directly.
 - Timing (2026-10-11, `uboot-chain-env boot`, real power cycle): ours up 2.4 s after power-on; `clocks fast` (CPU 1 GHz) 1.1 s later; flash OpenWrt console 23.2 s later; bridge STP on. Re-verified 2026-10-11T21:30+11:00.
 - SPI stays at stock 25.5 MHz in this chain: 122.5 MHz corrupted squashfs reads under Linux (#50).
 - Stock U-Boot does chain-load only (#81): every flow is to work as if stock never ran, with no dependency on stock `rtk network on` (#80, #51).
-- Undo: `./dev.py uboot-chain-env revert` (`bootcmd=boota`). Interrupting the stock countdown still gives the stock prompt.
+- Undo: `./dev.py uboot-chain-env revert` (`bootcmd=boota`, `ub_*` cleared). Interrupting the stock countdown still gives the stock prompt.
 - Options not taken (#47): B = replace the stock U-Boot payload in `u-boot`, keeping the stock SPL (must match the SPL's hard-coded copy length `0xc1c78`; a bad write bricks without an external programmer); C = own SPL (DDR/PLL init), needed for DDR overclock at boot. Both write `0x0`-`0xDFFFF`, which is banned.
 
 ## Stock U-Boot area protection (#81)
@@ -98,17 +108,25 @@ Chained boot only (`ramload` boots never autoboot). First match wins:
 
 | # | Condition | Boot |
 |---|---|---|
-| 1 | Any key during the 1 s `bootdelay` | prompt (as today) |
-| 2 | No valid uImage header in `recovery` | legacy = today's single-image boot (`clocks fast; bootm 0xb4300000`); M3 → prompt |
-| 3 | Mode switch M3 | recovery |
-| 4 | Stock env `st1008f_boot=prompt` / `=fallback` | prompt / recovery |
-| 5 | Primary uImage header bad | recovery |
-| 6 | Attempt record ≥ 2 | recovery |
-| 7 | else (M1, M2, invalid) | attempts + 1, primary |
+| 1 | ESC during the 2 s `bootdelay` | prompt, no idle reset |
+| 2 | No valid uImage header in `recovery` | legacy = single-image boot (`bootm 0xb4300000`) |
+| 3 | Stock env `st1008f_boot=prompt` / `=fallback` | prompt / recovery |
+| 4 | Primary uImage header bad | recovery |
+| 5 | Attempt record ≥ 2 | recovery |
+| 6 | else | attempts + 1, primary |
 
-- M2 selects like M1; only Linux behaves differently ([Modes](#modes)). Invalid switch read = M1 (+ LED error latch).
+- The mode switch picks clocks, not the image (owner #46, 2026-10-13): [Clocks by mode](#clocks-by-mode-46). Linux still gets `st1008f.mode` ([Modes](#modes)). Invalid switch read = M1 (+ LED error latch).
 - `bootargs` per `bootm`: `st1008f.mode=m1|m2|m3 st1008f.boot=primary|fallback|legacy` (the primary's in-line fallback re-sets `boot=fallback`).
-- Primary `bootcmd` (LED hooks omitted): `clocks fast; bootsel wdt on; setenv bootargs …boot=primary; bootm 0xb4300000; bootsel wdt off; setenv bootargs …boot=fallback; bootm 0xb5900000` (a bad data CRC falls through to recovery).
+- Primary `bootcmd` (LED hooks omitted): `setenv bootretry 300; bootsel fast; setenv bootargs …boot=primary; bootm 0xb4300000; bootsel wdt on; setenv bootargs …boot=fallback; bootm 0xb5900000; bootsel wdt off` (a bad data CRC falls through to recovery; the fallback `bootm` runs under a fresh watchdog).
+
+### Autoboot stop and prompt (#46, #105)
+
+- Countdown `Autoboot in 2 s, ESC for the prompt`: ESC (0x1b) only (`CONFIG_AUTOBOOT_KEYED`, stop string `\x1b`); other bytes are ignored, so line noise cannot stop an unattended boot. Owner 2026-10-13.
+- Always on: the build fails without `AUTOBOOT_KEYED` / `BOOT_RETRY` (`#error` in `bootsel.c`); `bootsel` sets `bootdelay=2` and clears `bootstopkey` / `bootdelaykey` (env is RAM-only, `ENV_IS_NOWHERE`).
+- Ctrl-C is ignored while `bootcmd` runs (keyed autoboot without `AUTOBOOT_KEYED_CTRLC`).
+- Prompt after a failed autoboot: `bootcmd` sets `bootretry=300` first, so the prompt resets the board after 300 s without console input (`CONFIG_RESET_TO_RETRY`); each command restarts the 300 s. ESC never runs `bootcmd`, so a stopped prompt never times out. `BOOT_RETRY_TIME=-1` = off for `ramload` sessions.
+  - 300 s = time for someone at the console to start typing; not a hardware wait. Reset → attempt count → recovery after 2.
+- Not covered: env flag `st1008f_boot=prompt` (owner-chosen prompt, no timeout).
 - Row 2 keeps today's behaviour until `recovery` is written: the new U-Boot can go into `jffs2-log` first.
 - Stock env flag: read-only from `u-boot-env` (0xe0000, 64 KiB, big-endian CRC32 over 0x10000 − 4 at offset 4, checked against the 2026-10-08 backup). Setting it is a flash write: `fw_setenv st1008f_boot fallback` (uboot-envtools, default package) or stock `setenv` + `saveenv`.
 - `bootsel` command: slots, flag, record, WDT state, what a chained boot would do now + its `st1008f.mode`; `bootsel clear`; `bootsel wdt on|off|<ms>`.
@@ -125,6 +143,7 @@ Chained boot only (`ramload` boots never autoboot). First match wins:
 ### Watchdog
 
 - SoC watchdog `WDTCNTRR` `0xb8003260`, `WDTINTRR` `+4`, `WDT_CTRL` `+8` (Linux `realtek_otto_wdt`; `WDT_RESET_MODE` 0 = SDK "full chip"). Tick = 2^(25+prescale) / LX kHz; LX 175 MHz → 192/383/767/1534 ms, max 33 ticks = 50.6 s.
+- `bootsel fast` arms it on every mode (re-armed after a turbo change, at the new LX); the primary's fallback `bootm` re-arms it (`bootsel wdt on`); disarmed only before the prompt or the legacy `bootm`.
 - `bootsel wdt on` = 12 s (prescale 2, 16 ticks of 767 ms). Covers `bootm` → kernel watchdog probe: chain log 2026-10-11 = ~23 s ours → console, of which kernel 14.3 s and bootdelay 1 s → ~8 s `bootm` (flash read + LZMA at stock SPI) + ~1 s to probe ≈ 9 s, x1.25 → 12 s. Expiry = SoC reset → counted attempt.
 - `openwrt/patches/300-15`: probe used to write `CTRL_DEFAULT` (watchdog off). Now an enabled watchdog stays on, `WDOG_HW_RUNNING`: the core pings until procd opens `/dev/watchdog` (procd: 30 s timeout, 5 s ping). Without it, probe (~1 s) → procd (~13 s) is uncovered. The recovery kernel (6.18) needs the same patch.
 - `bootsel fast` (#101) arms it (13 s) before `clocks fast`; legacy boots disarm before `bootm`.
@@ -136,15 +155,16 @@ Chained boot only (`ramload` boots never autoboot). First match wins:
 
 ## Modes
 
-Owner decision 2026-10-12 (#73, #46). M2 used to mean "stop at the U-Boot prompt"; it now boots the primary.
+Owner decision 2026-10-12 (#73, #46); U-Boot side changed 2026-10-13 (#46): the switch no longer selects the recovery image.
 
-| Switch | Image | Linux mode | Ports |
+| Switch | U-Boot clocks | Linux mode | Ports |
 |---|---|---|---|
-| M1 | primary | switch | all cages bridged, forwarding, STP on, forward_delay 2 |
-| M2 | primary | isolated | every cage reaches only the CPU; no port-to-port forwarding |
-| M3 | recovery | isolated | as M2 |
+| M1 | stock | switch | all cages bridged, forwarding, STP on, forward_delay 2 |
+| M2 | stock | isolated | every cage reaches only the CPU; no port-to-port forwarding |
+| M3 | turbo profile | isolated (`st1008f-mode` m3 rule, unchanged) | as M2 |
 | any | recovery (fault fallback) | isolated | as M2 |
 
+- Open (#46): M2 = U-Boot networking on all front ports, waiting for commands; not built yet (M2 autoboots like M1). M3 → Linux `isolated` follows the 2026-10-12 table; owner to confirm for the turbo position.
 - Management (all modes): bridge `switch` stays one bridge with lan1-lan8, STP on; isolation = per-port `isolated` flag. Plug a host into any cage → management.
 - Fault fallback in M1 = isolated: the recovery image is a management image. One-line change in `st1008f-mode` (`want=` rule) if switching should continue.
 - `/etc/init.d/st1008f-mode` (START=19, before `network` at 20):
@@ -154,6 +174,26 @@ Owner decision 2026-10-12 (#73, #46). M2 used to mean "stop at the U-Boot prompt
 - netifd (`device.c` `isolate`, `system-linux.c`) writes `brport/isolated` right after `SIOCBRADDIF`; with STP on the port is still listening, so no frame forwards before isolation.
 - Mode is read at boot only; moving the switch at runtime changes nothing until the next boot (the 1G/2.5G speed pattern still follows at runtime, 300-06).
 - Legacy boot (no recovery image, flash OpenWrt 25.12.4 on 6.18 upstream): kernel ignores `bootargs` (`MIPS_CMDLINE_FROM_DTB`), no `st1008f-mode` → M2 = switch as today, STP saved (#43).
+
+### Clocks by mode (#46)
+
+- `bootsel fast` in `bootcmd`: M1, M2, invalid → stock clocks (CPU 800, DDR 600, LX 175, SPI 25.5): `bootsel: M1: stock clocks (turbo profile only in M3)`.
+- M3 → profile from the stock env (CRC-checked, read-only), stored like `ethaddr`: `st1008f_turbo=cpu=1100,ddr=650,lx=175`.
+  - Keys `cpu`, `ddr`, `lx` in MHz, any subset (missing = stock); `sram=250`, `spi=25` accepted at stock only (SRAM 500 not in this build; SPI #50). ≤ 62 chars, values ≤ 4 digits.
+  - Supported: cpu 1000 1050 1100 1150 1200 1300 (tested points, [OVERCLOCK.md](OVERCLOCK.md)); ddr = a `clocks set mem` bin; lx 175 204 245 306.
+  - Missing, bad env CRC, unknown key, bad number, unsupported value → stock clocks, one `bootsel: M3: …: stock clocks` line, LED fallback latch `turbo`.
+  - Apply = `clocks turbo <cpu> <ddr> <lx>`: DDR (nosr), CPU, tREFI 4608 clk if DDR ≥ 600 and changed, DRAM prefetch, LX last.
+  - Written only by a dev.py env flow (CLAUDE.md env rule); not scripted yet.
+- Unfinished change (watchdog reset during it): record word `REC+3` still set → next boot stock clocks, the one after retries.
+- CPU PLL no lock: re-lock at the previous values; still off the PLL → `reset` with the record word set (next boot stock); a reset that returns → the armed watchdog fires.
+- `clocks fast` (prompt) = `clocks turbo 1000 650 0`, as before.
+
+### Clock-change bounds (#105)
+
+- CPU PLL lock: `CPU_PLL_READY` poll bounded by SoC timer TC5 (1 MHz from LX, `0xb8003250`), not the CPU clock: 250 us (no datasheet lock time; 200 us assumed worst, x1.25). READY was set on the first poll in 415 logged changes. Expiry: CPU stays on the alternate clock, `clocks: CPU PLL not locked after 250 us`.
+- `clocks: locked after N us (routine M us)`: M comes from TC5 = proof the time base counts.
+- UART drain before a change: 17 chars x 10 bits at the console baud, x1.25 (1.8 ms at 115200), `timer_get_us`; expiry logged, the change goes ahead.
+- CPU on the alternate clock: `get_tbclk()`, `clocks`, `ft_board_setup` use a measured rate (2 x CP0 Count over 1000 us of TC5, once per episode). TC5 not counting (1000 us not reached within 750000 Counts = 1.25 ms at 1.2 GHz) → logged, PLL-decoded rate kept.
 
 ### Hardware offload of isolation
 

@@ -5,8 +5,8 @@
   "OWNER: slide the switch to Mx", polls `rtk mode` until the pins change and hold, records them.
   Order M1 (current) -> M2 -> M3 -> M1. PASS = 3 distinct patterns, decode == label, ends at M1.
 - `boot --expect Mx`: owner sets the switch first. Power-cycle with the saved chain (`run bootcmd`
-  policy): M1/M2 must autoboot flash OpenWrt (STP set); M3 without a recovery image stops at our
-  prompt with boot_mode=M3.
+  policy): every mode autoboots flash OpenWrt (STP set); M1/M2 log stock clocks, M3 the turbo
+  profile line (#46).
 - Read-only: GPIO DATA reads only; no flash writes. Log: tmp/logs/mode_switch_map.log.
 """
 
@@ -89,16 +89,13 @@ def boot(expect: int) -> int:
         con.expect(r"U-Boot 2026\.07", 6, mark, "stock -> saved bootcmd -> our U-Boot", boot_ok=True)
         m, _ = con.expect(r"Mode:  (M[123]|invalid)[^\n]*\n", 2, mark, "Mode line", boot_ok=True)
         log(f"  board: {m.group(0).strip()}")
-        if expect in (1, 2):  # M2 boots the primary too, with st1008f.mode=m2 (#73)
-            con.expect(r"clocks: fast = cpu 1000 MHz", 4, mark, "M1 autoboot: clocks fast", boot_ok=True)
-            # bootm from flash + kernel to console ~23 s after ours (uboot_chain_env); x1.25
-            con.expect(OW_READY, 30, mark, "flash OpenWrt console", boot_ok=True)
-            openwrt_stp(con)
-        else:
-            # M3 without a recovery image: `Boot:  prompt` (#73); with one it boots it (default-boot tests)
-            con.expect(r"(needs Ethernet|Boot:  prompt)[^\n]*\n" + r"(?s:.*)" + PROMPT, 2, mark, f"M{expect}: prompt",
-                       boot_ok=True)
-            con.run("printenv boot_mode", rf"boot_mode=M{expect}\r?\n" + PROMPT, 1, "boot_mode")
+        # every mode autoboots the flash kernel; the mode picks clocks only (#46): M1/M2 stock, M3 turbo
+        want = r"bootsel: M[12]: stock clocks" if expect in (1, 2) else r"bootsel: M3: [^\n]*"
+        m, _ = con.expect(want, 4, mark, f"M{expect} clock policy", boot_ok=True)
+        log(f"  {m.group(0).strip()}")
+        # 2 s ESC window + bootm from flash + kernel to console ~24 s after ours; x1.25
+        con.expect(OW_READY, 30, mark, "flash OpenWrt console", boot_ok=True)
+        openwrt_stp(con)
     finally:
         set_policy("hold")
     log(f"PASS boot M{expect}")

@@ -320,7 +320,7 @@ def set_spi(con: Console, d: int, code: int) -> None:
 def fast_clocks(con: Console, e208: str, spi: bool = True) -> None:
     con.note("interactive-begin")  # command output, not boot output (boot_log_check skips it)
     con.run(f"clocks set cpu {e208} 0x6b439e13 0 force",
-            r"clocks: locked after \d+ polls[^\r\n]*\r?\nst1008f-mainline # ", 2, f"cpu pll {e208}")
+            r"clocks: locked after \d+ us[^\r\n]*\r?\nst1008f-mainline # ", 2, f"cpu pll {e208}")
     if not spi:
         _, out = con.run("clocks", r"(?s)mem \d+ MHz.*st1008f-mainline # ", 1, "clocks")
         con.note("interactive-end")
@@ -394,9 +394,14 @@ def main() -> int:
     if a.from_flash:
         if a.image != "uboot-mainline":
             raise SystemExit("--from-flash is for uboot-mainline only")
-        # copy 512 KiB from the cached flash window at stock SPI (~5 MB/s) ~0.1 s; banner < 1 s
-        con.run("cp.b 0x94200000 0x81000000 0x80000; go 0x81000000", IMAGES[a.image][3], 3,
-                "uboot-mainline from flash (no network)")
+        # slot copy + stock CRC check (#105) at stock clocks < 0.2 s; cap 2 s
+        from uboot_chain_image import stock_check_cmd  # late: keeps this module's imports light
+        _, out = con.run(f"cp.b 0x94200000 0x81000000 0x80000; {stock_check_cmd()}",
+                         r"(Total of 1 word|word at 0x)[\s\S]*?RTL9300# ", 2, "jffs2-log slot check")
+        if "Total of 1 word" not in out:
+            raise SystemExit("FAIL: jffs2-log slot CRC mismatch (old raw image or corrupt): "
+                             "./dev.py uboot-chain-install --overwrite")
+        con.run("go 0x81000000", IMAGES[a.image][3], 3, "uboot-mainline from flash (no network)")  # banner < 1 s
         if not a.stock_clocks:
             fast_clocks(con, a.cpu or FAST_CPU_E208)
         return 0

@@ -3,7 +3,8 @@
 
 - Scaffold (tracked): uboot-port/. Tree: tmp/u-boot-v2026.07 (override: $UBOOT_TREE), tag v2026.07.
 - Stages files, patches Kconfig/Makefile hooks idempotently, builds out-of-tree (O=tmp/uboot-mainline-build).
-- Outputs copied to tmp/tftp/: uboot-mainline.bin (raw, linked 0x81000000), uboot-mainline.elf.
+- Outputs copied to tmp/tftp/: uboot-mainline.bin (raw, linked 0x81000000), uboot-mainline.elf,
+  uboot-mainline-chain.bin (512 KiB self-checking jffs2-log slot, scripts/uboot_chain_image.py, #105).
 - Toolchain: CROSS_COMPILE=mips64-linux-gnu- (GCC, MIPS32 BE via -march=mips32r2 -mabi=32).
 - Log: tmp/logs/build_uboot_mainline.log. Build timeout: BUILD_TIMEOUT_S (see constant).
 
@@ -33,8 +34,10 @@ CROSS = "mips64-linux-gnu-"
 # Applies per make call; on expiry make is killed and logged with elapsed time.
 BUILD_TIMEOUT_S = 8
 TAIL_LINES = 40
-# stock bootcmd copies this much from flash 0x200000 to 0x81000000 (scripts/uboot_chain_env.py, #47)
-CHAIN_COPY_MAX = 0x80000
+sys.path.insert(0, str(ROOT / "scripts"))
+import uboot_chain_image  # noqa: E402
+# stock bootcmd copies the 512 KiB slot from flash 0x200000; the image ends before its trailer (#105)
+CHAIN_COPY_MAX = uboot_chain_image.TRAILER
 
 # scaffold rel-path -> tree rel-path
 FILES = {
@@ -194,10 +197,13 @@ def build(cross: str) -> int:
     if size > CHAIN_COPY_MAX:
         log(f"BUILD FAILED: u-boot.bin {size} bytes > chain copy {CHAIN_COPY_MAX:#x}")
         return 1
-    log(f"size: {size} bytes, {CHAIN_COPY_MAX - size} below the {CHAIN_COPY_MAX:#x} chain copy")
+    log(f"size: {size} bytes, {CHAIN_COPY_MAX - size} below the {CHAIN_COPY_MAX:#x} chain slot limit")
     TFTP.mkdir(parents=True, exist_ok=True)
     shutil.copy2(binp, TFTP / "uboot-mainline.bin")
     shutil.copy2(BUILDDIR / "u-boot", TFTP / "uboot-mainline.elf")
+    slot = uboot_chain_image.make(binp.read_bytes(), "u-boot " + time.strftime("%Y%m%d-%H%M%S"))
+    (TFTP / "uboot-mainline-chain.bin").write_bytes(slot)
+    log(f"chain slot: uboot-mainline-chain.bin, {uboot_chain_image.check(slot)[1]}")
     log(f"BUILD OK: uboot-mainline.bin = {binp.stat().st_size} bytes -> {TFTP}")
     log("load: tftpboot 0x81000000 uboot-mainline.bin ; go 0x81000000")
     return 0

@@ -27,16 +27,16 @@ LOG = ROOT / "tmp/logs/clocks_cycle.log"
 JSONL = ROOT / "tmp/logs/clocks_cycle.jsonl"
 PROMPT = r"\r?\nst1008f-mainline # "
 STEPS = {
-    "cpu": ("clocks set cpu {e208} {e210} 0 force", r"clocks: (locked after \d+ polls[^\n]*|CPU PLL did not lock[^\n]*)"),
+    "cpu": ("clocks set cpu {e208} {e210} 0 force", r"clocks: (locked after \d+ us[^\n]*|CPU PLL not locked[^\n]*)"),
     "mem": ("clocks set mem {mhz} nosr {extra}force", r"clocks: (mem set (OK|FAIL[^\n]*)|no bin[^\n]*)"),
     # same set with all 32 trained DQ read taps rewritten unchanged while clk_oe = 0 (#101 test)
     "memdq0": ("clocks set mem {mhz} nosr dqshift 0 force", r"clocks: (mem set (OK|FAIL[^\n]*)|no bin[^\n]*)"),
-    "sram500": ("clocks set sram 500 force", r"clocks: (locked after \d+ polls[^\n]*|CPU PLL did not lock[^\n]*)"),
+    "sram500": ("clocks set sram 500 force", r"clocks: (locked after \d+ us[^\n]*|CPU PLL not locked[^\n]*)"),
     "membench": ("clocks membench", r"membench dram c read \(fill\): \d+ ps/access"),
     "lx": ("clocks set lx {lx} force", r"clocks: (lx now \d+ kHz[^\n]*|lx code[^\n]*)"),
     "fast": ("clocks fast", r"clocks: (fast = [^\n]*|mem set FAIL[^\n]*|DTR latch[^\n]*)"),
 }
-# step from SRAM: PLL relock (100k-poll bound) + DDR change + 1024-word canary, ~ms; the console
+# step from SRAM: PLL relock (250 us bound) + DDR change + 1024-word canary, ~ms; the console
 # prints ~20 lines (~2 KB at 115200 = 0.2 s). 3 s names a hang.
 STEP_S = 3
 CPU = ["0x3a8", "0x6b439e13"]  # 1000 MHz; --cpu
@@ -79,7 +79,7 @@ def cycle(step: str, flash: bool, mhz: int) -> dict:
         detail.append(m.group(0))
         if part == "membench":  # keep the per-access table
             detail.extend(re.findall(r"membench (?:sram|dram) [^\r\n]*", out))
-        if "FAIL" in m.group(0) or "latch" in m.group(0) or "no bin" in m.group(0) or "did not lock" in m.group(0):
+        if "FAIL" in m.group(0) or "latch" in m.group(0) or "no bin" in m.group(0) or "not locked" in m.group(0):
             res = "fail"
             break
     try:

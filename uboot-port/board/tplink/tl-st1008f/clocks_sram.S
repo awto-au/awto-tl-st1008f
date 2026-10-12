@@ -5,9 +5,10 @@
  * a0 = 0xbb00e208 value, a1 = 0xbb00e210 value, a2 bit 0 = relock: 0 = e200 bit 30, 1 = e220 bit 17,
  * a2 bit 8 = PLL_SRAM_CTRL sram_pll_sel (0 = SRAM 250 MHz, 1 = 500),
  * a3 = CPU_SRAM_ASY_TIMING (0xb80040f8) value for the new rate (written once the CPU is back on the PLL)
- * v0 = lock-poll iterations left; 0 = no lock: CPU left on the alternate clock (not the PLL)
+ * v0 = lock time in us + 1; 0 = no lock within OTTO_CPU_LOCK_US: CPU left on the alternate clock
  */
 #include <asm/regdef.h>
+#include <mach/otto.h>
 
 	.set	noreorder
 	.text
@@ -53,17 +54,25 @@ otto_cpu_pll_sram:
 	or	t0, t0, t2
 	sw	t0, 0(t4)
 	sync
-	li	v0, 100000		/* lock poll bound; PLL lock is tens of us (SPEC), expiry -> v0 = 0 */
+	li	t9, OTTO_TC_MASK	/* lock bound: TC5 1 MHz (started by the caller), not the CPU clock */
+	lw	t7, OTTO_TC5_CNT - 0xb8000000(t1)
 3:	lw	t0, 0(t3)		/* e200 bit 15 CPU_PLL_READY */
 	andi	t0, t0, 0x8000
 	bnez	t0, 4f
 	 nop
-	addiu	v0, v0, -1
-	bnez	v0, 3b
+	lw	t0, OTTO_TC5_CNT - 0xb8000000(t1)
+	subu	t0, t0, t7
+	and	t0, t0, t9
+	sltiu	t0, t0, OTTO_CPU_LOCK_US
+	bnez	t0, 3b
 	 nop
-	b	6f			/* no lock: stay on the alternate clock */
-	 nop
-4:	lw	t0, 0x44(t1)		/* SSR bit 2 = 1: CPU back on the PLL */
+	b	6f			/* no lock: stay on the alternate clock, v0 = 0 */
+	 move	v0, zero
+4:	lw	v0, OTTO_TC5_CNT - 0xb8000000(t1)
+	subu	v0, v0, t7
+	and	v0, v0, t9
+	addiu	v0, v0, 1		/* v0 = lock time in us + 1 */
+	lw	t0, 0x44(t1)		/* SSR bit 2 = 1: CPU back on the PLL */
 	ori	t0, t0, 4
 	sw	t0, 0x44(t1)
 	sync

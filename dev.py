@@ -222,7 +222,7 @@ def cmd_flash_speed(extra: list[str]) -> int:
     return _script("flash_speed_step.py", extra)
 
 
-@command("put our U-Boot into flash jffs2-log from the running flash OpenWrt (#47 A; no env change)",
+@command("put our U-Boot slot (uboot-mainline-chain.bin, CRC'd, #105) into flash jffs2-log from the running flash OpenWrt (#47 A; no env change)",
          args="[--overwrite]", kind="hardware")
 def cmd_uboot_chain_install(extra: list[str]) -> int:
     return _script("uboot_chain_install.py", extra)
@@ -237,8 +237,10 @@ def cmd_uboot_chain_install_ssh(extra: list[str]) -> int:
     return _script("uboot_chain_install.py", ["--ssh", extra[1]])
 
 
-@command("stock env for chainloading our U-Boot from flash (#47 A): test (no save) | apply | revert | set-mac (#91)",
-         args="test|apply|revert|boot | set-mac [MAC]  (default MAC: random locally administered)", kind="hardware")
+@command("stock env for chainloading our U-Boot from flash (#47 A, #105 CRC-checked slot): test | test-bad (no save) | "
+         "apply | revert | boot | prompt (ESC in our 2 s window) | set-mac (#91)",
+         args="test|test-bad|apply [--allow-fallback]|revert|boot|prompt | set-mac [MAC]  (default MAC: random locally administered)",
+         kind="hardware")
 def cmd_uboot_chain_env(extra: list[str]) -> int:
     return _script("uboot_chain_env.py", extra)
 
