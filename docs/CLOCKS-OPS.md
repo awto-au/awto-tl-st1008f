@@ -39,6 +39,33 @@ How to run and verify clock changes. Facts (registers, formulas, measured result
   - Add `--extra "mpcr A B C"` to combine with a PLL row. Pass = `canary 0 bad`; result per setting in `tmp/logs/mem_tap_sweep.log` + CSV. Stops on `probe FAIL` (not back cleanly) or a hang.
 - DDR above 650: `--from-flash` runs the U-Boot stored in flash; it must be a build with the 675-800 bins (older builds answer `no bin`). A canary failure reverts to the previous bin, MRS included; a hang = power cycle.
 
+## DDR above 650: lead order (#48, #49, #56)
+
+Leads and sources: [DRAM.md](DRAM.md#leads-for-675-800-ranked). Each lead = one configuration; for each, speed is bisected top-down.
+
+- Speed points: bins 800, 775, 750, 725, 700, 675, 662 (CPU 1000 so MEM < CPU). Order per configuration: 800 → 725 → (pass: 775/750; fail: 700) → neighbour. One quick test per point: `mem-clock 650 <MHz> --nosr --extra '<opts>'` → canary 0 bad, then `bench` completes (write hang check). Stop at the first passing point; n = 5 only on the chosen point.
+- Configuration order (cheapest first, each kept if it moves the edge up):
+  1. DLL reset + ZQCL on every change (needs a `ddr_sram.S` change).
+  2. SPL 650 PHY preset: `reg b80015b0 0fffffff`, `reg b80015b4 03000fff`, `reg b80015b8 ffffffff`, `reg b80015bc ffffffff`.
+  3. MEM PLL: `mpcr 0000007f c00001ef 26a33860`, then `mpcr 0000007f c00001ef 2ea23980`.
+  4. Read + write tap retrain in the SRAM routine (SDK `DDR_Calibration_Full_Scan_Reduce`; needs code). Until then `dqshift` by hand on the read side.
+  5. PI phases: `mpcr 000c807f 4000018f <row MPCR2>`; BIS 700 CK 10 / CLKM 8.
+  6. DTR2 low nibble `0xB` with CAS_PHY = CL (BIS EN_TCC_DIFF): test only.
+- The `reg` override accepts `b8001050..58` and `b8001500..15c4`; the write-tap registers DWDQOR0-3 (`15d0..15dc`) and DCPER `1064` need the range widened first.
+
+## SPI-NOR leads (#50)
+
+Leads and sources: [SPI-NOR.md](SPI-NOR.md#settings-to-try-highest-first).
+
+- Speed points (SFCR /2, NOR code): 153.1 (2), 122.5 (3), 102.1 (4), 87.5 (5), 76.6 (6). Order per configuration: 153.1 → 102.1 → (pass: 122.5; fail: 87.5) → neighbour.
+- Quick test per point: U-Boot first (no Linux): whole-chip `crc32` of the window and `sf read` of the same range (PIO 13h, or 0Ch with `m25p,fast-read`); then Linux `./dev.py spi-linux` md5 plus a small-read test (JFFS2 mount or random 16-64 B reads).
+- Configuration order:
+  1. Discriminator: `sf read` (13h) vs window CRC at 102.1 and 122.5. `sf read` fails + window passes = opcode cause.
+  2. `m25p,fast-read` in the DTs (0Ch).
+  3. SR3 DRV = 100 % (volatile).
+  4. SFRDR `b8001218` coarse 0, 4, 8, 16, 31 (io0-3 together), then fill around the edge.
+  5. Linux reads via dirmap quad I/O (ECh class).
+
 ## Recovery
 
 - Clock changes are RAM-only. Power cycle (`./dev.py power off` / `on`, or `./dev.py stock`) reruns the stock SPL: stock clocks, fresh DDR init.

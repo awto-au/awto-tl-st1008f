@@ -17,7 +17,8 @@
 ## Clocks and memory
 
 - [CLOCKS.md](CLOCKS.md) — clock tree, PLLs, overclock results. Ops: [CLOCKS-OPS.md](CLOCKS-OPS.md).
-- [DRAM.md](DRAM.md) — DRAM theory vs measured.
+- [DRAM.md](DRAM.md) — DRAM theory vs measured; per-speed init steps and leads above 650 MHz (#48).
+- [SPI-NOR.md](SPI-NOR.md) — SPI-NOR controller fields, flash limits, Linux read opcode (#50).
 - [OVERCLOCK.md](OVERCLOCK.md) — overclock method, ratio-dependent register rules, per-unit settings (#101, #103). Ops: [OVERCLOCK-OPS.md](OVERCLOCK-OPS.md).
 
 ## U-Boot

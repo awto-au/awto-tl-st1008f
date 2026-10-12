@@ -24,6 +24,10 @@ Every public Realtek switch SDK ("rtk-ms-sdk") drop found, its version and wheth
 | TRENDnet TEG-S750 (`github.com/danieltwagner/teg-s750`) | 2023 | ? | U-Boot `board/Realtek/switch/sdk`: sources are symlinks into a stripped tree | `gpl_oss_of_realtek_sdk3/` | — |
 | Zyxel XGS1210-12 v2, XGS1250, XGS1010; Netgear MS108EUP/MS308EUP, MS510TXM | 2020-2023 | not checked (7z/xz/zip; svanheule mirror blocks in-browser streaming) | unknown | https://www.svanheule.net/switches/gpl_source_drops | — |
 
+## Related Realtek preloaders (same DDR controller/PHY)
+
+- `github.com/jameywine/bismarck-preloader` @ `2f127fb4` (2025-12-27): RTL9603C-vd / Apollo Pro / Phoebus preloaders. DDR3 rows 600-800 MHz (MEM PLL, DTR, PHY presets), frequency-scaled tap choice, DQS group auto-K, write leveling on the RTL9300 register map. Used in [DRAM.md](DRAM.md#above-650-mhz-what-init-does-per-speed-and-clocks-set-mem-skips-48-49-56). Not on disk (clone to `tmp/`).
+
 ## Binary-only (firmware, no source)
 
 | Firmware | SDK string |
