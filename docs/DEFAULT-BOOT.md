@@ -42,6 +42,7 @@ Chain-load from stock (#47 option A, live since 2026-10-11, fd16464).
   - Code at offset 0: the pre-#105 env (`cp.b …; go`, no check) still boots a new slot; the new env falls back to `boota` on a pre-#105 raw image (its last word is erased flash). Install and env apply work in either order.
 - Our U-Boot: `./dev.py uboot-chain-install` → `jffs2-log` (mtd4, 0x200000-0x2fffff, unmounted by OpenWrt; overlay is `rootfs_data`); host checks the slot CRCs before sending; blank check before the first write; read-back md5 (console) or read-back + CRC re-check on the host (SSH).
 - `uboot-chain-env apply` checks the flash slot with the stock commands before `saveenv`; refuses on a mismatch unless `--allow-fallback`.
+- `uboot-chain-env apply|revert|turbo --ssh --ip A.B.C.D` (no console, e.g. sw1): checks `/etc/fw_env.config` = the single `u-boot-env` copy (`/dev/mtdN 0x0 0x10000`, #86) and that `fw_printenv` reads (ethaddr present); `apply` also pulls the jffs2-log slot and checks its CRCs on the host; one `fw_setenv -s` write; `fw_printenv` read-back of every var + `ethaddr` unchanged. board_guard is skipped for `--ssh` (SSH only, no console or relay).
 - Marker `0xa5a51008` @ `0xa0f80000` (cleared on read) = chained boot → autoboot; RAM-loaded (no marker) = prompt.
 - Our U-Boot accepts the Realtek uImage magic, so `bootm 0xb4300000` boots the flash OpenWrt directly.
 - Timing (2026-10-11, `uboot-chain-env boot`, real power cycle): ours up 2.4 s after power-on; `clocks fast` (CPU 1 GHz) 1.1 s later; flash OpenWrt console 23.2 s later; bridge STP on. Re-verified 2026-10-11T21:30+11:00.
@@ -125,7 +126,7 @@ Chained boot only (`ramload` boots never autoboot). First match wins:
 - Always on: the build fails without `AUTOBOOT_KEYED` / `BOOT_RETRY` (`#error` in `bootsel.c`); `bootsel` sets `bootdelay=2` and clears `bootstopkey` / `bootdelaykey` (env is RAM-only, `ENV_IS_NOWHERE`).
 - Ctrl-C is ignored while `bootcmd` runs (keyed autoboot without `AUTOBOOT_KEYED_CTRLC`).
 - Prompt after a failed autoboot: `bootcmd` sets `bootretry=300` first, so the prompt resets the board after 300 s without console input (`CONFIG_RESET_TO_RETRY`); each command restarts the 300 s. ESC never runs `bootcmd`, so a stopped prompt never times out. `BOOT_RETRY_TIME=-1` = off for `ramload` sessions.
-  - 300 s = time for someone at the console to start typing; not a hardware wait. Reset → attempt count → recovery after 2.
+  - Waits for: a person at the console to start typing. Expected ≤ 240 s, x1.25 = 300 s (owner accepted 2026-10-13). Expiry: `Timeout waiting for command`, reset → attempt count → recovery after 2.
 - Not covered: env flag `st1008f_boot=prompt` (owner-chosen prompt, no timeout).
 - Row 2 keeps today's behaviour until `recovery` is written: the new U-Boot can go into `jffs2-log` first.
 - Stock env flag: read-only from `u-boot-env` (0xe0000, 64 KiB, big-endian CRC32 over 0x10000 − 4 at offset 4, checked against the 2026-10-08 backup). Setting it is a flash write: `fw_setenv st1008f_boot fallback` (uboot-envtools, default package) or stock `setenv` + `saveenv`.
@@ -183,14 +184,17 @@ Owner decision 2026-10-12 (#73, #46); U-Boot side changed 2026-10-13 (#46): the 
   - Supported: cpu 1000 1050 1100 1150 1200 1300 (tested points, [OVERCLOCK.md](OVERCLOCK.md)); ddr = a `clocks set mem` bin; lx 175 204 245 306.
   - Missing, bad env CRC, unknown key, bad number, unsupported value → stock clocks, one `bootsel: M3: …: stock clocks` line, LED fallback latch `turbo`.
   - Apply = `clocks turbo <cpu> <ddr> <lx>`: DDR (nosr), CPU, tREFI 4608 clk if DDR ≥ 600 and changed, DRAM prefetch, LX last.
-  - Written only by a dev.py env flow (CLAUDE.md env rule); not scripted yet.
+  - Written by `./dev.py uboot-chain-env turbo set PROFILE [--ssh --ip A.B.C.D]` (host checks it with the same rules first); `apply` writes `cpu=1000,ddr=650` (= `clocks fast`) when the env has none, so installing changes no clock in M3.
+- Turbo needs the switch in M3 on each unit; M1/M2 run stock 800/600 whatever the profile.
+  - sw2: M1 (console log, every chained boot through 2026-10-13T10:23+11:00, `Mode:  M1 switch, pins 17/18/19 = 0/1/1`).
+  - sw1: not known (no console; flash OpenWrt 6.18 has no mode readout). Owner to check the slider before its next power-up.
 - Unfinished change (watchdog reset during it): record word `REC+3` still set → next boot stock clocks, the one after retries.
 - CPU PLL no lock: re-lock at the previous values; still off the PLL → `reset` with the record word set (next boot stock); a reset that returns → the armed watchdog fires.
 - `clocks fast` (prompt) = `clocks turbo 1000 650 0`, as before.
 
 ### Clock-change bounds (#105)
 
-- CPU PLL lock: `CPU_PLL_READY` poll bounded by SoC timer TC5 (1 MHz from LX, `0xb8003250`), not the CPU clock: 250 us (no datasheet lock time; 200 us assumed worst, x1.25). READY was set on the first poll in 415 logged changes. Expiry: CPU stays on the alternate clock, `clocks: CPU PLL not locked after 250 us`.
+- CPU PLL lock: `CPU_PLL_READY` poll bounded by SoC timer TC5 (1 MHz from LX, `0xb8003250`), not the CPU clock. Expected ≤ 200 us (no datasheet lock time; assumed worst), x1.25 = 250 us (owner accepted 2026-10-13). READY was set on the first poll in 415 logged changes. Expiry: CPU stays on the alternate clock, `clocks: CPU PLL not locked after 250 us`.
 - `clocks: locked after N us (routine M us)`: M comes from TC5 = proof the time base counts.
 - UART drain before a change: 17 chars x 10 bits at the console baud, x1.25 (1.8 ms at 115200), `timer_get_us`; expiry logged, the change goes ahead.
 - CPU on the alternate clock: `get_tbclk()`, `clocks`, `ft_board_setup` use a measured rate (2 x CP0 Count over 1000 us of TC5, once per episode). TC5 not counting (1000 us not reached within 750000 Counts = 1.25 ms at 1.2 GHz) → logged, PLL-decoded rate kept.

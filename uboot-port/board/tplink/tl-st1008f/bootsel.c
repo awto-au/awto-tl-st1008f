@@ -53,9 +53,9 @@
 /* `bootsel fast` arms the wdt, then `clocks fast` (#101): a hang in the clock change resets the SoC
  * and the next boot skips the overclock. Legacy (upstream kernel, no keep-running wdt patch) disarms
  * before bootm; primary/fallback keep it through bootm -> kernel wdt, re-armed for the fallback bootm. */
-/* Prompt after a failed autoboot: reset after BOOT_IDLE_S without console input (RESET_TO_RETRY).
- * Set by bootcmd itself, so a stop-string prompt never times out. 300 s = time for someone at the
- * console to start typing; not a hardware wait. Expiry = reset -> attempt count -> fallback (#105). */
+/* Failed-autoboot prompt: waits for a person to start typing, expected <= 240 s (owner OK 2026-10-13),
+ * x1.25 = 300 s; expiry = reset (RESET_TO_RETRY) -> attempt count -> fallback (#105). Set by bootcmd
+ * itself, so an ESC prompt never times out. */
 #define BOOT_IDLE	"setenv bootretry 300; "
 #define BOOT_PRIMARY	BOOT_IDLE "rtk led boot-end; bootsel fast; " ARGS("primary") "bootm 0xb4300000; " \
 			"bootsel wdt on; rtk led fallback bootm-primary; " ARGS("fallback") "bootm 0xb5900000; " \

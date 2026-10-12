@@ -51,9 +51,16 @@ sw2 first, all of it; sw1 only after sw2 passes. Rows 1-3 write nothing.
 | 8 | At our prompt (row 7): `clocks set cpu 0x3a8 0x6b439e13 0 force` | `locked after N us (routine M us)`, M > 0 = TC5 counts |
 | 9 | At our prompt: `clocks turbo 1000 650 0`, then `clocks` | `clocks: turbo = cpu 1000 MHz, mem 650 MHz, lx 175 MHz …` |
 | 10 | Idle reset: at our prompt `setenv bootretry 30` (manual run of the failed-autoboot path), wait | `Timeout waiting for command`, board resets, chain boots again (30 s here only to keep the test short) |
-| 11 | sw1 (SSH only, switch in service): `./dev.py uboot-chain-install-ssh --ip 192.168.25.48` | read-back CRC PASS on the host. sw1's env stays pre-#105 (no console): still boots the slot (code at 0), without the check, until its env is applied on a console |
+| 11 | sw2: `./dev.py uboot-chain-env turbo show`; `apply --ssh --ip 192.168.25.56` and `turbo set cpu=1000,ddr=650 --ssh --ip 192.168.25.56` from its flash OpenWrt | PASS read-back lines; console `turbo show` matches |
+| 12 | sw2 in M3, power-cycle (`./dev.py uboot-chain-env boot`) | `bootsel: M3: turbo cpu 1000 ddr 650 lx 0`, `clocks: turbo = cpu 1000 MHz, mem 650 MHz …` |
 
-- M1/M2 now boot at stock clocks: sw1 in M1 drops from 1000/650 to 800/600 at its next power-up unless its switch is in M3 with a `st1008f_turbo` profile (no dev.py flow writes the profile yet).
+sw1 (SSH only, in service), all before its next power-up, after sw2 passes:
+
+1. `./dev.py uboot-chain-install-ssh --ip 192.168.25.48` → read-back CRC PASS.
+2. `./dev.py uboot-chain-env apply --ssh --ip 192.168.25.48` → slot OK, chain vars + `st1008f_turbo=cpu=1000,ddr=650` read back.
+3. Owner: slider to M3 (M1/M2 = stock 800/600 from now on). Position today: unknown.
+
+- The new slot follows the mode switch and the env profile: after step 1 alone sw1 boots at 800/600. Do 1-3 together, before any power-up.
 - Revert: `./dev.py uboot-chain-env revert` (stock `boota`); old U-Boot: `uboot-chain-install --overwrite` with a previous slot build.
 
 ## Mode tests (step 10)

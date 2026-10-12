@@ -238,8 +238,10 @@ def cmd_uboot_chain_install_ssh(extra: list[str]) -> int:
 
 
 @command("stock env for chainloading our U-Boot from flash (#47 A, #105 CRC-checked slot): test | test-bad (no save) | "
-         "apply | revert | boot | prompt (ESC in our 2 s window) | set-mac (#91)",
-         args="test|test-bad|apply [--allow-fallback]|revert|boot|prompt | set-mac [MAC]  (default MAC: random locally administered)",
+         "apply | revert | boot | prompt (ESC in our 2 s window) | set-mac (#91) | turbo profile (#46); "
+         "apply/revert/turbo also over SSH from a running OpenWrt (any unit, sw1 included)",
+         args="test|test-bad|apply [--allow-fallback]|revert|boot|prompt | set-mac [MAC] | turbo show|set PROFILE  "
+              "[--ssh --ip A.B.C.D: apply|revert|turbo]",
          kind="hardware")
 def cmd_uboot_chain_env(extra: list[str]) -> int:
     return _script("uboot_chain_env.py", extra)
@@ -577,7 +579,8 @@ def main(argv: list[str] | None = None) -> int:
     if any(a in ("-h", "--help") for a in extra):  # never run a command when asked for help
         print(f"./dev.py {name}{' ' + meta['args'] if meta['args'] else ''}\n\n{meta['summary']}")
         return 0
-    if meta["kind"] in ("hardware", "check") and name not in HOST_ONLY | NET_MANAGE:
+    ssh_only = name in NET_MANAGE_SSH and "--ssh" in extra  # no console/relay contact: any unit (#105)
+    if meta["kind"] in ("hardware", "check") and name not in HOST_ONLY | NET_MANAGE and not ssh_only:
         rc = subprocess.call([sys.executable, str(SCRIPTS / "board_guard.py"), name, *extra], cwd=REPO)
         if rc:
             log(f"{name}: refused by scripts/board_guard.py (not sw2; #91)", "ERROR")
@@ -593,6 +596,8 @@ HOST_ONLY = {"storm-watch", "check-log", "flash-guard", "doc-check", "console-wa
 # Owner-approved management of a running switch over SSH (any unit, sw1 included): no power, console or flash.
 NET_MANAGE = {"openwrt-snmp", "openwrt-luci", "switch-net-clean", "switch-snmp", "switch-vlan",
               "uboot-chain-install-ssh"}  # last: jffs2-log write only (flash_guard), owner OK 2026-10-13
+# NET_MANAGE only with --ssh: u-boot-env write via fw_setenv (flash_guard), coordinator/owner OK 2026-10-13 (#105)
+NET_MANAGE_SSH = {"uboot-chain-env"}
 
 
 def _storm_guard() -> None:

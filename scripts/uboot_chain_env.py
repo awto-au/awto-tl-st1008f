@@ -10,6 +10,11 @@
           then saveenv; printenv check.
 - revert: stock prompt: setenv bootcmd boota; clear the chain vars; saveenv.
 - prompt: power cycle with the saved chain, ESC in our 2 s window -> our prompt (#46).
+- turbo show|set PROFILE: `st1008f_turbo` in the stock env (#46; applied by our U-Boot in M3 only).
+  apply also writes the default TURBO_DEFAULT when the env has no profile (= `clocks fast`).
+- --ssh --ip A.B.C.D (apply, revert, turbo): from a running OpenWrt (sw1: no console) with
+  `fw_setenv -s` (uboot-envtools, /etc/fw_env.config = u-boot-env mtd 0x0 0x10000, #86): one env
+  write, then `fw_printenv` read-back. apply --ssh pulls the jffs2-log slot and CRC-checks it first.
 - set-mac [MAC]: stock prompt: setenv ethaddr; saveenv; verify (#91). Default: random locally
   administered unicast; refuses the Realtek placeholder and sw1's MAC.
 - boot:   power cycle with the daemon policy `run bootcmd` (= the saved autoboot) and follow it to
@@ -33,7 +38,7 @@ sys.path.insert(0, str(Path(__file__).resolve().parent))
 import flash_guard  # noqa: E402
 from boards import SW1_MAC  # noqa: E402
 from st1008_ramload import OW_READY, ROOT, SOCK, Console, openwrt_stp, power, restart_daemon  # noqa: E402
-from uboot_chain_image import LOAD, SLOT, stock_check_cmd  # noqa: E402
+from uboot_chain_image import LOAD, SLOT, check as slot_ok, stock_check_cmd  # noqa: E402
 
 LOG = ROOT / "tmp/logs/uboot_chain_env.log"
 VARS = {  # saved in this order; bootcmd last
@@ -43,6 +48,12 @@ VARS = {  # saved in this order; bootcmd last
     "ub_go": f"mw.l 0xa0f80000 0xa5a51008; go 0x{LOAD:08x}",
     "bootcmd": "run ub_ld ub_ck ub_go; run bootcmd_stock",
 }
+# Turbo profile (#46). Value sets mirror uboot-port clocks.c cpu_pts / mem_bins / lx_pts + stock
+TURBO_VAR = "st1008f_turbo"
+TURBO_DEFAULT = "cpu=1000,ddr=650"  # = `clocks fast` (owner 2026-10-13): installing changes no clock
+TURBO_SETS = {"cpu": {800, 1000, 1050, 1100, 1150, 1200, 1300},
+              "ddr": {800, 775, 750, 725, 700, 675, 662, 650, 625, 600, 550, 500, 450, 400, 350, 300},
+              "lx": {175, 204, 245, 306}, "sram": {250}, "spi": {25}}
 CHECK_OK = r"Total of 1 word"   # stock cmp.l: equal
 CHECK_BAD = r"word at 0x"        # stock cmp.l: differ
 STOCK = r"\r?\nRTL9300# "
@@ -157,13 +168,105 @@ def set_mac(con, mac: str) -> int:
     return 0 if ok else 1
 
 
+def turbo_problem(p: str) -> str | None:
+    """Host copy of bootsel.c turbo_parse + otto_turbo_check: None = our U-Boot applies it."""
+    if len(p) > 62 or not p:
+        return "empty or longer than 62 chars"
+    for item in p.split(","):
+        k, eq, v = item.partition("=")
+        if not eq or not v.isdigit() or len(v) > 4:
+            return f"{item!r}: not key=<decimal MHz>"
+        if int(v) not in TURBO_SETS.get(k, set()):
+            return f"{item!r}: unknown key or unsupported value ({k}: {sorted(TURBO_SETS.get(k, []))})"
+    return None
+
+
+SSH_S = 5  # dropbear connect ~1 s on the LAN; x5
+ENV_WRITE_S = SSH_S + 3  # fw_setenv: one 64 KiB erase (W25Q256 max 2 s) + write; x1.25 + connect
+
+
+def ssh(ip: str, cmd: str, cap: float, stdin: bytes | None = None) -> bytes:
+    r = subprocess.run(["ssh", "-o", f"ConnectTimeout={SSH_S}", "-o", "BatchMode=yes", f"root@{ip}", cmd],
+                       input=stdin, capture_output=True, timeout=cap)
+    if r.returncode:
+        raise SystemExit(f"FAIL ssh {ip}: rc {r.returncode} {r.stderr.decode(errors='replace').strip()} ({cmd[:60]})")
+    return r.stdout
+
+
+def ssh_env(ip: str) -> dict[str, str]:
+    out = ssh(ip, "fw_printenv", SSH_S * 2).decode(errors="replace")
+    return dict(ln.split("=", 1) for ln in out.splitlines() if "=" in ln)
+
+
+def env_ssh(ip: str, mode: str, profile: str | None, allow_fallback: bool) -> int:
+    """apply | revert | turbo over SSH: checks, one fw_setenv -s write, read-back."""
+    flash_guard.check_range(0xE0000, 0x10000, f"uboot-chain-env {mode} --ssh")
+    mtd = ssh(ip, "cat /proc/mtd", SSH_S * 2).decode()
+    n = re.search(r'mtd(\d+): 00010000 00010000 "u-boot-env"', mtd)
+    cfg = ssh(ip, "cat /etc/fw_env.config", SSH_S * 2).decode()
+    lines = [ln.split() for ln in cfg.splitlines() if ln.strip() and not ln.lstrip().startswith("#")]
+    if not n or len(lines) != 1 or lines[0][:3] != [f"/dev/mtd{n.group(1)}", "0x0", "0x10000"]:
+        log(f"FAIL {mode} --ssh: fw_env.config {lines} is not the single u-boot-env copy (mtd {n and n.group(1)})")
+        return 1
+    env = ssh_env(ip)
+    if "ethaddr" not in env:
+        log(f"FAIL {mode} --ssh: fw_printenv shows no ethaddr (env CRC bad?); nothing written")
+        return 1
+    if mode == "apply":
+        part = re.search(r'mtd(\d+): 00100000 00010000 "jffs2-log"', mtd)
+        slot = ssh(ip, f"head -c {SLOT} /dev/mtdblock{part.group(1)}", SSH_S * 2) if part else b""
+        ok, detail = slot_ok(slot)
+        log(f"jffs2-log slot on {ip}: {'OK' if ok else 'BAD'}, {detail}")
+        if not ok and not allow_fallback:
+            log("FAIL apply --ssh: slot does not verify; nothing written (uboot-chain-install-ssh first)")
+            return 1
+        want = dict(VARS)
+        if TURBO_VAR not in env:
+            want[TURBO_VAR] = TURBO_DEFAULT
+    elif mode == "revert":
+        want = {"bootcmd": "boota", "ub_ld": "", "ub_ck": "", "ub_go": ""}
+    else:
+        want = {TURBO_VAR: profile}
+    for v in want.values():
+        flash_guard.check_cmd(v)
+    script = "".join(f"{k} {v}\n" if v else f"{k}\n" for k, v in want.items()).encode()
+    ssh(ip, "cat > /tmp/st1008f-env.txt", SSH_S * 2, stdin=script)
+    flash_guard.check_cmd("fw_setenv -s /tmp/st1008f-env.txt")
+    ssh(ip, "fw_setenv -s /tmp/st1008f-env.txt && rm /tmp/st1008f-env.txt", ENV_WRITE_S)
+    got = ssh_env(ip)
+    bad = [k for k, v in want.items() if got.get(k, "") != v] + [k for k in ("ethaddr",) if got.get(k) != env.get(k)]
+    log(f"{'PASS' if not bad else 'FAIL'} {mode} --ssh {ip}: "
+        f"{', '.join(f'{k}={v!r}' for k, v in want.items()) if not bad else 'differ: ' + ', '.join(bad)}")
+    return 0 if not bad else 1
+
+
 def main() -> int:
     ap = argparse.ArgumentParser(description=__doc__.splitlines()[0])
-    ap.add_argument("mode", choices=["test", "test-bad", "apply", "revert", "boot", "prompt", "set-mac"])
+    ap.add_argument("mode", choices=["test", "test-bad", "apply", "revert", "boot", "prompt", "set-mac", "turbo"])
+    ap.add_argument("args", nargs="*", help="set-mac: [MAC] (default random, locally administered); "
+                    "turbo: show | set PROFILE")
     ap.add_argument("--allow-fallback", action="store_true",
                     help="apply: save even if the slot does not verify (boots stock boota until reinstalled)")
-    ap.add_argument("mac", nargs="?", help="set-mac: aa:bb:cc:dd:ee:ff (default: random, locally administered)")
+    ap.add_argument("--ssh", action="store_true", help="apply/revert/turbo from a running OpenWrt (fw_setenv)")
+    ap.add_argument("--ip", help="with --ssh: switch mgmt IP")
     a = ap.parse_args()
+    a.mac = a.args[0] if a.mode == "set-mac" and a.args else None
+    profile = None
+    if a.mode == "turbo":
+        if a.args[:1] == ["set"] and len(a.args) == 2:
+            profile = a.args[1]
+            if why := turbo_problem(profile):
+                log(f"FAIL turbo set: {why}")
+                return 1
+        elif a.args != ["show"]:
+            ap.error("turbo show | turbo set PROFILE")
+    if a.ssh:
+        if not a.ip or a.mode not in ("apply", "revert", "turbo"):
+            ap.error("--ssh --ip A.B.C.D: apply | revert | turbo only")
+        if a.mode == "turbo" and profile is None:
+            log(f"{TURBO_VAR} on {a.ip}: {ssh_env(a.ip).get(TURBO_VAR, '(unset)')}")
+            return 0
+        return env_ssh(a.ip, a.mode, profile, a.allow_fallback)
     if a.mode == "boot":
         return boot()
     if a.mode == "prompt":
@@ -174,12 +277,23 @@ def main() -> int:
         log(f"set-mac: {mac}")
         to_stock()
         return set_mac(Console(), mac)
-    if a.mode in ("apply", "revert"):  # stock saveenv: env 0xE0000 + env2 0xF0000 (#81)
+    if a.mode in ("apply", "revert", "turbo"):  # stock saveenv: env 0xE0000 + env2 0xF0000 (#81)
         flash_guard.check_range(0xE0000, 0x20000, f"uboot-chain-env {a.mode}")
     for v in VARS.values():
         flash_guard.check_cmd(v)
     to_stock()
     con = Console()
+    if a.mode == "turbo":
+        _, out = con.run(f"printenv {TURBO_VAR}", STOCK, 1, "turbo profile")
+        log(f"{TURBO_VAR}: {out.strip()!r}")
+        if profile is None:
+            return 0
+        con.run(f"setenv {TURBO_VAR} {profile}", STOCK, 1, "set turbo profile")
+        con.run("saveenv", STOCK, 4, "saveenv")  # 64 KiB erase + write (W25Q256 max 2 s) x1.25 + output
+        _, out = con.run(f"printenv {TURBO_VAR}", STOCK, 1, "verify")
+        ok = f"{TURBO_VAR}={profile}" in out
+        log(f"{'PASS' if ok else 'FAIL'} turbo set {profile}")
+        return 0 if ok else 1
     if a.mode in ("test", "test-bad"):
         set_vars(con)
         mark = con.size()
@@ -211,6 +325,9 @@ def main() -> int:
             log("FAIL apply: jffs2-log slot does not verify; nothing saved. Install first "
                 "(./dev.py uboot-chain-install) or --allow-fallback (boots stock boota until then)")
             return 1
+        _, out = con.run(f"printenv {TURBO_VAR}", STOCK, 1, "turbo profile present?")
+        if f"{TURBO_VAR}=" not in out:
+            con.run(f"setenv {TURBO_VAR} {TURBO_DEFAULT}", STOCK, 1, "default turbo profile")
     else:
         con.run("setenv bootcmd boota", STOCK, 1, "stock bootcmd")
         for k in ("ub_ld", "ub_ck", "ub_go"):
