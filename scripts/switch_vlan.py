@@ -52,7 +52,7 @@ def sections(ip: str, vid: int) -> list[str]:
 
 
 def stats(ip: str, port: str) -> None:
-    log(ssh(ip, f"ethtool -S {port} | grep -v ': 0$'").rstrip())
+    log(ssh(ip, f"grep ' {port}:' /proc/net/dev; ethtool -S {port} | grep -v ': 0$'").rstrip())
 
 
 def show(ip: str) -> None:
