@@ -10,8 +10,8 @@
 #include <linux/errno.h>
 #include "rtk.h"
 
-#define SDS_CMD		0x03b0
-#define SDS_DATA	0x03b4
+#define SDS_CMD		RTL9300_SDS_INDACS_CMD
+#define SDS_DATA	RTL9300_SDS_INDACS_DATA
 #define CMD_BUSY	BIT(0)
 #define CMD_WRITE	BIT(1)
 #define NSDS		12

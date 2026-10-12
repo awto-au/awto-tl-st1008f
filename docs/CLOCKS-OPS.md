@@ -4,7 +4,7 @@ How to run and verify clock changes. Facts (registers, formulas, measured result
 
 ## Defaults
 
-- `clocks fast` (our U-Boot) = CPU 1000 MHz (`e208 0x3a8`, /3) + DDR 650 (`nosr`) + tREFI 4608 clk (7.09 µs) + DRAM controller prefetch (MCR bits 23/22, #52); SPI unchanged. Runs on every power-up (chain, #47) and in `./dev.py ramload uboot-mainline`.
+- `clocks fast` (our U-Boot) = CPU 1000 MHz (`PLL_CPU_CTRL0` e208 `0x3a8`, /3) + DDR 650 (`nosr`) + tREFI 4608 clk (7.09 µs) + DRAM controller prefetch (MCR bits 23/22, #52); SPI unchanged. Runs on every power-up (chain, #47) and in `./dev.py ramload uboot-mainline`.
 - `ramload` also sets SPI 122.5 MHz (SFCR /2, NOR code 3) in U-Boot-only sessions; never before Linux: 102.1 MHz broke JFFS2 reads (#50). Ladder: `./dev.py spi-linux [D:CODE ...]` (first = baseline). `--stock-clocks` keeps 800 MHz / 25.5 MHz.
 - LX stays 175 MHz (204 MHz works in U-Boot, no measured gain; garbles the Linux console because the kernel DTB/UART rate stays 175). DDR stays 650 MHz (675+ unstable, #48).
 - Stock U-Boot alone (`./dev.py stock`, `--stock-clocks`) runs stock clocks; every unattended power-up runs `clocks fast` through the chain (#47).
@@ -12,7 +12,7 @@ How to run and verify clock changes. Facts (registers, formulas, measured result
 ## Read
 
 - `clocks` at the mainline prompt: every rate and DDR timing decoded from the registers.
-- Host: `scripts/clock_calc.py decode <md.l dump>`; `scripts/clock_calc.py cpu <MHz>` gives e208/e210.
+- Host: `scripts/clock_calc.py decode <md.l dump>`; `scripts/clock_calc.py cpu <MHz>` gives e208/e210 (`PLL_CPU_CTRL0` / `PLL_CPU_MISC_CTRL`).
 
 ## Change and verify
 

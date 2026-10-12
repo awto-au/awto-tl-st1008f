@@ -23,7 +23,7 @@ Runs on the board: first boot 2026-10-10 (18 s from power-off to prompt via `ram
 | Relocation | U-Boot relocates itself to top of RAM (`0x8ff.....`) | stock is dead after `go`, its `0x83f00000` region is free |
 | Low-level init | `CONFIG_SKIP_LOWLEVEL_INIT`: no cache reset/disable, no DDR, no PLL | stock already did it; resetting caches could discard dirty TFTP data |
 | RAM | 256 MiB fixed (`dram_init`), no probing | second 256 MiB is not linearly mapped (needs OpenWrt highmem remap) |
-| Console | ns16550 DM, `0xb8002000`, `reg-io-width=1`, `reg-shift=2`, `clocks = <&ccu 2>` (LX from the PLL registers), 115200 | matches Linux `ns16550a` node; rate never hard-coded ([CLOCKS.md](CLOCKS.md)) |
+| Console | ns16550 DM, `0xb8002000` (`UART_PBR_THR_DLL`), `reg-io-width=1`, `reg-shift=2`, `clocks = <&ccu 2>` (LX from the PLL registers), 115200 | matches Linux `ns16550a` node; rate never hard-coded ([CLOCKS.md](CLOCKS.md)) |
 | UART byte lane | `reg-offset = <0xfffffffd>` | data is in bits 31:24 = byte 0; U-Boot's BE ns16550 accesses byte `(1<<shift)-1` = 3; -3 cancels it. `CONFIG_NS16550_DYNAMIC` would be cleaner but does not compile on mips (`inb(u8 *)`) |
 | Timer | CP0 Count, board `get_tbclk()` = CPU PLL / 2, read each call | follows a runtime CPU change; `uboot-test timer` checks it against the host clock |
 | Env | `CONFIG_ENV_IS_NOWHERE`, `BOOTDELAY=-1` (stay at prompt) | no flash |
@@ -48,13 +48,13 @@ Runs on the board: first boot 2026-10-10 (18 s from power-off to prompt via `ram
 |---|---|
 | timer | `sleep 5` = 5.013 s host (+0.3 %) → CP0 400 MHz (CPU/2) correct |
 | bdinfo | 256 MiB at `0x80000000` |
-| clocks | PLL decode: `cpu ... src pll` (SSR.ckse_ocp0 = PLL), `mem 600/650 MHz` |
+| clocks | PLL decode: `cpu ... src pll` (`SYS_STATUS` (alias SSR) `cf_ckse_ocp0` = PLL), `mem 600/650 MHz` |
 | fdt_clocks | `fdt boardsetup` on a control-DTB copy: `/cpus frequency`, `/cpu-clock`, `/lx_clk` = live rates (#41) |
 | div64 | `bench div64`: u64 `/` `%` through our `__udivdi3`/`__umoddi3` (#33) |
 | i2c_scan | `i2c probe` scan on cage 1 lists 50 51; 0x50 still answers after a NACK; CTRL1 logged (#33) |
 | sfp_phy | copper modules: `rtk sfp N phy` reads 88E1111 ID `0x0141`/`0x0cc?` (#33); none fitted = SKIP |
 | cr_idle | explicit only (~100 s): bare CR after 1-30 s idle gets a prompt (#31) |
-| gpio | all 24 lines from the driver == raw DATA `0xb800330c` |
+| gpio | all 24 lines from the driver == raw `PABCD_DAT` `0xb800330c` |
 | buttons | mode switch M1/M2/M3 via gpio-keys |
 | sfp_a0 | first 96 A0 bytes via our I2C master == stock-loader dumps (cages 1, 2, 8) |
 | ddm | live DDM: Vcc within 3.3 V ±5 %, temp 10-70 °C |
@@ -112,7 +112,7 @@ Err:   serial
 st1008f-mainline # 
 ```
 
-- Silence after `go`: suspect cache coherency (stale I-cache vs dirty D-cache), then the UART byte lane. Use `md.l 0xb8002014 1` (LSR, byte 0 = top byte of the word) from stock to compare.
+- Silence after `go`: suspect cache coherency (stale I-cache vs dirty D-cache), then the UART byte lane. Use `md.l 0xb8002014 1` (`UART_LSR`, byte 0 = top byte of the word) from stock to compare.
 - Garbled text: divisor. U-Boot computes 175e6/(16*115200) = 95 (Linux gets the same).
 - Banner timing is the first thing to compare after load: `sleep 10` then wall clock checks the CP0 rate assumption.
 
@@ -152,7 +152,7 @@ Implementation: [RTK-COMMANDS.md](RTK-COMMANDS.md#stage-4-network-on-10g-macsds-
 - Default media from the Linux SFP logic: GLC-T → SGMII (`0x02`); GLC-SX-MM, PTB3370553 → 1000BASE-X (`0x04`); SFP-10GSR-85 → 10GBASE-R (`0x1a`).
 - Not run at autoboot (opt-in `rtk_boot_net`); the power-up chain with this build PASS (stock → ours → flash OpenWrt, STP on).
 - Register diff, stock after `rtk network on` vs ours from flash without it (`./dev.py reg-diff`, 2026-10-11T21:34+11:00):
-  - pinmux `0xbb0003a0`: stock `0035e000`, ours `00340000` (stock also sets `0x1e000`; bit 13 muxes GPIO3-5 to SPI = false presence on cages 4-6, cleared by ours, [hardware.md](hardware.md)).
+  - pinmux `SPI_CTRL1` `0xbb0003a0`: stock `0035e000`, ours `00340000` (stock also sets `0x1e000`; bit 13 muxes GPIO3-5 to SPI = false presence on cages 4-6, cleared by ours, [hardware.md](hardware.md)).
   - I2C GLB `0x384`: stock `00a3ffff`, ours 0 until first use; MST1 CTRL1 stock `0x78`.
   - GPIO DIR `0x3308`: stock also drives GPIO22 as output (`00600000` vs `00200000`); DATA pins 8-16 read 0 under stock (muxed to I2C), 1 under ours.
   - LED `0xcc00`/`0xcc0c` differed until the stock LED profile was ported (#9: 0 LED diffs since 24430e8).
@@ -162,8 +162,8 @@ Implementation: [RTK-COMMANDS.md](RTK-COMMANDS.md#stage-4-network-on-10g-macsds-
 ## RAM above 256 MiB (`highmem`, #32)
 
 - DRAM 512 MiB: DCR `0xb8001004` = `0x21421003` → bank+row+col bits = 29 (OpenWrt 300-02 `realtek_get_system_memory`).
-- Bus zones (OpenWrt 300-02, GPL-2.0): zone 1 = bus 0x0-0x0fffffff → DRAM 0x0 (KSEG0/1, U-Boot's 256 MiB); zone 3 = bus 0x20000000-0x9fffffff, off at reset (`O0DOR2 0`, `O0DMAR2 0x1ffff`).
-- `highmem map`: clear UMSAR0-3/SRAMSAR0-3 (stock: SRAM at bus 0x1f000000, `0x1f000001`), `O0DOR2 = 0x70000000`, `O0DMAR2 = 0x7fffffff` → bus 0x20000000 = DRAM 0x10000000. Then one wired TLB pair (256 MiB pages): VA `0xc0000000` → bus 0x20000000, uncached. Other 31 entries parked on unique KSEG0 VPNs first.
+- Bus zones (OpenWrt 300-02, GPL-2.0): zone 1 = bus 0x0-0x0fffffff → DRAM 0x0 (KSEG0/1, U-Boot's 256 MiB); zone 3 = bus 0x20000000-0x9fffffff, off at reset (`DOR2 0`, `DMAR2 0x1ffff`; OpenWrt: O0DOR2/O0DMAR2).
+- `highmem map`: clear `UMSAR0-3` / `CPU_SRAM_SEG0-3_ADDR` (stock: SRAM at bus 0x1f000000, `0x1f000001`), `DOR2 = 0x70000000`, `DMAR2 = 0x7fffffff` → bus 0x20000000 = DRAM 0x10000000. Then one wired TLB pair (256 MiB pages): VA `0xc0000000` → bus 0x20000000, uncached. Other 31 entries parked on unique KSEG0 VPNs first.
 - `highmem test [bytes]`: alias check (16 MiB stride markers must not appear in the low bank) + address^pattern, 2 passes. Full bank 2026-10-10: 0 errors, 14.3 s (uncached, ~70 MB/s of traffic).
 - Not yet: Linux handover. MIPS bootm passes one memory bank (`ram_base`/`ram_size`); the second bank needs `ft_board_setup` + `NR_DRAM_BANKS=2`, and a kernel with the zone-3 remap (OpenWrt has it; mainline 7.3 needs 300-02).
 
@@ -249,14 +249,14 @@ Implementation: [RTK-COMMANDS.md](RTK-COMMANDS.md#stage-4-network-on-10g-macsds-
 | SPI-NOR | rtl838x SPI controller | OpenWrt `realtek` patches / `drivers/spi/spi-realtek-rtl.c` |
 | I2C + SFP DDM | `i2c-rtl9300` (SCL/SDA mux, 8 channels) | OpenWrt `realtek` files, Linux mainline |
 | Ethernet / L2 / SerDes | RTL930x switch core, CPU port DMA, SerDes tables | olliver's `realtek_sdk` (GitLab, branch `tplink_maple`), D-Link DMS-1250 GPL tree, OpenWrt `rtl838x` ethernet + `rtl930x` PCS |
-| DDR / PLL | RE'd preloader sequence | issue #23 (regs `0xb8001000..`, `0xb8000234..`, `0xbb00e200..`) |
+| DDR / PLL | RE'd preloader sequence | issue #23 (regs `MCR` `0xb8001000..`, `SYS_MEM_PLL_CTRL0` `0xb8000234..`, `PLL_GLB_CTRL0` `0xbb00e200..`) |
 
 Stage 0 uses none of them.
 
 ## Next stages
 
 1. ~~GPIO~~ done. ~~I2C + lasers + SFP DDM~~ done.
-2. `reset` via switch-core `0xbb00000c` = 1 (Linux `syscon-reboot`); 512 MiB (#32).
+2. `reset` via switch-core `RST_GLB_CTRL_0` `0xbb00000c` = 1 (Linux `syscon-reboot`); 512 MiB (#32).
 3. ~~SPI-NOR read-only~~ built (below); `saveenv` stays out.
 4. ~~RTL930x CPU-port Ethernet + SerDes 10GBASE-R; DM_ETH; `rtk network on`~~ built (#80 phase 1); web failsafe = #80 phase 2.
 5. lwIP + iperf (lwiperf) for wire-speed tests.
@@ -287,7 +287,7 @@ Owner 2026-10-12: U-Boot drivers reuse Linux/OpenWrt code where possible (one OS
   - I2C `i2c-rtl9300.c` (233 lines) ↔ Linux (670): Linux uses regmap `reg_field` tables per SoC, so a core needs a field-accessor shim. Ours is hardware-verified: follow-up.
   - CP0 timer rate (`mach-otto`) ↔ `300-05`: same PLL formula. Small.
   - Thermal (`rtk temp`) ↔ OpenWrt `realtek-thermal.c`: enable + 2 field reads. Low value.
-- **Reuse as-is:** SPI-NOR, i2c-gpio, TCA9534A, ns16550 (mainline U-Boot, unchanged); SFP decode `sfp/` (verbatim ethtool `sfpid.c`/`sfpdiag.c`); cage presence pinmux (`rtk_presence_pins_gpio`) → candidate: U-Boot `pinctrl-single` with the Linux DT node @ `0x1b0003a0` (needs a size and on-board check).
+- **Reuse as-is:** SPI-NOR, i2c-gpio, TCA9534A, ns16550 (mainline U-Boot, unchanged); SFP decode `sfp/` (verbatim ethtool `sfpid.c`/`sfpdiag.c`); cage presence pinmux (`rtk_presence_pins_gpio`) → candidate: U-Boot `pinctrl-single` with the Linux DT node @ `0x1b0003a0` (`SPI_CTRL1`) (needs a size and on-board check).
 - **Keep ours:**
   - GPIO `gpio-realtek-otto.c` (97 lines) vs Linux (470): 3 data registers; Linux file is gpio-regmap + irqchip glue. Upstream ours to U-Boot later.
   - SPI controller `spi-realtek-rtl.c` (326) vs Linux (394): the read-only/#81 guard is U-Boot-only and must not move.

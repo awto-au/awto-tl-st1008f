@@ -157,7 +157,7 @@ Upstream-hostile items to carry out-of-tree: #7 (`700`, `722`), #8 until merged,
 2. **SFCSR state from `init_hw()` (v7.3).** It does `value &= RTL_SPI_SFCSR_CS`: clears every bit but 24, so CSB0 and CSB1 are both driven low (asserted) after probe; `rt_set_cs` only ever raises CSB0, so CS1 stays asserted. Upstream v7.4 (OpenWrt `040-v7.4-...-second-CS`) rewrites it to `SFCSR = CSB0|CSB1` (in linux-next `next-20261009`: self-check passes, dirmap active, 2026-10-12 sw2). Mitigated on 7.3: retry with the bootloader SFCSR; the diag prints SFCSR now and at probe.
 3. **PIO side of the compare.** Same sequence as upstream `rcv4` (md5-verified), but never run standalone before. The diag prints its first 16 B; `spi-dirmap-test` prints `mtd0[0:16]` via `transfer_one` for comparison.
 4. **Flash address mode.** Unlikely: v7.3 `spi_nor_init` sends EN4B only without 4B opcodes; W25Q256JV gets `SNOR_F_4B_OPCODES` (`w25q256_post_bfpt_fixups`), FV gets EN4B. Either way the flash stays in the 4-byte mode stock set ([UBOOT-MAINLINE.md](UBOOT-MAINLINE.md)). A mismatch would show as a byte shift (diag pattern).
-5. **Linux-only bus setup.** DRAM prefetch (300-04, MCR) and highmem zone remap (`rtl930x_prepare_highmem`, UMSAR/SRAMSAR zeroed, zone 3 at `0x20000000`). The window `0x14000000-0x15ffffff` is outside zones 1-3. If 1-3 are excluded, boot `./dev.py build-kernel --no-highmem` next.
+5. **Linux-only bus setup.** DRAM prefetch (300-04, MCR) and highmem zone remap (`rtl930x_prepare_highmem`, `UMSAR0-3` / `CPU_SRAM_SEG0-3_ADDR` (OpenWrt: SRAMSAR) zeroed, zone 3 at `0x20000000`). The window `0x14000000-0x15ffffff` is outside zones 1-3. If 1-3 are excluded, boot `./dev.py build-kernel --no-highmem` next.
 
 Ruled out from code:
 
@@ -265,7 +265,7 @@ Built with `./dev.py build-kernel` (GCC 16.2); booted 2026-10-12 with IP traffic
 - Doorbell on RTL930x: one `writel_relaxed` of a cached `DMA_IF_CTRL` (fetch/busy bits clear), no read-poll, regmap lock or `ktime`. SDK `r9300_nicTxFetch_set` writes the field without a poll. Other families keep the RTL838x read-poll + RMW under `tx_lock`.
 - No TX-done IRQ: reclaim runs at the start of each RX NAPI poll and inline in xmit when the ring is full (queue stops only if still full); `napi_consume_skb` (skb cache, direct page_pool recycle). xmit schedules NAPI when it stops a queue; the poll repolls while a stopped queue has frames owned by hardware.
 - TX packet/byte counters per ring under the txq lock (`ndo_get_stats64`).
-- CPU port MAC force register (`0xbb00ca8c`): left as the driver sets it. Reads `0x217` (SPD_SEL 1G) after the stock loader; the raw power-on value is unread and no vendor code writes SPD_SEL (#60).
+- CPU port MAC force register (`MAC_FORCE_MODE_CTRL(28)` `0xbb00ca8c`): left as the driver sets it. Reads `0x217` (SPD_SEL 1G) after the stock loader; the raw power-on value is unread and no vendor code writes SPD_SEL (#60).
 
 ### Safety defaults (house LAN; loop of 2026-10-10)
 

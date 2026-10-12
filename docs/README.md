@@ -47,6 +47,7 @@
 ## Realtek SDK
 
 - [SDK-SOURCES.md](SDK-SOURCES.md) — public Realtek switch SDK drops with Longan code.
+- [REGISTERS.md](REGISTERS.md) — every register our code touches: SDK name, fields, writers; where we differ from the SDK (#102).
 - [SDK-FEATURE-MAP.md](SDK-FEATURE-MAP.md) — SDK API/feature groups vs users (#76).
 - [SDK-LEFTOVERS.md](SDK-LEFTOVERS.md) — debug/test/disabled SDK features (#74).
 

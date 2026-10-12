@@ -62,7 +62,7 @@ earlier versions of the reference docs, and the original tracking issue. Referen
 
 - Hypothesis (user): the SFP TX lasers are off. DTS: tx-disable = PCA9534 @ `0x38`, active-high; power-on = all inputs → lasers off; nothing in U-Boot drives it.
 - 13:41 — Fresh boot. 13:47: `rtk sdsreg` before SDK init → `Failed!! 0xf010`. 13:49: `rtk network on` (first of this boot). 13:50: rxIdle gate register `0x15BC` (bit 0 clear, gate passes) — rxCali theory weakened.
-- 13:51 — GPIO block snapshot `md.l 0xb8003300`: DIR `0x00e00000`, DAT `0x00ec00c4`.
+- 13:51 — GPIO block snapshot `md.l 0xb8003300`: `PABCD_DIR` `0x00e00000`, `PABCD_DAT` `0x00ec00c4`.
 - 13:51–13:58 — PCA9534 driven by raw GPIO bit-bang (`scripts/st1008_pca9534.py`, ~40 s per write sequence): read `0xff/0xff/0x00/0xff` (all inputs), wrote reg1 = `0x00`, reg3 = `0x00` → all 8 lasers on. The LAN switch showed the ports active.
 - 13:59 — `setenv ipaddr/serverip/bootfile`; second `rtk network on` of this boot (returned normally). page 1 reg 30 still `0x0000`/`0x0100`.
 - 14:00 — MIB counters in the millions on ports 0 **and** 8, mirrored: cages 1 and 2 both cabled to the same LAN switch → broadcast storm (TX mcast ~39M in ~1 min). `rtk port disable 8`; PCA9534 reg1 → `0xfe` (cage 1 only).

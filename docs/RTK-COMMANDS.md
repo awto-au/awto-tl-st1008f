@@ -261,7 +261,7 @@ Rows = LED index, columns = cages. Physical front-panel order SPEC (unchecked); 
 
 ### Linux (300-16, `CONFIG_TPLINK_ST1008F_LEDS`)
 
-- Bound by machine compatible `tplink,tl-st1008f-v2`; maps `0x1b00cc00` (no `request_mem_region`, inside the switch block); writes only `0xcc48-0xccd0`. The rtl83xx DSA `led-set` setup (`0xcc00-0xcc44`) is untouched.
+- Bound by machine compatible `tplink,tl-st1008f-v2`; maps `0x1b00cc00` (no `request_mem_region`, inside the switch block); writes only `0xcc48-0xccd0` (`SW_LED_LOAD`, `LED_PORT_SW_EN_CTRL`, `LED_PORT_SW_CTRL(0-28)`). The rtl83xx DSA `led-set` setup (`0xcc00-0xcc44`, `LED_GLB_CTRL` .. `LED_PORT_COMBO_MASK_CTRL`) is untouched.
 - `/sys/devices/platform/st1008f-leds/`:
   - `state` (ro): `hw|booting|error|panic|fallback|custom` + `(error latched)`.
   - `pattern`: `hw|off|on|booting|error|panic|fallback` or 24 digits 0-7 (LED0 cages 1-8, LED1, LED2); `-EBUSY` while latched.

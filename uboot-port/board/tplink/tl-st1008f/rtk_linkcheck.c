@@ -15,7 +15,7 @@
 #include "rtk.h"
 #include "sfp/sfp.h"
 
-#define MAC_LINK_STS	0xcb10
+#define MAC_LINK_STS	RTL9300_MAC_LINK_STS
 #define A0		0x50
 #define A2		0x51
 #define PHY		0x56

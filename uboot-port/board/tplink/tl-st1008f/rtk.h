@@ -7,10 +7,11 @@
 #include <linux/bitops.h>
 #include <asm/io.h>
 #include <linux/types.h>
+#include "rtl9300_regs.h"
 
 #define NCAGES		8
 #define SW_BASE		0xbb000000UL	/* switch core, KSEG1 */
-#define GPIO_DAT	0xb800330cUL	/* gpio0 DATA */
+#define GPIO_DAT	((ulong)RTL9300_PABCD_DAT)
 #define NPORTS		29		/* SDK ports 0-27 + CPU 28 */
 #define CPU_PORT	28
 
@@ -32,7 +33,7 @@ static inline void sw_rmw(u32 off, u32 mask, u32 set)
 /* SPI_CTRL1 pinmux: GPIO_SPI_SEL [13] (GPIO3-5), GPIO6_CSB1_SEL [11], GPIO7_CSB0_SEL [10].
  * Stock `rtk network on` sets [13]: cage 4-6 MOD-DEF0 then read "present" when empty (#29).
  * Nothing on this board uses the switch-core SPI master (docs/BUS-SCAN.md). */
-#define SPI_CTRL1		0x3a0
+#define SPI_CTRL1		RTL9300_SPI_CTRL1
 #define SPI_CTRL1_PINMUX	(BIT(13) | BIT(11) | BIT(10))
 static inline void rtk_presence_pins_gpio(void)
 {

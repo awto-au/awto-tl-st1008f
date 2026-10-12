@@ -14,14 +14,14 @@
 
 #define EXP_BUS		8
 #define EXP_ADDR	0x38
-#define MAC_LINK_STS	0xcb10		/* bit per SDK port */
-#define MAC_LINK_SPD(p)	(0xcb18 + (((p) >> 3) << 2))	/* 4 bits per port (OpenWrt pcs-rtl-otto) */
-#define LED_SW_EN(p)	(0xcc4c + (((p) >> 3) << 2))
+#define MAC_LINK_STS	RTL9300_MAC_LINK_STS		/* bit per SDK port */
+#define MAC_LINK_SPD(p)	RTL9300_MAC_LINK_SPD_STS((p) >> 3)	/* 4 bits per port (OpenWrt pcs-rtl-otto) */
+#define LED_SW_EN(p)	RTL9300_LED_PORT_SW_EN_CTRL((p) >> 3)
 
-#define TM_CTRL1	0x64	/* 31:16 SAMPLE_DLY */
-#define TM_CTRL2	0x68	/* bit 16 TM_ENABLE */
-#define TM_RESULT0	0x6c	/* bit 24 TEMP_VALID, 23:16 TEMP_OUT (deg C) */
-#define TM_RESULT1	0x70	/* 14:8 TEMP_MAX, 6:0 TEMP_MIN since enable */
+#define TM_CTRL1	RTL9300_THERMAL_METER_CTRL_1	/* 31:16 SAMPLE_DLY */
+#define TM_CTRL2	RTL9300_THERMAL_METER_CTRL_2	/* bit 16 TM_ENABLE */
+#define TM_RESULT0	RTL9300_THERMAL_METER_RESULT_0	/* DATA_VALID 24, TEMP_OUT 22:16 (deg C) */
+#define TM_RESULT1	RTL9300_THERMAL_METER_RESULT_1	/* 14:8 TEMP_MAX, 6:0 TEMP_MIN since enable */
 #define TM_SAMPLE_DLY	0x0800	/* value OpenWrt uses: "makes get_temp succeed more often" */
 /* No measured settling time yet (#13): 100 x 1 ms is a cap, expiry is logged. */
 #define TM_POLL_N	100
