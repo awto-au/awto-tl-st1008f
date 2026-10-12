@@ -1,0 +1,73 @@
+From: Dan <dan@awto.au>
+Subject: [PATCH] net: mdio: smbus: bound the RollBall poll at 90 ms
+
+The RollBall command poll slept 20 ms before every check, 11 checks:
+every MDIO access cost >= 20 ms (HZ=100: 20-30 ms) and the limit was
+220-330 ms against a documented 70 ms worst case. Poll every 1-2 ms,
+give up at 1.25 x 70 ms, and log the elapsed time on expiry.
+
+Applies after realtek/patches-6.18/712. OpenWrt path:
+target/linux/realtek/patches-6.18/713-net-mdio-smbus-rollball-poll-bound.patch
+---
+diff --git a/drivers/net/mdio/mdio-smbus.c b/drivers/net/mdio/mdio-smbus.c
+index ac44d16..efc8f79 100644
+--- a/drivers/net/mdio/mdio-smbus.c
++++ b/drivers/net/mdio/mdio-smbus.c
+@@ -7,7 +7,9 @@
+  *
+  * Network PHYs can appear on SMBus when they are part of SFP modules.
+  */
++#include <linux/delay.h>
+ #include <linux/i2c.h>
++#include <linux/ktime.h>
+ #include <linux/phy.h>
+ #include <linux/mdio/mdio-i2c.h>
+ #include <linux/sfp.h>
+@@ -163,22 +165,21 @@ static int __smbus_set_sfp_page_unlock(struct i2c_adapter *i2c, int bus_addr, u8
+ 	return ret;
+ }
+ 
+-/* Wait for the ROLLBALL_CMD_ADDR register to read ROLLBALL_CMD_DONE,
+- * indicating that the previous command has completed.
+- *
+- * Quoting from the mdio-i2c.c implementation:
+- *
+- * 	By experiment it takes up to 70 ms to access a register for these
+- * 	SFPs. Sleep 20ms between iterations and try 10 times.
++/* Wait for ROLLBALL_CMD_ADDR to read ROLLBALL_CMD_DONE.
++ * - Worst case 70 ms per register (mdio-i2c.c); limit 1.25x = 90 ms.
++ * - Poll every 1-2 ms: one byte read is ~0.4 ms of bus at 100 kHz.
+  */
+-static int __smbus_rollball_mii_poll(struct i2c_adapter *i2c , int bus_addr)
++#define ROLLBALL_POLL_LIMIT_MS		90
++
++static int __smbus_rollball_mii_poll(struct i2c_adapter *i2c, int bus_addr)
+ {
++	ktime_t start = ktime_get();
+ 	union i2c_smbus_data data;
+-	int i, ret;
++	s64 elapsed;
++	int ret;
+ 
+-	i = 10;
+ 	do {
+-		msleep(20);
++		usleep_range(1000, 2000);
+ 
+ 		ret = __i2c_smbus_xfer(i2c, bus_addr, 0, I2C_SMBUS_READ, ROLLBALL_CMD_ADDR, I2C_SMBUS_BYTE_DATA, &data);
+ 		if (ret < 0)
+@@ -186,8 +187,12 @@ static int __smbus_rollball_mii_poll(struct i2c_adapter *i2c , int bus_addr)
+ 
+ 		if (data.byte == ROLLBALL_CMD_DONE)
+ 			return 0;
+-	} while (i-- > 0);
+-	dev_dbg(&i2c->dev, "poll timed out\n");
++
++		elapsed = ktime_ms_delta(ktime_get(), start);
++	} while (elapsed < ROLLBALL_POLL_LIMIT_MS);
++
++	dev_warn_ratelimited(&i2c->dev, "RollBall MDIO poll timed out: %lld ms (limit %d ms), cmd 0x%02x\n",
++			     elapsed, ROLLBALL_POLL_LIMIT_MS, data.byte);
+ 	return -ETIMEDOUT;
+ }
+ 
