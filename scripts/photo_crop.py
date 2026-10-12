@@ -5,6 +5,8 @@
 - crop IMG OUT X0 Y0 X1 Y1 [--scale S] [--rot DEG] [--enhance]: crop, rotate, upscale.
 - downscale IMG OUT [--max PX] [--box X0 Y0 X1 Y1]: copy for docs/photos (EXIF dropped).
 - publish ZIP OUTDIR [--max PX]: every JPEG in ZIP downscaled, metadata stripped and verified gone.
+- sharp DIR: edge-energy sharpness score per JPEG, to pick the best of near-duplicates.
+- curate ZIP MANIFEST OUTDIR: per manifest entry crop/straighten -> named copy (<1 MB, no EXIF), or log the drop.
 Coordinates are pixels of the EXIF-transposed image. Log: tmp/logs/photo_crop.log.
 """
 import argparse
@@ -87,6 +89,51 @@ def publish(args):
             logging.info("publish %s -> %s %dx%d %d bytes, no EXIF", name, dst, *im.size, dst.stat().st_size)
 
 
+def sharp(args):
+    """Edge-energy score per JPEG (stddev of FIND_EDGES on the grey image); higher = sharper."""
+    from PIL import ImageFilter, ImageStat
+    for f in sorted(pathlib.Path(args.dir).glob("*.jp*g")):
+        g = load(f).convert("L")
+        g.thumbnail((args.max, args.max), Image.LANCZOS)
+        s = ImageStat.Stat(g.filter(ImageFilter.FIND_EDGES)).stddev[0]
+        logging.info("sharp %s %.1f", f.name, s)
+
+
+def curate(args):
+    """Manifest (TOML) -> cropped, straightened, metadata-free copies; logs old -> new / dropped."""
+    import io
+    import tomllib
+    import zipfile
+    man = tomllib.loads(pathlib.Path(args.manifest).read_text())
+    out = pathlib.Path(args.outdir)
+    out.mkdir(parents=True, exist_ok=True)
+    with zipfile.ZipFile(args.zip) as z:
+        for e in man["photo"]:
+            if "drop" in e:
+                logging.info("curate %s -> dropped: %s", e["src"], e["drop"])
+                continue
+            im = load(io.BytesIO(z.read(e["src"])))
+            if e.get("rot"):
+                im = im.rotate(e["rot"], expand=False, resample=Image.BICUBIC)
+            if e.get("box"):
+                im = im.crop(tuple(e["box"]))
+            if e.get("turn"):  # quarter turns, lossless
+                im = im.rotate(e["turn"], expand=True)
+            im.thumbnail((args.max, args.max), Image.LANCZOS)
+            dst = out / e["out"]
+            q = args.quality
+            while True:
+                im.save(dst, quality=q, optimize=True)  # no exif= : metadata dropped
+                if dst.stat().st_size <= 1_000_000 or q <= 60:
+                    break
+                q -= 5
+            if len(Image.open(dst).getexif()) or dst.stat().st_size > 1_000_000:
+                logging.error("%s: EXIF left or over 1 MB (%d bytes)", dst, dst.stat().st_size)
+                sys.exit(1)
+            logging.info("curate %s -> %s %dx%d q%d %d bytes, no EXIF", e["src"], e["out"], *im.size, q,
+                         dst.stat().st_size)
+
+
 def main():
     LOG.parent.mkdir(parents=True, exist_ok=True)
     logging.basicConfig(level=logging.INFO, format="%(asctime)s %(message)s",
@@ -122,6 +169,17 @@ def main():
     d.add_argument("--quality", type=int, default=82)
     d.add_argument("--box", type=int, nargs=4)
     d.set_defaults(fn=downscale)
+    h = sub.add_parser("sharp")
+    h.add_argument("dir")
+    h.add_argument("--max", type=int, default=2000)
+    h.set_defaults(fn=sharp)
+    k = sub.add_parser("curate")
+    k.add_argument("zip")
+    k.add_argument("manifest")
+    k.add_argument("outdir")
+    k.add_argument("--max", type=int, default=2000)
+    k.add_argument("--quality", type=int, default=85)
+    k.set_defaults(fn=curate)
     args = ap.parse_args()
     args.fn(args)
 
