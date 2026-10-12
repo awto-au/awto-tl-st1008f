@@ -33,6 +33,7 @@ import argparse
 import base64
 import json
 import os
+import re
 import signal
 import socket
 import sys
@@ -79,6 +80,7 @@ class Owner:
         self._last_catch = 0.0              # debounce repeated banner hits
         self._dumping = False               # reader pauses during a bulk dump
         self._typed = b""                   # unfinished input line for flash_guard (#81)
+        self._tx_line = b""                 # chunks typed since the last [TX] marker
         self._open()
         self._reader = threading.Thread(target=self._read_loop, daemon=True)
         self._reader.start()
@@ -196,9 +198,12 @@ class Owner:
 
     def send(self, raw: bytes):
         self._guard(raw)
-        # Log what we inject (printable form) so the tail shows input + output.
-        shown = raw.decode("utf-8", "replace").replace("\r", "\\r").replace("\n", "\\n")
-        self._mark_tx(repr(shown))
+        # One [TX] line per completed line: chunked typing (#31) would otherwise split the echo.
+        self._tx_line += raw
+        if re.search(rb"[\r\n\x00-\x08\x0b-\x1f]", raw):
+            shown = self._tx_line.decode("utf-8", "replace").replace("\r", "\\r").replace("\n", "\\n")
+            self._tx_line = b""
+            self._mark_tx(repr(shown))
         with self._lock:
             self._ser.write(raw)
             self._ser.flush()
@@ -234,7 +239,6 @@ class Owner:
         directly), and only a periodic progress line goes to the log — the 15 MB
         of hex never touches it. Returns {bytes, host_crc32, path}.
         """
-        import re
         import zlib
         line_re = re.compile(rb"([0-9a-fA-F]{8}):\s((?:[0-9a-fA-F]{2}\s?){1,16})")
         out = Path(out_path)
