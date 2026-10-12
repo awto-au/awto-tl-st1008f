@@ -450,11 +450,12 @@ def net(con: Console) -> bool:
         log("PASS net/ping")
         m, _ = con.run("dhcp", r"DHCP client bound to address (\S+) \((\d+) ms\)" + PROMPT, DHCP_CAP_S, "dhcp")
         log(f"PASS net/dhcp: {m.group(1)} in {m.group(2)} ms")
-        tftp(con, NET_FILE, TFTP_ADDR)  # raises on a size mismatch; returns before the prompt
+        # ours, like stock, loses the first 1-2 frames of a command (`*T`, 5 s each; #80): 2 retransmits
+        tftp(con, NET_FILE, TFTP_ADDR, retransmits=2)  # raises on a size mismatch; returns before the prompt
         con.run("echo NET_SYNC", r"NET_SYNC" + PROMPT, 1, "prompt after tftp")
         got = crc(con, f"crc32 0x{TFTP_ADDR:x} 0x{size:x}", "crc32 tftp", 1)
         ok &= got == want_crc
-        log(f"{'PASS' if got == want_crc else 'FAIL'} net/tftp: crc32 {got} vs host {want_crc:08x}")
+        log(f"{'PASS' if got == want_crc else 'FAIL'} net/tftp: crc32 {got or 0:08x} vs host {want_crc:08x}")
         # legacy wget: ~1 frame per ACK; assume >= 100 kB/s, x1.25, + 3 s connect
         cap = size / 100e3 * 1.25 + 3
         http = subprocess.Popen([sys.executable, "-m", "http.server", str(HTTP_PORT), "--bind", SERVER_IP,
@@ -462,13 +463,13 @@ def net(con: Console) -> bool:
         try:
             time.sleep(0.5)  # http.server bind: local, ms; 0.5 s before the board connects
             con.run(f"setenv httpdstp {HTTP_PORT}; wget 0x{WGET_ADDR:x} {SERVER_IP}:/{NET_FILE}",
-                    r"Transfer Successful" + PROMPT, cap, "wget", checked=True)
+                    r"Transfer Successful\r?\nBytes transferred = \d+[^\n]*" + PROMPT, cap, "wget", checked=True)
         finally:
             http.terminate()
             http.wait(timeout=3)  # local process exit
         got = crc(con, f"crc32 0x{WGET_ADDR:x} 0x{size:x}", "crc32 wget", 1)
         ok &= got == want_crc
-        log(f"{'PASS' if got == want_crc else 'FAIL'} net/wget: crc32 {got} vs host {want_crc:08x}")
+        log(f"{'PASS' if got == want_crc else 'FAIL'} net/wget: crc32 {got or 0:08x} vs host {want_crc:08x}")
         sock = socket.socket(socket.AF_INET, socket.SOCK_DGRAM)
         sock.bind((SERVER_IP, NC_PORT))
         sock.settimeout(NC_CAP_S)

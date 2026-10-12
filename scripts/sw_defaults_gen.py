@@ -83,7 +83,7 @@ def resolve(regs, reg, field, i1=None, i2=None):
     pp = next((b for b in PP if b[0] <= addr <= b[1]), None)
     if pp:
         if i1 is not None:
-            addr += i1 * pp[2]
+            addr += (i1 - r["p0"]) * pp[2]  # SDK reg.c uses i1; stock 3.6.6 writes SET1[24] at the base (reg-diff 2026-10-12)
         if i2 is not None:
             addr += step(i2, r["a0"])
     elif i1 is not None and i2 is not None:
@@ -129,7 +129,8 @@ def construct_default():
     for q in range(NCPUQ):
         w("EGBW_CPU_Q_MAX_LB_CTRL", "BURST", 5, None, q)
     for p in CAGES:
-        w("EGBW_PORT_CTRL", "BURST", 0x4000, p)
+        if p == 0:  # stock 3.6.6 sets port 0 only; 8-27 keep reset 0x8000 (reg-diff 2026-10-12)
+            w("EGBW_PORT_CTRL", "BURST", 0x4000, p)
         s, nq = ("SET0", NQ) if p < 24 else ("SET1", NSQ)
         for q in range(nq):
             w(f"EGBW_PORT_Q_MAX_LB_CTRL_{s}", "BURST", 0x4000, p, q)
