@@ -4,7 +4,8 @@
 - Each check: send a command, expect a regex before the prompt returns, within a stated cap.
 - `timer`: `sleep N; echo` timed host-side against the console log; must be within ±3 %.
 - Read-only: flash writes are refused by the driver (checked), no env-save or GPIO21 commands. Add a check per new driver stage.
-- Explicit only (not in the default list): `reset` (ends the session), `cr_idle` (~100 s, #31).
+- Explicit only (not in the default list): `reset` (ends the session), `cr_idle` (~100 s, #31),
+  `network` (changes state), `net` (#80 Ethernet: ping, dhcp, tftp, wget, netconsole; needs the LAN).
 - Log: tmp/logs/uboot_mainline_test.log. Exit 0 = all pass.
 """
 
@@ -420,18 +421,104 @@ def network(con: Console) -> bool:
     return ok
 
 
+GATEWAY = "192.168.25.254"  # house LAN gateway (awto-dan ip-registry.toml)
+NET_FILE = "uboot-mainline.bin"  # tmp/tftp; any file works, this one always exists after a build
+TFTP_ADDR, WGET_ADDR = 0x84F00000, 0x85F00000
+HTTP_PORT = 8080  # unprivileged host port for wget (env httpdstp)
+NC_PORT = 6666  # U-Boot netconsole default out/in port
+# first start may run our `rtk network on` (NET_CAP_S) + NIC reset 2 x 100 ms + ARP + 1 echo
+PING_CAP_S = NET_CAP_S + 2
+DHCP_CAP_S = 6  # LAN DHCP answers in < 1 s; U-Boot's first BOOTP retransmit ~4 s (bootp.c), x1.25
+NC_CAP_S = 2  # one UDP line after an ARP on the LAN: ms; 2 s names a lost datagram
+
+
+def net(con: Console) -> bool:
+    """#80: CPU-port Ethernet on `ethport` 1. ping gateway, dhcp, tftp + wget of NET_FILE (size + CRC32 vs host),
+    netconsole line on the host. Host side: st1008_ramload helpers (.30 on enp7s0, sudo tftpd)."""
+    import socket
+    import subprocess
+    import zlib
+    from st1008_ramload import SERVER_IP, SWITCH_IP, TFTP_ROOT, ensure_server_ip, tftp
+
+    data = (TFTP_ROOT / NET_FILE).read_bytes()
+    want_crc, size = zlib.crc32(data), len(data)
+    ok = True
+    ensure_server_ip()
+    try:
+        con.run(f"setenv ethport 1; setenv ipaddr {SWITCH_IP}; ping {GATEWAY}",
+                rf"host {re.escape(GATEWAY)} is alive" + PROMPT, PING_CAP_S, "ping gateway", checked=True)
+        log("PASS net/ping")
+        m, _ = con.run("dhcp", r"DHCP client bound to address (\S+) \((\d+) ms\)" + PROMPT, DHCP_CAP_S, "dhcp")
+        log(f"PASS net/dhcp: {m.group(1)} in {m.group(2)} ms")
+        # ours, like stock, loses the first 1-2 frames of a command (`*T`, 5 s each; #80): 2 retransmits
+        tftp(con, NET_FILE, TFTP_ADDR, retransmits=2)  # raises on a size mismatch; returns before the prompt
+        con.run("echo NET_SYNC", r"NET_SYNC" + PROMPT, 1, "prompt after tftp")
+        got = crc(con, f"crc32 0x{TFTP_ADDR:x} 0x{size:x}", "crc32 tftp", 1)
+        ok &= got == want_crc
+        log(f"{'PASS' if got == want_crc else 'FAIL'} net/tftp: crc32 {got or 0:08x} vs host {want_crc:08x}")
+        # legacy wget: ~1 frame per ACK; assume >= 100 kB/s, x1.25, + 3 s connect
+        cap = size / 100e3 * 1.25 + 3
+        http = subprocess.Popen([sys.executable, "-m", "http.server", str(HTTP_PORT), "--bind", SERVER_IP,
+                                 "--directory", str(TFTP_ROOT)], stdout=subprocess.DEVNULL, stderr=subprocess.DEVNULL)
+        try:
+            time.sleep(0.5)  # http.server bind: local, ms; 0.5 s before the board connects
+            con.run(f"setenv httpdstp {HTTP_PORT}; wget 0x{WGET_ADDR:x} {SERVER_IP}:/{NET_FILE}",
+                    r"Transfer Successful\r?\nBytes transferred = \d+[^\n]*" + PROMPT, cap, "wget", checked=True)
+        finally:
+            http.terminate()
+            http.wait(timeout=3)  # local process exit
+        got = crc(con, f"crc32 0x{WGET_ADDR:x} 0x{size:x}", "crc32 wget", 1)
+        ok &= got == want_crc
+        log(f"{'PASS' if got == want_crc else 'FAIL'} net/wget: crc32 {got or 0:08x} vs host {want_crc:08x}")
+        sock = socket.socket(socket.AF_INET, socket.SOCK_DGRAM)
+        sock.bind((SERVER_IP, NC_PORT))
+        sock.settimeout(NC_CAP_S)
+        token = f"NC_{int(time.time())}"
+        try:
+            con.run(f"setenv ncip {SERVER_IP}; setenv stdout nc; echo {token}; setenv stdout serial; echo NC_BACK",
+                    r"NC_BACK" + PROMPT, NC_CAP_S + 1, "netconsole", checked=True)
+            got_nc = b""
+            t0 = time.monotonic()
+            while token.encode() not in got_nc and time.monotonic() - t0 < NC_CAP_S:
+                got_nc += sock.recv(2048)
+        except (socket.timeout, TimeoutError):
+            got_nc = b""
+        finally:
+            sock.close()
+        nc_ok = token.encode() in got_nc
+        ok &= nc_ok
+        log(f"{'PASS' if nc_ok else 'FAIL'} net/netconsole: {token} {'received' if nc_ok else 'not received'}")
+    except SystemExit as e:
+        log(f"FAIL net: {e}")
+        ok = False
+    _, st = con.run("ethstat", PROMPT, 1, "ethstat")
+    log("  ethstat: " + " | ".join(st.strip().splitlines()[1:3]))
+    log(f"{'PASS' if ok else 'FAIL'} net")
+    return ok
+
+
 def main() -> int:
     ap = argparse.ArgumentParser(description=__doc__.splitlines()[0])
     ap.add_argument("checks", nargs="*", default=[*CHECKS, "gpio", "sfp_a0", "sfp_all", "ddm", "laser", "sf_read",
                                                  "i2c_scan", "sfp_phy", "fdt_clocks", "timer"])
+    ap.add_argument("--sw-defaults", metavar="CATS",
+                    help="before the checks: setenv rtk_sw_defaults CATS (none | all | cpu,perf,policy); takes "
+                         "effect at this boot's first network on, so use on a fresh boot (#80 bisect)")
     a = ap.parse_args()
     con = Console()
     # presence probe: a command with a known reply (a bare CR once got no reply at all)
     con.run("echo PROMPT_OK", r"\r?\nPROMPT_OK" + PROMPT, 1, "mainline prompt present")
+    if a.sw_defaults:
+        con.run(f"setenv rtk_sw_defaults {a.sw_defaults}; echo SWD_OK", r"SWD_OK" + PROMPT, 1, "rtk_sw_defaults")
+        log(f"rtk_sw_defaults = {a.sw_defaults}")
     special = {"timer": timer, "gpio": gpio, "sfp_a0": sfp_a0, "sfp_all": sfp_all, "ddm": ddm_sane, "laser": laser,
                "sf_read": sf_read, "reset": reset, "i2c_scan": i2c_scan, "sfp_phy": sfp_phy,
-               "fdt_clocks": fdt_clocks, "cr_idle": cr_idle, "network": network}
-    results = {n: (special[n](con) if n in special else check(con, n)) for n in a.checks}
+               "fdt_clocks": fdt_clocks, "cr_idle": cr_idle, "network": network, "net": net}
+    con.note("interactive-begin")  # check output is not boot output (boot_log_check skips it)
+    try:
+        results = {n: (special[n](con) if n in special else check(con, n)) for n in a.checks}
+    finally:
+        con.note("interactive-end")
     bad = [n for n, ok in results.items() if not ok]
     log(f"=== {len(results) - len(bad)}/{len(results)} pass" + (f"; FAIL: {', '.join(bad)}" if bad else ""))
     return 1 if bad else 0

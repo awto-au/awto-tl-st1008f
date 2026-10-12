@@ -29,10 +29,12 @@ LOG = ROOT / "tmp/logs/build_uboot_mainline.log"
 TAG = "v2026.07"
 DEFCONFIG = "tplink_tl-st1008f_ram_defconfig"
 CROSS = "mips64-linux-gnu-"
-# Full clean build (CCACHE_DISABLE=1, -j30, 2026-10-10): 4 s. x1.5 (1 s timer granularity) = 6 s.
+# Full clean build with net (#80, nice 19, -j30, 2026-10-12): 6 s. x1.25 rounded up = 8 s.
 # Applies per make call; on expiry make is killed and logged with elapsed time.
-BUILD_TIMEOUT_S = 6
+BUILD_TIMEOUT_S = 8
 TAIL_LINES = 40
+# stock bootcmd copies this much from flash 0x200000 to 0x81000000 (scripts/uboot_chain_env.py, #47)
+CHAIN_COPY_MAX = 0x80000
 
 # scaffold rel-path -> tree rel-path
 FILES = {
@@ -48,6 +50,12 @@ FILES = {
 DIRS = {
     "arch/mips/mach-otto": "arch/mips/mach-otto",
     "board/tplink/tl-st1008f": "board/tplink/tl-st1008f",
+}
+# repo rel-path -> tree rel-path: OS-independent cores shared with the Linux patches (#83); copied, never edited
+SHARED = {
+    "shared/rtl930x-nic/rtl930x_nic.h": "board/tplink/tl-st1008f/rtl930x_nic.h",
+    "shared/rtl930x-sw/rtl930x_sw.h": "board/tplink/tl-st1008f/rtl930x_sw.h",
+    "shared/rtl930x-sw/rtl930x_sw_defaults.h": "board/tplink/tl-st1008f/rtl930x_sw_defaults.h",
 }
 
 ARCH_BLOCK = """config ARCH_OTTO
@@ -156,6 +164,9 @@ def stage() -> None:
             shutil.rmtree(d)
         shutil.copytree(SCAFFOLD / src, d)
         log(f"staged {dst}/")
+    for src, dst in SHARED.items():
+        shutil.copy2(ROOT / src, TREE / dst)
+        log(f"staged {dst} (shared)")
     for rel, anchor, text, where, marker in HOOKS:
         p = TREE / rel
         txt = p.read_text()
@@ -179,6 +190,11 @@ def build(cross: str) -> int:
     if rc or not binp.exists():
         log("BUILD FAILED")
         return rc or 1
+    size = binp.stat().st_size
+    if size > CHAIN_COPY_MAX:
+        log(f"BUILD FAILED: u-boot.bin {size} bytes > chain copy {CHAIN_COPY_MAX:#x}")
+        return 1
+    log(f"size: {size} bytes, {CHAIN_COPY_MAX - size} below the {CHAIN_COPY_MAX:#x} chain copy")
     TFTP.mkdir(parents=True, exist_ok=True)
     shutil.copy2(binp, TFTP / "uboot-mainline.bin")
     shutil.copy2(BUILDDIR / "u-boot", TFTP / "uboot-mainline.elf")

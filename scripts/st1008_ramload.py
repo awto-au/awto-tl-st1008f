@@ -225,7 +225,7 @@ def laser(con: Console, cage: int, prompt: str = "RTL9300#") -> None:
         raise SystemExit(f"laser readback 0x{m.group(1)} != 0x{mask:02x}")
 
 
-def tftp(con: Console, fname: str, addr: int) -> None:
+def tftp(con: Console, fname: str, addr: int, retransmits: int = 1) -> None:
     ensure_server_ip()
     size = (TFTP_ROOT / fname).stat().st_size
     srv = subprocess.Popen(["sudo", "-n", sys.executable, str(ROOT / "scripts/tftpd.py"), "--once"],
@@ -233,7 +233,7 @@ def tftp(con: Console, fname: str, addr: int) -> None:
     try:
         # first block always times out once after link-up (`*T`, stock TFTP retransmit = 5 s), then
         # ~1.2 MB/s. Cap = 5 s retransmit + 1.25x transfer + 3 s setup.
-        cap = 5 + size / 1.2e6 * 1.25 + 3
+        cap = 5 * retransmits + size / 1.2e6 * 1.25 + 3
         m, _ = con.run(f"setenv ipaddr {SWITCH_IP}; setenv serverip {SERVER_IP}; "
                        f"tftpboot 0x{addr:08x} {fname}",
                        r"Bytes transferred = (\d+)", cap, f"tftp {fname} ({size} B)")

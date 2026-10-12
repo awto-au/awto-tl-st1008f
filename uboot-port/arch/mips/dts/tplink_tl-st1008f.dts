@@ -165,6 +165,12 @@
 			sfp_i2c6: i2c@6 { reg = <6>; clock-frequency = <100000>; };
 			sfp_i2c7: i2c@7 { reg = <7>; clock-frequency = <100000>; };
 		};
+
+		/* CPU-port NIC (port 28): DMA_IF 0xdf00-0xe05f; polled, rtl930x_eth.c */
+		ethernet@df00 {
+			compatible = "realtek,rtl9301-eth";
+			reg = <0xdf00 0x160>;
+		};
 	};
 
 	/* Bit-banged bus to the TCA9534A laser TX-disable expander (SDA GPIO23, SCL GPIO22).
