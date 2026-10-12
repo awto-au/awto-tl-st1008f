@@ -18,6 +18,23 @@ Narrative & dead ends: see [HISTORY.md](HISTORY.md). Evidence paths under `priva
 
 - **Current (owner, 2026-10-12): only one 10G SR left fitted, for management; the other modules are removed.** The table below is the 2026-10-10 full set (module inventory).
 
+### sw2 fitted modules (2026-10-12T14:17+11:00, our U-Boot `rtk sfp` / `rtk port`, laser cage 1 only)
+
+| Cage | Module | Serial | RX (laser off) |
+|---|---|---|---|
+| 1 | FS SFP-10GSR-85 | F2130412917 | 0.581 mW, link 10G (fibre to sw1 lan4) |
+| 2 | empty | - | - |
+| 3 | FS SFP-10GSR-85 | F2130412918 | 0.0001 mW |
+| 4 | UBNT UF-SM-10G (10GBASE-LR) | FT17012009663 | 0.0001 mW |
+| 5 | Cisco-NEO PTB3370553CN0CS1 | NDG20040529 | 0.0000 mW |
+| 6 | Cisco-Finisar GLC-T 8.0 | MTC106627 | no DDM; ignores TX-disable |
+| 7 | Cisco-Finisar GLC-SX-MM 6.0 | H33A663 | no DDM |
+| 8 | FS SFP-10GSR-85 | F2130412915 | 0.0001 mW |
+
+- `rtk sfp power`: 7.2 W declared by 7 modules, budget 15.0 W. Temps 12.6-30.8 °C (DDM modules).
+- No AQR113C 10GBASE-T module (FS SFP-10G-T) in sw2: those are in sw1 lan7/lan8 (#90).
+- Cages 3/4/5/8 dark with their lasers off = not cabled to a live LAN port (cabled to each other cannot be ruled out). Cage 6/7 cabling unknown.
+
 ### Fitted SFP modules (2026-10-10, all 8 cages; our U-Boot `rtk sfp`)
 
 | Cage | Module | Serial | Media |
