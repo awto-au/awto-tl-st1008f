@@ -6,6 +6,7 @@
   `bridge-vlan` section per VID (device switch, ports P:t Q:t), `uci commit network`. No network
   reload (a reload drops every port for seconds: sw1 2026-10-12 at uptime 438 s). Idempotent.
 - `remove VIDS --ports P,Q`: the reverse.
+- `reload`: `ubus call network reload` (ports drop seconds) so netifd holds the saved VLANs; one-off (#96).
 - Mgmt ping after each step; lost -> runtime revert of this call, exit 1. VLAN 1 never touched.
 - Owner approval for sw1: 991/992 on lan4 + lan5 (#96). Log: tmp/logs/switch_vlan.log
 """
@@ -66,9 +67,28 @@ def runtime(ip: str, op: str, vids: list[int], ports: list[str]) -> None:
     ssh(ip, cmds + " 2>/dev/null; true")
 
 
+# netifd reload: ports drop, then STP listening + learning 2 x 2 s, + netifd ~3 s = ~7 s; x1.25
+RELOAD_S = 9
+
+
+def reload(ip: str) -> int:
+    if not ping(ip):
+        log(f"FAIL: mgmt {ip} not answering before reload")
+        return 1
+    t0 = time.monotonic()
+    ssh(ip, "ubus call network reload")
+    while not ping(ip):
+        if time.monotonic() - t0 > RELOAD_S:
+            log(f"FAIL: mgmt {ip} not back {time.monotonic() - t0:.1f} s after network reload (limit {RELOAD_S} s)")
+            return 1
+    log(f"network reload: mgmt {ip} answers {time.monotonic() - t0:.1f} s after")
+    show(ip)
+    return 0
+
+
 def main() -> int:
     ap = argparse.ArgumentParser(description=__doc__.splitlines()[0])
-    ap.add_argument("op", choices=["show", "stats", "add", "remove"])
+    ap.add_argument("op", choices=["show", "stats", "add", "remove", "reload"])
     ap.add_argument("vids", nargs="?", default="", help="comma list, e.g. 991,992")
     ap.add_argument("--ports", default="", help="comma list, e.g. lan4,lan5")
     ap.add_argument("--ip", default=BENCH_IP)
@@ -76,6 +96,8 @@ def main() -> int:
     if a.op == "show":
         show(a.ip)
         return 0
+    if a.op == "reload":  # owner-approved once on sw1 (#96): netifd loads the saved bridge-vlan config
+        return reload(a.ip)
     if a.op == "stats":  # read-only: non-zero MIB counters of each --ports port
         for p in a.ports.split(","):
             stats(a.ip, p)
