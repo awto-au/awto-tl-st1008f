@@ -280,6 +280,7 @@ Source tags: **[SRC]** GPL file:line (`dms1250/` = `sources/rtk-dms1250/`, `xgs1
 - Memory-mapped window `0xb4000000` (32 MiB) reads in that mode: the U-Boot whole-chip CRC and `flash_*` figures above use it.
 - [DS] §8.2: serial/dual/quad data width, memory-mapped read interface, cached reads; pins `SPI_MST_SIO2` (F2) / `SIO3` (F1) exist.
 - W25Q256JV supports Quad I/O `0xEB`. Board routing of flash IO2/IO3 (WP#/HOLD#) to SIO2/3 and the QE bit (SR2) are unknown: quad not tried.
+- Board photo (docs/photos, top): flash = U11, SOIC-16, below the heatsink next to the JTAG pads. Marking too faint to read (IQ = QE fixed 1, IM = QE default 0). SOIC-16 pin 1 = IO3/HOLD# (top-right, by the dot), pin 9 = IO2/WP# (bottom-left); traces not resolvable at photo resolution. Needs a close-up or the read-only quad test (#61).
 
 ### Linux
 
