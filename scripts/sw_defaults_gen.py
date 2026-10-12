@@ -80,10 +80,12 @@ def resolve(regs, reg, field, i1=None, i2=None):
     def step(i, lo):  # offset of element i within one dimension
         return (i - lo) // (32 // bo) * 4 if bo % 32 else (i - lo) * (bo // 8)
 
-    pp = next((b for b in PP if b[0] <= addr <= b[1]), None)
+    # per-port block only for arrays indexed from port 0: EGBW_*_SET1 (ports 24-27) sit in 0xE300-0xEAFC
+    # but are laid out as global 2D arrays (stock reg-diff 2026-10-12)
+    pp = next((b for b in PP if b[0] <= addr <= b[1]), None) if r["p0"] == 0 else None
     if pp:
         if i1 is not None:
-            addr += (i1 - r["p0"]) * pp[2]  # SDK reg.c uses i1; stock 3.6.6 writes SET1[24] at the base (reg-diff 2026-10-12)
+            addr += i1 * pp[2]
         if i2 is not None:
             addr += step(i2, r["a0"])
     elif i1 is not None and i2 is not None:
