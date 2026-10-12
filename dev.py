@@ -272,6 +272,12 @@ def cmd_switch_vlan(extra: list[str]) -> int:
     return _script("switch_vlan.py", extra)
 
 
+@command("flash the bench unit with the local upstream-layout OpenWrt (sysupgrade -n from RAM OpenWrt), STP saved (#98)",
+         args="(run `ramload openwrt-ours-6.18` + `openwrt-static-ip` first)", kind="hardware")
+def cmd_openwrt_install(extra: list[str]) -> int:
+    return _script("openwrt_install.py", extra)
+
+
 @command("bench unit: copy on-chip SRAM + RAM-resident stock U-Boot to private/ over Ethernet (our U-Boot tftpput)",
          args="[--no-boot]", kind="hardware")
 def cmd_mem_dump(extra: list[str]) -> int:

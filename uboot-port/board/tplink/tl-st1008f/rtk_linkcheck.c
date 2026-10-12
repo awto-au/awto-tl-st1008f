@@ -115,7 +115,9 @@ static void scan(struct lc *c, bool ids)
 			for (i = 15; i >= 0 && (c->pn[i] == ' ' || !c->pn[i]); i--)
 				c->pn[i] = 0;
 			c->ddm = id[92] & 0x40;
-			c->copper = id[6] & 0x08;	/* 1000BASE-T: no laser, TX-disable often ignored */
+			/* 1000BASE-T bit, RJ45 connector, or 10GBASE-T ext. compliance (0x16/0x1c):
+			 * no laser, TX-disable often ignored; SFP-10G-T fakes DDM (RX 0, LOS 1) */
+			c->copper = (id[6] & 0x08) || id[2] == 0x22 || id[36] == 0x16 || id[36] == 0x1c;
 		} else if (!c->pres || !c->ddm) {
 			continue;
 		} else {
@@ -123,7 +125,7 @@ static void scan(struct lc *c, bool ids)
 		}
 		ddm_rx(n, id, c);
 		c->mac = mac_up(n);
-		if (ids && c->copper)
+		if (ids && c->copper && (id[6] & 0x08))	/* 88E1111 at 0x56; AQR113C (RollBall) not read */
 			c->phy = phy_link(n);
 	}
 }
@@ -164,8 +166,8 @@ int rtk_linkcheck(int argc, char *const argv[])
 		if (!c->pres)
 			continue;
 		/* copper PHY unreadable: TX-disable is often ignored, so a link cannot be ruled out */
-		c->live = c->rx >= RX_LIVE || c->los == 0 || c->mac == 1 || c->phy == 1 ||
-			  (c->copper && c->phy < 0);
+		c->live = c->phy == 1 || (c->copper && c->phy < 0) ||
+			  (!c->copper && (c->rx >= RX_LIVE || c->los == 0)) || c->mac == 1;
 		live += c->live;
 		printf("linkcheck cage %d: %s, rx ", n, c->pn[0] ? c->pn : "?");
 		pr_rx(c->rx);
