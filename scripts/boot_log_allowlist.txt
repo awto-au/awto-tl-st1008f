@@ -411,7 +411,6 @@ wdt: on, \d+ ms \(prescale [0-3], \d+ x \d+ ms ticks at lx 175000 kHz\), SoC res
 rtl838x_eth 1b000000\.switch:ethernet eth0: Failed to create a device link to DSA switch 1b000000\.switch  # same in OpenWrt 6.18 (eth is a child of the switch node); harmless; known #16
 rtl83xx-switch 1b000000\.switch: lower interface lan[1-8] not found  # l3.c offload only for bridged/VLAN uppers; standalone port stays on the CPU path; same in OpenWrt; known #16
 rtl83xx-switch 1b000000\.switch: fib_add\(\) failed  # follows 'lower interface not found'; known #16
-sfp sfp-p[1-8]: SFP: unknown connector id 0x03  # GLC-SX-MM (sn H33A663; cage 4 on sw1, cage 7 on sw2) reports connector 0x03; module still used; known #16
 tplink-st1008f-mode mode-switch: port [0-7]: unknown media insert  # vendor class for a module it cannot classify (cage 5 CISCO-NEO): left untouched; known #64
 realtek-rtl-spi 18001200\.spi: dirmap: window != PIO at 0x0 \(SFCR2 0xbbc14a00\), using PIO  # 300-07 self-check fell back to PIO after stock `rtk network on`; known #61
 realtek-rtl-spi 18001200\.spi: dirmap: diag at 0x[0-9a-f]+ op 0x[0-9a-f]{2}/\d/\d, window 0x[0-9a-f]{8} at 0x[0-9a-f]{8}, release -?\d+  # 300-07 self-check mismatch diag: op, window phys/virt, CS-release wait result; known #61
@@ -471,3 +470,18 @@ rtl83xx-switch 1b000000\.ethernet-switch lan[1-8]: Link is (Down|Up - (100Mbps|1
 thermal thermal_zone\d+: Failed to set trips: -34  # on AQR113C PHY attach, -ERANGE; known #93
 rtl83xx-switch 1b000000\.ethernet-switch lan[1-8]: selection of interface failed, speed 10000  # AQR113C reconfigure; known #93
 Aquantia AQR113C smbus:sfp-p[1-8]:11: aqr_gen1_read_status failed: -145  # -ETIMEDOUT (MIPS) over SFP smbus, link drops; known #90
+
+# Local OpenWrt 6.18 backport image (openwrt-ours-6.18) on sw2, reviewed 2026-10-12
+[openwrt]
+- generating board file -  # OpenWrt board.d on first boot (whole line; fragments are cut by unsplice)
+CPU frequency from PLL: \d+MHz  # 300-05 hpt-freq-from-pll
+In otto_vlan_setup  # driver debug print (6.18 rtl83xx)
+Linux version 6\.18\.\d+ \(\w+@\w+\) \(mips-openwrt-linux-musl-gcc \(OpenWrt GCC [0-9.]+ toolchain-[0-9a-f]+\) [0-9.]+, GNU ld \(GNU Binutils\) [0-9.]+\) #0 SMP [A-Z][a-z]{2} [A-Z][a-z]{2} +\d+ \d\d:\d\d:\d\d 20\d\d  # local 6.18 backport build banner (#73)
+RTL930x DRAM controller prefetch on \(MCR [0-9a-f]{8}\)  # 300-04 DRAM prefetch (#52)
+Serial: 8250/16550 driver, 2 ports, IRQ sharing disabled  # 8250 core init
+mtdsplit_uimage: no uImage found in "firmware"  # RAM boot on a unit whose firmware partition holds stock firmware (sw2 before its install)
+realtek-rtl-spi 18001200\.spi: dirmap: 0x0\+0x2000000 via window, SFCR2 0x[0-9a-f]{8}, op 0x[0-9a-f]{2}, mode \d  # 300-07 dirmap active (#61)
+tplink-st1008f-mode mode-switch: port [0-7]: unknown media insert  # vendor tpSfpGetType class for a module with no compliance code (Cisco-NEO PTB3370553, as stock rtk.ko); known #28
+
+[linux]
+sfp sfp-p[1-8]: SFP: unknown connector id 0x03  # GLC-SX-MM (sn H33A663; cage 4 on sw1, cage 7 on sw2) reports connector 0x03; module still used; known #16

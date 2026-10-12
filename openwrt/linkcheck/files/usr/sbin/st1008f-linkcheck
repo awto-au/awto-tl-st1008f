@@ -1,31 +1,37 @@
 #!/bin/sh
 # st1008f-linkcheck: live SFP links before netifd bridges the ports (#97; U-Boot twin: rtk linkcheck).
-# Per lanN (= cage N): module present, DDM RX power, soft RX_LOS (sfp debugfs), carrier.
+# Per lanN (= cage N): module present, DDM RX power + soft RX_LOS (`ethtool -m` A2), carrier.
 # Live = RX >= 5 uW (-23 dBm), LOS 0, or carrier; copper modules count live (PHY not up yet).
 # More than one live port and a bridge with STP off -> STP on in uci (committed), logged.
 # Exit 0 = <= 1 live, 3 = multi live (STP ensured). Output: one line per port + verdict.
 
-RX_LIVE_MW=0.005
+RX_LIVE=50	# 0.1 uW units: 5 uW = -23 dBm; a dark SR reads 1
 live=0
 names=""
-grep -q debugfs /proc/mounts || mount -t debugfs debugfs /sys/kernel/debug 2>/dev/null
+
+# byte N of the `ethtool -m` hex dump (A0 0-255, A2 256-511); OpenWrt's ethtool prints hex only
+byte() { echo "$hex" | awk -v i="$1" '{ v = $(i + 1); print (v == "" ? -1 : ("0x" v) + 0) }'; }
 
 for d in /sys/class/net/lan*; do
 	p=${d##*/}
-	n=${p#lan}
-	st=/sys/kernel/debug/sfp-p$n/state
-	info=$(ethtool -m "$p" 2>/dev/null)
-	[ -n "$info" ] || { echo "linkcheck $p: empty"; continue; }
-	rx=$(echo "$info" | sed -n 's/.*Receiver signal average optical power *: *\([0-9.]*\) mW.*/\1/p')
-	copper=$(echo "$info" | grep -c "1000BASE-T\|10GBASE-T\|BASE-T")
-	los=$(sed -n 's/^LOS: *\([01]\).*/\1/p' "$st" 2>/dev/null)
+	hex=$(ethtool -m "$p" 2>/dev/null | awk '/^0x/ { for (i = 2; i <= NF; i++) printf "%s ", $i }')
+	[ -n "$hex" ] || { echo "linkcheck $p: empty"; continue; }
+	rx=-1
+	los=-
+	if [ $(( $(byte 92) & 0x40 )) -ne 0 ] && [ "$(byte 361)" -ge 0 ]; then	# DDM, A2 present
+		rx=$(( $(byte 360) * 256 + $(byte 361) ))	# A2 104-105, internal calibration
+		[ $(( $(byte 93) & 0x10 )) -ne 0 ] && los=$(( ($(byte 366) >> 1) & 1 ))	# soft RX_LOS
+	fi
+	b36=$(byte 36)
+	copper=0	# 1000BASE-T (A0 6 bit 3), 10GBASE-T (A0 36 = 0x16 / 0x1c)
+	{ [ $(( $(byte 6) & 0x08 )) -ne 0 ] || [ "$b36" = 22 ] || [ "$b36" = 28 ]; } && copper=1
 	car=$(cat "$d/carrier" 2>/dev/null)
 	is=no
-	if [ -n "$rx" ] && awk "BEGIN{exit !($rx >= $RX_LIVE_MW)}"; then is=YES; fi
+	[ "$rx" -ge $RX_LIVE ] && is=YES
 	[ "$los" = 0 ] && is=YES
 	[ "$car" = 1 ] && is=YES
-	[ "$copper" -gt 0 ] && is=YES
-	echo "linkcheck $p: rx ${rx:--} mW, los ${los:--}, carrier ${car:--}, copper $copper, live $is"
+	[ $copper = 1 ] && is=YES	# PHY not up before netifd: a copper link cannot be ruled out
+	echo "linkcheck $p: rx $rx (0.1 uW), los $los, carrier ${car:--}, copper $copper, live $is"
 	[ $is = YES ] && { live=$((live + 1)); names="$names $p"; }
 done
 
