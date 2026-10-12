@@ -1,0 +1,31 @@
+From: Dan <dan@awto.au>
+Subject: [PATCH] net: fib_offload: shared FIB offload helpers for switch drivers
+
+Every router driver (mlxsw, prestera, rocker, OpenWrt realtek l3.c)
+carries its own FIB/netevent notifier plumbing, neighbour tracking,
+offload flag reporting and trap fallback. Collect the hardware-neutral
+part in one library (docs/UPSTREAM-L3.md, #85):
+
+- FIB4/FIB6 and rule notifiers: atomic capture with references held
+  (fib_info, fib6_info + multipath members, fib_rule), one ordered
+  workqueue, table filter, dump-flush, replay after a lost event with
+  backoff.
+- netevent neighbour tracking: events on the driver's devices
+  (->dev_ours) delivered as fib_offload_neigh; next hops shared per
+  (family, ifindex, gateway) with resolve and replay helpers.
+- Neighbour refresh without an RTNL poll: a stale neighbour (netevent
+  NUD_STALE) of a held next hop is checked through ->nh_hit() at once
+  and every DELAY_PROBE_TIME while it stays stale; a hit triggers
+  neigh_event_send(). Next hops the hardware cannot use yet are retried
+  (fib_offload_nh_retry()).
+- offload / trap / offload_failed for both IPv4 (fib_alias_hw_flags_set)
+  and IPv6 (fib6_info_hw_flags_set) through fib_offload_entry.
+- Policy rules: forwarding suspended per family while the lookup is not
+  local, then main (->fwd_suspend or library-managed routes to trap).
+- Library-managed mode (->route_add): one route per destination, forward
+  through a resolved next hop or trap; a refused add/replace falls back
+  to trap, then offload_failed; on-link neighbour host entries.
+
+Modelled on netdevsim (event capture), prestera (kernel cache vs
+hardware objects) and mlxsw (flag semantics, neighbour activity).
+---
