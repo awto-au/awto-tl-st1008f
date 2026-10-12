@@ -626,16 +626,23 @@ static int turbo_apply(const struct otto_turbo *t, const struct otto_turbo *l)
 
 	/* #101: the DDR change at CPU 1000 hung 3-4 in 20 power-ups, at CPU 800 0 in 45 -> DDR at the
 	 * lower CPU rate: raising = DDR first, CPU last; lowering = CPU first */
-	if ((cpu || sram) && t->cpu && t->cpu < l->cpu)
-		ret = turbo_cpu(t->cpu, t->sram);
+	if (cpu && t->cpu < l->cpu)
+		ret = turbo_cpu(t->cpu, 0);
 	else if (ddr)
 		ret = turbo_ddr(t->ddr);
 	if (ret)
 		return ret;
-	if ((cpu || sram) && !(t->cpu && t->cpu < l->cpu))
-		ret = turbo_cpu(cpu ? t->cpu : 0, t->sram);
-	else if (ddr && t->cpu && t->cpu < l->cpu)
+	if (cpu && t->cpu > l->cpu)
+		ret = turbo_cpu(t->cpu, 0);
+	else if (ddr && cpu && t->cpu < l->cpu)
 		ret = turbo_ddr(t->ddr);
+	if (ret)
+		return ret;
+	/* SRAM select last, its own re-lock at the final CPU rate: a CPU and SRAM change in one re-lock
+	 * runs at the new CPU rate with the old CPU_SRAM_ASY_TIMING until the routine's write (hung once
+	 * at cpu 1400 + sram 500, 2026-10-13); alone, the class is recomputed for the live CPU */
+	if (sram)
+		ret = turbo_cpu(0, t->sram);
 	if (ret)
 		return ret;
 	if ((cpu && t->cpu > 800) || (ddr && t->ddr > 600)) {	/* DRAM prefetch with an overclock (#52) */

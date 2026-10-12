@@ -39,12 +39,14 @@ STEPS = {
     "sram500": ("clocks set sram 500 force", r"clocks: (locked after \d+ us[^\n]*|CPU PLL not locked[^\n]*)"),
     "membench": ("clocks membench", r"membench dram c read \(fill\): \d+ ps/access"),
     "lx": ("clocks set lx {lx} force", r"clocks: (lx now \d+ kHz[^\n]*|lx code[^\n]*)"),
+    "turbo": ("turbo {profile}", r"clocks: turbo (OK|reverted|FAIL)[^\n]*|clocks: turbo refused[^\n]*"),
     "fast": ("clocks fast", r"clocks: (fast = [^\n]*|mem set FAIL[^\n]*|DTR latch[^\n]*)"),
 }
 # step from SRAM: PLL relock (250 us bound) + DDR change + 1024-word canary, ~ms; the console
 # prints ~20 lines (~2 KB at 115200 = 0.2 s). 3 s names a hang.
 STEP_S = 3
 CPU = ["0x3a8", "0x6b439e13"]  # 1000 MHz; --cpu
+PROFILE = ""  # --profile: turbo step, e.g. cpu=1400,ddr=662,sram=500
 EXTRA = ""  # --extra: mem step options, e.g. 'dqshift -8'
 LX = 4  # --lx: code 2..5 (306 / 245 / 204 / 175 MHz)
 BOOT_S = 120  # ramload uboot-mainline: power cycle + network on + TFTP ~25 s; x1.25 + relay retries
@@ -72,7 +74,8 @@ def cycle(step: str, flash: bool, mhz: int) -> dict:
     res, detail = "pass", []
     for part in step.split("+"):  # e.g. cpu+mem: separate commands, in order
         text, want = STEPS[part]
-        text = text.format(mhz=mhz, e208=CPU[0], e210=CPU[1], lx=LX, extra=EXTRA + " " if EXTRA else "")
+        text = text.format(mhz=mhz, e208=CPU[0], e210=CPU[1], lx=LX, extra=EXTRA + " " if EXTRA else "",
+                           profile=PROFILE)
         mark = con.size()
         try:
             _, out = con.run(text, rf"(?s){want}.*?{PROMPT}", STEP_S, f"step {part}")
@@ -177,6 +180,7 @@ def main() -> int:
     ap.add_argument("--n", type=int, default=20)
     ap.add_argument("--mhz", type=int, default=650, help="mem step: DDR bin (662 = 662.5 MHz)")
     ap.add_argument("--stop-on-hang", action="store_true")
+    ap.add_argument("--profile", default="", help="turbo step profile, e.g. cpu=1400,ddr=662,sram=500")
     ap.add_argument("--extra", default="", help="mem step options before force, e.g. 'dqshift -8'")
     ap.add_argument("--lx", type=int, default=4, help="lx step: code 2..5")
     ap.add_argument("--cpu", default="0x3a8:0x6b439e13", help="cpu step: E208:E210 (scripts/clock_calc.py cpu <MHz>)")
@@ -186,10 +190,11 @@ def main() -> int:
         return session(a.session, a.lo, a.hi, a.grid, a.from_flash)
     if not a.step:
         ap.error("step or --session DOMAIN")
-    global CPU, LX, EXTRA
+    global CPU, LX, EXTRA, PROFILE
     CPU = a.cpu.split(":")
     LX = a.lx
     EXTRA = a.extra
+    PROFILE = a.profile
     if any(p not in STEPS for p in a.step.split("+")):
         ap.error(f"step parts must be in {list(STEPS)}")
     tag = f"{a.step}{a.mhz if 'mem' in a.step else ''}{'@' + CPU[0] if 'cpu' in a.step else ''}{'-flash' if a.from_flash else ''}"
