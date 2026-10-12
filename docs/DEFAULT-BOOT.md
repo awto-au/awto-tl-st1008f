@@ -180,10 +180,11 @@ Owner decision 2026-10-12 (#73, #46); U-Boot side changed 2026-10-13 (#46): the 
 
 - `bootsel fast` in `bootcmd`: M1, M2, invalid → stock clocks (CPU 800, DDR 600, LX 175, SPI 25.5): `bootsel: M1: stock clocks (turbo profile only in M3)`.
 - M3 → profile from the stock env (CRC-checked, read-only), stored like `ethaddr`: `st1008f_turbo=cpu=1100,ddr=650,lx=175`.
-  - Keys `cpu`, `ddr`, `lx` in MHz, any subset (missing = stock); `sram=250`, `spi=25` accepted at stock only (SRAM 500 not in this build; SPI #50). ≤ 62 chars, values ≤ 4 digits.
-  - Supported: cpu 1000 1050 1100 1150 1200 1300 (tested points, [OVERCLOCK.md](OVERCLOCK.md)); ddr = a `clocks set mem` bin; lx 175 204 245 306.
+  - Keys `cpu`, `ddr`, `lx`, `sram` in MHz, any subset (missing = keep); `spi=25` accepted at stock only (#50). ≤ 62 chars, values ≤ 4 digits.
+  - Supported: cpu 800 (stock /4), 1000, 1050 (/3), 1100-1425 step 25 (/2, VCO 2200-2850; 1450+ hung, [OVERCLOCK.md](OVERCLOCK.md)); ddr = a `clocks set mem` bin; lx 175 204 245 306; sram 250 500.
   - Missing, bad env CRC, unknown key, bad number, unsupported value → stock clocks, one `bootsel: M3: …: stock clocks` line, LED fallback latch `turbo`.
-  - Apply = `clocks turbo <cpu> <ddr> <lx>`: DDR (nosr), CPU, tREFI 4608 clk if DDR ≥ 600 and changed, DRAM prefetch if CPU or DDR changed, LX last.
+  - Apply (`otto_turbo`, clocks.c): raising = DDR (nosr) first, CPU (+ SRAM select, same re-lock) last; lowering CPU = CPU first (#101: DDR changes at the lower CPU rate); tREFI 4608 clk if DDR > 600; DRAM prefetch with an overclock; LX last (console follows). Any failure → revert to the starting clocks, `clocks: turbo reverted = …` with the reason above it.
+- `turbo` command at our prompt, any mode (M1/M2 too): `turbo` = stored profile, `turbo show` = profile + live clocks, `turbo cpu=1400 ddr=662 lx=306 sram=500` (or one domain) = ad hoc, env untouched. Same checks. Host: `./dev.py turbo [PROFILE|show] [--no-cycle]` (power-cycle, ESC, command).
   - Written only by `./dev.py uboot-chain-env turbo set PROFILE [--ssh --ip A.B.C.D]` (host checks it with the same rules first); `apply` and the installers never write one.
 - **Default = stock clocks, as TP-Link ships (CPU 800, DDR 600, LX 175, SRAM 250, SPI 25.5), in every mode** (owner 2026-10-13): no `st1008f_turbo`, or one at stock values → stock. Installing this slot therefore lowers sw1/sw2 from today's `clocks fast` 1000/650 to stock at the next power-up, until a profile is written and the slider is in M3. `uboot-chain-install` and `uboot-chain-env apply` print this.
 - Turbo needs the switch in M3 on each unit; M1/M2 run stock 800/600 whatever the profile.
@@ -191,7 +192,7 @@ Owner decision 2026-10-12 (#73, #46); U-Boot side changed 2026-10-13 (#46): the 
   - sw1: not known (no console; flash OpenWrt 6.18 has no mode readout). Owner to check the slider before its next power-up.
 - Unfinished change (watchdog reset during it): record word `REC+3` still set → next boot stock clocks, the one after retries.
 - CPU PLL no lock: re-lock at the previous values; still off the PLL → `reset` with the record word set (next boot stock); a reset that returns → the armed watchdog fires.
-- `clocks fast` (prompt) = `clocks turbo 1000 650 0`, as before.
+- `clocks fast` (prompt) = `turbo cpu=1000 ddr=650`, as before.
 
 ### Clock-change bounds (#105)
 

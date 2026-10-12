@@ -48,12 +48,12 @@ VARS = {  # saved in this order; bootcmd last
     "ub_go": f"mw.l 0xa0f80000 0xa5a51008; go 0x{LOAD:08x}",
     "bootcmd": "run ub_ld ub_ck ub_go; run bootcmd_stock",
 }
-# Turbo profile (#46). Value sets mirror uboot-port clocks.c cpu_pts / mem_bins / lx_pts + stock
+# Turbo profile (#46). Value sets mirror uboot-port clocks.c cpu_code / mem_bins / lx_pts + sram
 TURBO_VAR = "st1008f_turbo"
 STOCK_NOTE = "NOTE: default = stock clocks (CPU 800, DDR 600, LX 175, SRAM 250, SPI 25.5) in every mode; this unit leaves today's 1000/650 at its next power-up until a profile is written: ./dev.py uboot-chain-env turbo set PROFILE [--ssh --ip IP] + mode switch M3 (#46)"
-TURBO_SETS = {"cpu": {800, 1000, 1050, 1100, 1150, 1200, 1300},
+TURBO_SETS = {"cpu": {800, 1000, 1050} | set(range(1100, 1426, 25)),
               "ddr": {800, 775, 750, 725, 700, 675, 662, 650, 625, 600, 550, 500, 450, 400, 350, 300},
-              "lx": {175, 204, 245, 306}, "sram": {250}, "spi": {25}}
+              "lx": {175, 204, 245, 306}, "sram": {250, 500}, "spi": {25}}
 CHECK_OK = r"Total of 1 word"   # stock cmp.l: equal
 CHECK_BAD = r"word at 0x"        # stock cmp.l: differ
 STOCK = r"\r?\nRTL9300# "

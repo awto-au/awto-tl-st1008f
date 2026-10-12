@@ -7,6 +7,11 @@
   fast = `clocks fast` (both + tREFI + prefetch). Then `echo ALIVE`.
 - Result per cycle: pass / fail (command reported FAIL) / hang (no prompt; last console lines kept)
   / boot (ramload failed). JSON lines -> tmp/logs/clocks_cycle.jsonl; summary at the end.
+- `--session DOMAIN` (cpu|ddr|lx|sram; CLAUDE.md "Speed sweeps"): binary search over the points `turbo`
+  accepts in --lo (stock) .. --hi (max) [on the --step grid], starting at the midpoint; pass -> higher,
+  fail/hang -> lower; ONE quick test per point, in one powered session. Each point: `bootsel wdt` armed,
+  `turbo <domain>=<v>` (applied from the current clocks), ALIVE + 16 MiB crc32 + temp, wdt off.
+  Power-cycle only after a fail or hang. Logs every point and the final edge.
 - RAM U-Boot only: no flash or env writes. Log: tmp/logs/clocks_cycle.log
 """
 
@@ -93,9 +98,82 @@ def cycle(step: str, flash: bool, mhz: int) -> dict:
     return {"result": res, "detail": detail}
 
 
+# `turbo` points per domain (uboot-port clocks.c cpu_code / mem_bins / lx_pts, bootsel sram); [0] = stock
+POINTS = {"cpu": [800, 1000, 1050] + list(range(1100, 1426, 25)),
+          "ddr": [600, 625, 650, 662, 675, 700, 725, 750, 775, 800],
+          "lx": [175, 204, 245, 306], "sram": [250, 500]}
+# bootsel wdt per point: turbo (PLL/DDR change ~ms) + ~25 console lines (0.2 s) + crc32 (<= 2 s cap) +
+# temp: expected <= 4 s, x1.25 = 5 s; ticks follow LX, so 306 MHz shortens it to ~2.9 s -> 9 s armed
+WDT_MS = 9000
+TURBO_OK = r"clocks: turbo (OK|reverted) = [^\n]*|turbo: [^\n]*nothing changed|clocks: turbo refused[^\n]*"
+
+
+def boot(flash: bool) -> bool:
+    cmd = [sys.executable, str(ROOT / "scripts/st1008_ramload.py"), "uboot-mainline", "--stock-clocks"]
+    r = subprocess.run(cmd + (["--from-flash"] if flash else []), capture_output=True, text=True, timeout=BOOT_S)
+    return r.returncode in (0, 1)  # 1 = boot log UNKNOWN only: prompt usable
+
+
+def point(con, domain: str, v: int) -> dict:
+    mark = con.size()
+    try:
+        con.run(f"bootsel wdt {WDT_MS}", PROMPT, 1, "wdt on")
+        _, out = con.run(f"turbo {domain}={v}", rf"(?s)({TURBO_OK}).*?{PROMPT}", STEP_S, f"turbo {domain}={v}")
+        m = re.search(TURBO_OK, out)
+        if not m.group(0).startswith("clocks: turbo OK"):
+            return {"result": "fail", "detail": [m.group(0)]}
+        con.run("echo ALIVE", r"\r?\nALIVE" + PROMPT, 2, "alive")
+        con.run("crc32 0x81000000 0x1000000", r"==> [0-9a-f]{8}" + PROMPT, 2, "crc32 16 MiB")
+        _, t = con.run("rtk temp", r"(?s)rtk temp.*?" + PROMPT, 2, "temp")
+        con.run("bootsel wdt off", PROMPT, 1, "wdt off")
+        return {"result": "pass", "detail": [m.group(0), " ".join(re.findall(r"(\d+) ?C\b", t))[:20] + " C"]}
+    except SystemExit as e:
+        tail = Path(ROOT / "private/serial/st1008-console.log").read_bytes()[mark:].decode("latin-1")
+        lines = [ln.strip() for ln in tail.splitlines() if ln.strip() and not ln.startswith("[TX")]
+        return {"result": "hang" if str(e).startswith("TIMEOUT") else "fail", "detail": lines[-3:]}
+
+
+def session(domain: str, lo: int | None, hi: int | None, step: int | None, flash: bool) -> int:
+    pts = POINTS[domain]
+    lo = pts[0] if lo is None else lo
+    hi = pts[-1] if hi is None else hi
+    pts = [p for p in pts if lo <= p <= hi and (not step or (p - lo) % step == 0)]
+    if len(pts) < 2 or pts[0] != lo:
+        log(f"FAIL session: no points in {lo}..{hi} step {step} ({POINTS[domain]})")
+        return 2
+    good, bad = 0, len(pts)  # index: pts[0] = stock = known good; bad = first failing index
+    fresh = False
+    tag = f"session-{domain}"
+    while good + 1 < bad:
+        # MHz midpoint of the open interval (stock..max at the start), snapped to a point strictly inside
+        mid = (pts[good] + (pts[bad] if bad < len(pts) else pts[-1])) / 2
+        i = min(range(good + 1, bad), key=lambda k: abs(pts[k] - mid))
+        if not fresh and not boot(flash):
+            log(f"[{tag}] FAIL: no prompt after the power cycle")
+            return 2
+        fresh = True
+        res = point(Console(), domain, pts[i])
+        res.update({"tag": tag, "point": pts[i], "when": time.strftime("%Y-%m-%dT%H:%M:%S%z")})
+        log(f"[{tag}] {domain}={pts[i]}: {res['result']}: {' | '.join(res['detail'])}")
+        with JSONL.open("a") as fh:
+            fh.write(json.dumps(res) + "\n")
+        if res["result"] == "pass":
+            good = i  # clocks stay up; the next point is higher and applies from here
+        else:
+            bad = i
+            fresh = False  # fail or hang: power-cycle before the next point
+    edge = pts[bad] if bad < len(pts) else "none (max passed)"
+    log(f"EDGE {domain}: fastest viable {pts[good]}, first failing {edge} (one quick test per point)")
+    return 0
+
+
 def main() -> int:
     ap = argparse.ArgumentParser(description=__doc__.splitlines()[0])
-    ap.add_argument("step", help="cpu | mem | fast, or a sequence like cpu+mem / mem+cpu")
+    ap.add_argument("step", nargs="?", help="cpu | mem | fast, or a sequence like cpu+mem / mem+cpu")
+    ap.add_argument("--session", choices=sorted(POINTS), help="binary-search sweep in one powered session")
+    ap.add_argument("--lo", type=int, help="session: stock end (default: stock)")
+    ap.add_argument("--hi", type=int, help="session: max end (default: highest point `turbo` accepts)")
+    ap.add_argument("--step", dest="grid", type=int, help="session: resolution in MHz from --lo")
     ap.add_argument("--n", type=int, default=20)
     ap.add_argument("--mhz", type=int, default=650, help="mem step: DDR bin (662 = 662.5 MHz)")
     ap.add_argument("--stop-on-hang", action="store_true")
@@ -104,6 +182,10 @@ def main() -> int:
     ap.add_argument("--cpu", default="0x3a8:0x6b439e13", help="cpu step: E208:E210 (scripts/clock_calc.py cpu <MHz>)")
     ap.add_argument("--from-flash", action="store_true", help="ours from jffs2-log, no network on")
     a = ap.parse_args()
+    if a.session:
+        return session(a.session, a.lo, a.hi, a.grid, a.from_flash)
+    if not a.step:
+        ap.error("step or --session DOMAIN")
     global CPU, LX, EXTRA
     CPU = a.cpu.split(":")
     LX = a.lx

@@ -124,17 +124,14 @@ static u32 rec_attempts(void)
 #define REC_CLK		(REC + 3)
 #define REC_CLK_MAGIC	0xc10cfa57
 
-/* Turbo profile (#46): stock env `st1008f_turbo=cpu=1100,ddr=650,lx=175` (MHz, any subset; missing
- * = stock). sram/spi accepted at their stock values only. Applied in M3 only. */
+/* Turbo profile (#46): stock env `st1008f_turbo=cpu=1100,ddr=650,lx=175,sram=500` (MHz, any subset;
+ * missing = keep/stock); spi accepted at stock 25 only (#50). Autoboot applies it in M3 only; the
+ * `turbo` command in any mode. */
 #define TURBO_VAR	"st1008f_turbo"
 #define TURBO_MAX	64	/* value incl. NUL; longer = refused */
 
-struct turbo {
-	u32 cpu, ddr, lx;
-};
-
 /* NULL = parsed; else why not. Bounded: <= 63 chars, values <= 4 digits */
-static const char *turbo_parse(char *s, struct turbo *t)
+static const char *turbo_parse(char *s, struct otto_turbo *t)
 {
 	char *kv, *v, *end;
 	u32 n;
@@ -156,10 +153,32 @@ static const char *turbo_parse(char *s, struct turbo *t)
 			t->ddr = n;
 		else if (!strcmp(kv, "lx"))
 			t->lx = n;
-		else if (!strcmp(kv, "sram") ? n != 250 : !strcmp(kv, "spi") ? n != 25 : 1)
-			return "unknown key, or sram/spi not at stock (250 / 25: SRAM 500 not in this build, SPI #50)";
+		else if (!strcmp(kv, "sram"))
+			t->sram = n;
+		else if (strcmp(kv, "spi") || n != 25)
+			return "unknown key, or spi not at stock 25 (#50: Linux reads flash)";
 	}
 	return NULL;
+}
+
+/* Parse + check `s` (destroyed); NULL = ready to apply */
+static const char *turbo_get(char *s, struct otto_turbo *t)
+{
+	return turbo_parse(s, t) ?: otto_turbo_check(t);
+}
+
+/* Apply; CPU still off its PLL after the revert = unknown clock: reset (`rec` = boot record kept) */
+static int turbo_run(const struct otto_turbo *t)
+{
+	struct otto_clocks c;
+	int ret = otto_turbo(t);
+
+	otto_clocks_read(&c);
+	if (!c.cpu_on_pll) {
+		puts("turbo: CPU not on its PLL after the change and the revert: reset\n");
+		do_reset(NULL, 0, 0, NULL);
+	}
+	return ret;
 }
 
 static void wdt_on(u32 ms);
@@ -169,9 +188,8 @@ static int clk_fast(void)
 {
 	char val[TURBO_MAX] = "", raw[TURBO_MAX];
 	int mode = st1008f_boot_mode(NULL);
-	struct otto_clocks c;
+	struct otto_turbo t;
 	const char *why;
-	struct turbo t;
 	int ret;
 
 	wdt_on(BOOT_WDT_MS);	/* every path: covers bootm -> kernel wdt probe */
@@ -184,9 +202,7 @@ static int clk_fast(void)
 		return 0;
 	}
 	strlcpy(raw, val, sizeof(raw));
-	why = turbo_parse(val, &t);
-	if (!why)
-		why = otto_turbo_check(t.cpu, t.ddr, t.lx);
+	why = turbo_get(val, &t);
 	if (why) {
 		printf("bootsel: M3: " TURBO_VAR "=%s: %s: stock clocks\n", raw, why);
 		rtk_led_fallback("turbo");
@@ -198,16 +214,11 @@ static int clk_fast(void)
 		rtk_led_fallback("clocks");
 		return 0;
 	}
-	printf("bootsel: M3: turbo cpu %u ddr %u lx %u (0 = stock)\n", t.cpu, t.ddr, t.lx);
-	__raw_writel(REC_CLK_MAGIC, REC_CLK);	/* KSEG1: in DRAM before the change starts */
-	ret = otto_turbo(t.cpu, t.ddr, t.lx);
-	otto_clocks_read(&c);
-	if (!c.cpu_on_pll) {
-		/* no lock, restore failed too: REC_CLK stays set so the next boot skips the overclock;
-		 * if the reset returns, the wdt armed above expires */
-		puts("bootsel: CPU not on its PLL after the turbo change: reset\n");
-		do_reset(NULL, 0, 0, NULL);
-	}
+	printf("bootsel: M3: turbo cpu %u ddr %u lx %u sram %u (0 = keep)\n", t.cpu, t.ddr, t.lx, t.sram);
+	/* KSEG1: in DRAM before the change; a reset in turbo_run keeps it -> next boot stock. If the
+	 * reset returns, the wdt armed above expires */
+	__raw_writel(REC_CLK_MAGIC, REC_CLK);
+	ret = turbo_run(&t);
 	__raw_writel(0, REC_CLK);
 	wdt_on(BOOT_WDT_MS);	/* again at the new LX: covers bootm -> kernel wdt probe */
 	if (ret) {
@@ -355,3 +366,48 @@ U_BOOT_CMD(bootsel, 3, 0, do_bootsel, "default-boot selection (#73, docs/DEFAULT
 	   "bootsel clear      - attempt record = 0 (RAM)\n"
 	   "bootsel fast       - `clocks fast`, skipped once after a boot whose change never finished\n"
 	   "bootsel wdt on|off|<ms> - SoC watchdog, SoC reset on expiry (on = boot value)");
+
+/* `turbo` at the prompt, any mode (#46): stored profile, `show`, or ad-hoc key=value args (env untouched) */
+static int do_turbo(struct cmd_tbl *cmdtp, int flag, int argc, char *const argv[])
+{
+	char val[TURBO_MAX] = "", raw[TURBO_MAX] = "";
+	struct otto_turbo t, l;
+	const char *why;
+	int i;
+
+	if (argc == 2 && !strcmp(argv[1], "show")) {
+		otto_turbo_live(&l);
+		printf("turbo: " TURBO_VAR "=%s\n", st1008f_stock_env(TURBO_VAR, val, sizeof(val)) ?: "(unset = stock)");
+		printf("turbo: live cpu %u mem %u lx %u sram %u MHz (stock 800 600 175 250)\n", l.cpu, l.ddr, l.lx,
+		       l.sram);
+		return 0;
+	}
+	if (argc == 1) {
+		if (!st1008f_stock_env(TURBO_VAR, val, sizeof(val))) {
+			puts("turbo: no " TURBO_VAR " in the stock env (or env CRC bad): nothing changed\n");
+			return CMD_RET_FAILURE;
+		}
+	} else {
+		for (i = 1; i < argc; i++) {	/* `turbo cpu=1400 ddr=662` = "cpu=1400,ddr=662" */
+			if (strlen(val) + strlen(argv[i]) + 2 > sizeof(val)) {
+				puts("turbo: profile too long\n");
+				return CMD_RET_USAGE;
+			}
+			if (i > 1)
+				strcat(val, ",");
+			strcat(val, argv[i]);
+		}
+	}
+	strlcpy(raw, val, sizeof(raw));
+	why = turbo_get(val, &t);
+	if (why) {
+		printf("turbo: %s: %s: nothing changed\n", raw, why);
+		return CMD_RET_FAILURE;
+	}
+	return turbo_run(&t) ? CMD_RET_FAILURE : 0;
+}
+
+U_BOOT_CMD(turbo, 8, 0, do_turbo, "clock profile now, any mode (#46, docs/DEFAULT-BOOT.md)",
+	   "            - apply the stored " TURBO_VAR " profile\n"
+	   "turbo show       - stored profile + live clocks\n"
+	   "turbo cpu=N [ddr=N] [lx=N] [sram=N] - apply ad hoc (MHz; env untouched); FAIL = reverted");
