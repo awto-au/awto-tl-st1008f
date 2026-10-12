@@ -154,7 +154,7 @@ Upstream-hostile items to carry out-of-tree: #7 (`700`, `722`), #8 until merged,
 - So the cause is something Linux does between U-Boot and `dirmap_create`. Ranked:
 
 1. **Window read issued before the controller released CS / went idle.** The old self-check deasserted CS and read the window within ns. Stock waits for SFCSR `0x08000c10` (RDY, CSB0_STS, CSB1_STS, IDLE) in `sf_cs_release` and RDY+IDLE in `sf_wait_ready` [BIN `0x83f00fc0`, `0x83f01060`]. RTL9300 SDK register map: SFCSR bit 0 = `MIO_PIO_ERR`, bit 4 = `SPI_IDLE`, bits 11/10 = `SPI_CSB0/1_STS`. In U-Boot the gap between `sf` and `crc32` is human-scale. **Fixed** in the patch (release wait before every window read).
-2. **SFCSR state from `init_hw()` (v7.3).** It does `value &= RTL_SPI_SFCSR_CS`: clears every bit but 24, so CSB0 and CSB1 are both driven low (asserted) after probe; `rt_set_cs` only ever raises CSB0, so CS1 stays asserted. Upstream v7.4 (OpenWrt `040-v7.4-...-second-CS`) rewrites it to `SFCSR = CSB0|CSB1` (in linux-next `next-20261009`: the first self-check try should pass there; untested). Mitigated on 7.3: retry with the bootloader SFCSR; the diag prints SFCSR now and at probe.
+2. **SFCSR state from `init_hw()` (v7.3).** It does `value &= RTL_SPI_SFCSR_CS`: clears every bit but 24, so CSB0 and CSB1 are both driven low (asserted) after probe; `rt_set_cs` only ever raises CSB0, so CS1 stays asserted. Upstream v7.4 (OpenWrt `040-v7.4-...-second-CS`) rewrites it to `SFCSR = CSB0|CSB1` (in linux-next `next-20261009`: self-check passes, dirmap active, 2026-10-12 sw2). Mitigated on 7.3: retry with the bootloader SFCSR; the diag prints SFCSR now and at probe.
 3. **PIO side of the compare.** Same sequence as upstream `rcv4` (md5-verified), but never run standalone before. The diag prints its first 16 B; `spi-dirmap-test` prints `mtd0[0:16]` via `transfer_one` for comparison.
 4. **Flash address mode.** Unlikely: v7.3 `spi_nor_init` sends EN4B only without 4B opcodes; W25Q256JV gets `SNOR_F_4B_OPCODES` (`w25q256_post_bfpt_fixups`), FV gets EN4B. Either way the flash stays in the 4-byte mode stock set ([UBOOT-MAINLINE.md](UBOOT-MAINLINE.md)). A mismatch would show as a byte shift (diag pattern).
 5. **Linux-only bus setup.** DRAM prefetch (300-04, MCR) and highmem zone remap (`rtl930x_prepare_highmem`, UMSAR/SRAMSAR zeroed, zone 3 at `0x20000000`). The window `0x14000000-0x15ffffff` is outside zones 1-3. If 1-3 are excluded, boot `./dev.py build-kernel --no-highmem` next.
@@ -384,7 +384,8 @@ Method: `scripts/openwrt_patch_status.py --tree <base>` (series order; reverse-a
 | `300-18`, `300-19` | applied | none |
 
 - None of ours is in next. Generic `pending-6.18/700`, `701` and `hack-6.18/910`, `911`, `940` apply to next as-is.
-- Build: `./dev.py build-kernel --w1` on `next-20261009` (2026-10-12, GCC 16.2, SMP default config): 0 warnings, W=1 on the 12 objects our patches touch: 0 warnings; 618 `=y`; kernel raw 12,366,208 B, `mainline.bin` 4,891,140 B (16 MiB bootm limit). Not yet booted.
+- Build: `./dev.py build-kernel --w1` on `next-20261009` (2026-10-12, GCC 16.2, SMP default config): 0 warnings, W=1 on the 12 objects our patches touch: 0 warnings; 618 `=y`; kernel raw 12,366,208 B, `mainline.bin` 4,891,140 B (16 MiB bootm limit).
+- Boot (2026-10-12T14:07+11:00, sw2, `./dev.py ramload mainline-kernel`, merged main ec17cd4): initramfs shell up, `check-log` CLEAN (allowlist: `-next-YYYYMMDD` version, sw2 MAC via nvmem). NIC/NAT numbers vs 7.3 blocked by the bench path (#96).
 - OpenWrt-on-next config: `./dev.py build-openwrt --kernel mainline --regen-config` -> `openwrt/kernel-7.3/config-7.3` (next symbols added, `QCOM_PAS`/`QCOM_SCM` gone). Image not built.
 
 ### `files-6.18`
