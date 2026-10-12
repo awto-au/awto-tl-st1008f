@@ -260,6 +260,12 @@ def cmd_switch_logs(extra: list[str]) -> int:
     return _script("switch_logs.py", extra)
 
 
+@command("tagged bench VLANs on a running OpenWrt bridge over SSH, hitless (runtime + uci, no reload) (#96)",
+         args="show | add|remove VIDS --ports P,Q [--ip A.B.C.D]", kind="hardware")
+def cmd_switch_vlan(extra: list[str]) -> int:
+    return _script("switch_vlan.py", extra)
+
+
 @command("bench unit: copy on-chip SRAM + RAM-resident stock U-Boot to private/ over Ethernet (our U-Boot tftpput)",
          args="[--no-boot]", kind="hardware")
 def cmd_mem_dump(extra: list[str]) -> int:
@@ -544,7 +550,7 @@ def main(argv: list[str] | None = None) -> int:
 HOST_ONLY = {"storm-watch", "check-log", "flash-guard", "doc-check", "console-watch", "console-window",
              "switch-check", "mode-watch", "switch-logs"}
 # Owner-approved management of a running switch over SSH (any unit, sw1 included): no power, console or flash.
-NET_MANAGE = {"openwrt-snmp", "openwrt-luci", "switch-net-clean", "switch-snmp"}
+NET_MANAGE = {"openwrt-snmp", "openwrt-luci", "switch-net-clean", "switch-snmp", "switch-vlan"}
 
 
 def _storm_guard() -> None:

@@ -119,15 +119,17 @@ MID_TS = re.compile(r"\[\s*\d+\.\d{6}\]")
 
 def unsplice(boot):
     """Split a kernel line printed into the middle of another; drop known userspace fragments."""
+    vers = {m.group(1) for _, raw in boot if (m := re.search(r"Linux version (\S+)", raw))}
+    msgs = CUT_MSGS + tuple(f"st1008f-initramfs: up (Linux {v})" for v in vers)  # our /init marker
     for n, raw in boot:
         m = MID_TS.search(raw, 1)
         if m and not raw.startswith("[TX ") and not raw.startswith("[daemon]"):
             head, raw = raw[:m.start()], raw[m.start():]
             h = DAEMON_TS.sub("", head).strip()
-            if h and not any(h in c for c in CUT_MSGS):
+            if h and not any(h in c for c in msgs):
                 yield n, head
         t = raw.strip()
-        if t and not KERNEL_TS.match(t) and any(t in c and c != t for c in CUT_MSGS):
+        if t and not KERNEL_TS.match(t) and any(t in c and c != t for c in msgs):
             continue
         yield n, raw
 

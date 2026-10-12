@@ -113,6 +113,10 @@ End-to-end workflow: [../README.md#workflow](../README.md#workflow).
 - Purpose: read-only quad test of the SPI-NOR mmio window at our prompt (#61): SFCR2 → Quad Output 0x6B / Quad I/O 0xEB, whole-chip CRC vs stock Dual I/O, `bench` flash lines, stock SFCR2 restored.
 - Run: `./dev.py spi-quad-test [quad-out-6b] [quad-io-eb]` after `./dev.py ramload uboot-mainline`. Log: `tmp/logs/spi_quad_test.log`. Results: [../docs/CLOCKS.md](../docs/CLOCKS.md#controller-modes).
 
+### switch_vlan.py
+- Purpose: tagged bench VLANs on a running OpenWrt bridge `switch` over SSH, hitless: runtime `bridge vlan add/del` + uci `bridge-vlan` section, `uci commit`, no reload; mgmt ping after each step, runtime revert on loss. VLAN 1 never touched (#96).
+- Run: `./dev.py switch-vlan show | stats --ports P | add|remove VIDS --ports P,Q [--ip A.B.C.D]` (`NET_MANAGE`: may target sw1). Log: `tmp/logs/switch_vlan.log`.
+
 ### board_guard.py
 - Purpose: refuse a `dev.py` hardware flow unless the board is sw2 (#91). Called by `dev.py`; checks args, console log last boot, ARP. Exit 5 = refused.
 - Run: `scripts/board_guard.py <command> [args]`. Log: `tmp/logs/board_guard.log`. Detail: [../docs/hardware.md](../docs/hardware.md#unit-guard-91).

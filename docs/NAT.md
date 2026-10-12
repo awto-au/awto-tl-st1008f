@@ -108,6 +108,8 @@ Conditions:
 
 ### NIC path (`300-12`, 2026-10-12)
 
+linux-next vs 7.3 on sw2 (2026-10-12): [MAINLINE-PORT.md](MAINLINE-PORT.md#throughput-one-run-each) (next: tcp-P4 358-360 vs 325 Mbit/s).
+
 Same boot and topology as above (DDR 600, CPU 1 GHz, HIGHMEM=y). `./dev.py nic-bench run`, 3 runs per step, one boot per step; rows tagged `nic-*` in `tmp/logs/nat_bench.jsonl`. Cells: min-max of 3. `fwd kpps` = eth0 TX. `ns/pkt` = busy VPE time per eth0 RX packet.
 
 | Step | TCP P4 Mbit/s | UDP 1400 @600 kpps | @700 kpps (loss %) | @900 kpps (loss %) | UDP 64 B kpps | ns/pkt UDP 64 B |

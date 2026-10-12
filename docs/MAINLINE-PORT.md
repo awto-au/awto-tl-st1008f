@@ -442,6 +442,16 @@ Measured 2026-10-12, mainline 7.3-rc6, `ramload uboot-mainline --then mainline-k
 | SMP, eth0 CPU0 | 322-325 | 55.8-57.6 | 64.4-64.9 |
 | SMP + 300-18, eth0 CPU1 | 334 | 59.3 | 67.9 |
 
+
+linux-next vs 7.3-rc6 (2026-10-12T14:28-14:35+11:00, sw2, same main tree ec17cd4+, SMP default (eth0 CPU0), host via sw1 lan5 -> sw1 lan4 -> sw2 cage 1 with VLAN 991/992 trunked on sw1 (#96), 3 runs each; tags `73-sw2`, `next-sw2`):
+
+| Kernel | tcp-P4 Mbit/s | udp1400-900 kpps | udp64 kpps |
+|---|---|---|---|
+| v7.3-rc6 | 325 | 58.8-60.3 | 65.9-67.4 |
+| next-20261009 | **358-360** | 61.3-63.2 | 67.5-70.2 |
+
+- next: tcp +10 %, udp1400-900 +4 %, udp64 +3 %; ns/pkt 21.6 k vs 23.9 k (tcp). 600/700 Mbit/s offered: equal (no loss either).
+
 - One NAPI context: the softirq runs on the CPU that takes eth0; the other VPE idles (CPU1 busy 0.1-0.6 % with eth0 on CPU0).
 - eth0 on CPU1 recovers the SMP loss: CPU0 also carries the UART, timers' housekeeping and RCU.
 

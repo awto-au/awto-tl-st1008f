@@ -16,6 +16,8 @@ Facts and results: [NAT.md](NAT.md). Everything runs through `./dev.py nat-bench
 
 - Host netns `natlan` uses `enp7s0.991` (10.99.1.2, fd99:1::2). Host netns `natwan` uses `enp7s0.992` (10.99.2.2, fd99:2::2).
 - Switch SVIs are `switch.991` (10.99.1.1) and `switch.992` (10.99.2.1).
+- Bench path from 2026-10-12 (sw2): host `enp7s0` → sw1 lan5 → sw1 lan4 → sw2 cage 1. sw1 carries 991/992 tagged on lan4 + lan5 only (`./dev.py switch-vlan add 991,992 --ports lan4,lan5 --ip 192.168.25.48`, #96; uci saved, runtime-applied, no reload).
+  - netifd re-applies its loaded config when lan4 re-joins (every sw2 power cycle) and drops the runtime 991/992 on lan4. Re-run the `switch-vlan add` after each sw2 boot until sw1's netifd has reloaded the saved config once (a reload drops all sw1 ports for seconds: owner decision).
 - VLANs 991/992 are tagged on lan1 only. They are never in VLAN 1, there is no DHCP, and masquerade applies only out `switch.992`.
 - All switch config is runtime only (bridge/ip/nft), with no `uci commit`. A reboot or `teardown` removes it.
 - The test subifs get MTU 1500 and their own MACs (`02:99:00:00:09:9x`):
