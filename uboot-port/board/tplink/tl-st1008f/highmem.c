@@ -24,6 +24,7 @@
 #define HM_VA		0xc0000000	/* KSEG2 window, one TLB pair of 256 MiB pages */
 #define PM_256M		0x1fffe000
 #define ELO_UNCACHED	((2 << 3) | BIT(2) | BIT(1) | BIT(0))	/* C=2, D, V, G */
+#define ELO_CACHED	((3 << 3) | BIT(2) | BIT(1) | BIT(0))	/* C=3 write-back */
 
 static bool mapped;
 
@@ -80,6 +81,8 @@ static int do_map(void)
 		write_one_tlb(i, 0, 0x80000000 + (i << 14), 0, 0);
 	if (size > SZ_256M)
 		lo1 = ((HM_BUS + SZ_256M) >> 12 << 6) | ELO_UNCACHED;
+	else	/* odd page: the same bank cached at 0xd0000000 (memtest) */
+		lo1 = (HM_BUS >> 12 << 6) | ELO_CACHED;
 	write_one_tlb(0, PM_256M, HM_VA, (HM_BUS >> 12 << 6) | ELO_UNCACHED, lo1);
 	write_c0_wired(1);
 	write_c0_pagemask(0);
@@ -87,6 +90,16 @@ static int do_map(void)
 	mapped = true;
 	printf("highmem: %u MiB at 0x%08x (uncached), %d TLB entries\n", size >> 20, HM_VA, n);
 	return 0;
+}
+
+/* memtest.c: high bank size, mapped at 0xc0000000 uncached + 0xd0000000 cached (256 MiB bank) */
+u32 highmem_map_both(void)
+{
+	u32 size = high_size();
+
+	if (size != SZ_256M || (!mapped && do_map()))
+		return 0;
+	return size;
 }
 
 /* Writes to the high bank must not show up in the low bank (aliasing = bus not remapped) */

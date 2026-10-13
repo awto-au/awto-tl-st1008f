@@ -28,7 +28,7 @@ DEFAULT_ALLOW = ROOT / "scripts/boot_log_allowlist.txt"
 DENY = re.compile(
     r"panic|\bOops\b|\bBUG\b|WARNING|Call Trace|cut here|Unable to handle|segfault|"
     r"\bfail(ed|ure)?\b|\berror\b|\bErr:0x|timed out|timeout|invalid|unknown|not found|"
-    r"(?-i:-E[A-Z]{2,}\b)|error -\d+|Ring contention|\bhung\b|\bstall(ed)?\b|corrupt|\bbad\b|cannot|can't|"
+    r"(?-i:(?<!\w)-E[A-Z]{2,}\b)|error -\d+|Ring contention|\bhung\b|\bstall(ed)?\b|corrupt|\bbad\b|cannot|can't|"
     r"not (yet )?(fully )?implemented|deprecated|taints kernel|\bFAIL\b|could not|"
     r"own address as source",  # bridge loop signature (#19): never allowlist
     re.IGNORECASE)

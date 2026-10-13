@@ -53,12 +53,40 @@ One quick test per point: the change reports OK, prompt, 16 MiB `crc32`, tempera
 | SPI-NOR | 204, 153 | fail | CRC wrong | codes 1, 2 |
 | SPI-NOR | 122.5 | pass | flash_c 37.0 MB/s, chip CRC 3.5 s | code 3 (as Dual I/O) |
 
-## Linux at the picks (sw2, 2026-10-13T10:36-10:45+11:00, mainline next + SRAM patches, partial)
+## Linux at the picks (sw2, 2026-10-13T10:36-11:26+11:00, mainline next + SRAM patches)
 
-- Stock clocks (CPU 800, DDR 600, SRAM 250): `./dev.py sram-bench` per access: SRAM uc read 63.9 cycles, cached miss 76.5, uc write 17.5; DDR 86.0 / 89.5 / 48.9; cached hit 3.1 both. nic-bench `lin-stock` run 1 recorded (tag in `tmp/logs/nat_bench.jsonl`).
-- `turbo cpu=1400,ddr=662,lx=306,sram=500` before `bootm`: kernel console garbled from the first line (LX 306 → the kernel UART clock does not follow); Linux state unknown.
-- `turbo cpu=1400,ddr=662,sram=500`: hung once in the CPU change after the DDR change (`clocks: write 0xbb00e208=0x00000368 …`, no lock line). The same three steps as separate commands (`clocks-cycle mem+sram500+cpu`, 662 and 650): pass, one run each. Not yet explained.
-- Not done: Linux load test, nic-bench at the picks, sram-bench at SRAM 500, NIC DMA into SRAM.
+- Base = `nic-bench boot` clocks: our U-Boot `clocks fast` (CPU 1000, DDR 600, SRAM 250); points add `turbo` before `bootm` (`ST1008F_RAMLOAD_EXTRA="--pre|turbo …"`).
+- Quick test per point now includes a kernel boot to the initramfs shell (`clocks-cycle --session`, default): U-Boot unlzma + kernel initramfs XZ unpack catch CPU faults the 16 MiB `crc32` misses.
+
+### Kernel boot per clock (one boot each)
+
+| turbo | Result |
+|---|---|
+| cpu=1400,ddr=662,sram=500 | panic `XZ-compressed data is corrupt` (initramfs unpack, 0.59 s) |
+| cpu=1400,sram=500 | same panic |
+| cpu=1400 | same panic |
+| ddr=662 / sram=500 / ddr=662,sram=500 | shell |
+| cpu=1300 / 1350 / 1375 | shell |
+| cpu=1375,ddr=662,sram=500 | shell (3 boots) |
+| cpu=1400,ddr=662,sram=500 + `memtest=4`, from stock clocks | U-Boot `lzma compressed: uncompress error 1`, reset |
+| `clocks-cycle --session cpu --lo 1350` from stock clocks | 1375, 1400, 1425: shell (one boot each) |
+
+- CPU 1400: 4 fails, 1 pass; 1425: 1 pass. DRAM is clean at the same clocks (DRAM.md "Memtest"): the fault is CPU-side (decompressor = core + L1 load). 1400/1425 are marginal; 1375 passed all 5 boots.
+- LX 306: kernel console garbled. `ft_board_setup` patches the fixed-clocks to the live LX/CPU, but the kernel uses its appended DTB (`Working FDT set to 0`), so the patch never reaches it. Needs a separate DTB passed to `bootm` or kernel-side LX detection.
+
+### At cpu=1375,ddr=662,sram=500 vs base (one run each)
+
+| Test | Base | Picks (1375) |
+|---|---|---|
+| nic-bench tcp-P4 | 291 Mbit/s | 418 Mbit/s |
+| nic-bench udp1400 900 Mbit/s offered: loss | 26.5 % | 0.2 % |
+| nic-bench udp64 forward | 61.5 kpps | 92.2 kpps |
+| sram-bench SRAM uc read / cached miss | 5571 / 6676 ns | 3764 / 4445 ns |
+| sram-bench DDR uc read / cached miss / uc write | 7504 / 7805 / 4270 ns | 7228 / 7433 / 4827 ns |
+
+- sram-bench ns = raw loop time from `sram_bench`; cached hit 274 → 195 ns tracks the CPU ratio (1000 → 1375). DDR uncached writes got slower (+13 %).
+- `mem-stress` (tmpfs fill of 416 MiB) hangs the kernel at **every** clock incl. stock (no SysRq response); last pass 2026-10-12T07:40 on the pre-SMP kernel. Kernel regression, not clocks: #107.
+- Not done: NIC DMA into SRAM, Linux load test (blocked by #107).
 
 ## CPU above 1000 MHz (sw2, 2026-10-13, CPU_SRAM_ASY_TIMING written)
 

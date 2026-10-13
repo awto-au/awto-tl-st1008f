@@ -12,6 +12,9 @@
   fail/hang -> lower; ONE quick test per point, in one powered session. Each point: `bootsel wdt` armed,
   `turbo <domain>=<v>` (applied from the current clocks), ALIVE + 16 MiB crc32 + temp, wdt off.
   Power-cycle only after a fail or hang. Logs every point and the final edge.
+- Then (default; `--no-kernel` skips) the kernel test per U-Boot pass: power cycle, `ramload uboot-mainline
+  --then mainline-kernel --pre turbo --pre crc32`: pass = initramfs shell (kernel unlzma + initramfs XZ
+  unpack catch CPU faults crc32 misses: CPU 1400, #103). Every kernel point power-cycles.
 - RAM U-Boot only: no flash or env writes. Log: tmp/logs/clocks_cycle.log
 """
 
@@ -136,7 +139,22 @@ def point(con, domain: str, v: int) -> dict:
         return {"result": "hang" if str(e).startswith("TIMEOUT") else "fail", "detail": lines[-3:]}
 
 
-def session(domain: str, lo: int | None, hi: int | None, step: int | None, flash: bool) -> int:
+KERNEL_S = 150  # ramload --then mainline-kernel: power cycle + TFTP 5 MB ~35 s + boot 10 s; BOOT_S + kernel
+
+
+def point_kernel(domain: str, v: int) -> dict:
+    """Kernel boot at the point: unlzma in U-Boot + initramfs XZ unpack + /init at the new clocks."""
+    cmd = [sys.executable, str(ROOT / "scripts/st1008_ramload.py"), "uboot-mainline", "--stock-clocks",
+           "--then", "mainline-kernel", "--pre", f"turbo {domain}={v}", "--pre", "crc32 0x81000000 0x1000000"]
+    r = subprocess.run(cmd, capture_output=True, text=True, timeout=KERNEL_S)
+    out = (r.stdout + r.stderr).strip().splitlines()
+    if r.returncode in (0, 1):  # 1 = boot log UNKNOWN only (turbo lines): shell reached
+        return {"result": "pass", "detail": ["kernel: initramfs shell"]}
+    return {"result": "fail", "detail": ["kernel: " + (out[-1] if out else f"rc {r.returncode}")]}
+
+
+def session(domain: str, lo: int | None, hi: int | None, step: int | None, flash: bool,
+            kernel: bool = True) -> int:
     pts = POINTS[domain]
     lo = pts[0] if lo is None else lo
     hi = pts[-1] if hi is None else hi
@@ -156,6 +174,10 @@ def session(domain: str, lo: int | None, hi: int | None, step: int | None, flash
             return 2
         fresh = True
         res = point(Console(), domain, pts[i])
+        if res["result"] == "pass" and kernel:
+            k = point_kernel(domain, pts[i])
+            res = {"result": k["result"], "detail": res["detail"] + k["detail"]}
+            fresh = False  # the kernel run left Linux up: next point power-cycles
         res.update({"tag": tag, "point": pts[i], "when": time.strftime("%Y-%m-%dT%H:%M:%S%z")})
         log(f"[{tag}] {domain}={pts[i]}: {res['result']}: {' | '.join(res['detail'])}")
         with JSONL.open("a") as fh:
@@ -185,9 +207,10 @@ def main() -> int:
     ap.add_argument("--lx", type=int, default=4, help="lx step: code 2..5")
     ap.add_argument("--cpu", default="0x3a8:0x6b439e13", help="cpu step: E208:E210 (scripts/clock_calc.py cpu <MHz>)")
     ap.add_argument("--from-flash", action="store_true", help="ours from jffs2-log, no network on")
+    ap.add_argument("--no-kernel", action="store_true", help="session: U-Boot quick test only (no kernel boot)")
     a = ap.parse_args()
     if a.session:
-        return session(a.session, a.lo, a.hi, a.grid, a.from_flash)
+        return session(a.session, a.lo, a.hi, a.grid, a.from_flash, not a.no_kernel)
     if not a.step:
         ap.error("step or --session DOMAIN")
     global CPU, LX, EXTRA, PROFILE

@@ -454,7 +454,10 @@ def main() -> int:
         ow = IMAGES[a.then]
         if a.bootargs:  # appended to the DT bootargs by DTB_EXTEND kernels (OpenWrt-on-7.3, #73)
             con.run(f"setenv bootargs {a.bootargs}", r"st1008f-mainline # ", 1, "bootargs")
-        con.run(f"bootm 0x{ow[1]:08x}", ow[3], ow[4], f"{a.then} via mainline bootm")
+        # memtest=N: kernel early pattern test of lowmem, ~2.2 s per pattern at stock (#103); x1.25 + boot cap
+        mt = re.search(r"\bmemtest=(\d+)", a.bootargs or "")
+        cap = ow[4] + (3 * int(mt[1]) if mt else 0)
+        con.run(f"bootm 0x{ow[1]:08x}", ow[3], cap, f"{a.then} via mainline bootm")
         if a.then.startswith("openwrt"):
             openwrt_stp(con)
         r = subprocess.run([sys.executable, str(ROOT / "scripts/boot_log_check.py"), "--boot", "-1"],

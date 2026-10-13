@@ -134,6 +134,21 @@ Each config adds to the previous one; points 800 → 725 → down to the first p
 - (d) at 700: read-tap shifts −13 (window −16…−11), taps RR 5-8, FR 0-4. Write taps not retrained: `bench` writes not run (they hung at 675/700 on sw1).
 - Not done: refresh kept on through the change (the ~1.8 ms gap), write-tap/DQS-group retrain, PI ≥ 16 (needs the MPCR3 oesync bits).
 
+### Memtest: error map at the picks (sw2, 2026-10-13T11:11-11:26+11:00)
+
+- Tool: `./dev.py memtest [--clocks PROFILE]` (U-Boot `memtest`, `board/.../memtest.c`; host summary `scripts/memtest.py`). Patterns addr, walk1, walk0, check, icheck (0x55/0xAA), rand (xorshift32, seed); low `0x10000`..U-Boot − 1 MiB (~254 MiB, bootrec page skipped) + high 256 MiB; uncached (KSEG1 / TLB C=2) and cached (KSEG0 / TLB C=3, flush after the write pass); one pass each.
+- Per failing word: address, want, got, XOR, re-read (= got: stored wrong, write side; ≠: read error). Per unit: bit counts → DQ d = bits d, d + 16, lane d / 8; bank/row/col histograms (decode assumed col `[10:1]`, bank `[13:11]`, row `[28:14]`).
+- Kernel side: `CONFIG_MEMTEST` + `ramload ... --bootargs memtest=4` (`CONFIG_MIPS_CMDLINE_DTB_EXTEND`); MIPS `early_memtest` covers lowmem only.
+
+| Clocks (CPU / DDR / SRAM) | U-Boot memtest | Kernel `memtest=4` | Time |
+|---|---|---|---|
+| 800 / 600 / 250 (stock) | 0 errors, 24 units | no bad ranges | 194 s; uncached unit ≤ 10.3 s |
+| 1400 / 662 / 500 | 0 errors, 24 units | not reached: U-Boot `lzma compressed: uncompress error 1` | 122 s |
+| 1375 / 662 / 500 | — | no bad ranges | — |
+| 1400 / 600 / 250 | 0 errors (low uncached) | — | — |
+
+- DRAM at 662.5 holds every pattern, cached and uncached, both banks. The CPU 1400 failures (kernel XZ / U-Boot LZMA corrupt) are not DRAM errors: OVERCLOCK.md "Linux at the picks".
+
 ### Leads for 675-800, ranked
 
 1. **Retrain read + write DQ taps at the target speed.** Port `DDR_Calibration_Full_Scan_Reduce` (`boot0412/memctl_cali_dram.c:566-847`) into the SRAM routine: 8 KiB scratch target, 2-tap steps, 16 x 16 writes + reads per pass. Only DRAM contents in the scratch buffer are lost. Covers the measured read failure (DQ4 late at 675) and the `bench` write hang (write taps still at the 600 result).

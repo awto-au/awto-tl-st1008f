@@ -194,6 +194,13 @@ def cmd_ddr_retrain(extra: list[str]) -> int:
     return _script("ddr_retrain.py", extra)
 
 
+@command("DRAM pattern test + error map (bits -> DQ/lane, bank/row/col, sticky vs read) in U-Boot, optional turbo first (#48 #103)",
+         args="[--clocks cpu=1400,ddr=662,sram=500] [--mib N] [--log N] [--args 'low uncached'] [--no-boot]",
+         kind="hardware")
+def cmd_memtest(extra: list[str]) -> int:
+    return _script("memtest.py", extra)
+
+
 @command("clock profile now at our prompt, any mode (#46): power-cycle with the saved chain, ESC, `turbo [PROFILE]`",
          args="[PROFILE e.g. cpu=1400,ddr=662,lx=306,sram=500] [--no-cycle] | show", kind="hardware")
 def cmd_turbo(extra: list[str]) -> int:
