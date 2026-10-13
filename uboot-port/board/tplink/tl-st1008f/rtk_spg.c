@@ -77,6 +77,13 @@ static void grp_cmd(u32 grp, u32 cmd)
 	tx_cmd(cmd);
 }
 
+/* frames out of the port: MIB ifOutUcastPkts_L (STAT_PORT_MIB_CNTR, word 11). The SPG PKT_CNT_DBG
+ * registers read 0 on this chip, and TX_DONE stays latched across runs (sw2, 2026-10-13, #70). */
+static u32 tx_ucast(int p)
+{
+	return sw_r(0x664 + (p << 8) + 0x2c);
+}
+
 static u64 sent(int p)
 {
 	u32 h, l;
@@ -122,8 +129,18 @@ static int cage_lit(int cage, char *why, int n)
 		return snprintf(why, n, "empty cage"), 0;
 	if (rtk_sfp_read_id(cage, id))
 		return snprintf(why, n, "module EEPROM unreadable"), 1;
-	if (id[6] & 0x08)
-		return snprintf(why, n, "copper module: ignores TX-disable"), 1;
+	{	/* copper as rtk_linkcheck.c: FS SFP-10G-T claims 10GBASE-SR + LC, fakes DDM (RX 0) */
+		char pn[17];
+		int k = 16;
+
+		memcpy(pn, id + 40, 16);
+		pn[16] = 0;
+		while (k && (pn[k - 1] == ' ' || !pn[k - 1]))
+			pn[--k] = 0;
+		if ((id[6] & 0x08) || id[2] == 0x22 || id[36] == 0x16 || id[36] == 0x1c ||
+		    (k > 2 && !strcmp(pn + k - 2, "-T")))
+			return snprintf(why, n, "copper module: ignores TX-disable"), 1;
+	}
 	if (id[8] & 0x0c)
 		return snprintf(why, n, "DAC: electrical, no TX-disable"), 1;
 	if (!(id[92] & 0x40))
@@ -344,7 +361,7 @@ static int spg_start(int argc, char *const argv[])
 {
 	unsigned long p, s, count, ipg, t0, el = 0, limit;
 	bool allow = false, force = false, have_ipg = false;
-	u32 sts0, fsave = 0, mbps, wire, gap;
+	u32 sts0, mib0, fsave = 0, mbps, wire, gap;
 	u64 exp_us, c = 0, fps;
 	const char *res;
 	char why[48], *e;
@@ -435,21 +452,20 @@ static int spg_start(int argc, char *const argv[])
 		fsave = sw_r(MAC_FORCE(p));
 		sw_w(MAC_FORCE(p), fsave | 3);
 	}
-	grp_cmd(BIT(p), CMD_STOP);	/* reset the sent counter */
+	grp_cmd(BIT(p), CMD_STOP);
 	sts0 = sw_r(SPG_STS);
-	if (sent(p))
-		printf("spg: sent counter %llu after stop (expected 0)\n", (unsigned long long)sent(p));
+	mib0 = tx_ucast(p);
 	t0 = timer_get_us();
 	grp_cmd(BIT(p), CMD_START);
 	for (n = 0;; n++) {
-		c = sent(p);
+		c = (u32)(tx_ucast(p) - mib0);
 		el = timer_get_us() - t0;
 		if (c > count) {
 			res = "OVERRUN";
 			break;
 		}
-		if ((sw_r(SPG_STS) & BIT(p)) && !(sts0 & BIT(p))) {
-			res = c == count ? "DONE" : "EARLY";
+		if (c == count) {	/* TX_DONE stays latched across runs: the port MIB decides */
+			res = "DONE";
 			break;
 		}
 		if (el > limit) {	/* done bit already latched before start, or no TX_DONE */
@@ -465,10 +481,8 @@ static int spg_start(int argc, char *const argv[])
 	grp_cmd(0, CMD_NOP);
 	if (force)
 		sw_w(MAC_FORCE(p), fsave);
-	c = sent(p);
-	if (!strcmp(res, "EARLY") && c == count)	/* TX_DONE seen before the counter settled */
-		res = "DONE";
-	printf("spg: result %s sent %llu of %lu, tx_done 0x%07x (before 0x%07x), elapsed %lu us "
+	c = (u32)(tx_ucast(p) - mib0);
+	printf("spg: result %s sent %llu of %lu (port MIB), tx_done 0x%07x (before 0x%07x), elapsed %lu us "
 	       "(expected %llu, limit %lu)\n", res, (unsigned long long)c, count,
 	       sw_r(SPG_STS) & 0x0fffffff, sts0 & 0x0fffffff, el, (unsigned long long)exp_us, limit);
 	if (!strcmp(res, "TIMEOUT") && !link_up(p) && !force)

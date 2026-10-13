@@ -24,6 +24,7 @@ Usage: build_openwrt.py [--kernel 6.18|mainline] [--kernel-only] [--jobs N] [--u
 import argparse
 import collections
 import gzip
+import lzma
 import os
 import re
 import shutil
@@ -285,8 +286,10 @@ def overlay_618(parked: list[str]) -> None:
 
 
 def tarball_73() -> None:
-    """dl/linux-<VER>.tar.gz from the local BASE tag (OpenWrt would fetch git.kernel.org); hash skip."""
-    dst = TREE / f"dl/linux-{VER}.tar.gz"
+    """dl/linux-<VER>.tar.gz (-rc) or .tar.xz (anything else: include/kernel.mk LINUX_SOURCE) from the local
+    BASE tag (OpenWrt would fetch it); hash skip."""
+    xz = "-rc" not in VER
+    dst = TREE / f"dl/linux-{VER}.tar.{'xz' if xz else 'gz'}"
     if dst.exists():
         return
     dst.parent.mkdir(exist_ok=True)
@@ -294,9 +297,12 @@ def tarball_73() -> None:
     with tmp.open("wb") as fh:
         p = subprocess.Popen(["git", "archive", f"--prefix=linux-{VER}/", "--format=tar", BASE],
                              cwd=kernel_base.REPO, stdout=subprocess.PIPE)
-        with gzip.GzipFile(fileobj=fh, mode="wb", compresslevel=6, mtime=0) as gz:
-            shutil.copyfileobj(p.stdout, gz, 1 << 20)
-        if p.wait(timeout=600):  # ~1.5 GB tar stream; gzip -6 at ~100 MB/s
+        # xz preset 0: fast (~1.5 GB stream); the tarball is a local build input, size does not matter
+        out = lzma.LZMAFile(fh, "wb", preset=0) if xz else gzip.GzipFile(fileobj=fh, mode="wb", compresslevel=6,
+                                                                          mtime=0)
+        with out:
+            shutil.copyfileobj(p.stdout, out, 1 << 20)
+        if p.wait(timeout=600):  # ~1.5 GB tar stream; gzip -6 / xz -0 at ~100 MB/s
             sys.exit(f"git archive of {BASE} failed")
     tmp.rename(dst)
     log(f"overlay: {dst.relative_to(TREE)} {dst.stat().st_size} B from {kernel_base.REPO.relative_to(ROOT)} {BASE}")
@@ -308,6 +314,11 @@ def overlay_73() -> None:
         sys.exit(f"tmp/openwrt is at {pin}; the mainline port's files/patches are against {OWRT_COMMIT}")
     (TREE / GEN / f"kernel-{PV}").write_text(
         f"LINUX_VERSION-{PV} = {VER[len(PV):]}\nLINUX_KERNEL_HASH-{VER} = skip\n")
+    # apk versions: "7.3-next-YYYYMMDD" is invalid; map "-next-" to "_p" where OpenWrt maps "-rc" to "_rc"
+    for f, a in (("include/kernel.mk", "$(LINUX_VERSION)"), ("package/kernel/linux/Makefile", "$(LINUX_VERSION)"),
+                 ("package/Makefile", "$(shell cat $(STAGING_DIR)/kernel.version)")):
+        t = (TREE / f).read_text()
+        (TREE / f).write_text(t.replace(f"$(subst -rc,_rc,{a})", f"$(subst -next-,_p,$(subst -rc,_rc,{a}))"))
     mk = TREE / RT / "Makefile"
     mk.write_text(mk.read_text().replace("KERNEL_PATCHVER:=6.18\n",
                                          f"KERNEL_PATCHVER:=6.18\nKERNEL_TESTING_PATCHVER:={PV}\n"))

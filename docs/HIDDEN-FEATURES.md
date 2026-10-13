@@ -22,9 +22,16 @@ Catalogue of RTL9303 hardware that the datasheet omits, the SDK leaves unused, o
 - **Use:** port/link stress test without a host; cage-loop test traffic; 10G test traffic for the all-port test (#22) without a second 10G host
 - **Risk:** transmits frames: storm risk on the house LAN
 - **Capability (SDK):** 2 streams per port; frame template, count, length sweep, incrementing MACs, payload pattern (zero/incr/decr/fix/repeat), optional bad CRC, inter-packet gap (rate), per-port sent counters. Not in either datasheet; stock never uses it.
-- **Status:** `rtk spg status|load|start|stop` written, builds, **untested**; parked on branch `parked/spg-wip` (`daa0cc8`), not on `main`. Test: `./dev.py spg-test stage1|stage2|stage3` (read-only → 1000 frames on a dark cage → ≤ 1000 frames out of cage 1 to the host).
-- **Safety in code:** `rtk network on` first; 8 cage ports only; count 1-100000 mandatory; lit cage (laser on, MAC link, copper/DAC, RX light, unreadable) refused unless `allow-lit`, then count ≤ 1000; broadcast/multicast DA refused; plan printed before sending; auto-stop on done or 1.25× expected time; runs > 10 s refused.
-- **Open:** do frames leave the port directly or enter the switch (then our loop guard sends them only to the CPU)? IPG unit (bytes assumed)? does stop reset the counter / done flag?
+- **Status:** on `main` (merge `abaf5e7`); tested on sw2 2026-10-13T12:30-12:37 with `./dev.py spg-test stage1|2|3`.
+- **Safety in code:** `rtk network on` first; 8 cage ports only; count 1-100000 mandatory; lit cage (laser on, MAC link, copper/DAC incl. PN ending `-T`, RX light, unreadable) refused unless `allow-lit`, then count ≤ 1000; broadcast/multicast DA refused; plan printed before sending; auto-stop on the count or 1.25× expected time; runs > 10 s refused.
+- **Measured:**
+  - stage1: generator idle, register views agree; IPG_LEN reset 12 on every cage port.
+  - Frames **leave the port directly**: port 0 MIB `ifOutUcastPkts` +100 / +1000 and `ifOutOctets` +128 B per frame, no ingress counts, our CPU-only isolation does not stop them. Host (via the house switch) captures every frame, 124 B + FCS, payload intact.
+  - IPG_LEN unit = byte times: 128 B frames, IPG 10000 at 10G: 809-814 µs per 100 frames, plan 810 µs.
+  - Sent counters `SPG_PORT_PKT_CNT_DBG` read 0; `TX_DONE` stays latched across stop/pause and later runs. `rtk spg` counts with the port MIB (`ifOutUcastPkts`, `STAT_PORT_MIB_CNTR` 0x664 + port × 0x100, word 11).
+  - Link down (dark cage): nothing is sent, also with `force-link`.
+  - First 1-2 stage3 runs within ~30 s of boot: switch sent all, host got 0 — the house switch port forwards only after its STP delay; later runs deliver all.
+- **Traffic source for the NAT bench / all-port test:** frames skip the pipeline, so SPG alone cannot load the CPU path. With a physical loop (LC loopback on a cage, or two cages cabled to each other) its frames re-enter as ingress at up to line rate: needs that cabling (owner) and a loop-safe forwarding setup first.
 - **Registers** ([GPL] `rtk_longan_reg_list.c`; base `0xBB000000`; ports 0-27; strides from SDK `macPpInfo`):
 
 | Register | Offset | Fields |

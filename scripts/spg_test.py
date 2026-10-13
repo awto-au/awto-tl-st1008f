@@ -7,7 +7,7 @@
   per-cage-port block, IPG); cross-checks the two views.
 - stage2: one DARK cage (status says `dark`: module with laser off and no RX light preferred, else an
   empty cage; none -> FAIL "no dark cage"). Burst --count frames; pass = `result DONE|COUNT` and the
-  held sent counter == count. TIMEOUT with link down -> one retry with `force-link`.
+  port-MIB sent count == count (SPG's own counter reads 0). TIMEOUT with link down -> one retry with `force-link`.
   Then an informational run with --ipg-probe to time the IPG_LEN unit.
 - stage3: cage 1 (laser on, fibre to the house switch) -> host --nic. storm_watch armed first; host
   capture = AF_PACKET as root (sudo -n), ethertype 0x88b5 + our SA; pass = host frames == count == sent,
@@ -57,7 +57,7 @@ STATUS_RE = re.compile(r"cage (\d) port\s+(\d+): sent (\d+), cnt (\d+):(\d+), ip
 GLB_RE = re.compile(r"SPG_GLB 0x([0-9a-f]{8}) \(mode (\w+), tx_cmd (\w+)\), TX_GRP 0x([0-9a-f]+), "
                     r"TX_DONE 0x([0-9a-f]+)")
 PLAN_RE = r"(auto-stop at TX_DONE or (\d+) us[^\n]*|spg: [^\n]*(?:refused|first|unknown)[^\n]*)\n"
-RES_RE = re.compile(r"spg: result (\w+) sent (\d+) of (\d+), tx_done 0x([0-9a-f]+) \(before 0x([0-9a-f]+)\), "
+RES_RE = re.compile(r"spg: result (\w+) sent (\d+) of (\d+)(?: \(port MIB\))?, tx_done 0x([0-9a-f]+) \(before 0x([0-9a-f]+)\), "
                     r"elapsed (\d+) us \(expected (\d+), limit (\d+)\)")
 
 
@@ -196,7 +196,8 @@ def stage2(con: Console, count: int, ipg_probe: int) -> int:
         opts = "force-link"
         row = start(con, port, count, opts)
     held = cages(status(con))[cage]["sent"]
-    ok = row["result"] in ("DONE", "COUNT") and row["sent"] == count and held == count
+    # sent = port MIB ifOutUcastPkts delta (rtk spg); `held` = SPG PKT_CNT_DBG, reads 0 on this chip (#70)
+    ok = row["result"] in ("DONE", "COUNT") and row["sent"] == count
     log(f"stage2 {'PASS' if ok else 'FAIL'}: {row['result']}, sent {row['sent']}, held counter {held}, count {count}")
     record({"stage": 2, "cage": cage, "port": port, "opts": opts, "held": held, **row})
     if ok and ipg_probe:
