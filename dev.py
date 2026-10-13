@@ -392,6 +392,12 @@ def cmd_storm_test(extra: list[str]) -> int:
     return _script("storm_test.py", extra)
 
 
+@command("Prometheus exporter (temps: hwmon/thermal, ports: ethtool) on a running OpenWrt, lan only, for 1 s Netdata trends; reports scrape cost",
+         args="[--ip A.B.C.D]", kind="hardware")
+def cmd_openwrt_metrics(extra: list[str]) -> int:
+    return _script("openwrt_metrics.py", extra)
+
+
 @command("set a running OpenWrt's hostname to its registry box name (st1008f-1 / st1008f-2), persistent",
          args="[--ip A.B.C.D]", kind="hardware")
 def cmd_openwrt_hostname(extra: list[str]) -> int:
@@ -699,7 +705,7 @@ HOST_ONLY = {"storm-watch", "check-log", "flash-guard", "doc-check", "console-wa
 NET_MANAGE = {"openwrt-snmp", "openwrt-luci", "switch-net-clean", "switch-snmp", "switch-vlan",
               "uboot-chain-install-ssh",  # jffs2-log write only (flash_guard), owner OK 2026-10-13
               "openwrt-sysupgrade-ssh",
-              "openwrt-syslog", "openwrt-hostname"}  # uci log_ip / hostname only  # firmware only (flash_guard), config kept; sw1 on owner request
+              "openwrt-syslog", "openwrt-hostname", "openwrt-metrics"}  # uci + exporter packages only  # firmware only (flash_guard), config kept; sw1 on owner request
 # NET_MANAGE only with --ssh: u-boot-env write via fw_setenv (flash_guard), coordinator/owner OK 2026-10-13 (#105)
 NET_MANAGE_SSH = {"uboot-chain-env"}
 

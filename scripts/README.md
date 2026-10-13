@@ -109,6 +109,14 @@ End-to-end workflow: [../README.md#workflow](../README.md#workflow).
 - Purpose: full `dmesg` + `logread` of a running OpenWrt over SSH, read-only; dmesg classified against `boot_log_allowlist.txt` ([linux] + [openwrt]), logread warn/err lines listed; grouped by message.
 - Run: `./dev.py switch-logs [--ip A.B.C.D] [--show-ok]` (default sw1 .48). Raw copies: `tmp/switch-logs/<ip>-<ts>/`. Log: `tmp/logs/switch_logs.log`.
 
+### openwrt_metrics.py
+- Purpose: install + start `st1008f-metricsd` (1 s SoC/SFP DDM gauges to Netdata statsd on TrueNAS) on a running OpenWrt (docs/MONITORING.md). Any unit.
+- Run: `./dev.py openwrt-metrics [--ip A.B.C.D]`. Log: `tmp/logs/openwrt_metrics.log`.
+
+### openwrt_hostname.py
+- Purpose: hostname (+ snmpd sysName) = registry box name from `boards.HOSTNAMES` (st1008f-1, st1008f-2). Any unit.
+- Run: `./dev.py openwrt-hostname [--ip A.B.C.D]`. Log: `tmp/logs/openwrt_hostname.log`.
+
 ### openwrt_syslog.py
 - Purpose: point a running OpenWrt's logd at the TrueNAS syslog receiver (uci, persistent) and verify a test line arrives (#115, docs/SYSLOG.md). Any unit (`NET_MANAGE`).
 - Run: `./dev.py openwrt-syslog [--ip A.B.C.D]`. Log: `tmp/logs/openwrt_syslog.log`.

@@ -1,0 +1,26 @@
+#!/bin/sh
+# st1008f-metricsd: 1 s sensor gauges to a statsd server over TCP (Netdata on TrueNAS, docs/MONITORING.md).
+# Every hwmon: SoC zone (cpu_thermal) + per-SFP DDM (temp, Vcc, bias, TX/RX power). Values read with
+# the `read` builtin; the only forks per period are `nc` and `sleep`. Config: /etc/st1008f-metrics.conf.
+HOST=192.168.25.64 PORT=8125 PERIOD=1
+[ -f /etc/st1008f-metrics.conf ] && . /etc/st1008f-metrics.conf
+read -r NODE < /proc/sys/kernel/hostname
+NODE=$(echo "$NODE" | tr -c 'a-zA-Z0-9_\n' '_')	# once: statsd names allow [a-zA-Z0-9_.]
+v() { [ -r "$1" ] && read -r x < "$1" && out="$out$NODE.$n.$2:$x|g
+"; }
+while :; do
+	out=""
+	for h in /sys/class/hwmon/hwmon*; do
+		read -r n < "$h/name" || continue	# kernel hwmon names: [a-z0-9_] already
+		v "$h/temp1_input" temp_mC
+		v "$h/in0_input" vcc_mV
+		v "$h/curr1_input" bias_mA
+		v "$h/power1_input" tx_uW
+		v "$h/power2_input" rx_uW
+	done
+	read -r l1 rest < /proc/loadavg
+	out="$out$NODE.load1:$l1|g
+"
+	printf '%s' "$out" | nc "$HOST" "$PORT" 2>/dev/null
+	sleep "$PERIOD"
+done

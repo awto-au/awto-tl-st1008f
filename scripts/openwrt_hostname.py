@@ -3,7 +3,7 @@
 
 - Name from `boards.HOSTNAMES` (= awto-dan ip-registry block names: st1008f-1, st1008f-2).
 - `system.@system[0].hostname` + `uci commit` + `/etc/init.d/system reload` (persistent; LuCI, the
-  shell prompt, LLDP and syslog `HOST` follow). Any unit (NET_MANAGE). Log: tmp/logs/openwrt_hostname.log
+  shell prompt, LLDP, syslog `HOST` and the snmpd sysName follow). Any unit (NET_MANAGE). Log: tmp/logs/openwrt_hostname.log
 """
 
 from __future__ import annotations
@@ -41,6 +41,9 @@ def main() -> int:
         return 2
     r = subprocess.run([*SSH, f"root@{a.ip}",
                         f"uci set system.@system[0].hostname='{name}'; uci commit system; "
+                        # snmpd keeps its own sysName (Netdata names SNMP nodes by it)
+                        f"uci -q get snmpd.@system[0] >/dev/null && {{ uci set snmpd.@system[0].sysName='{name}'; "
+                        "uci commit snmpd; /etc/init.d/snmpd restart; }; "
                         "/etc/init.d/system reload; sleep 1; cat /proc/sys/kernel/hostname"],
                        capture_output=True, text=True, timeout=CMD_S)
     got = r.stdout.strip().splitlines()[-1] if r.stdout.strip() else ""

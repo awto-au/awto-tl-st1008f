@@ -1,0 +1,12 @@
+#!/bin/sh /etc/rc.common
+# 1 s sensor gauges to statsd (docs/MONITORING.md); off unless /etc/st1008f-metrics.conf exists.
+START=99
+USE_PROCD=1
+
+start_service() {
+	[ -f /etc/st1008f-metrics.conf ] || return 0
+	procd_open_instance
+	procd_set_param command /usr/sbin/st1008f-metricsd
+	procd_set_param respawn 3600 5 0
+	procd_close_instance
+}
