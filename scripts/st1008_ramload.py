@@ -325,9 +325,10 @@ def tftp(con: Console, fname: str, addr: int, retransmits: int = 1) -> None:
 OW_PROMPT = r"root@[^:\s]*:[^#]*# "  # hostname is "(none)" early in boot
 
 
-def openwrt_stp(con: Console) -> None:
+def openwrt_stp(con: Console, persist_cap: float = 2) -> None:
     """Bridge STP on as soon as the shell is up: the initramfs bridges every port with every
-    laser lit, no STP (#19). A loop ramps slowly (~13k pps at +80 s), so this is in time."""
+    laser lit, no STP (#19). A loop ramps slowly (~13k pps at +80 s), so this is in time.
+    persist_cap: `uci commit; sync` bound; 2 s on a RAM boot, 90 s on the first flash boot (#113)."""
     con.run("", OW_PROMPT, 3, "OpenWrt shell")  # 'Please press Enter'; prompt within ~1 s
     # kernel lines (SerDes calibration) interleave with replies and broke the check 2026-10-10
     # checked: right after the login banner the first char was dropped ('mesg: not found', 2026-10-11)
@@ -356,7 +357,7 @@ def openwrt_stp(con: Console) -> None:
     # BusyBox wraps lines > 60 chars and breaks the echo check: short commands
     con.run("S=network.switch", OW_PROMPT, 1, "uci section", checked=True)
     con.run("uci set $S.stp='1'; uci set $S.forward_delay='2'", OW_PROMPT, 1, "stp uci", checked=True)
-    con.run("uci commit network; sync", OW_PROMPT, 2, "stp persistent", checked=True)
+    con.run("uci commit network; sync", OW_PROMPT, persist_cap, "stp persistent", checked=True)
     log("  OpenWrt bridge STP on")
 
 

@@ -109,6 +109,10 @@ End-to-end workflow: [../README.md#workflow](../README.md#workflow).
 - Purpose: full `dmesg` + `logread` of a running OpenWrt over SSH, read-only; dmesg classified against `boot_log_allowlist.txt` ([linux] + [openwrt]), logread warn/err lines listed; grouped by message.
 - Run: `./dev.py switch-logs [--ip A.B.C.D] [--show-ok]` (default sw1 .48). Raw copies: `tmp/switch-logs/<ip>-<ts>/`. Log: `tmp/logs/switch_logs.log`.
 
+### boot_timeline.py
+- Purpose: stage table of the last Linux boot of a running OpenWrt (kernel start, init, preinit, procd, dropbear, linkcheck, netifd, bridge up, init complete, selftest) from `dmesg` + `logread` over SSH, read-only; gaps above a threshold flagged; runs saved as JSON and compared stage by stage (#114).
+- Run: `./dev.py boot-timeline run [--ip A.B.C.D] [--gap S] [--label L]` (default sw2 .56) | `compare A B`. Runs: `tmp/boot-timeline/<label>.json`. Log: `tmp/logs/boot_timeline.log`.
+
 ### spi_quad_test.py
 - Purpose: read-only quad test of the SPI-NOR mmio window at our prompt (#61): SFCR2 → Quad Output 0x6B / Quad I/O 0xEB, whole-chip CRC vs stock Dual I/O, `bench` flash lines, stock SFCR2 restored.
 - Run: `./dev.py spi-quad-test [quad-out-6b] [quad-io-eb]` after `./dev.py ramload uboot-mainline`. Log: `tmp/logs/spi_quad_test.log`. Results: [../docs/CLOCKS.md](../docs/CLOCKS.md#controller-modes).

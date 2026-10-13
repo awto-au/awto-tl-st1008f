@@ -356,6 +356,12 @@ def cmd_switch_logs(extra: list[str]) -> int:
     return _script("switch_logs.py", extra)
 
 
+@command("boot stage table of a running OpenWrt's last boot over SSH (dmesg + logread), gaps flagged; compare two runs (#114)",
+         args="run [--ip A.B.C.D] [--gap S] [--label L] | compare A B", kind="check")
+def cmd_boot_timeline(extra: list[str]) -> int:
+    return _script("boot_timeline.py", extra)
+
+
 @command("tagged bench VLANs on a running OpenWrt bridge over SSH, hitless (runtime + uci, no reload) (#96)",
          args="show | add|remove VIDS --ports P,Q [--ip A.B.C.D]", kind="hardware")
 def cmd_switch_vlan(extra: list[str]) -> int:

@@ -61,11 +61,12 @@ def after_reboot(con) -> None:
     """New flash OpenWrt at its console: activate, first-boot sync, STP saved."""
     # first Enter only activates the console (a command sent with it is dropped, #113); prompt < 1 s
     con.run("", OW_PROMPT, 3, "OpenWrt shell")
-    # first boot formats the JFFS2 overlay: a sync blocked 67 s on sw2 (2026-10-12, ~23 MiB free); x1.3
-    sh(con, "sync; echo SYNC_OK", r"\nSYNC_OK", cap=90)
-    openwrt_stp(con)
-    # new install = new dropbear host key; ssh tools then accept the new one (accept-new)
+    # new install = new dropbear host key; drop ours first so a failure below never leaves the stale one
     subprocess.run(["ssh-keygen", "-R", BENCH_IP], capture_output=True, timeout=5)  # local file edit
+    # first boot formats the JFFS2 overlay: a sync blocked 67 s on sw2 (2026-10-12, ~23 MiB free); x1.3.
+    # The block can land on the STP uci commit instead (2026-10-13), so that step gets the same cap.
+    sh(con, "sync; echo SYNC_OK", r"\nSYNC_OK", cap=90)
+    openwrt_stp(con, persist_cap=90)
 
 
 def main() -> int:

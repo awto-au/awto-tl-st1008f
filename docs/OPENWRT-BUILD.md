@@ -7,7 +7,7 @@ Operations: [OPENWRT-BUILD-OPS.md](OPENWRT-BUILD-OPS.md). Script: `scripts/build
 | Item | Value |
 |---|---|
 | Buildroot | `tmp/openwrt-build` (gitignored), shallow clone of OpenWrt `main` |
-| Commit | `e5ec5e199f13` (2026-10-11T22:45:51+02:00, "realtek: l3: rtl839x: do not invent a next-hop L2 entry") |
+| Commit | `0ad1348` (2026-10-13, "libnetfilter-conntrack: update to version 1.1.1"); `--update` moves it, then the mainline pin follows (`OWRT_COMMIT`) |
 | Target | `realtek/rtl930x`, device `tplink_tl-st1008f-v2` only |
 | Toolchain | OpenWrt-built, GCC 14.4.0 + musl 1.2.6 (`mips_24kc`) |
 | Kernel | step 1: OpenWrt 6.18.55 + our backports; step 2: our 7.3-rc6 port (testing kernel) |
@@ -73,8 +73,8 @@ Disk:
 | `generic/kernel-7.3` | `LINUX_VERSION-7.3 = -rc6`, hash `skip` |
 | `dl/linux-7.3-rc6.tar.gz` | `git archive v7.3-rc6` of `tmp/linux-v7.3` (OpenWrt would fetch git.kernel.org); 269,765,341 B |
 | `realtek/Makefile` | `KERNEL_TESTING_PATCHVER:=7.3`; `.config` `CONFIG_TESTING_KERNEL=y` |
-| `realtek/patches-7.3` | `OWRT_VERBATIM` (300-01..03, 309, 330, 331, 712, 714, 718, 722) from `tmp/openwrt` @ `53ec2d0` + every `openwrt/patches/*.patch` (300-04..17 at build time) |
-| `realtek/files-7.3` | `OWRT_FILES` from `tmp/openwrt` `files-6.18` @ `53ec2d0` (not main: the port's 300-09..12/16/17 are against it) |
+| `realtek/patches-7.3` | `OWRT_VERBATIM` (300-01..03, 309, 330, 331, 712, 714, 718, 722) from `tmp/openwrt` @ `OWRT_COMMIT` + every `openwrt/patches/*.patch` |
+| `realtek/files-7.3` | `OWRT_FILES` from `tmp/openwrt` `files-6.18` @ `OWRT_COMMIT` (the port's 300-09..12/16/17/20/25 are against it; move the pin and re-check them together) |
 | `generic/pending-7.3` | 700, 701 (nft flowtable) |
 | `generic/hack-7.3` | 910 + 911 (`broadcast_uevent`, needed by `gpio-button-hotplug`), 940 (non-empty `modules.builtin`, needed by kmod packaging) |
 | `rtl930x/config-7.3` | `openwrt/kernel-7.3/config-7.3` (below) |

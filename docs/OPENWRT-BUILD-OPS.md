@@ -57,3 +57,22 @@ Then NAT throughput against the stock-OpenWrt baseline (243-248 Mbit/s TCP, [NAT
 - Same expected lines as step 1, plus the 7.3 port's (MAINLINE-NET-OPS.md): rtl83xx DSA probe, `lanN` from the mainline DTS labels, eth0 MAC from env `ethaddr`.
 - `default-boot test` ([DEFAULT-BOOT-OPS.md](DEFAULT-BOOT-OPS.md)) uses this image name.
 - Then the same `nat-bench` set as step 1; compare against step 1 and the stock baseline.
+
+## Flash install on sw2 (step 1 image, upstream layout)
+
+Writes only `firmware` (flash_guard, #81). Never on sw1.
+
+```
+./dev.py ramload openwrt-ours-6.18            # RAM boot of the image to install from
+./dev.py openwrt-static-ip --ip 192.168.25.56
+./dev.py openwrt-install                      # sysupgrade -T, sysupgrade -n, reboot via stock autoboot, STP saved
+./dev.py openwrt-luci --ip 192.168.25.56      # apk from the upstream feeds (needs internet)
+./dev.py openwrt-snmp --ip 192.168.25.56
+./dev.py uboot-chain-env boot                 # software reboot: stock -> saved chain -> ours -> flash OpenWrt, STP on
+./dev.py switch-check --ip 192.168.25.56 --wait 50
+```
+
+- First flash boot formats the JFFS2 overlay: `sync` or the STP `uci commit` blocks up to ~70 s; the flow allows 90 s.
+- A new install has a new dropbear host key; the flow drops the old one from `known_hosts` first. If a step still reports "REMOTE HOST IDENTIFICATION HAS CHANGED", run `ssh-keygen -R 192.168.25.56` and rerun that step.
+- `openwrt-install --after-reboot` resumes after the sysupgrade when the console step failed.
+- Moving the buildroot (`build-openwrt --update`) and the mainline pin (`OWRT_COMMIT`) go together: rebuild with `build-kernel` and boot `ramload mainline-kernel` once.

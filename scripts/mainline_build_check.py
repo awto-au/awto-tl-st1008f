@@ -32,7 +32,7 @@ DTS = "tplink-tl-st1008f-v2"
 OWRT = ROOT / "tmp/openwrt/target/linux/realtek"
 OWRT_FILES_DIR = OWRT / "files-6.18"
 # OpenWrt commit the verbatim patches/files and our forward-ports are taken against (#16).
-OWRT_COMMIT = "53ec2d05a487e6011cfa096de9211d15197c501b"
+OWRT_COMMIT = "0ad1348fb2a7f49c9c5941d4d8c98f88b6974e8d"  # main 2026-10-13 (#113); was 53ec2d0
 # Applied verbatim from OpenWrt realtek patches-6.18; status of every patch: docs/MAINLINE-PORT.md.
 OWRT_VERBATIM = ["300-01", "300-02", "300-03", "309", "330", "331", "712", "714", "718", "722"]
 # Copied verbatim from files-6.18; 7.3 API fixes on top are in openwrt/patches/300-10.
