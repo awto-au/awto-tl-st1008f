@@ -413,10 +413,12 @@ static int media_set(int port, int m)
 		break;
 	case MEDIA_DAC50 ... MEDIA_DAC500:
 		ret = sds_mode_set(sds, M_10GR);
-		if (!ret)
-			dfw(sds, 6, 13, 6, 6, 0);	/* CFG_LINKDW_SEL: DAC */
+		if (ret)
+			return ret;
+		dfw(sds, 6, 13, 6, 6, 0);	/* CFG_LINKDW_SEL: DAC */
 		mdelay(50);
-		return ret;
+		force_link(port, false, false);	/* as fibre: else a stock-forced MAC stays down (#112) */
+		return 0;
 	case MEDIA_1G:
 		ret = sds_mode_set(sds, M_1000BX);
 		break;
@@ -648,6 +650,13 @@ static int cage_media(int cage)
 	if (e && !strcmp(e, "stock"))
 		return MEDIA_10G;
 	itf = rtk_sfp_iface(cage, &why);
+	if (itf == RTK_IF_10GR) {	/* passive DAC needs the DAC preset: no link as fibre (#112) */
+		u8 id[96];
+
+		if (!rtk_sfp_read_id(cage, id) && (id[8] & 0x04))	/* A0 18 = copper length, m */
+			return id[18] <= 0 ? MEDIA_DAC50 : id[18] == 1 ? MEDIA_DAC100 :
+			       id[18] <= 3 ? MEDIA_DAC300 : MEDIA_DAC500;
+	}
 	switch (itf) {
 	case RTK_IF_1000BX: return MEDIA_1G;
 	case RTK_IF_SGMII: return MEDIA_SGMII;

@@ -24,12 +24,12 @@ Narrative & dead ends: see [HISTORY.md](HISTORY.md). Evidence paths under `priva
 |---|---|---|---|
 | 1 | FS SFP-10GSR-85 | F2130412917 | house LAN (fibre to sw1 lan4) |
 | 2 | FS SFP-10G-T (AQR113C, copper) | F2220688305 | nothing seen (RX 0, LOS 1; copper: TX-disable ignored) |
-| 3, 4 | CISCO-JPC P3410UD05000-1 passive DAC (one cable, same serial) | JPC223107Q1 | **each other** |
+| 3, 4 | CISCO-JPC P3410UD05000-1 passive DAC, 5 m (one cable, same serial) | JPC223107Q1 | **each other** |
 | 5, 6 | empty | - | - |
 | 7, 8 | FS SFP-10GSR-85 | (7) -, (8) F2130412915 | **each other** (fibre: cage 7 light at cage 8 602 µW and back) |
 
 - `linkcheck` (U-Boot `rtk linkcheck` and Linux `st1008f-linkcheck`) reports both: 7 ↔ 8 by the laser probe, 3 ↔ 4 by the same vendor + serial at two cages (a passive DAC has no DDM and no laser). Verdict LOOP (2026-10-13T13:05).
-- DAC cages: `rtk_cage_up` powers their SerDes for the check; MAC link on 3 ↔ 4 stayed down (not yet explained).
+- DAC cages (#112): our U-Boot sets the DAC media (A0 byte 18 length: this cable 5 m → `dac500cm`) and unforces the MAC link: 3 ↔ 4 link at 10G; the linkcheck frame probe sees 3→4 and 4→3. As fibre 10G (old mapping) or still MAC-forced: pcs up / mac down.
 
 ### sw2 fitted modules (2026-10-12T14:17+11:00, our U-Boot `rtk sfp` / `rtk port`, laser cage 1 only)
 
