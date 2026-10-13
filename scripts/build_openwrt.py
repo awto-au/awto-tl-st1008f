@@ -60,6 +60,8 @@ KERNEL_PATCHES = {
     "300-11-realtek-rteth-tx-ring32-bql-xmit-more.patch": OURS,  # 300-12 builds on it
     "300-12-realtek-rteth-930x-nic-path.patch": BACKPORT / "kernel",
     "300-13-mips-highmem-lowmem-fast-paths.patch": OURS,
+    "300-27-realtek-rteth-select-queue-no-hash.patch": OURS,  # #65
+    "300-28-realtek-rteth-rx-descriptor-cached-read.patch": OURS,  # #65
 }
 TREE_PATCH = BACKPORT / "openwrt-tree.patch"
 # --parked: untested candidates from openwrt/patches-parked, 6.18 only; name -> OpenWrt patch dir
