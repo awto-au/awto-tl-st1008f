@@ -45,7 +45,9 @@ static const char *const rtl930x_storm_names[RTL930X_STORM_T_N] = { "broadcast",
 /* Defaults per ingress port, pps; burst = 100 ms worth. Why these numbers: docs/STORM-PROTECTION.md#limits */
 #define RTL930X_STORM_BC_PPS		10000
 #define RTL930X_STORM_MC_PPS		20000
-#define RTL930X_STORM_UC_PPS		20000
+/* 0 = off: routed traffic to the switch's own MAC (SVI on a VLAN) counts as unknown unicast and was
+ * capped at 20k pps (NAT bench 2026-10-13, #111); loops are BC/MC + loop detect */
+#define RTL930X_STORM_UC_PPS		0
 
 static inline u32 rtl930x_storm_base(int t)
 {

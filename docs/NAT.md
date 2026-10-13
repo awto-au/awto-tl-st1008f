@@ -323,3 +323,21 @@ Idea (owner research chat 2026-10-09..11): PIE matches the flow, the CPU rewrite
 - #68 no hidden/disabled rewrite hardware in the die ([HIDDEN-FEATURES.md](HIDDEN-FEATURES.md)).
 - #22 all-port test.
 - [ROUTING-OFFLOAD.md](ROUTING-OFFLOAD.md).
+
+## Runtime tunables at the picks (sw2, 2026-10-13T18:36-18:50+11:00)
+
+Conditions: mainline next-20261009 initramfs, SMP, picks (`turbo cpu=1350,ddr=662,lx=306,sram=500`), NAT + flowtable, `nic-bench run --runs 1`, storm control with unknown-unicast off (#111). Rows: `tmp/logs/nat_bench.jsonl`, tags `picks-*`. Cells: eth0 RX.
+
+| Change (one at a time) | TCP P4 Mbit/s | UDP 64 B kpps |
+|---|---|---|
+| baseline (`picks-uc0`) | 431 | 90.1 |
+| **XPS: both CPUs on eth0 tx-0** (`picks-xps0`, recheck) | **502-504** | **100.9-103.5** |
+| XPS-0 + RPS lan1 -> VPE1 | 347 | 93.0 |
+| XPS-0 + threaded NAPI | 440 | 98.1 |
+| XPS-0 + rx-gro-list off | 300 | 64.4 |
+| XPS-0 + GRO off | 485 | 65.4 |
+
+- XPS-0: eth0 has 2 TX queues; without an XPS map every packet goes through `skb_tx_hash` (flow dissect + siphash) to pick one. The 11 % "hashing" in the profile above was this, not a qdisc (default qdisc is `pfifo_fast`; DSA ports and SVIs are `noqueue`).
+- RPS and threaded NAPI stay worse: both VPEs share one 34Kc pipeline, so moving work to VPE1 adds IPI/cache cost without compute.
+- GRO + fraglist GRO stay on: off costs 30-40 %.
+- Storm control at the old default (unknown-unicast 20000 pps) capped NAT at ~19 kpps (`STORM_CONTROL` drops; routed traffic to the switch's own MAC counts as unknown unicast): default now off (#111).
