@@ -51,7 +51,7 @@ def classify(text: str, rules) -> tuple[str, str]:
     for pat, reason, known in rules:
         if pat.fullmatch(text):
             if DENY.search(text):
-                return ("known", reason) if known else ("ERROR", reason)
+                return {"known": ("known", reason), "benign": ("ok", reason)}.get(known, ("ERROR", reason))
             return "ok", reason
     return ("ERROR" if DENY.search(text) else "UNKNOWN"), ""
 

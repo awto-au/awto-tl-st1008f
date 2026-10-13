@@ -1,6 +1,6 @@
-# boot_log_check.py allowlist. Format: `regex  # reason [known #NN]`.
+# boot_log_check.py allowlist. Format: `regex  # reason [known #NN | benign #NN]`.
 # Regex is a FULL match on the line after daemon + kernel timestamps are stripped.
-# An entry that matches a DENY word (fail/error/invalid/...) only passes with `known #NN`.
+# An entry that matches a DENY word (fail/error/invalid/...) only passes with `known #NN` (open defect, shown yellow) or `benign #NN` (reviewed harmless, shown plain).
 # Keep patterns tight: no bare `.*` lines. Every entry is a reviewed, explained line.
 # Sections: [uboot], [linux] (shared by openwrt/mainline/stock), [openwrt], [mainline], [stock].
 # Memory/geometry values are pinned per stage: a change must show up as UNKNOWN.
@@ -337,20 +337,20 @@ rtl83xx-switch 1b000000\.switch: default route \S+ traps to the CPU  # 300-17 l3
 rtl83xx-switch 1b000000\.switch: IPv[46] forwarding offload (suspended|resumed) by the policy rules  # l3.c ip rule, test plan step 4e (#59)
 rtl83xx-switch 1b000000\.switch: skip loopback/broadcast addresses( and default routes)?  # l3.c (#16); 300-17 dropped "and default routes" (#59)
 
-# ---- Reviewed DENY lines: tolerated only with a tracking issue (known #NN) ----
+# ---- Reviewed DENY lines: tolerated only with an issue: known #NN (open defect) or benign #NN (harmless) ----
 
 [uboot]
-Err:0xf030:FAIL \(0xf030\)  # end of `rtk network on`: phy_enable_set on PHY-less ports; known #28
+Err:0xf030:FAIL \(0xf030\)  # end of `rtk network on`: phy_enable_set on PHY-less ports; benign #28
 
 [linux]
-Initrd not found or empty - disabling initrd  # no external initrd passed; known #28
+Initrd not found or empty - disabling initrd  # no external initrd passed; benign #28
 
 [openwrt]
 Failed to get CPU clock: -2  # no CPU clk provider, falls back to DT 800 MHz; known #28
-UNKNOWN_MC_PMASK: 000000001fffffff  # driver debug print of a constant port mask; known #28
-gpio_button_hotplug: loading out-of-tree module taints kernel\.  # OpenWrt package module; known #28
-Cannot parse config file '/etc/fw_env\.config': No such file or directory  # fw_printenv before uci-defaults 30_uboot-envtools writes it; works after boot; known #86
-Failed to find NVMEM device  # fw_printenv fallback message (tools/env/fw_env.c), same cause; not kernel NVMEM; known #86
+UNKNOWN_MC_PMASK: 000000001fffffff  # driver debug print of a constant port mask; benign #28
+gpio_button_hotplug: loading out-of-tree module taints kernel\.  # OpenWrt package module; benign #28
+Cannot parse config file '/etc/fw_env\.config': No such file or directory  # fw_printenv before uci-defaults 30_uboot-envtools writes it; works after boot; benign #86
+Failed to find NVMEM device  # fw_printenv fallback message (tools/env/fw_env.c), same cause; not kernel NVMEM; benign #86
 realtek-otto-pcs 1b000000\.switchcore:pcs: pcs_config\(10gbase-r\) for port (0|8|27) and sds [239] not yet fully implemented  # OpenWrt 25.12.4 / kernel 6.12 flash image only (gone in 6.18 and 7.3 builds); goes when flash moves to ours; known #73
 realtek-otto-pcs 1b000000\.switchcore:pcs: pcs_config\(sgmii\) for port (16|20|24|25|26) and sds [4-8] not yet fully implemented  # OpenWrt 25.12.4 / kernel 6.12 flash image only (gone in 6.18 and 7.3 builds); known #73
 rtpcs_930x_sds_10g_idle WARNING: Waiting for RX idle timed out, SDS [4-8]  # empty cages 3-7, RX never idles; OpenWrt 6.12 images only (not seen on 6.18 / 7.3); known #73
@@ -359,11 +359,11 @@ rtl838x-eth 1b00a300\.ethernet eth0: Ring contention: r: 0, last a38000[0-9a-f]{
 
 [mainline]
 Failed to request irq 7 \(timer\)  # CP0 timer IRQ mapping; known #16
-(spi-nor spi0\.0|pca953x 8-0038): supply vcc not found, using dummy regulator  # no regulator nodes, fixed rails; known #28
-VFS: Cannot open root device "" or unknown-block\(0,0\): error -19  # stage-0 has no rootfs; known #28
-/dev/root: Can't lookup blockdev  # stage-0 has no rootfs; known #28
-Kernel panic - not syncing: VFS: Unable to mount root fs on unknown-block\(0,0\)  # stage-0 has no rootfs; known #28
----\[ end Kernel panic - not syncing: VFS: Unable to mount root fs on unknown-block\(0,0\) \]---  # stage-0 has no rootfs; known #28
+(spi-nor spi0\.0|pca953x 8-0038): supply vcc not found, using dummy regulator  # no regulator nodes, fixed rails; benign #28
+VFS: Cannot open root device "" or unknown-block\(0,0\): error -19  # stage-0 has no rootfs; benign #28
+/dev/root: Can't lookup blockdev  # stage-0 has no rootfs; benign #28
+Kernel panic - not syncing: VFS: Unable to mount root fs on unknown-block\(0,0\)  # stage-0 has no rootfs; benign #28
+---\[ end Kernel panic - not syncing: VFS: Unable to mount root fs on unknown-block\(0,0\) \]---  # stage-0 has no rootfs; benign #28
 Please append a correct "root=" boot option; here are the available partitions:  # rootfs panic listing
 List of all bdev filesystems:  # rootfs panic listing
 \s*(ext2|ext3|ext4|vfat|msdos|fuseblk)  # rootfs panic listing: filesystems built in
@@ -418,10 +418,10 @@ clocks: turbo OK = cpu \d+ MHz, mem \d+ MHz, lx \d+ MHz, sram \d+ MHz, MCR [0-9a
 clocks: mem now \d+ kHz, DTR0 [0-9a-f]{8} DTR1 [0-9a-f]{8} DTR2 [0-9a-f]{8}, canary 0 bad  # turbo/clocks DDR change, zero canary errors ("0 bad" is not a DENY match)
 
 [mainline]
-rtl838x_eth 1b000000\.switch:ethernet eth0: Failed to create a device link to DSA switch 1b000000\.switch  # same in OpenWrt 6.18 (eth is a child of the switch node); harmless; known #16
-rtl83xx-switch 1b000000\.switch: lower interface lan[1-8] not found  # l3.c offload only for bridged/VLAN uppers; standalone port stays on the CPU path; same in OpenWrt; known #16
-rtl83xx-switch 1b000000\.switch: fib_add\(\) failed  # follows 'lower interface not found'; known #16
-tplink-st1008f-mode mode-switch: port [0-7]: unknown media insert  # vendor class for a module it cannot classify (cage 5 CISCO-NEO): left untouched; known #64
+rtl838x_eth 1b000000\.switch:ethernet eth0: Failed to create a device link to DSA switch 1b000000\.switch  # same in OpenWrt 6.18 (eth is a child of the switch node); harmless; benign #16
+rtl83xx-switch 1b000000\.switch: lower interface lan[1-8] not found  # l3.c offload only for bridged/VLAN uppers; standalone port stays on the CPU path; same in OpenWrt; benign #16
+rtl83xx-switch 1b000000\.switch: fib_add\(\) failed  # follows 'lower interface not found'; benign #16
+tplink-st1008f-mode mode-switch: port [0-7]: unknown media insert  # vendor class for a module it cannot classify (cage 5 CISCO-NEO): left untouched; benign #64
 realtek-rtl-spi 18001200\.spi: dirmap: window != PIO at 0x0 \(SFCR2 0xbbc14a00\), using PIO  # 300-07 self-check fell back to PIO after stock `rtk network on`; known #61
 realtek-rtl-spi 18001200\.spi: dirmap: diag at 0x[0-9a-f]+ op 0x[0-9a-f]{2}/\d/\d, window 0x[0-9a-f]{8} at 0x[0-9a-f]{8}, release -?\d+  # 300-07 self-check mismatch diag: op, window phys/virt, CS-release wait result; known #61
 realtek-rtl-spi 18001200\.spi: dirmap: (pio |mmio|mmio bytes) ([0-9a-f]{2} ){15}[0-9a-f]{2}  # 300-07 diag: first 16 B by PIO / window words / window bytes; known #61
@@ -442,7 +442,7 @@ printk: log buffer data \+ meta data: 131072 \+ 409600 = 540672 bytes  # printk 
 Memory: \d+K/524288K available \(.*262144K highmem\)  # 512 MiB total, 256 MiB highmem pinned
 posixtimers hash table entries: \d+ \(order: \d+, \d+ bytes, linear\)  # 6.18 core init
 pinctrl-single 1b000204\.pinmux: 32 pins, size 4  # pinmux node
-(spi-nor spi0\.0|pca953x 8-0038): supply vcc not found, using dummy regulator  # no regulator nodes, fixed rails; known #93
+(spi-nor spi0\.0|pca953x 8-0038): supply vcc not found, using dummy regulator  # no regulator nodes, fixed rails; benign #93
 realtek-otto-serdes-mdio 1b000000\.ethernet-switch:mdio-serdes: Realtek SerDes mdio bus initialized, 12 SerDes, 64 pages, 32 registers  # SerDes MDIO bus
 realtek-otto-pcs 1b000000\.ethernet-switch:pcs: Realtek PCS driver initialized  # PCS driver probe
 rtl838x_eth 1b000000\.ethernet-switch:ethernet: Using MAC [0-9a-f:]{17}  # MAC from nvmem (u-boot-env ethaddr)
@@ -450,11 +450,11 @@ rtldsa_93xx_setup called|In rtldsa_vlan_setup|In rteth_mac_config, mode 1|RESETT
 rtl83xx-switch 1b000000\.ethernet-switch: led_set0 has 3 LEDs configured  # LED set from DTS
 (rtl83xx-switch 1b000000\.ethernet-switch|rtl838x_eth 1b000000\.ethernet-switch:ethernet eth0): configuring for fixed/internal link mode  # CPU port fixed link
 (rtl83xx-switch 1b000000\.ethernet-switch|rtl838x_eth 1b000000\.ethernet-switch:ethernet eth0): Link is Up - 1Gbps/Full - flow control off  # CPU port fixed link up
-rtl838x_eth 1b000000\.ethernet-switch:ethernet eth0: Failed to create a device link to DSA switch 1b000000\.ethernet-switch  # conduit is a child of the switch node; benign; known #93
+rtl838x_eth 1b000000\.ethernet-switch:ethernet eth0: Failed to create a device link to DSA switch 1b000000\.ethernet-switch  # conduit is a child of the switch node; benign; benign #93
 rtl838x_eth 1b000000\.ethernet-switch:ethernet eth0: (entered|left) (promiscuous|allmulticast) mode  # DSA conduit / bridge
 rtl838x_eth 1b000000\.ethernet-switch:ethernet eth0: receive page pool below \d+ MB  # RX page pool info
 rtl838x_eth 1b000000\.ethernet-switch:ethernet eth0: Link is Down  # conduit down on network restart
-check access for rdinit=/init failed: -2, ignoring  # no initramfs in the flash image; known #93
+check access for rdinit=/init failed: -2, ignoring  # no initramfs in the flash image; benign #93
 VFS: Mounted root \(squashfs filesystem\) readonly on device 31:7\.  # flash rootfs
 Freeing unused kernel image \(initmem\) memory: \d+K  # init done
 Run /sbin/init as init process|\s+/sbin/init  # init start
@@ -464,20 +464,20 @@ sfp sfp-p[1-8]: Host maximum power [\d.]+W  # per-cage DTS power limit (#30)
 rtl83xx-switch 1b000000\.ethernet-switch lan[1-8]: configuring for inband/(1000base-x|sgmii|10gbase-r) link mode  # phylink config
 rtl83xx-switch 1b000000\.ethernet-switch lan[1-8]: switched to inband/(sgmii|10gbase-r|1000base-x) link mode  # phylink mode change on module/PHY
 realtek-otto-pcs 1b000000\.ethernet-switch:pcs: SerDes \d+ configured for (1000base-x|sgmii|10gbase-r) mode  # SerDes mode set
-realtek-otto-pcs 1b000000\.ethernet-switch:pcs: SerDes \d+: waiting for RX idle timed out  # every SerDes config, link still comes up; known #93
+realtek-otto-pcs 1b000000\.ethernet-switch:pcs: SerDes \d+: waiting for RX idle timed out  # every SerDes config, link still comes up; benign #93
 rtl83xx-switch 1b000000\.ethernet-switch: (add|delete) IPv4 route \S+ (via \S+ )?\(VLAN \d+, MAC [0-9a-f:]{17}\)  # L3 offload route table
 rtl83xx-switch 1b000000\.ethernet-switch: skip loopback/broadcast addresses and default routes  # L3 offload info
 rtl83xx-switch 1b000000\.ethernet-switch: route allocated for gw 0\.0\.0\.0  # L3 offload info
 rtl83xx-switch 1b000000\.ethernet-switch: IPv4 forwarding offload (suspended|resumed) by the policy rules  # L3 offload vs nft rules at fw4 load
-rtl83xx-switch 1b000000\.ethernet-switch: lower interface lan1 not found  # route seen before DSA ports exist; known #93
-rtl83xx-switch 1b000000\.ethernet-switch: fib_add\(\) failed  # same; known #93
+rtl83xx-switch 1b000000\.ethernet-switch: lower interface lan1 not found  # route seen before DSA ports exist; benign #93
+rtl83xx-switch 1b000000\.ethernet-switch: fib_add\(\) failed  # same; benign #93
 jffs2: notice: \(\d+\) jffs2_build_xattr_subsystem: complete building xattr subsystem, .*  # JFFS2 overlay mount
 mount_root: switching to jffs2 overlay|overlayfs: upper fs does not support tmpfile\.|urandom-seed: Seeding with /etc/urandom\.seed  # OpenWrt preinit
 pktgen: Packet Generator for packet performance testing\. Version: 2\.75  # kmod-pktgen (nat-bench)
 rtl83xx-switch 1b000000\.ethernet-switch lan[1-8]: (entered|left) (promiscuous|allmulticast) mode  # bridge membership
 rtl83xx-switch 1b000000\.ethernet-switch lan[1-8]: PHY \[smbus:sfp-p[1-8]:\d+\] driver \[(Marvell 88E1111|Aquantia AQR113C)\] \(irq=POLL\)  # SFP copper module PHY
 rtl83xx-switch 1b000000\.ethernet-switch lan[1-8]: Link is (Down|Up - (100Mbps|1Gbps|10Gbps)/Full - flow control (off|rx/tx))  # port link events (flaps judged per audit, docs/OPENWRT-BUILD.md)
-thermal thermal_zone\d+: Failed to set trips: -34  # on AQR113C PHY attach, -ERANGE; known #93
+thermal thermal_zone\d+: Failed to set trips: -34  # on AQR113C PHY attach, -ERANGE; benign #93
 rtl83xx-switch 1b000000\.ethernet-switch lan[1-8]: selection of interface failed, speed 10000  # AQR113C reconfigure; known #93
 Aquantia AQR113C smbus:sfp-p[1-8]:11: aqr_gen1_read_status failed: -145  # -ETIMEDOUT (MIPS) over SFP smbus, link drops; known #90
 
@@ -491,10 +491,16 @@ RTL930x DRAM controller prefetch on \(MCR [0-9a-f]{8}\)  # 300-04 DRAM prefetch 
 Serial: 8250/16550 driver, 2 ports, IRQ sharing disabled  # 8250 core init
 mtdsplit_uimage: no uImage found in "firmware"  # RAM boot on a unit whose firmware partition holds stock firmware (sw2 before its install)
 realtek-rtl-spi 18001200\.spi: dirmap: 0x0\+0x2000000 via window, SFCR2 0x[0-9a-f]{8}, op 0x[0-9a-f]{2}, mode \d  # 300-07 dirmap active (#61)
-tplink-st1008f-mode mode-switch: port [0-7]: unknown media insert  # vendor tpSfpGetType class for a module with no compliance code (Cisco-NEO PTB3370553, as stock rtk.ko); known #28
+tplink-st1008f-mode mode-switch: port [0-7]: unknown media insert  # vendor tpSfpGetType class for a module with no compliance code (Cisco-NEO PTB3370553, as stock rtk.ko); benign #28
+=== WARNING! =====================================  # OpenWrt login banner: no root password on the bench image; benign #93
+urandom-seed: Seed file not found \(/etc/urandom\.seed\)  # first boot after a flash/ramload, seed written later; benign #93
+umount: can't unmount /(dev|tmp): Resource busy  # procd shutdown on `reboot`; benign #93
+lan[1-8] \(port \d+\): broadcast \d+/\d+ storm_s \d+ multicast \d+/\d+ storm_s \d+ unknown-unicast \d+/\d+ storm_s \d+  # storm_test.py config readback ("unknown-unicast" is the class name); benign #111
+ddm +not implemented \(A0 byte 92 = 0x[0-9a-f]{2}\)  # st1008f-selftest: module without DDM (byte 92 bit 6 clear); benign #64
+((root@\S+|st1008f-linux) # )?dmesg \| grep -ciE 'oops\|bug:\|out of memory\|oom-kill'  # echo of a dev.py check command; benign #93
 
 [linux]
-sfp sfp-p[1-8]: SFP: unknown connector id 0x03  # GLC-SX-MM (sn H33A663; cage 4 on sw1, cage 7 on sw2) reports connector 0x03; module still used; known #16
+sfp sfp-p[1-8]: SFP: unknown connector id 0x03  # GLC-SX-MM (sn H33A663; cage 4 on sw1, cage 7 on sw2) reports connector 0x03; module still used; benign #16
 
 [uboot]
 Disable port \(0,(8|16|20|24|25|26|27|0)\)  # ramload `rtk port disable` of the cages not used for TFTP (#100)

@@ -7,7 +7,7 @@
   section `[linux]` applies to openwrt, mainline and stock);
   anything else is UNKNOWN and fails the check.
 - DENY patterns (panic, Oops, WARNING, Call Trace, failed, timed out, -Exxx, …) are ERROR even if
-  allowlisted, unless that allowlist entry carries `known #NN` (a tracking issue).
+  allowlisted, unless that allowlist entry carries `known #NN` (open defect) or `benign #NN` (reviewed, harmless).
 - Daemon markers (`[TX …]`, `[daemon] …`), U-Boot prompt lines and our own echoed commands are skipped.
 - U-Boot md/i2c reply shapes (`xxxxxxxx: …`, `data 0x..`, `done`) are skipped.
 - Exit 0 = clean, 1 = UNKNOWN only, 2 = ERROR. Log: tmp/logs/boot_log_check.log
@@ -28,7 +28,7 @@ DEFAULT_ALLOW = ROOT / "scripts/boot_log_allowlist.txt"
 DENY = re.compile(
     r"panic|\bOops\b|\bBUG\b|WARNING|Call Trace|cut here|Unable to handle|segfault|"
     r"\bfail(ed|ure)?\b|\berror\b|\bErr:0x|timed out|timeout|invalid|unknown|not found|"
-    r"(?-i:(?<!\w)-E[A-Z]{2,}\b)|error -\d+|Ring contention|\bhung\b|\bstall(ed)?\b|corrupt|(?<!\b0 )\bbad\b|cannot|can't|"
+    r"(?-i:(?<!\w)-E[A-Z]{2,}\b)|error -\d+|Ring contention|\bhung\b|\bstall(ed)?\b|corrupt|(?<!\b0 )\bbad\b(?!=0\b)|cannot|can't|"
     r"not (yet )?(fully )?implemented|deprecated|taints kernel|\bFAIL\b|could not|"
     r"own address as source",  # bridge loop signature (#19): never allowlist
     re.IGNORECASE)
@@ -63,9 +63,10 @@ def log(msg: str) -> None:
         fh.write(msg + "\n")
 
 
-def load_allow(path: Path) -> dict[str, list[tuple[re.Pattern, str, bool]]]:
-    """Sections `[stage]`; lines `regex  # reason [known #NN]`. Regex is fullmatch on the
-    normalised line (timestamps stripped)."""
+def load_allow(path: Path) -> dict[str, list[tuple[re.Pattern, str, str]]]:
+    """Sections `[stage]`; lines `regex  # reason [known #NN | benign #NN]`. Regex is fullmatch on the
+    normalised line (timestamps stripped). Third field: "known" = an open tracked defect (console_watch
+    yellow), "benign" = reviewed harmless line that only contains a DENY word (shown plain), "" = plain."""
     allow: dict[str, list] = {}
     stage = None
     for n, raw in enumerate(path.read_text().splitlines(), 1):
@@ -79,7 +80,8 @@ def load_allow(path: Path) -> dict[str, list[tuple[re.Pattern, str, bool]]]:
         pat, _, reason = line.partition("  # ")
         if not reason:
             raise SystemExit(f"{path}:{n}: entry needs '  # reason'")
-        allow[stage].append((re.compile(pat.strip()), reason, bool(re.search(r"known #\d+", reason))))
+        kind = "known" if re.search(r"known #\d+", reason) else "benign" if re.search(r"benign #\d+", reason) else ""
+        allow[stage].append((re.compile(pat.strip()), reason, kind))
     return allow
 
 
