@@ -17,7 +17,7 @@ import time
 from pathlib import Path
 
 sys.path.insert(0, str(Path(__file__).resolve().parent))
-from st1008_ramload import OW_READY, ROOT, Console, openwrt_stp, power, restart_daemon  # noqa: E402
+from st1008_ramload import OW_READY, ROOT, Console, openwrt_stp, power, restart_board, restart_daemon  # noqa: E402
 from uboot_chain_env import set_policy  # noqa: E402
 
 LOG = ROOT / "tmp/logs/mode_switch_map.log"
@@ -78,12 +78,8 @@ def live() -> int:
 
 
 def boot(expect: int) -> int:
-    power("off")
-    restart_daemon(policy="run bootcmd")
-    time.sleep(2)  # relay off->on gap: rails discharge (same as ramload)
     con = Console()
-    mark = con.size()
-    power("on")
+    mark = restart_board(con, policy="run bootcmd")  # software reboot; relay only as fallback
     try:
         # stock banner ~2 s after power-on; chain + our banner < 1 s more; x1.25 + relay latency
         con.expect(r"U-Boot 2026\.07", 6, mark, "stock -> saved bootcmd -> our U-Boot", boot_ok=True)

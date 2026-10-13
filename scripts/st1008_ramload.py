@@ -1,8 +1,8 @@
 #!/usr/bin/env python3
 """st1008_ramload — one command: power-cycle → stock U-Boot → TFTP an image → run it → check the boot log.
 
-- Sequence: relay off → restart console daemon (a power cut stalls the PL2303 RX) → relay on →
-  wait for the daemon's autoboot catch → `rtk network on` (waits for its end marker) → light one
+- Sequence: restart console daemon → software reboot from the current prompt (`restart_board`; relay power
+  cycle only if the board does not answer) → wait for the daemon's autoboot catch → `rtk network on` (waits for its end marker) → light one
   cage → TFTP (verifies byte count) → `go`/`bootm` → capture until a done marker → boot_log_check.
 - Every wait expects a console marker with a stated cap; expiry logs what was waited for.
 - Images: `uboot-mainline` (go 0x81000000), `openwrt` / `openwrt-ours[-6.18]` (bootm 0x84f00000, bridge STP
@@ -204,12 +204,49 @@ def restart_daemon(policy: str = "hold") -> None:
     log("console daemon restarted")
 
 
-def to_stock_uboot(con: Console) -> None:
+# owner rule 2026-10-13: reboot in software; the relay only when the board does not answer
+PROMPTS = (  # (pattern of the prompt the board shows, reboot command)
+    (r"st1008f-linux # $", "reboot -f"),          # mainline initramfs: /init is a shell, no init to signal
+    (r"root@[^:\s]*:[^#\n]*# $", "reboot"),       # OpenWrt: clean shutdown (overlay)
+    (r"st1008f-mainline # $", "reset"),            # our U-Boot
+    (r"RTL9300#[ #]*$", "reset"),                  # stock U-Boot (its CR echo can add a "#")
+)
+PROBE_S = 1     # prompt redraw after a CR: one line at 115200, ms; 1 s names a hung / fast-baud console
+SOFT_S = 12     # reboot -> stock banner: OpenWrt shutdown ~5 s (#105) + banner ~2.5 s; x1.25 + slack
+
+
+def restart_board(con: Console, policy: str = "hold") -> int:
+    """Software reboot from whatever prompt the board shows; relay power cycle only if it does not answer
+    or no stock banner follows within SOFT_S. Returns the log mark before the reboot (callers expect from it,
+    boot_ok=True). The daemon restarts first (policy; a power cut stalls the PL2303 RX)."""
+    restart_daemon(policy)
+    mark = con.size()
+    con.send("", cr=True)
+    t0, cmd, tail = time.monotonic(), None, ""
+    while cmd is None and time.monotonic() - t0 < PROBE_S:
+        tail = con.echo_since(mark).rstrip("\r\n").split("\n")[-1] + " "
+        cmd = next((c for pat, c in PROMPTS if re.search(pat, tail.rstrip() + " ")), None)
+        time.sleep(0.05)  # poll the log; a prompt line arrives in ~ms
+    if cmd:
+        mark = con.size()
+        con.send(cmd)
+        try:
+            con.expect(r"U-Boot 2011\.12", SOFT_S, mark, f"software reboot ({cmd})", boot_ok=True)
+            return mark
+        except SystemExit as e:
+            log(f"  software reboot gave no stock banner in {SOFT_S} s ({e}); relay power cycle")
+    else:
+        log(f"  no known prompt within {PROBE_S} s (last: {tail.strip()[-60:]!r}); relay power cycle")
     power("off")
-    restart_daemon()
+    restart_daemon(policy)
     time.sleep(2.0)  # rail discharge before power-on (relay off->on in <1 s left a half-reset)
     mark = con.size()
     power("on")
+    return mark
+
+
+def to_stock_uboot(con: Console) -> None:
+    mark = restart_board(con)
     # banner ~2.5 s after power-on, daemon catches autoboot within its 1 s countdown: cap 8 s
     con.expect(r"\[daemon\] at RTL9300#", 8, mark, "stock U-Boot prompt (autoboot caught)", boot_ok=True)
 
