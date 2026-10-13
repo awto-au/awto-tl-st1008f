@@ -186,7 +186,7 @@ rtl838x-eth 1b00a300\.ethernet eth0: entered (allmulticast|promiscuous) mode  # 
 rtl83xx-switch switch@1b000000: configuring for fixed/internal link mode  # CPU port phylink
 rtl83xx-switch switch@1b000000: Link is Up - 10Gbps/Full - flow control off  # CPU port link
 rtl83xx-switch switch@1b000000: led_set0 has 3 LEDs configured  # LED set
-rtl83xx-switch switch@1b000000: storm control bc/mc/uc \d+/\d+/\d+ pps per port, loop detect (on|off) \(recover \d+ s\) \(#111\)  # 300-26 probe: storm meters + loop detect armed; a `loop:`/`storm:` warning is not allowlisted (a real loop/storm)
+rtl83xx-switch (switch@1b000000|1b000000\.switch): storm control bc/mc/uc \d+/\d+/\d+ pps per port, loop detect (on|off) \(recover \d+ s\) \(#111\)  # 300-26 probe: storm meters + loop detect armed; a `loop:`/`storm:` warning is not allowlisted (a real loop/storm)
 DSA: tree 0 setup  # DSA init
 RESETTING 9300, CPU_PORT 28  # rtl83xx-switch debug print: CPU port 28
 c45_mask: 00000000  # rtl83xx-switch debug print

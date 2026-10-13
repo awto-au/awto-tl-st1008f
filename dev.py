@@ -386,6 +386,12 @@ def cmd_openwrt_sysupgrade_ssh(extra: list[str]) -> int:
     return _script("openwrt_sysupgrade_ssh.py", extra)
 
 
+@command("#111 storm/loop protection steps L2-L5 on sw2 (test bridge lan3+lan4 over the DAC loop; mgmt cage never in it)",
+         args="[l2 l3 l4 l5]  (run `ramload mainline-kernel` first)", kind="hardware")
+def cmd_storm_test(extra: list[str]) -> int:
+    return _script("storm_test.py", extra)
+
+
 @command("full-flash backup of a RAM-booted OpenWrt over SSH (every MTD, sha256 both ends) to private/mtd-backup-<ts>/",
          args="[--host A.B.C.D] [--out DIR]", kind="hardware")
 def cmd_backup(extra: list[str]) -> int:

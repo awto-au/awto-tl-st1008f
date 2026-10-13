@@ -96,3 +96,20 @@
 - RLDP classification of our proto 0x03 probe (trapped vs flooded): test plan step L2.
 - Whether TX tagged frames from the CPU count against the CPU port's ingress meters: test plan step L1.
 - Tool guards (#70 SPG refusals, storm_watch relay kill) become warnings/logging only after the sw2 test (#111 step 4).
+
+## Measured on sw2 (2026-10-13T18:20-18:26+11:00)
+
+Conditions: our U-Boot RAM-loaded (U1), mainline kernel next-20261009 + 300-26 RAM-loaded (L1-L5); `./dev.py storm-test`; test bridge `br-t` = lan7 + lan8 (fibre loop 7 <-> 8), mgmt cage never in it; host storm guard armed, no trip.
+
+| Step | Result |
+|---|---|
+| U1 U-Boot defaults | pass: every cage bc/mc/uc 10000/20000/20000 pps, CPU uc off, bypass bpdu/rma/rtkpkt 1, probe trap to CPU, cages forward to CPU only |
+| L1 Linux defaults | pass: same meters, `loop: on, period 1000 ms, recover 60 s` |
+| L2 STP on | pass: lan8 blocking (state 4), probes sent, no shut |
+| L3 STP off | pass: `probe sent on lan7 came back on lan8: lan8 shut down for 60 s` within 2 s |
+| L4 recovery | pass: `lan8 back up after 60 s`, shut again within 1 s |
+| L5 meters alone (`loop off`) | pass: the loop circulates multicast; meters cap it (`storm_s` 3-4, `storm: lanN multicast over the limit, excess dropped`), loadavg 0.36; `loop on` then shuts lan8 within 1 s |
+
+- `loops` counts every returned probe while the loop runs (hundreds per event), not events.
+- DAC pair 3 <-> 4 does not link under the mainline kernel (lan3 never up, lan4 flaps): the #112 DAC media fix is in the OpenWrt tree only. Fibre pair used instead.
+- Not run: L6 (OpenWrt management bridge with STP off): 300-26 is not in the OpenWrt 6.18 image yet.
