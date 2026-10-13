@@ -171,10 +171,11 @@ Catalogue of RTL9303 hardware that the datasheet omits, the SDK leaves unused, o
 
 ### ASIC drop-reason counters (#74)
 - **What:** `0xBB00B5B8 + 4*n`, 85 x 16 bit, 82 named in `mac_debug.c`
-- **Evidence:** [GPL]
-- **Measured:** not probed
+- **Evidence:** [GPL], [LIVE] 2026-10-13
+- **Measured:** clear-on-read (second read right after the first = 0). Idle after boot: `L3_BAD_IP` 1, `SRC_PORT_FILTER` 6, `PORT_ISOLATION` 4, `EGR_LINK_STATUS` 7. nic-bench at the base clocks: TCP P4 `EGR_QUEUE` 1640, UDP 64 B (100 Mbit/s offered, 60 % loss) `EGR_QUEUE` 32873, nothing else.
+- **Tool:** `./dev.py drop-counters snap | diff -- CMD` (Linux, `devmem`; kernel `CONFIG_DEVMEM`); nic-bench logs the per-test counts (`asic_drops` in `tmp/logs/nic_path_bench.jsonl`).
 - **Use:** explain L3 traps/drops (#59, #65)
-- **Risk:** read-only (check clear-on-read)
+- **Risk:** read-only, but each read clears: one reader at a time
 
 ### SerDes test tools (#74)
 - **What:** eye monitor, PRBS9/31, TX eye params, loopback, error counters (`dal_longan_sds.c`)

@@ -3,8 +3,9 @@
 
 - `0xBB00B5B8 + 4n` (phys `0x1B00B5B8`), n = 0..84, 16 bit each; names from the GPL SDK `mac_debug.c`
   (`hal_getDbgCntr`, parsed by scripts/sdk_leftovers_scan.py); n = 9-11 unnamed.
-- Read with BusyBox `devmem` in one SSH call. `snap` logs nonzero counters; `diff -- CMD` snapshots,
-  runs CMD on the host, snapshots again and logs the nonzero deltas (16-bit wrap handled).
+- Clear-on-read (2026-10-13: a second read right after the first returns 0). Read with BusyBox `devmem` in
+  one SSH call (CONFIG_DEVMEM). `snap` logs the nonzero counts since the last read; `diff -- CMD` reads
+  (clears), runs CMD on the host, reads again = drops during CMD.
 - Library: `snap()` / `delta()` (nic_path_bench logs deltas per test). Log: tmp/logs/drop_counters.log
 """
 
@@ -66,7 +67,8 @@ def name(i: int) -> str:
 
 
 def delta(a: list[int], b: list[int]) -> dict[str, int]:
-    return {name(i): (y - x) & 0xFFFF for i, (x, y) in enumerate(zip(a, b)) if y != x}
+    """Counts during the window: clear-on-read, so the second read alone (a = the clearing read)."""
+    return {name(i): y for i, y in enumerate(b) if y}
 
 
 def main() -> int:

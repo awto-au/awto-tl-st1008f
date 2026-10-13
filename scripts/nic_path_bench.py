@@ -5,7 +5,7 @@
   nat-bench setup + mode nat-ft. House LAN: one cage, no bridge; run storm-watch alongside.
 - `run --tag T [--runs 3]`: per run, NAT + flowtable: TCP P4; UDP 1400 B at 600/700/900 Mbit/s offered
   (overload curve); UDP 64 B at 100 Mbit/s offered (saturating). Rows -> tmp/logs/nat_bench.jsonl
-  (tag T), plus eth0 qdisc drops per test.
+  (tag T), plus eth0 qdisc drops and ASIC drop-reason deltas (drop_counters.py) per test.
 - `table [T ...]`: min-max per test and tag (fwd kpps = eth0 TX pps).
 - Log: tmp/logs/nic_path_bench.log
 """
@@ -100,15 +100,21 @@ def run(tag: str, runs: int, only: list[str] | None) -> int:
             if only and label not in only:
                 continue
             q0 = qdisc_drops()
+            try:
+                import drop_counters  # ASIC drop reasons next to the numbers (#74); needs CONFIG_DEVMEM
+                d0 = drop_counters.snap()
+            except SystemExit:
+                d0 = None
             # one iperf3 run: 10 s + 2 s omit + setup; nat_bench enforces its own iperf3 cap; 90 s names a hang
             r = subprocess.run([sys.executable, str(ROOT / "scripts/nat_bench.py"), "run", "--label",
                                 f"nic-{label}", *args], capture_output=True, text=True, env=env, timeout=90)
             q1 = qdisc_drops()
+            drops = drop_counters.delta(d0, drop_counters.snap()) if d0 is not None else None
             res = [ln.split("RESULT", 1)[1].strip() for ln in r.stdout.splitlines() if "RESULT" in ln]
             log(f"[{tag} run {i}/{runs}] {label}: {res[0] if res else r.stdout[-300:] + r.stderr[-300:]} | "
-                f"qdisc drops {q1 - q0}")
+                f"qdisc drops {q1 - q0} | asic drops {drops if drops is not None else 'n/a'}")
             with (ROOT / "tmp/logs/nic_path_bench.jsonl").open("a") as fh:
-                fh.write(json.dumps({"tag": tag, "run": i, "label": label, "qdisc_drops": q1 - q0,
+                fh.write(json.dumps({"tag": tag, "run": i, "label": label, "qdisc_drops": q1 - q0, "asic_drops": drops,
                                      "when": time.strftime("%Y-%m-%dT%H:%M:%S%z")}) + "\n")
     return 0
 

@@ -217,6 +217,7 @@ Conditions: mainline next-20261009 initramfs, SMP, NAT + flowtable, rx-gro-list 
   - GRO/GSO round trip (`dev_gro_receive`, `gro_receive_skb`, `udp_gro_receive`, `inet_gro_receive`, `__udpv4_gso_segment_csum`, `inet_gso_segment`, `__udp_gso_segment`): 16 %.
   - Hashing (`__siphash_aligned`, `__skb_flow_dissect`): 11 %. `__bzero` (skb init): 3 %.
   - One VPE does all NAPI work; the second VPE is idle.
+- ASIC drop reasons during nic-bench (`drop-counters`, base clocks, 2026-10-13T12:23): only `EGR_QUEUE` (CPU-port egress queue): TCP P4 1640, UDP 64 B 32873 of ~1.2 M lost frames. Most UDP 64 B loss is past the ASIC (NIC RX ring / CPU), not in the switch.
 
 ## Clock sensitivity (2026-10-11, `./dev.py nat-clock-variants`)
 
