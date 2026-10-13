@@ -105,6 +105,11 @@ int rtk_sfp_read_id(int cage, u8 *id);
 int rtk_sfp_read_a2(int cage, u8 *a2);	/* A2 bytes 0-127, 0 = ok */
 int rtk_sfp_present(int cage);		/* MOD-DEF0: 1 present, 0 absent, -1 no GPIO */
 
+/* rtk_storm.c: storm control + loop guard (#111) */
+void rtk_storm_defaults(void);
+int rtk_storm(int argc, char *const argv[]);
+int rtk_loopdetect(int argc, char *const argv[]);
+
 /* rtk_spg.c: Smart Packet Generator (#70, docs/SPG.md) */
 int rtk_spg(int argc, char *const argv[]);
 void rtk_cage_up(int cage);	/* rtk_net.c: SerDes on with the module's media (linkcheck) */

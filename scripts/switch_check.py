@@ -3,7 +3,7 @@
 
 - ping management IP, then SSH: release, kernel, uptime, bridge + STP state, per-port link/STP
   state, management address, LuCI / uhttpd present, sysupgrade available, last st1008f-selftest
-  summary (#108; reported, not part of PASS).
+  summary (#108), storm meters + loop-detect state (#111, 300-26 debugfs); reported, not part of PASS.
 - PASS = ping + SSH + bridge with STP on + at least one port forwarding + mgmt IP present.
 - `--wait S`: poll ping up to S seconds first (after a power-up). Log: tmp/logs/switch_check.log
 """
@@ -31,6 +31,7 @@ echo "mgmt=$(uci -q get network.lan.proto) $(uci -q get network.lan.ipaddr)"
 [ -d /www/luci-static ] && echo luci=yes || echo luci=no
 pgrep uhttpd >/dev/null && echo uhttpd=yes || echo uhttpd=no
 command -v sysupgrade >/dev/null && echo sysupgrade=yes || echo sysupgrade=no
+[ -r /sys/kernel/debug/rtl838x/storm ] && sed 's/^/storm=/' /sys/kernel/debug/rtl838x/storm || echo "storm=no debugfs (kernel without 300-26)"
 echo "selftest=$(cat /tmp/st1008f-selftest.summary 2>/dev/null || echo none)"
 """
 

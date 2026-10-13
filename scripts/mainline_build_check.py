@@ -52,6 +52,7 @@ OWRT_FILES = [
 # tree rel-path -> repo source: OS-independent cores shared with U-Boot (#83); copied before the patches
 SHARED_FILES = {
     "drivers/net/ethernet/realtek/rtl930x_nic.h": ROOT / "shared/rtl930x-nic/rtl930x_nic.h",
+    "drivers/net/dsa/rtl83xx/rtl930x_storm.h": ROOT / "shared/rtl930x-storm/rtl930x_storm.h",  # 300-26
 }
 PATCHES = [*(next((OWRT / "patches-6.18").glob(f"{n}-*.patch")) for n in OWRT_VERBATIM),
            *kernel_base.patches()]

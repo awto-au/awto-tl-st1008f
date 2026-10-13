@@ -384,6 +384,48 @@ step_asic() {
 	res asic PASS "8 cages read"
 }
 
+# storm control + loop detect (#111, docs/STORM-PROTECTION.md): 300-26 debugfs, else the registers
+step_storm() {
+	dbgfs
+	peek 0xbb008a60 0xbb008a6c 0xbb00a250 0xbb008c50 0xbb008c90 0xbb008cd0 0xbb008cf0 0xbb008d10 0xbb008d18 \
+		0xbb008d20 0xbb008d28 0xbb008d30 0xbb008d3c 0xbb008c4c 0xbb008b5c
+	trap=$(reg 0xbb00a250)
+	[ -n "$trap" ] || { res storm FAIL "storm registers unreadable"; return; }
+	off="" n=0
+	set -- 0 8 16 20 24 25 26 27 28	# cage ports + CPU: BC meter word = 0xbb008c50 + 8 x port
+	for port in "$@"; do
+		w=$(reg "$(printf 0xbb008%03x $((0xc50 + 8 * port)))")
+		if [ "$(fld "$w" 24 1)" = 1 ]; then
+			n=$((n + 1))
+		else
+			off="$off $port"
+		fi
+	done
+	log "storm: STORM_CTRL $(reg 0xbb008a60) MODE $(reg 0xbb008a6c) RLDP_RLPP_CTRL $trap;" \
+		"BC meter on $n of 9 ports; exceed bc/mc/uc $(reg 0xbb008d3c)/$(reg 0xbb008c4c)/$(reg 0xbb008b5c)"
+	kv storm ctrl "$(reg 0xbb008a60)"
+	kv storm trap "$trap"
+	kv storm bc_ports_on "$n"
+	st=PASS why="BC meter on $n/9 ports, probe trap $( [ "$(fld "$trap" 0 2)" = 1 ] && echo cpu || echo OFF )"
+	[ -z "$off" ] || { st=WARN; why="$why; meter off on ports$off (kernel without 300-26?)"; }
+	[ "$(fld "$trap" 0 2)" = 1 ] || st=WARN
+	f=$DBG/rtl838x/storm
+	if [ -r $f ]; then
+		sed 's/^/storm: /' $f
+		kv storm loop "$(sed -n 's/^loop: //p' $f)"
+		sh=$(grep -c ' SHUT ' $f)
+		now=$(grep -c ' NOW' $f)
+		kv storm shut_ports "$sh"
+		kv storm storming_ports "$now"
+		[ "$sh" = 0 ] || { st=WARN; why="$why; $sh port(s) shut by loop detect"; }
+		[ "$now" = 0 ] || { st=WARN; why="$why; $now port(s) over a storm limit now"; }
+		grep -q '^loop: on' $f || { st=WARN; why="$why; loop detect off"; }
+	else
+		why="$why; no $f (loop detect needs 300-26)"
+	fi
+	res storm $st "$why"
+}
+
 step_kmemtest() {
 	n=$(tr ' ' '\n' < /proc/cmdline | sed -n 's/^memtest=//p')
 	[ -n "$n" ] || { res kmemtest SKIP "no memtest=N in bootargs"; return; }
@@ -538,6 +580,7 @@ run env $L_FAST
 run flash $L_FLASH
 run sfp $L_SFP
 run asic $L_FAST
+run storm $L_FAST
 run kmemtest $L_FAST
 run sram $L_SRAM
 run cpu $L_CPU

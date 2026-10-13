@@ -51,14 +51,14 @@ Effort: S = config/package or register writes; M = new driver/daemon code (100-3
 | [Optics / DDM](#optics--ddm) | full | read-only | alarms, auto-disable | S |
 | [Statistics / RMON](#statistics--rmon) | full | counters | RMON groups | M |
 | [Mirroring](#mirroring) | 4 sessions | tc mirred | UI | S |
-| [Loop detection](#loop-detection) | yes | none | all | M |
+| [Loop detection](#loop-detection) | yes | probe + port shut (#111) | per-port config, VLAN block | M |
 | [Isolation / port security](#port-isolation--port-security) | yes | isolation | MAC limits | S |
 | [LAG / LACP](#lag--lacp) | yes | yes | UI | S |
 | [MAC table](#mac-table) | full | basic | flap detect, filter | S |
 | [VLAN](#vlan) | 802.1Q+7 types | 802.1Q | MAC/proto/QinQ/GVRP | M |
 | [STP / MSTP / ERPS](#stp--mstp--erps) | full | kernel STP | MSTP, guards, ERPS | M |
 | [Multicast snooping](#multicast-snooping) | IGMP/MLD full | bridge snoop | profiles, MVR | M |
-| [QoS / storm / rate](#qos--storm--rate) | full | police only | storm, sched, DSCP | M |
+| [QoS / storm / rate](#qos--storm--rate) | full | police + storm (#111) | sched, DSCP | M |
 | [ACL / time ranges](#acl--time-ranges) | full | tc flower | ranges, time, UI | M |
 | [L2 security](#l2-security) | full | none | all | M-L |
 | [802.1X / AAA](#8021x--aaa--radius--tacacs) | full | none | all | M |
@@ -134,8 +134,8 @@ Format per block: vendor settings (UI page → fields; CLI; backend), ASIC, ours
 
 - Vendor UI: Loopback Detection: global enable, interval, auto-recovery time; per port: enable, processing mode (alert / port-based block / VLAN-based block), recovery mode, status. API `port.lbd_global_cfg`, `port.lbd_port_cfg`. CLI `loopback-detection` (+`packet-vlan`), SNMP `tplinkLoopbackDetectionMIBObjects`, trap `loopback-detection`.
 - ASIC: RLDP/RLPP trap (SDK-FEATURE-MAP #15).
-- Ours: bridge STP only (#43 history).
-- Gap: loop-detect frame sender + trap handler + port block. M.
+- Ours: bridge STP + 300-26 loop detect (probe, RLDP trap, MAC shut, 60 s recovery): [STORM-PROTECTION.md](STORM-PROTECTION.md) (#111).
+- Gap: per-port enable/mode, VLAN-based block, SNMP trap. S.
 
 ### Port isolation / port security
 
@@ -188,8 +188,8 @@ Format per block: vendor settings (UI page → fields; CLI; backend), ASIC, ours
 
 - Vendor UI: Port priority + trust mode, Scheduling Mode (SP, WRR, WFQ, SP+WRR, SP+WFQ; per-queue weight and bandwidth limit; CLI `qos queue mode|weight|bandwidth-limit|cos-map|dscp-map`), 802.1p → queue map, DSCP → priority map, Bandwidth Suppression (ingress/egress per port), Storm Suppression (broadcast/multicast/unknown-unicast, kbps/ratio/pps). API `qos.*`. CLI `qos` (21), `storm-control` (16), `bandwidth`; SNMP `tplinkQosScheduler`, `tplinkQosDSCP`, `tpStormControlEntry`, `tpRateLimitEntry`.
 - ASIC: rows 32-33 (storm), 47-54 (meters, queues, scheduling, shaping, SWRED).
-- Ours: tc police (ingress/egress port rate) only; storm control N on 930x.
-- Gap: storm control (registers known), scheduler and maps via DSA/tc mqprio or sysfs. S-M.
+- Ours: tc police (ingress/egress port rate); storm control BC/MC/unknown-UC pps at boot, U-Boot + Linux ([STORM-PROTECTION.md](STORM-PROTECTION.md), #111).
+- Gap: per-protocol meters, scheduler and maps via DSA/tc mqprio or sysfs. S-M.
 
 ### ACL / time ranges
 

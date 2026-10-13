@@ -6,6 +6,8 @@
 - Clear-on-read (2026-10-13: a second read right after the first returns 0). Read with BusyBox `devmem` in
   one SSH call (CONFIG_DEVMEM). `snap` logs the nonzero counts since the last read; `diff -- CMD` reads
   (clears), runs CMD on the host, reads again = drops during CMD.
+- Storm drops (#111): reason 60 STORM_CONTROL is the total; `storm()` adds the per-port side from 300-26
+  debugfs `rtl838x/storm` (meters, seconds over the limit, loop-detect shuts), logged after each read.
 - Library: `snap()` / `delta()` (nic_path_bench logs deltas per test). Log: tmp/logs/drop_counters.log
 """
 
@@ -62,6 +64,13 @@ def snap() -> list[int]:
     return [int(v, 16) & 0xFFFF for v in out]
 
 
+def storm() -> list[str]:
+    """Per-port storm meters + loop-detect state (300-26 debugfs); [] on a kernel without it."""
+    import nat_bench
+    out = nat_bench.sw("cat /sys/kernel/debug/rtl838x/storm 2>/dev/null || true", tmo=READ_S)
+    return [ln for ln in out.splitlines() if ln.strip()]
+
+
 def name(i: int) -> str:
     return NAMES.get(i, f"#{i}")
 
@@ -78,12 +87,16 @@ def main() -> int:
     a = snap()
     if sys.argv[1] == "snap":
         log("nonzero: " + (", ".join(f"{name(i)} {v}" for i, v in enumerate(a) if v) or "none"))
+        for ln in storm() or ["storm: no rtl838x/storm debugfs (kernel without 300-26)"]:
+            log(ln)
         return 0
     cmd = sys.argv[sys.argv.index("--") + 1:] if "--" in sys.argv else []
     if cmd:
         subprocess.run(cmd, timeout=600)  # caller's workload; 600 s names a stuck one
     d = delta(a, snap())
     log("delta: " + (", ".join(f"{k} {v}" for k, v in d.items()) or "none"))
+    for ln in storm():
+        log(ln)
     return 0
 
 

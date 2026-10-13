@@ -32,13 +32,14 @@
 | flash | 2 s | chain env set and slot bad; loader CRC changed |
 | sfp | 2 s | never (WARN: module present, EEPROM unreadable) |
 | asic | 2 s | switch-core registers unreadable |
+| storm | 2 s | storm registers unreadable (WARN: meter off, trap off, port shut, storming, loop detect off) |
 | kmemtest | 2 s | dmesg `bad mem` |
 | sram | 2 s | any pattern error; refused (segment unmapped) |
 | cpu | ceil(CPU_SECS × 1.25) + 1 | any XZ decode md5 wrong; fewer decodes than CPUs |
 | mem | ceil(MEM_SECS × 1.25) + 1 | any pattern error; helper setup error |
 
 - Bound = ceil(expected × 1.25) + 1 s (the killer is a BusyBox `sleep`, 1 s resolution). Each step runs as `sh $0 --step ITEM` in its own process group (`setsid`); expiry = TERM to the group, item FAIL `timeout after N s`.
-- Order: clocks, mode, thermal, env, flash, sfp, asic, kmemtest, sram, cpu, mem (cheap reads first; flash skipped when clocks found fast SPI).
+- Order: clocks, mode, thermal, env, flash, sfp, asic, storm, kmemtest, sram, cpu, mem (cheap reads first; flash skipped when clocks found fast SPI).
 
 ### clocks + registers
 
@@ -77,6 +78,12 @@
 
 - env: `fw_printenv` (uboot-envtools); `ethaddr`, `bootcmd` chain type (`crc` = `ub_ck`, `nocrc`, `none`), `st1008f_turbo`, `st1008f_turbo_bad`, `st1008f_boot`.
 - flash: `jffs2-log` slot checked like `scripts/uboot_chain_image.py` (slot CRC32 vs trailer, magic, image size + CRC); loader `u-boot` (0x0-0xDFFFF) CRC32 vs the first recorded value. Read-only.
+
+### storm (#111)
+
+- Registers: `STORM_CTRL`, `STORM_PORT_CTRL` (mode), `RLDP_RLPP_CTRL` (probe trap), BC meter word of the 8 cage ports + CPU, EXCEED flags BC/MC/UC.
+- With 300-26: whole debugfs `rtl838x/storm` logged; WARN on a `SHUT` port, a port over a limit (`NOW`), loop detect off.
+- Facts and limits: [STORM-PROTECTION.md](STORM-PROTECTION.md).
 
 ### kmemtest
 

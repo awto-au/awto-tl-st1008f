@@ -636,6 +636,7 @@ void rtk_guard_after_stock(void)
 	if ((sw_r(MAC_FORCE(CPU_PORT)) & 3) != 3)	/* stock network on forces the CPU port link */
 		return;
 	rtk_iso_guard();
+	rtk_storm_defaults();	/* #111 */
 	for (i = 0; i < NCAGES; i++)
 		sw_rmw(L2_PORT_CTRL(rtk_cage_port[i]), 3, 3);
 }
@@ -703,6 +704,7 @@ static void network_on(void)
 	rtk_sfp_power_sum(false);	/* total vs budget, WARNING if over (#30); before Err: scripts wait on it */
 	printf("Err:0x%x:FAIL (0x%x)\n", 0xf030, 0xf030);	/* stock: CPU port has no PHY driver */
 	rtk_iso_guard();
+	rtk_storm_defaults();	/* #111 */
 	net_on = true;
 	mdelay(2000);	/* stock: link-status settle */
 	if (io_err) {
