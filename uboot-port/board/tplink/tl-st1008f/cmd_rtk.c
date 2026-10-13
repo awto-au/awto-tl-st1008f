@@ -434,7 +434,8 @@ static int sfp_one(int cage, bool full)
 	       rtk_sfp_power_mw(id, &why), why);
 	sfp_notes(id);
 	if (!(id[92] & 0x40)) {
-		printf("  ddm   not implemented (A0 byte 92 = 0x%02x)\n", id[92]);
+		printf("  ddm   n/a (%s; A0 byte 92 = 0x%02x)\n", id[8] & 0x04 ? "passive DAC: no DDM by spec" :
+		       "module declares no DDM", id[92]);
 		goto decode;
 	}
 	/* brief + internal calibration needs only the live bytes 96-105; keep the old 10 B read */

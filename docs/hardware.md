@@ -18,6 +18,19 @@ Narrative & dead ends: see [HISTORY.md](HISTORY.md). Evidence paths under `priva
 
 - **Current (owner, 2026-10-12): only one 10G SR left fitted, for management; the other modules are removed.** The table below is the 2026-10-10 full set (module inventory).
 
+### sw2 loopbacks (owner fitted 2026-10-13, #110; `./dev.py linkcheck` + `rtk sfp` at 12:58+11:00)
+
+| Cage | Module | Serial | Cabled to |
+|---|---|---|---|
+| 1 | FS SFP-10GSR-85 | F2130412917 | house LAN (fibre to sw1 lan4) |
+| 2 | FS SFP-10G-T (AQR113C, copper) | F2220688305 | nothing seen (RX 0, LOS 1; copper: TX-disable ignored) |
+| 3, 4 | CISCO-JPC P3410UD05000-1 passive DAC (one cable, same serial) | JPC223107Q1 | **each other** |
+| 5, 6 | empty | - | - |
+| 7, 8 | FS SFP-10GSR-85 | (7) -, (8) F2130412915 | **each other** (fibre: cage 7 light at cage 8 602 µW and back) |
+
+- `linkcheck` (U-Boot `rtk linkcheck` and Linux `st1008f-linkcheck`) reports both: 7 ↔ 8 by the laser probe, 3 ↔ 4 by the same vendor + serial at two cages (a passive DAC has no DDM and no laser). Verdict LOOP (2026-10-13T13:05).
+- DAC cages: `rtk_cage_up` powers their SerDes for the check; MAC link on 3 ↔ 4 stayed down (not yet explained).
+
 ### sw2 fitted modules (2026-10-12T14:17+11:00, our U-Boot `rtk sfp` / `rtk port`, laser cage 1 only)
 
 | Cage | Module | Serial | RX (laser off) |

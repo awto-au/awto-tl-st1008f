@@ -703,6 +703,17 @@ static void network_on(void)
 	}
 }
 
+/* linkcheck: power one cage's SerDes with its module's media (a stock flow may have left it off) */
+void rtk_cage_up(int cage)
+{
+	int port = rtk_cage_port[cage - 1];
+
+	if (!constructed)
+		construct();
+	phy_enable(port, true);
+	media_set(port, cage_media(cage));
+}
+
 int rtk_network(int argc, char *const argv[])
 {
 	int c;

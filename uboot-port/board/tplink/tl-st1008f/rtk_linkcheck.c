@@ -5,6 +5,8 @@
  *    Light with our lasers off = a powered far end. No RX_LOS pin is wired on this board.
  * 2. One laser at a time: RX rising on another cage = passive cage-to-cage cable.
  * 3. Loop probe: per live cage, one broadcast out that cage; seen on another cage = loop.
+ * Cables without light (DAC, copper): SerDes up first, then MAC link; the same vendor + serial
+ * at two cages = one cable = a loop between them (passive DAC has no DDM, #110).
  * Lasers restored after. Output parsed by scripts/linkcheck.py.
  */
 
@@ -26,11 +28,13 @@
 /* Probe frame back through an external switch: 2 store-and-forward hops ~30 us at 1G; a Linux
  * software bridge adds < 1 ms. 10 ms bound; expiry = no loop seen on that cage. */
 #define LOOP_WAIT_MS	10
+/* MAC link after powering a SerDes: stock `rtk network on` settles 2 s before reading links */
+#define LINK_SETTLE_MS	2000
 
 struct lc {
-	bool pres, ddm, copper, live;
+	bool pres, ddm, copper, dac, live;
 	int rx, los, mac, phy;	/* rx 0.1 uW (-1 none); los/mac/phy 1/0, -1 = n/a */
-	char pn[17];
+	char pn[17], vn[17], sn[17];
 };
 
 static int lasers(u8 out)
@@ -112,8 +116,15 @@ static void scan(struct lc *c, bool ids)
 				continue;
 			}
 			memcpy(c->pn, id + 40, 16);
+			memcpy(c->vn, id + 20, 16);
+			memcpy(c->sn, id + 68, 16);
 			for (i = 15; i >= 0 && (c->pn[i] == ' ' || !c->pn[i]); i--)
 				c->pn[i] = 0;
+			for (i = 15; i >= 0 && (c->vn[i] == ' ' || !c->vn[i]); i--)
+				c->vn[i] = 0;
+			for (i = 15; i >= 0 && (c->sn[i] == ' ' || !c->sn[i]); i--)
+				c->sn[i] = 0;
+			c->dac = id[8] & 0x0c;	/* SFP+ cable technology: passive / active copper */
 			c->ddm = id[92] & 0x40;
 			/* 1000BASE-T bit, RJ45 connector, 10GBASE-T ext. compliance (0x16/0x1c), or a
 			 * PN ending "-T": FS SFP-10G-T claims 10GBASE-SR + LC and fakes DDM (RX 0, LOS 1).
@@ -162,6 +173,17 @@ int rtk_linkcheck(int argc, char *const argv[])
 		goto exp_fail;
 	mdelay(SETTLE_MS);
 	scan(a, true);
+	for (n = 1, m = 0; n <= NCAGES; n++)	/* no light to see: power the SerDes, read the MAC link */
+		if (a[n - 1].pres && (a[n - 1].dac || a[n - 1].copper) && !a[n - 1].mac) {
+			rtk_cage_up(n);
+			m++;
+		}
+	if (m) {
+		mdelay(LINK_SETTLE_MS);
+		for (n = 1; n <= NCAGES; n++)
+			if (a[n - 1].pres)
+				a[n - 1].mac = mac_up(n);
+	}
 	for (n = 1; n <= NCAGES; n++) {
 		struct lc *c = &a[n - 1];
 
@@ -169,7 +191,7 @@ int rtk_linkcheck(int argc, char *const argv[])
 			continue;
 		/* copper PHY unreadable: TX-disable is often ignored, so a link cannot be ruled out */
 		c->live = c->phy == 1 || (c->copper && c->phy < 0) ||
-			  (!c->copper && (c->rx >= RX_LIVE || c->los == 0)) || c->mac == 1;
+			  (!c->copper && !c->dac && (c->rx >= RX_LIVE || c->los == 0)) || c->mac == 1;
 		live += c->live;
 		printf("linkcheck cage %d: %s, rx ", n, c->pn[0] ? c->pn : "?");
 		pr_rx(c->rx);
@@ -177,8 +199,16 @@ int rtk_linkcheck(int argc, char *const argv[])
 		       c->mac ? "up" : "down", c->phy < 0 ? "-" : c->phy ? "up" : "down",
 		       c->live ? "YES" : "no");
 	}
+	for (n = 1; n <= NCAGES; n++)	/* one cable, two ends: same vendor + serial */
+		for (m = n + 1; m <= NCAGES; m++)
+			if (a[n - 1].pres && a[m - 1].pres && a[n - 1].sn[0] && !strcmp(a[n - 1].sn, a[m - 1].sn) &&
+			    !strcmp(a[n - 1].vn, a[m - 1].vn)) {
+				loops++;
+				printf("linkcheck loop %d<->%d: same cable (%s sn %s at both cages)\n", n, m,
+				       a[n - 1].vn, a[n - 1].sn);
+			}
 	for (n = 1; n <= NCAGES; n++) {	/* passive cable: our own light comes back on another cage */
-		if (!a[n - 1].pres || a[n - 1].copper)
+		if (!a[n - 1].pres || a[n - 1].copper || a[n - 1].dac)
 			continue;
 		if (lasers(0xff & ~BIT(n - 1)))
 			goto exp_fail;

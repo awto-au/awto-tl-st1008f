@@ -107,6 +107,7 @@ int rtk_sfp_present(int cage);		/* MOD-DEF0: 1 present, 0 absent, -1 no GPIO */
 
 /* rtk_spg.c: Smart Packet Generator (#70, docs/SPG.md) */
 int rtk_spg(int argc, char *const argv[]);
+void rtk_cage_up(int cage);	/* rtk_net.c: SerDes on with the module's media (linkcheck) */
 
 /* rtk_sfppower.c: declared module power vs board budget (#30); warn only */
 int rtk_sfp_power_mw(const u8 *id, const char **why);
