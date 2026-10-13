@@ -132,7 +132,7 @@ def main() -> int:
         sh(con, f"U=http://{SERVER_IP}:{PORT}")
         # right after boot STP holds the ports: listen + learn = 2 x 15 s forward delay; x1.25 = 8 x 5 s
         for _ in range(8):
-            if re.search(r"\nGOT_OK", sh(con, f"wget -q -O /tmp/u.bin $U/{IMAGE.name} && echo GOT_OK", cap=5)):
+            if re.search(r"\nGOT_OK", sh(con, f"wget -qO/tmp/u.bin $U/{IMAGE.name}&&echo GOT_OK", cap=5)):
                 break
             time.sleep(5)
     finally:

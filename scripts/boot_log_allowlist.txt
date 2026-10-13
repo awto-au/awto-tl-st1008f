@@ -380,6 +380,7 @@ Load address: 0x81000000  # tftpboot of uboot-mainline.bin
 
 [uboot-mainline]
 \#\# Booting kernel from Legacy Image at 84f00000 \.\.\.  # `ramload uboot-mainline --then`: bootm from ours
+\#\# Booting kernel from Legacy Image at b4300000 \.\.\.  # chain boot: bootm of flash OpenWrt (firmware partition via the mmio window, #105)
 \s+Image Name:\s+(MIPS OpenWrt Linux-\d+\.\d+(\.\d+)?(-rc\d+)?|mainline ST1008F)  # bootm header: images we build
 \s+Image Type:\s+MIPS Linux Kernel Image \(lzma compressed\)  # bootm header; type pinned
 \s+Data Size:\s+\d+ Bytes = [0-9.]+ MiB  # bootm header
