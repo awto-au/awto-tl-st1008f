@@ -39,8 +39,12 @@ def log(msg: str) -> None:
 
 def run(con: Console, probe: bool = True) -> tuple[str, int, list[str]]:
     """At our prompt: run `rtk linkcheck`, log the table; returns (verdict, live, report lines)."""
-    _, out = con.run("rtk linkcheck" + ("" if probe else " noprobe"), VERDICT + r"[^\n]*" + PROMPT,
-                     CAP_S, "rtk linkcheck")
+    con.note("interactive-begin")  # check output (incl. its `rtk network on`) is not boot output
+    try:
+        _, out = con.run("rtk linkcheck" + ("" if probe else " noprobe"), VERDICT + r"[^\n]*" + PROMPT,
+                         CAP_S, "rtk linkcheck")
+    finally:
+        con.note("interactive-end")
     lines = [ln.strip() for ln in out.splitlines() if ln.strip().startswith("linkcheck")]
     for ln in lines:
         log(ln)

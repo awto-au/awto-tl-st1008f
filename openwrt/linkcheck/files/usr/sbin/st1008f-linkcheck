@@ -4,6 +4,8 @@
 # Live = RX >= 5 uW (-23 dBm), LOS 0, or carrier; copper modules and DACs count live (no light to see).
 # Same vendor + serial on two ports = one cable = LOOP (passive DAC between two cages, #110).
 # More than one live port or a loop, and a bridge with STP off -> STP on in uci (committed), logged.
+# Ports in bootargs st1008f.nobridge=lanA,lanB and both ends of a same-cable loop leave the bridge
+# (uci, before netifd): they stay down, nothing forwards between them (sw2 loopbacks, #110).
 # Exit 0 = <= 1 live, 3 = multi live, 4 = loop (STP ensured). Output: one line per port + verdict.
 
 RX_LIVE=50	# 0.1 uW units: 5 uW = -23 dBm; a dark SR reads 1
@@ -49,9 +51,25 @@ done
 verdict=OK
 [ $live -gt 1 ] && verdict=MULTI
 loops=$(echo "$ids" | awk 'NF == 2 { if ($1 in p) print p[$1] "<->" $2; else p[$1] = $2 }')
+nobridge=$(sed -n 's/.*st1008f\.nobridge=\([^ ]*\).*/\1/p' /proc/cmdline | tr ',' ' ')
 for l in $loops; do
 	echo "linkcheck loop $l: same cable (vendor/serial at both ports)"
 	verdict=LOOP
+	nobridge="$nobridge ${l%%<->*} ${l##*<->}"
+done
+# bridge membership = `ports` (option or list) of bridge devices and bridge-vlans: "lanN" / "lanN:t"
+for s in $(uci -q show network | sed -n "s/^network\.\([^.=]*\)\.ports=.*/\1/p"); do
+	keep=""
+	gone=""
+	for v in $(uci -q get network.$s.ports); do
+		case " $nobridge " in *" ${v%%:*} "*) gone="$gone $v" ;; *) keep="$keep $v" ;; esac
+	done
+	[ -n "$gone" ] || continue
+	uci delete network.$s.ports
+	for v in $keep; do uci add_list network.$s.ports="$v"; done
+	uci commit network
+	logger -t st1008f-linkcheck "$s: removed$gone (loop / st1008f.nobridge)"
+	echo "linkcheck bridge $s: removed$gone (loop / st1008f.nobridge)"
 done
 if [ $verdict != OK ]; then
 	for s in $(uci -q show network | sed -n "s/^network\.\([^.=]*\)\.type='bridge'$/\1/p"); do

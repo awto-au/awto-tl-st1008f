@@ -51,7 +51,19 @@ cat /sys/kernel/debug/sfp-p1/state   # tx_disable: 0 now
 
 - `bridge link` -> empty; `ip -d link show lan1` -> no `master`.
 - `storm-watch` silent; SG2008P log has no `OSW_DET_LOOP`.
-- Cages 3 ↔ 7 are not cabled (2026-10-11). If GLC-T modules are ever cabled there again (they ignore TX-disable): never `port-up` both, never bridge without `stp_state 1`.
+- sw2 loopbacks (3 ↔ 4 DAC, 7 ↔ 8 fibre, docs/hardware.md): mainline initramfs never bridges; never `port-up` both ends of a pair.
+
+## OpenWrt with the sw2 loopbacks fitted (#110)
+
+- Boot: `./dev.py ramload uboot-mainline --then openwrt-ours --nobridge 3,4,7,8`.
+  - Our U-Boot `rtk linkcheck` reports LOOP on 3 ↔ 4 / 7 ↔ 8; ramload allows it only when every looped cage is in `--nobridge`, else refuses.
+  - Bootargs `st1008f.nobridge=lan3,lan4,lan7,lan8`; `st1008f-linkcheck` (START=19, before netifd) removes them from every uci `ports` (bridge-vlan `lan_vlan`), also both ends of any same-serial pair it finds itself; STP on.
+- Verify (2026-10-13T15:06, sw2):
+  - `st1008f-linkcheck` console: `linkcheck bridge lan_vlan: removed lan3 lan4 lan7 lan8`.
+  - `bridge link`: lan1, lan2, lan5, lan6 only. `ip -br link`: lan3/4/7/8 DOWN.
+  - Port MIB `ifInUcastPkts` / `ifOutUcastPkts` of ports 16/20/26/27 (`devmem 0x1b000664 + (port << 8) + 20 / 44`): 0.
+  - Storm guard (`storm_watch.py --guard`) running, no trip.
+- Same image without `--nobridge` (all ports bridged, STP on): STP blocked lan4 (DAC) and lan8 (fibre); safe, but depends on STP.
 
 ## SMP: IRQ routing and latency (#73)
 
