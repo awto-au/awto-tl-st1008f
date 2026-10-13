@@ -320,6 +320,7 @@
 		interrupt-parent = <&intc>;
 		interrupts = <24 3>;
 		phy-mode = "internal";
+		sram = <&sram0>;	/* rings here with rtl838x_eth.sram_rings=1 (300-25, #103) */
 		nvmem-cells = <&macaddr_uboot 0>;
 		nvmem-cell-names = "mac-address";
 

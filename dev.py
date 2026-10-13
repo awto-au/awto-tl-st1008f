@@ -194,6 +194,36 @@ def cmd_ddr_retrain(extra: list[str]) -> int:
     return _script("ddr_retrain.py", extra)
 
 
+@command("static perf for the mainline initramfs board from the OpenWrt musl toolchain -> tmp/perf/perf (#67)",
+         kind="build")
+def cmd_build_perf(extra: list[str]) -> int:
+    return _script("build_perf.py", extra)
+
+
+@command("perf profile of the NAT path under one nic-bench load: push perf, record -a, top symbols (#67 #65)",
+         args="--tag T [--test udp64-100] [--secs 5] [--no-push]  (run `nic-bench boot` first)", kind="hardware")
+def cmd_nat_perf(extra: list[str]) -> int:
+    return _script("nat_perf.py", extra)
+
+
+@command("NAT matrix: clocks (base / picks) x SRAM (off / mapped / rings), one nic-bench run each (#65 #71 #103)",
+         args="[--only CELL ...] [--perf]", kind="hardware")
+def cmd_nat_matrix(extra: list[str]) -> int:
+    return _script("nat_matrix.py", extra)
+
+
+@command("console UART speed on demand, board + host, echo-verified, reverts on failure (#46)",
+         args="[RATE]  (default 921600; 115200 = back; at our U-Boot or Linux/OpenWrt)", kind="hardware")
+def cmd_console_speed(extra: list[str]) -> int:
+    return _script("console_speed.py", extra)
+
+
+@command("ASIC drop-reason counters (85 x 16 bit, SDK names) over SSH from Linux: snap | diff -- CMD (#74)",
+         args="snap | diff -- CMD ...", kind="check")
+def cmd_drop_counters(extra: list[str]) -> int:
+    return _script("drop_counters.py", extra)
+
+
 @command("SRAM window vs high DRAM alias check after the zone-3 remap, in U-Boot (#107)",
          args="[--bus 0x1f000000] [--no-unmap] [--no-boot]", kind="hardware")
 def cmd_sram_alias_probe(extra: list[str]) -> int:

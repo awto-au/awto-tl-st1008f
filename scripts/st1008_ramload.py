@@ -215,21 +215,44 @@ PROBE_S = 1     # prompt redraw after a CR: one line at 115200, ms; 1 s names a 
 SOFT_S = 12     # reboot -> stock banner: OpenWrt shutdown ~5 s (#105) + banner ~2.5 s; x1.25 + slack
 
 
+def _daemon_baud(baud: int) -> None:
+    s = __import__("socket").socket(__import__("socket").AF_UNIX)
+    s.settimeout(5)  # local unix socket; 5 s names a dead daemon
+    s.connect(str(SOCK))
+    s.sendall((json.dumps({"op": "baud", "baud": baud}) + "\n").encode())
+    s.recv(65536)
+    s.close()
+
+
 def restart_board(con: Console, policy: str = "hold") -> int:
     """Software reboot from whatever prompt the board shows; relay power cycle only if it does not answer
     or no stock banner follows within SOFT_S. Returns the log mark before the reboot (callers expect from it,
-    boot_ok=True). The daemon restarts first (policy; a power cut stalls the PL2303 RX)."""
+    boot_ok=True). The daemon restarts first (policy; a power cut stalls the PL2303 RX). A board left at a fast
+    console rate (tmp/console-speed.json) is probed at that rate; the host is back at 115200 before the banner."""
     restart_daemon(policy)
-    mark = con.size()
-    con.send("", cr=True)
-    t0, cmd, tail = time.monotonic(), None, ""
-    while cmd is None and time.monotonic() - t0 < PROBE_S:
-        tail = con.echo_since(mark).rstrip("\r\n").split("\n")[-1] + " "
-        cmd = next((c for pat, c in PROMPTS if re.search(pat, tail.rstrip() + " ")), None)
-        time.sleep(0.05)  # poll the log; a prompt line arrives in ~ms
+    speed = ROOT / "tmp/console-speed.json"  # console_speed.py state: board may be at a fast rate
+    try:
+        host = json.loads(speed.read_text())["host"]
+    except (OSError, ValueError, KeyError):
+        host = 115200
+    cmd, tail = None, ""
+    for rate in dict.fromkeys((host, 115200)):
+        _daemon_baud(rate)
+        mark = con.size()
+        con.send("", cr=True)
+        t0 = time.monotonic()
+        while cmd is None and time.monotonic() - t0 < PROBE_S:
+            tail = con.echo_since(mark).rstrip("\r\n").split("\n")[-1] + " "
+            cmd = next((c for pat, c in PROMPTS if re.search(pat, tail.rstrip() + " ")), None)
+            time.sleep(0.05)  # poll the log; a prompt line arrives in ~ms
+        if cmd:
+            break
     if cmd:
         mark = con.size()
         con.send(cmd)
+        time.sleep(0.1)  # command echo at the fast rate (ms); then host back to 115200 before the banner
+        _daemon_baud(115200)
+        speed.unlink(missing_ok=True)
         try:
             con.expect(r"U-Boot 2011\.12", SOFT_S, mark, f"software reboot ({cmd})", boot_ok=True)
             return mark

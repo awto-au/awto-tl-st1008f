@@ -198,6 +198,26 @@ SRAM candidates:
   - Driver bookkeeping `rx_info.page[]/offset[]`, `tx_info.skb[]` (3 KiB): usually L1-resident, low value.
 - NIC DMA reach (#103 plan step 4) decides (a); `sram-bench` `uc_rd` / `c_miss` sets the gain of each.
 
+### Clocks x on-chip SRAM matrix (sw2, 2026-10-13T12:05-12:15+11:00, `./dev.py nat-matrix --perf`)
+
+Conditions: mainline next-20261009 initramfs, SMP, NAT + flowtable, rx-gro-list on, one nic-bench run per cell. Base = `clocks fast` (CPU 1000, DDR 650, LX 175, SRAM 250); picks = + `turbo cpu=1375,ddr=662,lx=306,sram=500`. SRAM off = kernel built `--skip 300-21` (OpenWrt default); mapped = `300-21`, pool unused. Rows: `tmp/logs/nat_bench.jsonl`, tags `nat-<cell>`.
+
+| Test | off / base | off / picks | mapped / base | mapped / picks |
+|---|---|---|---|---|
+| TCP P4 (Mbit/s) | 350 | 435 | 348 | 444 |
+| UDP 1400 B, 900 offered: fwd kpps / loss | 65.9 / 13.6 % | 76.3 / 0.2 % | 64.6 / 15.3 % | 74.9 / 2.9 % |
+| UDP 64 B fwd (kpps) | 73.4 | 94.2 | 72.8 | 94.5 |
+| VPE-ns per packet, UDP 64 B | 13092 | 10170 | 13183 | 10120 |
+
+- Picks vs base: TCP +25 %, UDP 64 B +28 %, overload loss at 900 Mbit/s gone. Mapped-but-unused SRAM: no change (within run-to-run spread).
+- Rings in SRAM (`300-25`, `rtl838x_eth.sram_rings`): **NIC descriptor DMA does not work from SRAM**. RX-only (bit 0) and TX-only (bit 1) both: link up, no traffic (eth0 RX 2 frames, 1 error). Frame buffers in SRAM do work (U-Boot `uboot-test net --ethsram`: TX buffers + 16 RX buffers in SRAM, TFTP/wget CRC match). So candidate (a) above is out for descriptors; packet buffers in SRAM remain possible (64 KiB: ~30 buffers).
+- Profile at mapped/picks, UDP 64 B, `perf record -e cpu-clock -a` 5 s (static perf, `./dev.py build-perf` / `nat-perf`; the 34K PMU overflow IRQ gives no samples, `perf stat` hardware counters read garbage). Shares of the busy VPE (VPE1 idle, 50 % of samples):
+  - Driver (`rteth_poll_rx`, `rteth_start_xmit`, `rteth_930x_decode_tag`, `rteth_reclaim_tx_ring`): 14 %. The uncached descriptor accesses are inside these.
+  - Cache maintenance (`r4k_dma_cache_inv`, `r4k_dma_cache_wback_inv`, `dma_unmap_phys`): 5 %.
+  - GRO/GSO round trip (`dev_gro_receive`, `gro_receive_skb`, `udp_gro_receive`, `inet_gro_receive`, `__udpv4_gso_segment_csum`, `inet_gso_segment`, `__udp_gso_segment`): 16 %.
+  - Hashing (`__siphash_aligned`, `__skb_flow_dissect`): 11 %. `__bzero` (skb init): 3 %.
+  - One VPE does all NAPI work; the second VPE is idle.
+
 ## Clock sensitivity (2026-10-11, `./dev.py nat-clock-variants`)
 
 - Flash OpenWrt booted from our U-Boot after `clocks fast` plus one change. SPI stays stock throughout.
