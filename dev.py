@@ -392,6 +392,12 @@ def cmd_storm_test(extra: list[str]) -> int:
     return _script("storm_test.py", extra)
 
 
+@command("set a running OpenWrt's hostname to its registry box name (st1008f-1 / st1008f-2), persistent",
+         args="[--ip A.B.C.D]", kind="hardware")
+def cmd_openwrt_hostname(extra: list[str]) -> int:
+    return _script("openwrt_hostname.py", extra)
+
+
 @command("send a running OpenWrt's log to the TrueNAS syslog receiver (uci log_ip, persistent) + verify a test line arrived (#115)",
          args="[--ip A.B.C.D]", kind="hardware")
 def cmd_openwrt_syslog(extra: list[str]) -> int:
@@ -693,7 +699,7 @@ HOST_ONLY = {"storm-watch", "check-log", "flash-guard", "doc-check", "console-wa
 NET_MANAGE = {"openwrt-snmp", "openwrt-luci", "switch-net-clean", "switch-snmp", "switch-vlan",
               "uboot-chain-install-ssh",  # jffs2-log write only (flash_guard), owner OK 2026-10-13
               "openwrt-sysupgrade-ssh",
-              "openwrt-syslog"}  # uci log_ip only  # firmware only (flash_guard), config kept; sw1 on owner request
+              "openwrt-syslog", "openwrt-hostname"}  # uci log_ip / hostname only  # firmware only (flash_guard), config kept; sw1 on owner request
 # NET_MANAGE only with --ssh: u-boot-env write via fw_setenv (flash_guard), coordinator/owner OK 2026-10-13 (#105)
 NET_MANAGE_SSH = {"uboot-chain-env"}
 
