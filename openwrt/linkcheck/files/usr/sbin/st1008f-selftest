@@ -1,0 +1,597 @@
+#!/bin/sh
+# st1008f-selftest: time-bounded self-test of a running TL-ST1008F v2 (#108, docs/SELFTEST.md).
+# POSIX sh for BusyBox ash; helper /usr/libexec/st1008f-stx (peek, mem, slot, crc).
+# Out: $LOG, $JSON, $SUM, one summary line; exit 0 PASS, 1 FAIL, 2 usage.
+
+: "${ST_RUN:=/tmp}" "${ST_ETC:=/etc}" "${ST_USR:=/usr}"	# overridable for a host dry run only
+LOG=$ST_RUN/st1008f-selftest.log
+JSON=$ST_RUN/st1008f-selftest.json
+SUM=$ST_RUN/st1008f-selftest.summary
+W=$ST_RUN/st1008f-selftest.d
+LOCK=$ST_RUN/st1008f-selftest.lock
+PERSIST=$ST_ETC/st1008f-selftest.last.json
+LOADER_REC=$ST_ETC/st1008f-selftest.loader
+CONF=$ST_ETC/st1008f-selftest.conf
+STX=$ST_USR/libexec/st1008f-stx
+SHARE=$ST_USR/share/st1008f-selftest
+DBG=/sys/kernel/debug
+
+# Defaults; $CONF (sh, key=value) and options override. Steps inherit the main run's values.
+: "${MEM_SECS:=12}"	# pattern budget: one rand pass over ~400 MiB (U-Boot cached ~6 s / 256 MiB, DRAM.md)
+: "${CPU_SECS:=5}"	# xz decode loop per CPU (the CPU 1400 fault showed within 1 s of XZ work)
+: "${MEM_RESERVE:=64}"	# MiB of MemAvailable left to the system (scripts/mem_stress.py: 48 + margin)
+MARK_TURBO_BAD=0	# opt-in: FAIL at non-stock clocks -> fw_setenv st1008f_turbo_bad
+PERSIST_ON=1
+THERM_WARN=90		# raw degC: 15 below the cpu-thermal critical trip (105, docs/hardware.md)
+SPI_SAFE_KHZ=25600	# stock SCK 25.52 MHz; faster corrupts Linux flash reads (#50)
+STOCK="cpu=800,ddr=600,lx=175,sram=250"
+# shellcheck disable=SC1090
+[ -z "$IN_STEP" ] && [ -r $CONF ] && . $CONF
+
+# Step bounds (s) = ceil(expected x 1.25) + 1 (the killer is a BusyBox `sleep`: 1 s resolution).
+# Expiry: TERM to the step's process group, item FAIL "timeout after N s".
+L_FAST=2	# /dev/mem + sysfs reads, one helper exec: < 0.2 s
+L_SFP=2		# 8 x (ethtool -m: I2C 512 B at 100 kHz ~ 55 ms + exec + one awk) ~ 0.7 s
+L_FLASH=2	# 512 KiB slot + 896 KiB loader at 25.5 MHz dual I/O ~ 6 MB/s = 0.25 s + CRC
+L_SRAM=2	# 12 passes over <= 64 KiB from debugfs: ms
+
+quiet=0
+console=0
+step=""
+while [ $# -gt 0 ]; do
+	case "$1" in
+	--quiet) quiet=1 ;;
+	--console) console=1 ;;
+	--mem-secs) MEM_SECS=$2; shift ;;
+	--cpu-secs) CPU_SECS=$2; shift ;;
+	--full) MEM_SECS=60; CPU_SECS=10 ;;	# all 6 patterns (~6 x 9 s)
+	--mark-turbo-bad) MARK_TURBO_BAD=1 ;;
+	--no-persist) PERSIST_ON=0 ;;
+	--step) step=$2; shift ;;
+	*) echo "usage: st1008f-selftest [--quiet] [--console] [--mem-secs S] [--cpu-secs S] [--full]" \
+		"[--mark-turbo-bad] [--no-persist]"; exit 2 ;;
+	esac
+	shift
+done
+L_MEM=$(( (MEM_SECS * 5 + 3) / 4 + 1 ))	# helper stops itself at MEM_SECS (page-in included)
+L_CPU=$(( (CPU_SECS * 5 + 3) / 4 + 1 ))	# loop stops at CPU_SECS; last decode ~50 ms in flight
+
+# ---- helpers (also used inside --step processes) ----
+now_cs() { read -r u _ < /proc/uptime; echo "${u%.*}${u#*.}"; }
+log() { echo "$*" >> $LOG; [ $quiet = 1 ] || echo "$*"; }
+[ -n "$step" ] && log() { echo "$*"; }	# a step's stdout goes to $LOG via run()
+res() { echo "$1|$2|$3" >> $W/results; }	# item status detail
+kv() { echo "$1|$2|$3" >> $W/kv; }		# item key value
+fld() { echo $(( ($1 >> $2) & ((1 << $3) - 1) )); }	# value lsb width
+mhz() { printf '%d.%03d' $(($1 / 1000)) $(($1 % 1000)); }	# kHz -> "M.mmm"
+have() { command -v "$1" >/dev/null 2>&1; }
+dbgfs() { [ -d $DBG/gpio ] || [ -d $DBG/st1008f-mode-switch ] || mount -t debugfs debugfs $DBG 2>/dev/null; }
+
+# peek ADDR...: R_<addr> = value (hex text, lower case), via the helper or BusyBox devmem
+peek() {
+	if [ -x $STX ]; then
+		eval "$($STX peek "$@" | awk '$2 ~ /^0x/ { printf "R_%s=%s\n", substr($1, 3), $2 }')"
+	else
+		for a in "$@"; do
+			v=$(devmem "$a" 32 2>/dev/null) || continue
+			eval "R_${a#0x}=$v"
+		done
+	fi
+}
+reg() { eval "echo \${R_${1#0x}:-}"; }
+
+# ---- steps: each runs as `$0 --step NAME` in its own process group ----
+step_clocks() {
+	peek 0xbb00e200 0xbb00e208 0xbb00e210 0xbb00e214 0xbb00e220 0xb800023c 0xb8000240 0xb8000700 \
+		0xb8001200 0xb8001204 0xb8001000 0xb8001004 0xb8001008 0xb800100c 0xb8001010 0xb80040f8 \
+		0xb8000044 0xb8001300 0xb8001304 0xb8001310 0xb8001320 0xb8001330 0xb8004000 0xb8004004 \
+		0xb8004008 0xb8004010 0xb8004020 0xb8004030
+	e208=$(reg 0xbb00e208) e210=$(reg 0xbb00e210) e214=$(reg 0xbb00e214) e220=$(reg 0xbb00e220)
+	m2=$(reg 0xb800023c) m3=$(reg 0xb8000240) sp=$(reg 0xb8000700) sfcr=$(reg 0xb8001200)
+	if [ -z "$e208" ] || [ -z "$m3" ] || [ -z "$sfcr" ]; then
+		res clocks FAIL "/dev/mem unreadable (CONFIG_DEVMEM, helper or devmem missing)"
+		return
+	fi
+	# docs/CLOCKS.md: VCO = 25 MHz x (4 if SEL_DIV4) x (NCODE + 2) x 2 / 2^PREDIV
+	vco() { echo $(( (25000 * ($1 & 4 ? 4 : 1) * ($(fld "$1" 4 8) + 2) * 2) >> ($1 & 3) )); }
+	cpu=$(( $(vco "$e208") / ($(fld "$e210" 4 3) + 2) ))
+	swv=$(vco "$e214")
+	lx=$(( swv / (2 * ($(fld "$e220" 9 4) + 2)) ))
+	nor=$(( swv / (2 * ($(fld "$e220" 13 4) + 2)) ))
+	spi=$(( nor / (2 * ($(fld "$sfcr" 29 3) + 1)) ))
+	ddr=$(( 25000 * ($(fld "$m3" 24 8) + 2) / (2 << $(fld "$m2" 14 2)) ))
+	sram=$(( $(fld "$sp" 1 1) ? 500000 : 250000 ))
+	log "clocks: CPU $(mhz $cpu) MHz (timer $(mhz $((cpu / 2)))), DDR $(mhz $ddr) MHz (DDR3-$((ddr * 2 / 1000)))," \
+		"LX $(mhz $lx), NOR $(mhz $nor), SPI SCK $(mhz $spi), SRAM $(mhz $sram) MHz, SW VCO $(mhz $swv)"
+	for k in cpu ddr lx nor spi sram; do eval "kv clocks ${k}_khz \$$k"; done
+	live="cpu=$(( (cpu + 500) / 1000 )),ddr=$(( (ddr + 500) / 1000 )),lx=$(( (lx + 500) / 1000 )),sram=$((sram / 1000))"
+	stored=$(fw_printenv -n st1008f_turbo 2>/dev/null)
+	turbo=stock
+	[ "$live" = "$STOCK" ] || turbo=$live
+	log "clocks: profile live $live -> $turbo; stored st1008f_turbo '${stored:-}'; cmdline mode $(cmdarg mode)"
+	kv clocks profile "$turbo"
+	kv clocks stored_turbo "${stored:-}"
+	echo "$turbo" > $W/turbo
+
+	# registers, decoded (names: docs/REGISTERS.md)
+	for a in 0xbb00e200 0xbb00e208 0xbb00e210 0xbb00e214 0xbb00e220 0xb800023c 0xb8000240 0xb8000700 \
+		0xb8001200 0xb8001204 0xb8001000 0xb8001004 0xb8001008 0xb800100c 0xb8001010 0xb80040f8 \
+		0xb8000044 0xb8001300 0xb8001304 0xb8001310 0xb8001320 0xb8001330 0xb8004000 0xb8004004 \
+		0xb8004008 0xb8004010 0xb8004020 0xb8004030; do
+		kv regs "$a" "$(reg $a)"
+	done
+	mcr=$(reg 0xb8001000) d0=$(reg 0xb8001008) d1=$(reg 0xb800100c) d2=$(reg 0xb8001010)
+	asy=$(reg 0xb80040f8) dcr=$(reg 0xb8001004)
+	log "regs: MCR $mcr ip_ref $(fld "$mcr" 23 1) dp_ref $(fld "$mcr" 22 1) (DRAM prefetch); DCR $dcr" \
+		"bankcnt $(fld "$dcr" 28 2) dbuswid $(fld "$dcr" 24 2) rowcnt $(fld "$dcr" 20 4) colcnt $(fld "$dcr" 16 4)"
+	log "regs: DTR0 $d0 CL $(( $(fld "$d0" 28 4) + 1 )) tWR $(( $(fld "$d0" 24 4) + 1 )) CWL $(( $(fld "$d0" 20 4) + 1 ))" \
+		"tRTP $(( $(fld "$d0" 16 4) + 1 )) tWTR $(( $(fld "$d0" 12 4) + 1 ))" \
+		"tREFI $(( ($(fld "$d0" 8 4) + 1) << ($(fld "$d0" 4 4) + 5) )) clk"
+	log "regs: DTR1 $d1 tRP $(( $(fld "$d1" 24 5) + 1 )) tRCD $(( $(fld "$d1" 16 5) + 1 )) tRRD $(( $(fld "$d1" 8 5) + 1 ))" \
+		"tFAW $(( $(fld "$d1" 0 5) + 1 )); DTR2 $d2 tRFC $(( $(fld "$d2" 20 8) + 1 )) tRAS $(( $(fld "$d2" 12 6) + 1 ))"
+	log "regs: CPU_SRAM_ASY_TIMING $asy sram_lx_pulse $(fld "$asy" 8 1) sram_oc0_pulse $(fld "$asy" 6 1)" \
+		"oc0_sram_pulse $(fld "$asy" 0 2); PLL_SRAM_CTRL $sp sram_pll_sel $(fld "$sp" 1 1)"
+	log "regs: SFCR $sfcr SPI_CLK_DIV $(fld "$sfcr" 29 3) SPI_TCS $(fld "$sfcr" 22 5); SFCR2 $(reg 0xb8001204)" \
+		"SFCMD $(printf 0x%02x "$(fld "$(reg 0xb8001204)" 24 8)") ADDR_IO $(fld "$(reg 0xb8001204)" 16 2)" \
+		"DATA_IO $(fld "$(reg 0xb8001204)" 11 2); SYS_STATUS $(reg 0xb8000044)"
+	for i in 0 1 2 3; do
+		s=$(reg "$(printf 0xb80040%x0 $i)") u=$(reg "$(printf 0xb80013%x0 $i)")
+		log "regs: SRAM seg$i ${s:-?} lx_sa $(printf 0x%08x $(( s & ~0xff ))) en $(fld "$s" 0 1);" \
+			"UMSAR$i ${u:-?} addr $(printf 0x%08x $(( u & 0x7fffff00 ))) unmap_en $(fld "$u" 0 1)"
+	done
+	log "regs: SRAM seg0 size $(reg 0xb8004004) base $(reg 0xb8004008); UMSSR0 $(reg 0xb8001304)"
+	st=PASS why="profile $turbo"
+	if [ $spi -gt $SPI_SAFE_KHZ ]; then
+		st=FAIL why="SPI SCK $(mhz $spi) MHz > stock under Linux: flash reads corrupt (#50)"
+		: > $W/spi_fast
+	fi
+	res clocks $st "$why; CPU $(mhz $cpu) DDR $(mhz $ddr) LX $(mhz $lx) SRAM $(mhz $sram) SPI $(mhz $spi)"
+}
+
+cmdarg() { tr ' ' '\n' < /proc/cmdline | sed -n "s/^st1008f\.$1=//p"; }
+
+step_mode() {
+	dbgfs
+	peek 0xb8003300 0xb8003308 0xb800330c
+	cnr=$(reg 0xb8003300) dir=$(reg 0xb8003308) d1=$(reg 0xb800330c)
+	peek 0xb800330c
+	d2=$(reg 0xb800330c)
+	if [ -z "$d1" ]; then
+		res mode FAIL "GPIO registers unreadable"
+		return
+	fi
+	p17=$(fld "$d1" 17 1) p18=$(fld "$d1" 18 1) p19=$(fld "$d1" 19 1)
+	case "$p18$p19" in 11) pos=M1 ;; 01) pos=M2 ;; 10) pos=M3 ;; *) pos=invalid ;; esac
+	# stock rtk.ko custom_judge_pattern_mode (scripts/mode_watch.py)
+	case "$p17$p18$p19" in 101) pat=2 ;; 011) pat=1 ;; *) pat=3 ;; esac
+	log "mode: GPIO PABCD_DAT $d1 (re-read $d2), DIR $dir, CNR $cnr"
+	log "mode: pins 17/18/19 = $p17/$p18/$p19 -> position $pos (pins 18/19), vendor pattern $pat;" \
+		"dir 17-19 $(fld "$dir" 17 3) (0 = input), cnr 17-19 $(fld "$cnr" 17 3)"
+	kv mode pins "$p17/$p18/$p19"
+	kv mode position $pos
+	kv mode vendor_pattern $pat
+	kv mode dir_17_19 "$(fld "$dir" 17 3)"
+	kv mode cnr_17_19 "$(fld "$cnr" 17 3)"
+	kv mode cmdline_mode "$(cmdarg mode)"
+	kv mode cmdline_boot "$(cmdarg boot)"
+	st=PASS why="$pos, pins $p17/$p18/$p19"
+	warn() { [ $st = PASS ] && st=WARN; why="$why; $1"; }
+	[ "$pos" = invalid ] && warn "invalid position (U-Boot boots it as M1)"
+	# pin 17 is one-hot: low at M1 only (#8 open)
+	{ [ $pos = M1 ] && [ $p17 = 1 ]; } || { [ $pos != M1 ] && [ $pos != invalid ] && [ $p17 = 0 ]; } &&
+		warn "pin 17 = $p17 at $pos: stuck? (#8)"
+	[ "$d1" = "$d2" ] || warn "pins changed between two reads (switch moving?)"
+	[ "$(fld "$dir" 17 3)" = 0 ] || warn "pins 17-19 not all inputs (DIR)"
+	m=$(cmdarg mode)
+	[ -z "$m" ] || [ "$m" = "$(echo $pos | tr M m)" ] || warn "switch now $pos, U-Boot booted mode $m"
+	if [ -r $DBG/st1008f-mode-switch/state ]; then
+		sed 's/^/mode: driver: /' $DBG/st1008f-mode-switch/state
+		dp=$(sed -n 's/^position .* = //p' $DBG/st1008f-mode-switch/state)
+		kv mode driver_position "$dp"
+		[ "$dp" = "$pos" ] || warn "driver says $dp"
+	fi
+	grep -E 'gpio-(17|18|19) ' $DBG/gpio 2>/dev/null | sed 's/^/mode: gpiolib: /'
+	res mode $st "$why"
+}
+
+step_thermal() {
+	n=0 st=PASS why=""
+	for z in /sys/class/thermal/thermal_zone*; do
+		[ -r "$z/temp" ] || continue
+		t=$(cat "$z/temp") ty=$(cat "$z/type" 2>/dev/null)
+		n=$((n + 1))
+		log "thermal: $ty $((t / 1000)).$(( (t % 1000) / 100 )) degC (raw TEMP_OUT for the SoC; #13)"
+		kv thermal "${z##*/}.$ty" "$t"
+		why="$why $ty $((t / 1000))"
+		[ "$ty" = cpu-thermal ] && [ $((t / 1000)) -ge $THERM_WARN ] && st=WARN
+	done
+	[ $n -gt 0 ] || { res thermal SKIP "no thermal zones"; return; }
+	res thermal $st "${why# } degC"
+}
+
+step_env() {
+	have fw_printenv || { res env SKIP "no fw_printenv (uboot-envtools)"; return; }
+	fw_printenv > $W/env 2>$W/env.err || { res env FAIL "fw_printenv: $(head -n 1 $W/env.err)"; return; }
+	mac=$(sed -n 's/^ethaddr=//p' $W/env | tr A-F a-f)
+	bc=$(sed -n 's/^bootcmd=//p' $W/env)
+	log "env: $(wc -l < $W/env) vars, ethaddr ${mac:-none}, bootcmd '$bc'"
+	for v in st1008f_turbo st1008f_turbo_bad st1008f_boot; do
+		x=$(sed -n "s/^$v=//p" $W/env)
+		[ -n "$x" ] && log "env: $v=$x" && kv env $v "$x"
+	done
+	kv env ethaddr "$mac"
+	kv env chain "$(case "$bc" in *ub_ck*) echo crc ;; *ub_ld*) echo nocrc ;; *) echo none ;; esac)"
+	case "$bc" in *ub_ck*) : > $W/chain ;; esac
+	# unicast, not the Realtek placeholder, 6 octets
+	case "$mac" in
+	00:e0:4c:00:00:00|00:00:00:00:00:00|"") res env FAIL "ethaddr '${mac}' missing or placeholder"; return ;;
+	esac
+	echo "$mac" | grep -qE '^[0-9a-f][02468ace](:[0-9a-f]{2}){5}$' ||
+		{ res env FAIL "ethaddr $mac not a unicast MAC"; return; }
+	res env PASS "ethaddr $mac, chain $(sed -n 's/^env|chain|//p' $W/kv)"
+}
+
+mtd_dev() { sed -n "s/^\(mtd[0-9]*\):.*\"$1\"$/\1/p" /proc/mtd | head -n 1; }
+
+step_flash() {
+	[ -e $W/spi_fast ] && { res flash SKIP "SPI above stock: no Linux flash reads (#50)"; return; }
+	[ -x $STX ] || { res flash SKIP "no helper $STX"; return; }
+	st=PASS why=""
+	m=$(mtd_dev jffs2-log)
+	if [ -n "$m" ]; then
+		out=$($STX slot /dev/$m)
+		log "flash: jffs2-log ($m) $out"
+		kv flash slot "$out"
+		case "$out" in
+		"slot: PASS"*) why="U-Boot slot OK" ;;
+		*) if [ -e $W/chain ]; then st=FAIL why="chain env set but slot bad"; else why="no chain slot"; fi ;;
+		esac
+	else
+		why="no jffs2-log mtd"
+	fi
+	m=$(mtd_dev u-boot)
+	if [ -z "$m" ]; then
+		[ "$why" = "no jffs2-log mtd" ] && { res flash SKIP "no u-boot / jffs2-log mtd"; return; }
+	else
+		crc=$($STX crc /dev/$m)	# "crc32 XXXXXXXX size N"
+		why="$why; loader $crc"
+		log "flash: stock loader u-boot ($m) $crc (record $LOADER_REC: $(cat $LOADER_REC 2>/dev/null || echo none))"
+		kv flash loader "$crc"
+		if [ -r $LOADER_REC ]; then
+			[ "$(cat $LOADER_REC)" = "$crc" ] || { st=FAIL; why="$why; loader CRC changed (0x0-0xDFFFF is never written)"; }
+		else
+			echo "$crc" > $W/loader_new
+		fi
+	fi
+	res flash $st "$why"
+}
+
+# `ethtool -m` hex dump (A0 0-255, A2 256-511) -> shell assignments; text fields [A-Za-z0-9._-] only
+# shellcheck disable=SC2016
+SFP_AWK='
+function h(i,  s) { s = tolower(b[i]); return s == "" ? -1 : (index(H, substr(s, 1, 1)) - 1) * 16 + index(H, substr(s, 2, 1)) - 1 }
+function txt(a, z,  i, c, s) { s = ""; for (i = a; i <= z; i++) { c = h(i)
+	if (c > 32 && c < 127) s = s sprintf("%c", c); else if (c == 32 && s != "") s = s "_" }
+	gsub(/[^A-Za-z0-9._-]/, "_", s); sub(/_+$/, "", s); return s == "" ? "-" : s }
+BEGIN { H = "0123456789abcdef" }
+/^0x/ { for (i = 2; i <= NF; i++) b[n++] = $i }
+END { if (!n) exit 1
+	printf "id=%d vn=%s pn=%s sn=%s ddm=%d", h(0), txt(20, 35), txt(40, 55), txt(68, 83),
+		(h(92) >= 0 && int(h(92) / 64) % 2 && h(361) >= 0)
+	t = h(352) * 256 + h(353); if (t >= 32768) t -= 65536
+	printf " t=%d vcc=%d bias=%d tx=%d rx=%d los=%d\n", t / 256, (h(354) * 256 + h(355)) / 10,
+		(h(356) * 256 + h(357)) * 2 / 1000, h(358) * 256 + h(359), h(360) * 256 + h(361), int(h(366) / 2) % 2 }'
+
+step_sfp() {
+	have ethtool || { res sfp SKIP "no ethtool"; return; }
+	peek 0xb800330c
+	gd=$(reg 0xb800330c)
+	n=0 warn=""
+	for c in 1 2 3 4 5 6 7 8; do
+		p=lan$c
+		pres=-
+		[ -n "$gd" ] && pres=$(( (gd >> (c - 1)) & 1 ? 0 : 1 ))	# MOD-DEF0 low = present
+		[ -d /sys/class/net/$p ] || { log "sfp: cage $c: no $p"; continue; }
+		a=$(ethtool -m $p 2>/dev/null | awk "$SFP_AWK")
+		if [ -z "$a" ]; then
+			log "sfp: cage $c $p: no module data (presence pin $pres)"
+			kv sfp "$p.present" "$pres"
+			[ "$pres" = 1 ] && warn="$warn $p:unreadable"
+			continue
+		fi
+		id=- vn=- pn=- sn=- ddm=0 t=- vcc=- bias=- tx=- rx=- los=-
+		eval "$a"	# SFP_AWK: id vn pn sn ddm t vcc bias tx rx los
+		n=$((n + 1))
+		line="cage $c $p: id $id $vn $pn sn $sn, presence pin $pres"
+		kv sfp "$p.module" "$vn $pn $sn"
+		if [ "$ddm" = 1 ]; then
+			line="$line; DDM temp $t degC, Vcc $vcc mV, bias $bias mA, TX $tx RX $rx (0.1 uW), soft LOS $los"
+			kv sfp "$p.ddm" "t=$t vcc_mv=$vcc bias_ma=$bias tx=$tx rx=$rx los=$los"
+		else
+			line="$line; no DDM"
+		fi
+		log "sfp: $line, carrier $(cat /sys/class/net/$p/carrier 2>/dev/null || echo -)"
+	done
+	dbgfs
+	[ -r $DBG/st1008f-mode-switch/state ] && sed -n '/^power/,$p' $DBG/st1008f-mode-switch/state | sed 's/^/sfp: driver: /'
+	st=PASS
+	[ -z "$warn" ] || st=WARN
+	ls -d /sys/class/net/lan* >/dev/null 2>&1 || { res sfp SKIP "no lanN interfaces (DSA not up)"; return; }
+	res sfp $st "$n modules${warn:+; }${warn# }"
+}
+
+# SDS_MODE_SEL code -> name (uboot-port rtk_ours.c)
+sds_name() {
+	case $1 in 2) echo SGMII ;; 4) echo 1000BASE-X ;; 5) echo 100BASE-X ;; 6) echo QSGMII ;; 13) echo USXGMII ;;
+	16) echo XSGMII ;; 22) echo 2500BASE-X ;; 26) echo 10GBASE-R ;; 31) echo off ;; *) echo "?$1" ;; esac
+}
+
+step_asic() {
+	peek 0xbb000194 0xbb000198 0xbb0002a0 0xbb0002a4 0xbb00cb10 0xbb00cb10 0xbb00cb18 0xbb00cb1c \
+		0xbb00cb20 0xbb00cb24 0xbb00cc00 0xbb00cc4c 0xbb00cc50 0xbb00cc54 0xbb00cc58
+	lnk=$(reg 0xbb00cb10)	# latched low: the second read of the pair is "now"
+	led=$(reg 0xbb00cc00)
+	[ -n "$lnk" ] || { res asic FAIL "switch-core registers unreadable"; return; }
+	set -- 0 8 16 20 24 25 26 27	# cage -> SDK port (rtk_stock.c)
+	for c in 1 2 3 4 5 6 7 8; do
+		port=$1
+		shift
+		p=lan$c d=/sys/class/net/lan$c
+		sds=$((c + 1))
+		case $sds in
+		2|3) sr=$(reg 0xbb000194) sh=$((sds * 6)) ;;
+		4|5|6|7) sr=$(reg 0xbb0002a0) sh=$(( (sds - 4) * 6 )) ;;
+		*) sr=$(reg 0xbb0002a4) sh=$(( (sds - 8) * 6 )) ;;
+		esac
+		sm=$(fld "$sr" $sh 5)
+		spd=$(fld "$(reg "$(printf 0xbb00cb%02x $((0x18 + (port >> 3) * 4)))")" $(( (port % 8) * 4 )) 4)
+		case $spd in 0) spd=10M ;; 1) spd=100M ;; 2) spd=1G ;; 3|4) spd=10G ;; 5) spd=2.5G ;; 6) spd=5G ;; *) spd="?" ;; esac
+		ml=$(fld "$lnk" $port 1)
+		[ "$ml" = 1 ] || spd=-
+		swled=$(fld "$(reg "$(printf 0xbb00cc%02x $((0x4c + (port >> 3) * 4)))")" $(( (port % 8) * 4 )) 4)
+		br=-
+		[ -L $d/master ] && br=$(basename "$(readlink $d/master)")
+		bst=- iso=-
+		if [ -r $d/brport/state ]; then
+			case $(cat $d/brport/state) in 0) bst=disabled ;; 1) bst=listening ;; 2) bst=learning ;;
+			3) bst=forwarding ;; 4) bst=blocking ;; *) bst='?' ;; esac
+			iso=$(cat $d/brport/isolated 2>/dev/null)
+		fi
+		hst=$(cat $DBG/rtl838x/$p/stp_state 2>/dev/null)
+		cpuonly=no
+		{ [ "$br" = - ] || [ "$iso" = 1 ]; } && cpuonly=yes	# DSA standalone / isolated port: CPU only
+		tco=$(ethtool -k $p 2>/dev/null | sed -n 's/^hw-tc-offload: \([a-z]*\).*/\1/p')
+		log "asic: cage $c $p port $port sds $sds $(sds_name $sm) ($sm); mac link $ml speed $spd;" \
+			"netdev $(cat $d/operstate 2>/dev/null || echo -) carrier $(cat $d/carrier 2>/dev/null || echo -)" \
+			"speed $(cat $d/speed 2>/dev/null || echo -) duplex $(cat $d/duplex 2>/dev/null || echo -);" \
+			"bridge $br stp $bst hw_stp ${hst:--} isolated ${iso} cpu_only $cpuonly; led ${swled}=$( [ "$swled" = 0 ] && echo hw || echo sw ); hw-tc-offload ${tco:--}"
+		kv asic "$p" "sds=$(sds_name $sm) mac_link=$ml mac_speed=$spd bridge=$br stp=$bst hw_stp=${hst:--} isolated=$iso cpu_only=$cpuonly led=$swled tc_offload=${tco:--}"
+	done
+	log "asic: LED_GLB_CTRL $led LED_MOD $(fld "$led" 0 2) LED_ACTIVE $(fld "$led" 22 1) SYS_LED_EN $(fld "$led" 12 1)" \
+		"SYS_LED_MODE $(fld "$led" 13 2) BLINK_TIME_SEL $(fld "$led" 18 3); MAC_LINK_STS $lnk"
+	kv asic led_glb_ctrl "$led"
+	cat /sys/devices/platform/st1008f-leds/state 2>/dev/null | sed 's/^/asic: st1008f-leds: /'
+	for b in /sys/class/net/*/bridge; do
+		[ -d "$b" ] || continue
+		bn=$(basename "$(dirname "$b")")
+		log "asic: bridge $bn stp_state $(cat $b/stp_state) forward_delay $(cat $b/forward_delay)" \
+			"vlan_filtering $(cat $b/vlan_filtering 2>/dev/null)"
+		kv asic "bridge.$bn" "stp=$(cat $b/stp_state) vlan_filtering=$(cat $b/vlan_filtering 2>/dev/null)"
+	done
+	have bridge && bridge vlan show 2>/dev/null | sed 's/^/asic: vlan: /'
+	have nft && log "asic: nft flowtables with hw offload: $(nft list flowtables 2>/dev/null | grep -c 'flags offload')"
+	[ -d $DBG/rtl838x ] && log "asic: rtl838x debugfs present (soc $(cat $DBG/rtl838x/soc 2>/dev/null))"
+	res asic PASS "8 cages read"
+}
+
+step_kmemtest() {
+	n=$(tr ' ' '\n' < /proc/cmdline | sed -n 's/^memtest=//p')
+	[ -n "$n" ] || { res kmemtest SKIP "no memtest=N in bootargs"; return; }
+	dmesg > $W/dmesg
+	grep -iE 'early_memtest|bad mem' $W/dmesg | sed 's/^/kmemtest: /'
+	bad=$(grep -ci 'bad mem' $W/dmesg)
+	kv kmemtest patterns "$n"
+	kv kmemtest bad_ranges "$bad"
+	if [ "$bad" -gt 0 ]; then
+		res kmemtest FAIL "memtest=$n: $bad bad ranges (lowmem only on MIPS)"
+	elif grep -qi early_memtest $W/dmesg; then
+		res kmemtest PASS "memtest=$n: no bad ranges (lowmem only on MIPS)"
+	else
+		res kmemtest WARN "memtest=$n but no early_memtest lines (rotated out of dmesg?)"
+	fi
+}
+
+step_sram() {
+	dbgfs
+	f=$DBG/st1008f_sram_test
+	[ -r $f ] || { res sram SKIP "no $f (kernel without 300-22 / CONFIG_ST1008F_SRAM_BENCH)"; return; }
+	cat $f > $W/sram 2>&1
+	sed 's/^/sram: /' $W/sram
+	e=$(sed -n 's/^sram_test: done errs //p' $W/sram)
+	h=$(sed -n 's/^sram_test: SRAMSAR0.*testing \([0-9]* B at phys [0-9a-f]*\)/\1/p' $W/sram)
+	kv sram errs "${e:--}"
+	kv sram tested "$h"
+	if [ -z "$e" ]; then
+		res sram FAIL "$(grep -v '^sram_test: [SE] ' $W/sram | head -n 1)"
+	elif [ "$e" = 0 ]; then
+		res sram PASS "$h, 12 units, 0 errors"
+	else
+		res sram FAIL "$e errors ($h)"
+	fi
+}
+
+step_cpu() {
+	dec=""
+	for t in "xzcat" "unxz -c" "xz -dc"; do
+		have ${t%% *} && { dec=$t; break; }
+	done
+	[ -n "$dec" ] || { res cpu SKIP "no xzcat/unxz"; return; }
+	[ -r $SHARE/cpu.xz ] || { res cpu SKIP "no $SHARE/cpu.xz"; return; }
+	want=$(cat $SHARE/cpu.md5)
+	ncpu=$(grep -c ^processor /proc/cpuinfo)
+	end=$(( $(now_cs) + CPU_SECS * 100 ))
+	pin=""
+	taskset 1 true 2>/dev/null && pin=taskset
+	i=0
+	while [ $i -lt "$ncpu" ]; do
+		(
+			ok=0 bad=0
+			while [ "$(now_cs)" -lt $end ]; do
+				if [ -n "$pin" ]; then
+					got=$(taskset $((1 << i)) $dec $SHARE/cpu.xz 2>/dev/null | md5sum)
+				else
+					got=$($dec $SHARE/cpu.xz 2>/dev/null | md5sum)
+				fi
+				[ "${got%% *}" = "$want" ] && ok=$((ok + 1)) || bad=$((bad + 1))
+			done
+			echo "$i $ok $bad" > $W/cpu.$i
+		) &
+		i=$((i + 1))
+	done
+	wait
+	tot=0 bad=0 per=""
+	i=0
+	while [ $i -lt "$ncpu" ]; do
+		read -r c o b < $W/cpu.$i
+		log "cpu: cpu$c ${pin:+pinned }$o good, $b bad xz decodes (md5 $want)"
+		kv cpu "cpu$c" "ok=$o bad=$b"
+		tot=$((tot + o + b)) bad=$((bad + b)) per="$per cpu$c:$o"
+		i=$((i + 1))
+	done
+	if [ $bad -gt 0 ]; then
+		res cpu FAIL "$bad of $tot xz decodes wrong ($ncpu CPUs, ${CPU_SECS} s)"
+	elif [ $tot -lt "$ncpu" ]; then
+		res cpu FAIL "fewer decodes ($tot) than CPUs: decoder hung or too slow"
+	else
+		res cpu PASS "$tot decodes OK,${per} (${CPU_SECS} s)"
+	fi
+}
+
+step_mem() {
+	[ -x $STX ] || { res mem SKIP "no helper $STX"; return; }
+	$STX mem secs=$MEM_SECS reserve=$MEM_RESERVE > $W/mem 2>&1
+	rc=$?
+	cat $W/mem
+	d=$(sed -n 's/^mem: [d]one //p' $W/mem)
+	kv mem 'done' "$d"
+	kv mem setup "$(sed -n 's/^mem: \([0-9]* MiB of MemAvailable.*\)/\1/p' $W/mem)"
+	case $rc in
+	0) res mem PASS "$d" ;;
+	1) res mem FAIL "$d; first: $(sed -n 's/^mem: E //p' $W/mem | head -n 1)" ;;
+	*) res mem FAIL "helper rc $rc: $(tail -n 1 $W/mem)" ;;
+	esac
+}
+
+if [ -n "$step" ]; then
+	"step_$step"
+	exit 0
+fi
+
+# ---- main ----
+t0=$(now_cs)
+# one run at a time (init.d at boot vs ./dev.py selftest); a dead holder's lock is taken over
+if ! mkdir $LOCK 2>/dev/null; then
+	op=$(cat $LOCK/pid 2>/dev/null)
+	if [ -n "$op" ] && kill -0 "$op" 2>/dev/null; then
+		echo "st1008f-selftest: already running (pid $op)"
+		exit 2
+	fi
+fi
+echo $$ > $LOCK/pid
+trap 'rm -rf $LOCK' EXIT
+rm -rf $W
+mkdir -p $W
+: > $LOG
+: > $W/results
+: > $W/kv
+log "st1008f-selftest: start $(date -Iseconds 2>/dev/null || date), uptime $(cut -d ' ' -f 1 /proc/uptime) s," \
+	"kernel $(uname -r), mem ${MEM_SECS} s, cpu ${CPU_SECS} s"
+IN_STEP=1
+export ST_RUN ST_ETC ST_USR MEM_SECS CPU_SECS MEM_RESERVE IN_STEP
+SETSID=""
+have setsid && SETSID=setsid	# own process group: expiry also stops the step's children
+
+run() {	# run ITEM LIMIT_S: step_ITEM in its own process group, TERM'd at LIMIT_S
+	s0=$(now_cs)
+	$SETSID /bin/sh "$0" --step "$1" > $W/$1.out 2>&1 &
+	p=$!
+	( sleep "$2"; kill -0 $p 2>/dev/null && { : > $W/$1.timeout; kill -TERM -- -$p 2>/dev/null || kill -TERM $p; } ) &
+	k=$!
+	wait $p
+	kill $k 2>/dev/null
+	cat $W/$1.out >> $LOG
+	[ $quiet = 1 ] || cat $W/$1.out
+	ms=$(( ($(now_cs) - s0) * 10 ))
+	kv "$1" elapsed_ms $ms
+	if [ -e $W/$1.timeout ]; then
+		res "$1" FAIL "timeout after $2 s"
+	elif ! grep -q "^$1|" $W/results; then
+		res "$1" FAIL "step ended without a result"
+	fi
+	grep "^$1|" $W/results | tail -n 1 | { IFS='|' read -r _ s d; log "result: $1 $s ($ms ms): $d"; }
+}
+
+run clocks $L_FAST
+run mode $L_FAST
+run thermal $L_FAST
+run env $L_FAST
+run flash $L_FLASH
+run sfp $L_SFP
+run asic $L_FAST
+run kmemtest $L_FAST
+run sram $L_SRAM
+run cpu $L_CPU
+run mem $L_MEM
+
+el=$(( ($(now_cs) - t0 + 50) / 100 ))
+fails=$(awk -F'|' '$2 == "FAIL" { printf "%s%s", s, $1; s = " " }' $W/results)
+warns=$(awk -F'|' '$2 == "WARN" { printf "%s%s", s, $1; s = " " }' $W/results)
+skips=$(awk -F'|' '$2 == "SKIP" { printf "%s%s", s, $1; s = " " }' $W/results)
+oks=$(awk -F'|' '$2 == "PASS" { printf "%s%s", s, $1; s = " " }' $W/results)
+turbo=$(cat $W/turbo 2>/dev/null)
+if [ -n "$fails" ]; then
+	verdict=FAIL line="st1008f-selftest: FAIL [$fails] ($el s)"
+else
+	verdict=PASS line="st1008f-selftest: PASS [$oks] ($el s)"
+fi
+[ -z "$warns" ] || line="$line warn [$warns]"
+[ -z "$skips" ] || line="$line skip [$skips]"
+line="$line clocks ${turbo:-?}"
+
+# turbo-fail marker for the bootloader (opt-in; U-Boot side: #46/#105)
+mark=""
+if [ $verdict = FAIL ] && [ "$MARK_TURBO_BAD" = 1 ] && [ -n "$turbo" ] && [ "$turbo" != stock ]; then
+	if have fw_setenv && fw_setenv st1008f_turbo_bad "$(echo "$fails" | tr ' ' ,)@$turbo" 2>> $LOG; then
+		mark="st1008f_turbo_bad=$(echo "$fails" | tr ' ' ,)@$turbo"
+		log "turbo: FAIL at $turbo: wrote env $mark"
+	else
+		log "turbo: FAIL at $turbo: fw_setenv failed or missing, no marker"
+	fi
+fi
+
+awk -F'|' -v verdict=$verdict -v el="$el" -v turbo="$turbo" -v mark="$mark" \
+	-v ts="$(date -Iseconds 2>/dev/null || date)" -v up="$(cut -d ' ' -f 1 /proc/uptime)" '
+function q(s) { gsub(/\\/, "\\\\", s); gsub(/"/, "\\\"", s); gsub(/[\001-\037]/, " ", s); return "\"" s "\"" }
+FNR == 1 { file++ }
+file == 1 { order[++n] = $1; st[$1] = $2; det[$1] = $3; next }
+file == 2 { k[$1] = k[$1] (k[$1] == "" ? "" : ",") q($2) ":" q($3) }
+END {
+	printf "{\"version\":1,\"time\":%s,\"uptime_s\":%s,\"result\":%s,\"elapsed_s\":%d,\"clocks\":%s,\"turbo_mark\":%s,\"items\":{",
+		q(ts), up + 0, q(verdict), el, q(turbo), q(mark)
+	for (i = 1; i <= n; i++)
+		printf "%s%s:{\"status\":%s,\"detail\":%s,\"data\":{%s}}", (i > 1 ? "," : ""), q(order[i]),
+			q(st[order[i]]), q(det[order[i]]), k[order[i]]
+	print "}}"
+}' $W/results $W/kv > $JSON
+
+echo "$line" > $SUM
+log "$line"
+[ $quiet = 1 ] && echo "$line"
+[ $console = 1 ] && echo "$line" > /dev/console
+have logger && logger -t st1008f-selftest "$line"
+# persistent copy: small JSON + first loader CRC, never at fast SPI (#50)
+if [ "$PERSIST_ON" = 1 ] && [ ! -e $W/spi_fast ] && [ -d /etc ] && [ -w /etc ]; then
+	[ "$(wc -c < $JSON)" -le 16384 ] && cp $JSON $PERSIST
+	[ -e $W/loader_new ] && cp $W/loader_new $LOADER_REC
+fi
+[ $verdict = PASS ]

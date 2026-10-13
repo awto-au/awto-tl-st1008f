@@ -133,7 +133,9 @@ CONFIG_THERMAL_OF=y
 CONFIG_REALTEK_THERMAL=y
 CONFIG_MIPS_CMDLINE_DTB_EXTEND=y
 # CONFIG_MIPS_CMDLINE_FROM_DTB is not set
-"""  # DTB_EXTEND: U-Boot bootargs (st1008f.mode, #73) appended to DT bootargs
+CONFIG_MEMTEST=y
+CONFIG_ST1008F_SRAM_BENCH=y
+"""  # DTB_EXTEND: U-Boot bootargs (st1008f.mode, #73) appended to DT bootargs; MEMTEST + SRAM_BENCH: selftest (#108)
 
 SEED = f"""CONFIG_TARGET_realtek=y
 CONFIG_TARGET_realtek_rtl930x=y
@@ -145,6 +147,15 @@ CONFIG_PACKAGE_ip-bridge=y
 CONFIG_PACKAGE_tcpdump-mini=y
 CONFIG_PACKAGE_kmod-pktgen=y
 """  # + nat-bench switch-side tools (docs/NAT-OPS.md): a RAM boot cannot apk-add matching kmods
+# st1008f-selftest (#108, every image): /dev/mem + devmem (register reads), unxz/xzcat (CPU test), taskset
+SELFTEST_CFG = """CONFIG_KERNEL_DEVMEM=y
+CONFIG_BUSYBOX_CUSTOM=y
+CONFIG_BUSYBOX_CONFIG_DEVMEM=y
+CONFIG_BUSYBOX_CONFIG_UNXZ=y
+CONFIG_BUSYBOX_CONFIG_XZCAT=y
+CONFIG_BUSYBOX_CONFIG_TASKSET=y
+CONFIG_BUSYBOX_CONFIG_SETSID=y
+"""
 
 # Timeouts. Basis: this host (30 threads), -j8, nice 19; measured values in docs/OPENWRT-BUILD.md.
 # Each = measured worst case x1.25 where measured, else the stated estimate. Expiry kills make, logs elapsed.
@@ -359,6 +370,19 @@ DEFAULT_BOOT = ROOT / "openwrt/default-boot"
 LINKCHECK = ROOT / "openwrt/linkcheck/files"
 
 
+def selftest_files(dst: Path) -> None:
+    """st1008f-selftest helper + CPU test data (scripts/build_selftest.py) into files/ (#108)."""
+    import build_selftest
+    tcs = sorted(TREE.glob("staging_dir/toolchain-mips_24kc_*_musl/bin"))
+    try:
+        out = build_selftest.build(str(tcs[-1]) if tcs else None)
+    except SystemExit as e:  # first build: no toolchain yet; the script SKIPs mem/flash without the helper
+        log(f"WARN selftest: helper not built ({e}); image gets st1008f-selftest without st1008f-stx")
+        return
+    shutil.copytree(out, dst, dirs_exist_ok=True)
+    log(f"selftest: files/ += {out.relative_to(ROOT)}")
+
+
 def default_boot_files(on: bool) -> str:
     """--default-boot: openwrt/default-boot/files -> buildroot files/ (image overlay) + diffconfig lines.
     Without it files/ holds only openwrt/linkcheck/files: images never carry a stale overlay."""
@@ -366,6 +390,7 @@ def default_boot_files(on: bool) -> str:
     shutil.rmtree(dst, ignore_errors=True)
     shutil.copytree(LINKCHECK, dst, symlinks=True)  # every image: live-link check before bridging (#97)
     log(f"linkcheck: files/ from {LINKCHECK.relative_to(ROOT)}")
+    selftest_files(dst)
     if not on:
         return ""
     shutil.copytree(DEFAULT_BOOT / "files", dst, symlinks=True, dirs_exist_ok=True)
@@ -378,7 +403,7 @@ def config(kernel: str, dboot: str = "") -> int:
     # 7.3+: PREEMPT_NONE needs ARCH_NO_PREEMPT; OpenWrt's default KERNEL_PREEMPT_NONE would leave full
     # PREEMPT. Voluntary = the model the mainline port boots with (mainline/st1008f-v2.config).
     extra = "CONFIG_TESTING_KERNEL=y\nCONFIG_KERNEL_PREEMPT_VOLUNTARY=y\n" if kernel == "mainline" else ""
-    extra += dboot
+    extra += SELFTEST_CFG + dboot
     (TREE / ".config").write_text(SEED + extra)
     rc = run(["make", "defconfig"], T_DEFCONFIG)
     if rc:

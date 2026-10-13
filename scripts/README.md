@@ -485,6 +485,15 @@ Desk-only; no switch access. Needs `tmp/openwrt` (sparse clone of openwrt, `targ
 - Run: `./dev.py ramload mainline-kernel`, then `./dev.py sram-bench [--reps 3]`.
 - PASS = all 8 lines on every pass (kernel refuses when SRAM segment 0 is unmapped). Read-only. Log: `tmp/logs/sram_bench.log`.
 
+### selftest.py
+- Purpose: run the on-target `st1008f-selftest` (#108, [docs/SELFTEST.md](../docs/SELFTEST.md)) and fetch summary + JSON.
+- Run: `./dev.py selftest [--ip IP]` (SSH, default bench sw2) | `--console` (mainline initramfs prompt) | `--last` (no run; the only mode on sw1) | `--full` (all 6 memory patterns).
+- Exit 0 PASS, 1 FAIL, 2 no result. JSON: `tmp/logs/selftest-<ip>-<ts>.json`; log `tmp/logs/selftest.log`.
+
+### build_selftest.py
+- Purpose: the non-text selftest files: `st1008f-stx` (static MIPS helper from `openwrt/selftest/st1008f-stx.c`, OpenWrt toolchain) + `cpu.xz`/`cpu.md5` (CPU test data) -> `tmp/selftest/root/`.
+- Run: `scripts/build_selftest.py [--toolchain DIR]`; `build_openwrt.py` and `mainline_initramfs.py` pick the tree up. Log `tmp/logs/build_selftest.log`.
+
 - `rtk_parity.py` + `rtk_parity_cmds.json`: run the `rtk` command list on stock and on our U-Boot and diff (`./dev.py rtk-parity`; see docs/RTK-COMMANDS.md). Never sends flash writers. Both sides run `rtk network on` between the pre and post phases.
 
 ### sds_tables_gen.py
