@@ -3,8 +3,8 @@
 
 - Detects the prompt (st1008_ramload.PROMPTS). Rate N (default 921600): board divisor = round(UART clock /
   16 / N); UART clock = LX (175 MHz stock, 306.25 MHz turbo: div 12 / 21 give the same 911458 Bd).
-- Our U-Boot: `setenv baudrate <exact rate>` (serial_speed_test.go_fast: host request from
-  tmp/serial-cal.json, then a sweep). Linux/OpenWrt: `stty -F /dev/ttyS0 N` (8250 picks the divisor).
+- Our U-Boot: `setenv baudrate N` (N in CFG_SYS_BAUDRATE_TABLE, e.g. 921600; host request from
+  tmp/serial-cal.json for the divisor, then the exact rate). Linux/OpenWrt: `stty -F /dev/ttyS0 N` (8250 picks the divisor).
 - Host request = calibrated value for that divisor; verify = `echo` round trip at speed. On failure: type
   the revert (`setenv baudrate 115200` / `stty ... 115200`) at each candidate host rate, host back to 115200.
 - State: tmp/console-speed.json {"host": request, "rate": board rate}; restart_board reads it so a
@@ -67,8 +67,13 @@ def prompt(con: Console) -> tuple[str, str] | None:
 
 def verify(con: Console) -> bool:
     mark = con.size()
-    con.send("echo SPEED_OK")
-    try:
+    con.send("", cr=True)
+    try:  # let the prompt line land first: it would otherwise mix into the echo check
+        con.expect(r"st1008f-\w+ # |RTL9300# |root@[^#\n]*# ", VERIFY_S, mark, "prompt at speed")
+    except SystemExit:
+        return False
+    try:  # chunked typing with echo check (#31): a burst overruns the 1-byte UART FIFO at high rates
+        mark = con.send_checked("echo SPEED_OK", chunk=4, tries=1)
         con.expect(r"\nSPEED_OK\r?\n", VERIFY_S, mark, "echo at speed")
         return True
     except SystemExit:
@@ -77,14 +82,24 @@ def verify(con: Console) -> bool:
 
 def candidates(div: int, rate: int) -> list[int]:
     cal = json.loads(CAL.read_text()) if CAL.exists() else {}
-    return ([cal[str(div)]] if str(div) in cal else []) + [rate]
+    # the PL2303 rounds a request to its own grid: calibrated value first, then +-6 % around the rate
+    sweep = [round(rate * (1 + k / 100)) for k in (0, -2, 2, -4, 4, -6, 6)]
+    return list(dict.fromkeys(([cal[str(div)]] if str(div) in cal else []) + sweep))
+
+
+def set_rate(rate: int = 921600) -> bool:
+    """Library entry for long-output flows (memtest, selftest): True = board + host at `rate`."""
+    return switch(Console(), rate) == 0
 
 
 def main() -> int:
     ap = argparse.ArgumentParser(description=__doc__.splitlines()[0])
     ap.add_argument("rate", nargs="?", type=int, default=921600)
-    a = ap.parse_args()
-    con = Console()
+    return switch(Console(), ap.parse_args().rate)
+
+
+def switch(con: Console, rate: int) -> int:
+    a = argparse.Namespace(rate=rate)
     st = state()
     host_baud(st["host"])
     p = prompt(con)
@@ -100,7 +115,7 @@ def main() -> int:
     rate = 115200 if a.rate == 115200 else UART_175 // div
     if linux:
         cmd = f"stty -F /dev/ttyS0 {a.rate}"
-        con.send(cmd)
+        con.send_checked(cmd, chunk=4)
         time.sleep(0.2)  # command echo + execute at the old rate (~ms); output after it is at the new rate
         tries = [115200] if a.rate == 115200 else candidates(div, rate)
         for req in tries:
@@ -110,25 +125,24 @@ def main() -> int:
                 log(f"Linux console at {a.rate} (board ~{rate} Bd, host request {req})")
                 return 0
     else:
-        from serial_speed_test import go_fast
+        # U-Boot accepts only CFG_SYS_BAUDRATE_TABLE rates (921600 or the exact divisor rates); the ns16550
+        # driver rounds to its divisor, so the board runs UART clock / 16 / div
+        tries = [115200] if a.rate == 115200 else candidates(div, rate)
+        if a.rate == 115200 and st["host"] == 115200:
+            return 0 if verify(con) else 1
+        mark = con.send_checked(f"setenv baudrate {a.rate}", chunk=4)  # 1-byte FIFO at fast rates
         try:
-            if a.rate == 115200:
-                mark = con.send_checked("setenv baudrate 115200")
-                con.expect(r"press ENTER", 1, mark, "baudrate switch prompt")
-                host_baud(115200)
-                con.send("", cr=True)
-                req = 115200 if verify(con) else 0
-            else:
-                req = go_fast(con, div)
-                req = req if verify(con) else 0
+            con.expect(r"press ENTER", 1, mark, "baudrate switch prompt")  # printed at the old rate
         except SystemExit as e:
-            log(f"  U-Boot switch failed: {e}")
-            req = 0
-        if req:
-            save(req, rate)
-            log(f"U-Boot console at {rate} Bd (host request {req})")
-            return 0
-        tries = candidates(div, rate)
+            log(f"FAIL: U-Boot refused {a.rate}: {e}")
+            return 1
+        for req in tries:
+            host_baud(req)
+            con.send("", cr=True)  # U-Boot waits for a CR at the new rate
+            if verify(con):
+                save(req, rate)
+                log(f"U-Boot console at {rate} Bd (host request {req})")
+                return 0
     # revert: type the 115200 command at every candidate host rate, then check at 115200
     back = "stty -F /dev/ttyS0 115200" if linux else "setenv baudrate 115200"
     for req in tries:

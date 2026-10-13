@@ -72,6 +72,8 @@ def main() -> int:
     ap.add_argument("--mib", type=int, default=0, help="first N MiB of each region only (quick check)")
     ap.add_argument("--no-boot", action="store_true", help="board already at our prompt")
     ap.add_argument("--args", default="", help="extra memtest args, e.g. 'low uncached'")
+    ap.add_argument("--console-rate", type=int, default=921600,
+                    help="console rate for the run (console_speed.py; 115200 = no switch); back to 115200 after")
     a = ap.parse_args()
 
     if not a.no_boot:
@@ -90,8 +92,14 @@ def main() -> int:
         if "turbo OK" not in t:
             return 1
     cmd = f"memtest log={a.log}" + (f" mib={a.mib}" if a.mib else "") + (f" {a.args}" if a.args else "")
-    mark = con.size()
-    con.send(cmd)
+    fast = a.console_rate != 115200
+    if fast:
+        import console_speed
+        fast = console_speed.set_rate(a.console_rate)
+        log(f"console at {a.console_rate}: {'yes' if fast else 'no, staying at 115200'}")
+    mark = con.send_checked(cmd, chunk=4) if fast else con.size()  # 1-byte UART FIFO at fast rates
+    if not fast:
+        con.send(cmd)
     t0 = time.monotonic()
     seen = 0
     while True:  # one wait per unit: a hang names the unit it stopped in
@@ -102,6 +110,9 @@ def main() -> int:
             break
         seen += 1
     con.expect(PROMPT, 2, mark, "prompt")
+    if fast:
+        import console_speed
+        console_speed.set_rate(115200)
     units = parse(text)
     for u in units:
         line = (f"{u['region']:4} {u['mode']:8} {u['test']:6} {u['ms']:6} ms  errs {u['errs']:8} "

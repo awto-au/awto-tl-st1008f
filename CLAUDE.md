@@ -38,6 +38,7 @@
 - A power cut stalls the PL2303 RX (`urb stopped: -32`): restart the daemon before power-on (`restart_board` does it). Manual relay: `./dev.py power on|off`.
 - **Reboot in software, not by power-cycling** (owner, 2026-10-13): `reboot` from Linux, `reset` from U-Boot. The relay is only for a board that doesn't respond within a bounded wait (logged reason). Warm resets come back by themselves (#105).
 - `ramload uboot-mainline --fast` leaves board + daemon at 10.94 MBd; a daemon restart drops the host back to 115200 (board stays fast until power-off).
+- On-demand console speed: `./dev.py console-speed [921600|115200]` (our U-Boot or Linux); `restart_board` follows its state file.
 - Never type ahead during `rtk network on` (~8 s): input is dropped/garbled (no flow control). Lines >256 chars are rejected; input past ~240 chars drops.
 
 ## Hazards
