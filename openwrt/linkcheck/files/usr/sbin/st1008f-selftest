@@ -292,7 +292,7 @@ step_sfp() {
 		pres=-
 		[ -n "$gd" ] && pres=$(( (gd >> (c - 1)) & 1 ? 0 : 1 ))	# MOD-DEF0 low = present
 		[ -d /sys/class/net/$p ] || { log "sfp: cage $c: no $p"; continue; }
-		a=$(ethtool -m $p 2>/dev/null | awk "$SFP_AWK")
+		a=$(ethtool -m $p hex on 2>/dev/null | awk "$SFP_AWK")
 		if [ -z "$a" ]; then
 			log "sfp: cage $c $p: no module data (presence pin $pres)"
 			kv sfp "$p.present" "$pres"

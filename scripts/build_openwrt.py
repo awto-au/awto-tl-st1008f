@@ -147,6 +147,9 @@ CONFIG_PACKAGE_ip-full=y
 CONFIG_PACKAGE_ip-bridge=y
 CONFIG_PACKAGE_tcpdump-mini=y
 CONFIG_PACKAGE_kmod-pktgen=y
+CONFIG_PACKAGE_iperf3=y
+CONFIG_PACKAGE_ethtool-full=y
+CONFIG_PACKAGE_lldpd=y
 """  # + nat-bench switch-side tools (docs/NAT-OPS.md): a RAM boot cannot apk-add matching kmods
 # st1008f-selftest (#108, every image): /dev/mem + devmem (register reads), unxz/xzcat (CPU test), taskset
 SELFTEST_CFG = """CONFIG_KERNEL_DEVMEM=y
@@ -414,19 +417,32 @@ def rc_common_stamps(dst: Path) -> None:
     log("rc.common: files/ += base-files rc.common + boot stamps to /tmp/st1008f-boot.log (#114)")
 
 
-def dropbear_after_network(dst: Path) -> None:
-    """files/etc/init.d/dropbear = the package's dropbear.init with START=21: after network (S20), since
-    procd runs init scripts one at a time and a RAM boot's host-key generation (7-21 s) held the bridge
-    back (#114). The image postinst creates the rc.d link from START, so an rc.d override alone is undone."""
-    src = TREE / "package/network/services/dropbear/files/dropbear.init"
-    text = src.read_text()
-    if "\nSTART=19\n" not in text:
-        sys.exit(f"dropbear.init: START=19 not found in {src}")
-    out = dst / "etc/init.d/dropbear"
-    out.parent.mkdir(parents=True, exist_ok=True)
-    out.write_text(text.replace("\nSTART=19\n", "\nSTART=21\n", 1))
-    out.chmod(0o755)
-    log("dropbear: files/ += dropbear.init with START=21 (after network, #114)")
+# Init scripts moved after network (S20): procd runs them one at a time, so anything before S20 delays
+# the bridge (#114). (name, source glob in the buildroot, START). The image postinst recreates rc.d
+# links from START, so the staged init.d copy (files/ overlay) is what moves them.
+AFTER_NETWORK = [
+    # RAM-boot host-key generation 7-21 s (sw2, 2026-10-13)
+    ("dropbear", "package/network/services/dropbear/files/dropbear.init", 21),
+    # fw4 start 1.4-2.1 s; only a lan zone (accept) on a switch, so nothing to protect before the bridge
+    ("firewall", "build_dir/target-*/firewall4-*/root/etc/init.d/firewall", 21),
+]
+
+
+def init_after_network(dst: Path) -> None:
+    for name, glob, start in AFTER_NETWORK:
+        srcs = sorted(TREE.glob(glob))
+        if not srcs:  # firewall4 is unpacked by the first build; the next build moves it
+            log(f"WARN {name}: {glob} not in the buildroot yet; START unchanged this build")
+            continue
+        text = srcs[-1].read_text()
+        m = re.search(r"\nSTART=(\d+)\n", text)
+        if not m:
+            sys.exit(f"{name}: no START= in {srcs[-1]}")
+        out = dst / "etc/init.d" / name
+        out.parent.mkdir(parents=True, exist_ok=True)
+        out.write_text(text.replace(m.group(0), f"\nSTART={start}\n", 1))
+        out.chmod(0o755)
+        log(f"{name}: files/ += init with START={start} (was {m[1]}; after network, #114)")
 
 
 def default_boot_files(on: bool) -> str:
@@ -437,7 +453,7 @@ def default_boot_files(on: bool) -> str:
     shutil.copytree(LINKCHECK, dst, symlinks=True)  # every image: live-link check before bridging (#97)
     log(f"linkcheck: files/ from {LINKCHECK.relative_to(ROOT)}")
     rc_common_stamps(dst)
-    dropbear_after_network(dst)
+    init_after_network(dst)
     selftest_files(dst)
     if not on:
         return ""

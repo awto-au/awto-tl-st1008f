@@ -16,10 +16,10 @@ names=""
 ids=""	# "vendor/serial port" per module, for the same-cable check
 dark=""	# DDM fibre ports with no light: laser probe
 
-# `ethtool -m` hex dump (A0 0-255, A2 256-511; OpenWrt's ethtool prints hex only) -> one line:
+# `ethtool -m ... hex on` dump (A0 0-255, A2 256-511; ethtool-full decodes without 'hex on') -> one line:
 # rx(0.1 uW or -1) los(0/1/-) copper(0/1) dac(0/1) vendor/serial pn
 decode() {
-	ethtool -m "$1" 2>/dev/null | awk '
+	ethtool -m "$1" hex on 2>/dev/null | awk '
 	/^0x/ { for (i = 2; i <= NF; i++) b[n++] = ("0x" $i) + 0 }
 	function str(a, z,   s, i) { s = ""; for (i = a; i <= z; i++) if (b[i] > 32 && b[i] < 127) s = s sprintf("%c", b[i]); return s }
 	END {
