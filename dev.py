@@ -398,6 +398,18 @@ def cmd_openwrt_metrics(extra: list[str]) -> int:
     return _script("openwrt_metrics.py", extra)
 
 
+@command("N software reboots of sw2 through the chain; every expected cage linked after each boot? (#116)",
+         args="[--rounds N]", kind="hardware")
+def cmd_boot_link_check(extra: list[str]) -> int:
+    return _script("boot_link_check.py", extra)
+
+
+@command("10G link bring-up failure rate on sw2 (#116): bounce a cage pair N times (default lan7+lan8 fibre loop)",
+         args="[--pair lanX lanY] [--rounds N]", kind="hardware")
+def cmd_link_bounce(extra: list[str]) -> int:
+    return _script("link_bounce.py", extra)
+
+
 @command("set a running OpenWrt's hostname to its registry box name (st1008f-1 / st1008f-2), persistent",
          args="[--ip A.B.C.D]", kind="hardware")
 def cmd_openwrt_hostname(extra: list[str]) -> int:
