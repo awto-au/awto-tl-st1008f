@@ -72,6 +72,7 @@ One quick test per point: the change reports OK, prompt, 16 MiB `crc32`, tempera
 | `clocks-cycle --session cpu --lo 1350` from stock clocks | 1375, 1400, 1425: shell (one boot each) |
 
 - CPU 1400: 4 fails, 1 pass; 1425: 1 pass. DRAM is clean at the same clocks (DRAM.md "Memtest"): the fault is CPU-side (decompressor = core + L1 load). 1400/1425 are marginal; 1375 passed all 5 boots.
+- Boot self-test XZ load (both VPEs, `selftest --console`, 2026-10-13T12:26): CPU 1375 **1 of 55 decodes wrong**; 1350 161/161 and 1300 157/157 OK (15 s each). 1375 is marginal under sustained load: pick candidate 1350 (owner decision, #103).
 - LX 306 under Linux (2026-10-13T11:39, `turbo lx=306` before `bootm`): console clean, shell reached, boot log clean, uptime vs host 12.98 s / 12.98 s. Kernel reads LX/CPU from the PLLs (`300-23`); watchdog probe failed (-EINVAL: DT 30 s > 28.9 s hardware max at LX 306) until `300-24`.
 
 ### At the picks vs base (one run each)

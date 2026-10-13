@@ -2,7 +2,7 @@
 
 - One time-bounded test under Linux at every OpenWrt boot: proves the clocks in use and the memory, prints everything else it can read.
 - Target ~20 s at the defaults (mem 12 s, CPU 5 s, the rest < 3 s); every step has its own bound.
-- Status 2026-10-13: built (OpenWrt toolchain, mainline initramfs), host dry run under BusyBox ash with mocked registers, helper run under qemu-mips. Not yet run on the switch.
+- Status 2026-10-13: built (OpenWrt toolchain, mainline initramfs) and run on sw2 (results below).
 
 ## Files
 
@@ -117,3 +117,18 @@
 
 - `./dev.py selftest [--ip IP]` — SSH run, summary + JSON to `tmp/logs/`. `--console` at the initramfs prompt; `--last` reads the last result (the only mode on sw1). [scripts/README.md](../scripts/README.md).
 - `./dev.py switch-check` prints the last summary (`selftest=`), not part of its PASS.
+
+## Measured on sw2 (2026-10-13T12:25-12:30+11:00, mainline initramfs, `./dev.py selftest --console`)
+
+| Clocks (CPU / DDR / LX / SRAM) | Summary | cpu (XZ decodes, both VPEs) | mem (401 MiB) |
+|---|---|---|---|
+| 800 / 600 / 175 / 250 (stock) | FAIL [sfp] | 36 OK (5 s) | rand: 8632 ms, 1 of 6 patterns in 12 s; step 9869 ms |
+| 1375 / 662 / 306 / 500 | FAIL [cpu] | **1 of 55 wrong** (cpu0) | rand 5014 + addr 6050 ms, 2 of 6; step 11972 ms |
+| 1350 / 662 / 306 / 500 (`--cpu-secs 15`) | PASS | 161 OK | pass |
+| 1300 / 662 / 306 / 500 (`--cpu-secs 15`) | PASS | 157 OK | pass |
+
+- sfp at stock: `timeout after 2 s` with 7 modules (the 2 s bound is too tight at 800 MHz; 1410 ms at the picks).
+- env, kmemtest SKIP in the initramfs (no `fw_printenv`; no `memtest=` on the cmdline). flash: jffs2-log slot CRC mismatch reported (`a8ac0713` vs trailer `ffffffff`).
+- `./dev.py selftest --console`: the JSON read back over the console is unreadable (3470 B); the summary and the log are fine.
+- Memory step: 401 MiB per pattern ~5-6 s at the picks, ~8.6 s at stock: the 12 s budget covers 1-2 of the 6 patterns.
+
