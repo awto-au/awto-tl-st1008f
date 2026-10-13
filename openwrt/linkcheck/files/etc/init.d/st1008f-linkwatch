@@ -1,0 +1,10 @@
+#!/bin/sh /etc/rc.common
+# Boot-time stuck 10G link watchdog (#116): first 5 min after boot only; exits after.
+START=19
+USE_PROCD=1
+
+start_service() {
+	procd_open_instance
+	procd_set_param command /usr/sbin/st1008f-linkwatch
+	procd_close_instance
+}

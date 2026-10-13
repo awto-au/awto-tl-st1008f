@@ -1,0 +1,31 @@
+#!/bin/sh
+# st1008f-linkwatch (#116): boot-time race only. In the first BOOT_S after boot, an admin-up SFP port
+# that sees light (DDM RX > 5 uW) but has no carrier for 3 checks (6 s) gets a down/up, at most MAXB
+# per port, each logged. Later "light but no link" (a partner that cannot link) is left alone: bouncing
+# does not fix those. Skipped: admin-down ports (linkcheck loops), copper modules (PHY attached).
+PERIOD=2 STUCK=3 MAXB=2 BOOT_S=300 RX_LIVE=5
+while :; do
+	read -r now rest < /proc/uptime; now=${now%.*}
+	[ "$now" -lt $BOOT_S ] || exit 0	# boot window over: nothing left to watch
+	for d in /sys/class/net/lan*; do
+		p=${d##*/}; n=${p#lan}
+		read -r fl < "$d/flags"
+		[ $((fl & 1)) -eq 1 ] || { eval c_$n=0; continue; }	# admin down
+		[ -e "$d/phydev" ] && { eval c_$n=0; continue; }	# copper module: its PHY owns the link
+		read -r car < "$d/carrier" 2>/dev/null || car=0
+		[ "$car" = 1 ] && { eval c_$n=0; continue; }
+		rx=0
+		for h in /sys/class/hwmon/hwmon*; do
+			read -r hn < "$h/name"
+			[ "$hn" = "sfp_p$n" ] && { read -r rx < "$h/power2_input" 2>/dev/null; break; }
+		done
+		[ "${rx:-0}" -ge $RX_LIVE ] || { eval c_$n=0; continue; }	# no light: nothing to fix
+		eval c=\${c_$n:-0} b=\${b_$n:-0}
+		c=$((c + 1)); eval c_$n=$c
+		[ $c -ge $STUCK ] && [ $b -lt $MAXB ] || continue
+		logger -t st1008f-linkwatch "$p: RX ${rx} uW, no carrier for $((c * PERIOD)) s at uptime ${now} s: bounce $((b + 1))/$MAXB (#116)"
+		ip link set "$p" down; ip link set "$p" up
+		eval c_$n=0 b_$n=$((b + 1))
+	done
+	sleep $PERIOD
+done
