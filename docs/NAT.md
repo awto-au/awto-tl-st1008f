@@ -336,7 +336,11 @@ Conditions: mainline next-20261009 initramfs, SMP, picks (`turbo cpu=1350,ddr=66
 | XPS-0 + threaded NAPI | 440 | 98.1 |
 | XPS-0 + rx-gro-list off | 300 | 64.4 |
 | XPS-0 + GRO off | 485 | 65.4 |
+| **`300-27` (driver `ndo_select_queue`, no XPS map), 3 runs** (`picks-300-27`) | **521-528** | **105.6-108.9** |
+| **+ `300-28` (RX descriptor read through the cache), 3 runs** (`picks-300-28`) | **514-533** | **109.6-111.2** |
 
+- `300-27` makes XPS-0 permanent in the driver: control-priority frames on ring 1, the rest on ring 0, no hash. UDP 1400 B at 900 offered stays 76.5 kpps (line-limited, 0.1 % loss).
+- `300-28`: each RX descriptor is one 32 B line written only by the NIC; one invalidate + cached read replaces ~8 uncached DDR loads per frame. UDP 64 B +3 %, TCP within spread; no RX errors.
 - XPS-0: eth0 has 2 TX queues; without an XPS map every packet goes through `skb_tx_hash` (flow dissect + siphash) to pick one. The 11 % "hashing" in the profile above was this, not a qdisc (default qdisc is `pfifo_fast`; DSA ports and SVIs are `noqueue`).
 - RPS and threaded NAPI stay worse: both VPEs share one 34Kc pipeline, so moving work to VPE1 adds IPI/cache cost without compute.
 - GRO + fraglist GRO stay on: off costs 30-40 %.

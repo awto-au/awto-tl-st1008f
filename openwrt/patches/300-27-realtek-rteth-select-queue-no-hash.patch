@@ -1,0 +1,33 @@
+From: awto-tl-st1008f
+Subject: [PATCH] net: rteth: pick the TX ring without skb_tx_hash (#65)
+
+eth0 has two TX rings and no ndo_select_queue, so every forwarded packet ran skb_tx_hash()
+(flow dissect + siphash) to choose one: ~11 % of the busy VPE under NAT. Control-priority
+frames go to ring 1, the rest to ring 0. Measured as an XPS map (both CPUs -> tx-0) at the
+picks: NAT TCP P4 431 -> 504 Mbit/s, UDP 64 B 90 -> 103 kpps (docs/NAT.md).
+---
+--- a/drivers/net/ethernet/realtek/rtl838x_eth.c
++++ b/drivers/net/ethernet/realtek/rtl838x_eth.c
+@@ -1589,12 +1589,22 @@
+ 	}
+ }
+ 
++/*
++ * Pick the TX ring without the default skb_tx_hash() (flow dissect + siphash per packet):
++ * control-priority frames on ring 1, everything else on ring 0 (#65, docs/NAT.md).
++ */
++static u16 rteth_select_queue(struct net_device *dev, struct sk_buff *skb, struct net_device *sb_dev)
++{
++	return skb->priority >= TC_PRIO_CONTROL ? 1 : 0;
++}
++
+ static const struct net_device_ops rteth_netdev_ops = {
+ 	.ndo_get_stats64	= rteth_get_stats64,
+ 	.ndo_open		= rteth_open,
+ 	.ndo_stop		= rteth_stop,
+ 	.ndo_change_mtu		= rteth_change_mtu,
+ 	.ndo_start_xmit		= rteth_start_xmit,
++	.ndo_select_queue	= rteth_select_queue,
+ 	.ndo_set_mac_address	= rteth_set_mac_address,
+ 	.ndo_validate_addr	= eth_validate_addr,
+ 	.ndo_set_rx_mode	= rteth_set_rx_mode,

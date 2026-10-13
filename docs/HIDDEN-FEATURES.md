@@ -299,3 +299,17 @@ Base commit `ef7f00e`; our U-Boot from flash, stock clocks, no `rtk network on` 
 
 - **DMY**: see catalogue rows; per-register results in `tmp/hidden/hwp-dmy-b1.json`.
 - **After stock `rtk network on`** (cage 1 lit): `DMY_REG0_CHIP_MISC_R` 0x230 = `0x0fffffff`; HSB/HSA/HSM0-2 hold the last LAN frame; `TBL_ACCESS_CTRL_0` = `0x0001601b` (last access: PORT_ISO write, entry 27).
+
+## IP / L4 rewrite: adversarial re-audit (2026-10-13, #58 #68)
+
+Owner asked to re-test the "no hardware NAT" conclusion. Every avenue re-checked against the SDK headers/register lists, datasheets and the managed TP-Link firmware:
+
+- Routing tables (host, prefix, nexthop, egress interface): IP fields are lookup keys; writes = MACs, VID, TTL, IPv4 header checksum (DS §7.14). Not possible.
+- Tunnels/encap (tunnel, VXLAN, MPLS, BPE, OpenFlow, ERSPAN): no Longan module; encap RAMs = egress VLAN conversion, untag, router MAC, remark. Not possible.
+- VLAN translation, OAM, DHCP/ARP/IGMP, RSPAN, sFlow: VLAN tags, OAM MAC swap, trap/drop only. Not possible.
+- ACL/PIE actions: widest data fields 12 bit (VID) and 11 bit (port/nexthop); IP-header writes = TOS/DSCP/precedence + the IPv4 reserved-flag flip. Not possible.
+- Egress modifier (HSA): 601 of 704 bits named; largest unnamed gaps 15 bit, between VLAN-tag slots. Not possible.
+- Indirect: loopback re-entry repeats the same edits; no per-flow state for "rewrite the first packet, ASIC the rest"; SPG only sends CPU-loaded templates; NPTv6 has no address write path. Not possible.
+- Managed firmware: no NAT in the TL-ST5008F v2 `core`. SX3008F = RTL9310 (OpenFlow set-field), does not carry over.
+- Unknown, low odds: spare `DMY_REG2-5_PKT_ENCAP` (32-bit R/W in the egress modifier; `DMY_REG0/1` hide a router-SMAC override). Even if live: one global value, no per-flow select, so no usable NAT. Test: pattern into each, route a known frame between two VLANs, diff against a baseline capture, restore.
+- What works in hardware instead: routing a public prefix (ISP v4 block or IPv6 PD); PIE policy routing of NAT flows to an external NAT box.
