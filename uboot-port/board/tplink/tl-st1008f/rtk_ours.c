@@ -162,6 +162,7 @@ int rtk_ours_help(void)
 	       "  rtk mode                                   M1/M2/M3 switch position\n"
 	       "  rtk temp                                   on-die temperature (enables the meter)\n"
 	       "  rtk crypto probe|test|bench                SoC crypto engine (#62)\n"
-	       "  rtk linkcheck [noprobe]                    live links + cage loops before bridging (#97)\n");
+	       "  rtk linkcheck [noprobe]                    live links + cage loops before bridging (#97)\n"
+	       "  rtk spg status|load|start|stop [off]       packet generator, capped bursts (#70)\n");
 	return 0;
 }

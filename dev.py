@@ -525,6 +525,13 @@ def cmd_rtk_parity(extra: list[str]) -> int:
     return _script("rtk_parity.py", extra)
 
 
+@command("Smart Packet Generator staged test (#70, docs/SPG.md): stage1 read-only, stage2 dark cage, stage3 cage 1 -> host",
+         args="stage1 | stage2 [--count N] [--ipg-probe N] | stage3 [--count <=1000] [--ipg N] [--nic enp7s0]",
+         kind="hardware")
+def cmd_spg_test(extra: list[str]) -> int:
+    return _script("spg_test.py", extra)
+
+
 # ---- builds ----------------------------------------------------------------
 @command("build mainline U-Boot stage 0 (uboot-port/ -> tmp/tftp/uboot-mainline.bin)",
          args="[--clean]", kind="build")
