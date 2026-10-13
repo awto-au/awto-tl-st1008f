@@ -186,6 +186,7 @@ rtl838x-eth 1b00a300\.ethernet eth0: entered (allmulticast|promiscuous) mode  # 
 rtl83xx-switch switch@1b000000: configuring for fixed/internal link mode  # CPU port phylink
 rtl83xx-switch switch@1b000000: Link is Up - 10Gbps/Full - flow control off  # CPU port link
 rtl83xx-switch switch@1b000000: led_set0 has 3 LEDs configured  # LED set
+rtl83xx-switch switch@1b000000: storm control bc/mc/uc \d+/\d+/\d+ pps per port, loop detect (on|off) \(recover \d+ s\) \(#111\)  # 300-26 probe: storm meters + loop detect armed; a `loop:`/`storm:` warning is not allowlisted (a real loop/storm)
 DSA: tree 0 setup  # DSA init
 RESETTING 9300, CPU_PORT 28  # rtl83xx-switch debug print: CPU port 28
 c45_mask: 00000000  # rtl83xx-switch debug print
@@ -395,6 +396,7 @@ Core:  24 devices, 11 uclasses, devicetree: separate  # DM: root, clock provider
 Net:   eth0: ethernet@df00  # rtl930x_eth CPU-port NIC (#80); MAC from stock env ethaddr (a random-MAC warning is not allowlisted)
 rtl930x-eth: switch not set up, running `rtk network on`  # first eth start without stock network on (#80)
 rtk: switch defaults \d+ rows \(env rtk_sw_defaults=[a-z,]+\)  # our network on: stock SDK defaults applied, row count (#80)
+rtk: storm control bc/mc/uc \d+/\d+/\d+ pps per port, loop-probe trap on \(env rtk_storm=[^)]*\)  # our network on: storm meters + RLDP trap (#111)
 rtl930x-eth: NIC reset \d+ us  # first eth start: NIC + CPU queue reset, self-clear time (#80)
 rtl930x-eth: cage [1-8] \(port \d+\) only, link (up|down)  # eth start: mgmt cage lit, others dark (#80)
 Using ethernet@df00 device  # net command header (#80)

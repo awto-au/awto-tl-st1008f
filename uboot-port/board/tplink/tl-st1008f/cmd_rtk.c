@@ -633,6 +633,10 @@ static int do_rtk(struct cmd_tbl *cmdtp, int flag, int argc, char *const argv[])
 		return rtk_temp(argc, argv);
 	if (is(argv, 1, "spg"))
 		return rtk_spg(argc, argv);
+	if (is(argv, 1, "storm"))
+		return rtk_storm(argc, argv);
+	if (is(argv, 1, "loopdetect"))
+		return rtk_loopdetect(argc, argv);
 	if (is(argv, 1, "sdsdump"))
 		return rtk_sdsdump(argc, argv);
 	if (is(argv, 1, "sds"))
@@ -733,6 +737,10 @@ U_BOOT_CMD(rtk, 16, 0, do_rtk, "rtk     - Realtek commands\n",
 	   "        - SoC crypto engine: register read / NIST+RFC known-answer tests / 1 MiB MB/s vs software\n"
 	   "rtk spg status | load .. | start .. | stop [off]\n"
 	   "        - Smart Packet Generator, capped bursts on dark cage ports (#70; rtk spg = usage)\n"
+	   "rtk storm [show | clear | on | off | <bc> <mc> <uc>]\n"
+	   "        - storm control per port (pps; network on = defaults, env rtk_storm) (#111)\n"
+	   "rtk loopdetect\n"
+	   "        - loop guard: cage-to-cage forwarding, loop-probe trap, MAC tx/rx (#111)\n"
 	   "rtk help-ours\n"
 	   "        - one-line list of the above\n"
 	   "hidden stock verbs (work here, absent from stock help): port enable|disable <port>,\n"

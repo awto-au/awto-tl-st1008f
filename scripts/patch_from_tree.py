@@ -4,6 +4,7 @@
 - Keeps the patch's header (everything before the first `diff `/`--- a/` line).
 - Body = `diff -u` of <orig-dir>/<basename> vs <tree>/<path> for each path, labelled a/<path> b/<path>.
 - <orig-dir> holds the files as the earlier patches leave them (copy them before editing).
+- A path with no copy in <orig-dir> is a new file: diffed against /dev/null.
 
     python3 scripts/patch_from_tree.py openwrt/patches/300-12-*.patch --orig-dir tmp/rteth-orig \\
         drivers/net/ethernet/realtek/rtl838x_eth.c drivers/net/ethernet/realtek/rtl838x_eth.h
@@ -33,8 +34,10 @@ def main() -> int:
     out = text[:m.start()] if m else text
     for rel in a.paths:
         # diff exit 1 = files differ (expected); 2 = trouble
-        r = subprocess.run(["diff", "-u", "--label", f"a/{rel}", "--label", f"b/{rel}",
-                            str(a.orig_dir / Path(rel).name), str(a.tree / rel)],
+        orig = a.orig_dir / Path(rel).name
+        new = not orig.exists()  # file the patch creates: diff against /dev/null
+        r = subprocess.run(["diff", "-u", "--label", "/dev/null" if new else f"a/{rel}", "--label", f"b/{rel}",
+                            "/dev/null" if new else str(orig), str(a.tree / rel)],
                            capture_output=True, text=True, timeout=10)  # local diff of 2 files, <1 s
         if r.returncode > 1:
             raise SystemExit(f"diff failed for {rel}: {r.stderr}")

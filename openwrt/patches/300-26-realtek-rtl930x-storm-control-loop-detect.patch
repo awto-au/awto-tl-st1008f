@@ -1,0 +1,444 @@
+From: Dan <dan@awto.au>
+Subject: [PATCH] net: dsa: rtl83xx: RTL930x storm control defaults + loop detection (#111)
+
+- Probe: per-port ingress meters on every user port, pps mode: broadcast 10000, multicast 20000
+  (all), unknown unicast 20000; CPU port BC/MC only; burst 100 ms; BPDU/RMA/Realtek frames bypass.
+  Params storm_bc/storm_mc/storm_uc (0 = off). Core shared with U-Boot: rtl930x_storm.h,
+  copied by the build from awto-tl-st1008f shared/rtl930x-storm (never edit the copy).
+- Loop detection: RLDP trap to CPU; every 1 s a probe (ethertype 0x8899, RLDP proto, boot nonce)
+  out of each forwarding bridge port. One back on a forwarding port of the same bridge = loop:
+  MAC TX/RX of the higher port off for loop_recover_s (60), dev_warn. Params loop_detect, loop_recover_s.
+- Storm EXCEED flags polled each period: dev_warn on start, dev_info on end, seconds per port/type.
+- debugfs rtl838x/storm: state + counters; write "<bc> <mc> <uc>", "loop on|off", "unshut".
+---
+--- a/drivers/net/dsa/rtl83xx/Makefile
++++ b/drivers/net/dsa/rtl83xx/Makefile
+@@ -1,3 +1,3 @@
+ # SPDX-License-Identifier: GPL-2.0
+ obj-$(CONFIG_NET_DSA_RTL83XX) += rtl_otto_dsa.o
+-rtl_otto_dsa-objs := common.o dsa.o rtl838x.o rtl839x.o rtl930x.o rtl931x.o debugfs.o lag.o l2.o qos.o tc.o pie.o vlan.o l3.o stats.o stp.o mirror.o
++rtl_otto_dsa-objs := common.o dsa.o rtl838x.o rtl839x.o rtl930x.o rtl931x.o debugfs.o lag.o l2.o qos.o tc.o pie.o vlan.o l3.o stats.o stp.o mirror.o storm.o
+--- a/drivers/net/dsa/rtl83xx/common.c
++++ b/drivers/net/dsa/rtl83xx/common.c
+@@ -21,6 +21,7 @@
+ #include "rtl-otto.h"
+ #include "tc.h"
+ #include "stp.h"
++#include "storm.h"
+ 
+ /* Port register accessor functions for the RTL838x and RTL930X SoCs */
+ void rtl838x_mask_port_reg(u64 clear, u64 set, int reg)
+@@ -546,6 +547,7 @@
+ 	case RTL9300_FAMILY_ID:
+ 	case RTL9310_FAMILY_ID:
+ 		rtl930x_dbgfs_init(priv);
++		rtldsa_930x_storm_init(priv);	/* 930x only; after dbgfs_dir */
+ 		break;
+ 	}
+ 
+@@ -581,6 +583,7 @@
+ 	 * when they are getting shut down.
+ 	 */
+ 	otto_l3_remove(priv);
++	rtldsa_930x_storm_remove(priv);
+ 	cancel_delayed_work_sync(&priv->counters_work);
+ 
+ 	dsa_switch_shutdown(priv->ds);
+--- a/drivers/net/dsa/rtl83xx/rtl-otto.h
++++ b/drivers/net/dsa/rtl83xx/rtl-otto.h
+@@ -500,6 +500,7 @@
+ 	struct otto_l3_ctrl *l3_ctrl;
+ 	u64 irq_mask;
+ 	struct dentry *dbgfs_dir;
++	struct rtldsa_storm *storm;	/* storm.c (#111) */
+ 
+ 	/** @lags_port_members: Port (bit) is part of a specific LAG */
+ 	u64 lags_port_members[MAX_LAGS];
+--- /dev/null
++++ b/drivers/net/dsa/rtl83xx/storm.c
+@@ -0,0 +1,371 @@
++// SPDX-License-Identifier: GPL-2.0-only
++/*
++ * RTL930x storm control defaults + software loop detection (awto-tl-st1008f #111).
++ * Meters and the probe trap come from the core shared with U-Boot (shared/rtl930x-storm).
++ * Loop detect: a probe out of every forwarding bridge port each period; one that comes back on a
++ * forwarding port of the same bridge = loop -> MAC TX/RX of the higher port off for loop_recover_s.
++ */
++
++#include <linux/debugfs.h>
++#include <linux/etherdevice.h>
++#include <linux/if_bridge.h>
++#include <linux/netdevice.h>
++#include <linux/pkt_sched.h>
++#include <linux/random.h>
++#include <linux/seq_file.h>
++#include <linux/unaligned.h>
++#include <net/dsa.h>
++#include <asm/mach-rtl-otto/mach-rtl-otto.h>
++
++#include "rtl-otto.h"
++#include "storm.h"
++
++static inline u32 rtl930x_storm_rd(void *ctx, u32 off)
++{
++	return sw_r32(off);
++}
++
++static inline void rtl930x_storm_wr(void *ctx, u32 off, u32 v)
++{
++	sw_w32(v, off);
++}
++
++#include "rtl930x_storm.h"
++
++static uint storm_bc = RTL930X_STORM_BC_PPS;
++module_param(storm_bc, uint, 0444);
++MODULE_PARM_DESC(storm_bc, "broadcast pps per ingress port at probe, 0 = off (#111)");
++static uint storm_mc = RTL930X_STORM_MC_PPS;
++module_param(storm_mc, uint, 0444);
++MODULE_PARM_DESC(storm_mc, "multicast pps per ingress port at probe, 0 = off");
++static uint storm_uc = RTL930X_STORM_UC_PPS;
++module_param(storm_uc, uint, 0444);
++MODULE_PARM_DESC(storm_uc, "unknown-unicast pps per ingress port at probe, 0 = off");
++static bool loop_detect = true;
++module_param(loop_detect, bool, 0444);
++MODULE_PARM_DESC(loop_detect, "loop probes + port shut at probe (debugfs storm/loop: on|off)");
++static uint loop_recover_s = 60;
++module_param(loop_recover_s, uint, 0444);
++MODULE_PARM_DESC(loop_recover_s, "seconds a looped port stays shut before a retry");
++
++#define LOOP_PERIOD_MS	1000	/* probe + storm-flag poll period; storm meters cap a loop meanwhile */
++#define PROBE_LEN	60	/* minimum frame without FCS */
++#define NPORTS		29
++
++struct rtldsa_storm {
++	struct rtl838x_switch_priv *priv;
++	struct delayed_work work;
++	spinlock_t lock;		/* shut state: tap (softirq) vs work */
++	struct packet_type pt[NPORTS];
++	u32 nonce, seq, pmask;
++	bool on;
++	u32 bc, mc, uc;
++	u64 probes;
++	u32 exceed[RTL930X_STORM_T_N];		/* ports over the rate in the last period */
++	u32 storm_s[NPORTS][RTL930X_STORM_T_N];	/* periods with the flag set */
++	u32 loops[NPORTS], ignored;
++	int last_from[NPORTS];
++	unsigned long shut_until[NPORTS];	/* 0 = not shut */
++	struct dentry *dbg;
++};
++
++static struct dsa_port *storm_dp(struct rtldsa_storm *s, int port)
++{
++	return port < NPORTS && (s->pmask & BIT(port)) ? dsa_to_port(s->priv->ds, port) : NULL;
++}
++
++static const char *pname(struct rtldsa_storm *s, int port)
++{
++	struct dsa_port *dp = storm_dp(s, port);
++
++	return dp && dp->user ? netdev_name(dp->user) : "?";
++}
++
++/* forwarding member of a bridge: the only ports a hardware loop can run through */
++static struct net_device *fwd_bridge(struct dsa_port *dp)
++{
++	if (!dp || !dp->user || dp->stp_state != BR_STATE_FORWARDING)
++		return NULL;
++	return dsa_port_bridge_dev_get(dp);
++}
++
++static void port_shut(struct rtldsa_storm *s, int port, bool off)
++{
++	if (off)
++		sw_w32_mask(RTL930X_MAC_TXRX_EN, 0, RTL930X_MAC_L2_PORT_CTRL(port));
++	else
++		sw_w32_mask(0, RTL930X_MAC_TXRX_EN, RTL930X_MAC_L2_PORT_CTRL(port));
++}
++
++static int probe_rcv(struct sk_buff *skb, struct net_device *dev, struct packet_type *pt,
++		     struct net_device *orig_dev)
++{
++	struct rtldsa_storm *s = pt->af_packet_priv;
++	int rx = pt - s->pt, tx, shut;
++	struct net_device *br;
++	const u8 *d;
++
++	if (skb->protocol != htons(RTL930X_LOOP_ETHERTYPE) || !pskb_may_pull(skb, 14))
++		goto out;
++	d = skb->data;
++	if (d[0] != RTL930X_LOOP_PROTO_RLDP || memcmp(d + 1, "STLD", 4) || get_unaligned_be32(d + 6) != s->nonce)
++		goto out;	/* another switch's probe or a real RLDP frame */
++	tx = d[5];
++	br = fwd_bridge(storm_dp(s, tx));
++	spin_lock(&s->lock);
++	if (!s->on || !br || br != fwd_bridge(storm_dp(s, rx))) {
++		s->ignored++;	/* STP blocks one side, or not one bridge: no hardware loop */
++		spin_unlock(&s->lock);
++		goto out;
++	}
++	shut = max(tx, rx);
++	s->loops[shut]++;
++	s->last_from[shut] = tx == shut ? rx : tx;
++	if (!s->shut_until[shut]) {
++		s->shut_until[shut] = jiffies + secs_to_jiffies(loop_recover_s) ?: 1;
++		port_shut(s, shut, true);
++		spin_unlock(&s->lock);
++		dev_warn(s->priv->dev, "loop: probe sent on %s came back on %s: %s shut down for %u s (#111)\n",
++			 pname(s, tx), pname(s, rx), pname(s, shut), loop_recover_s);
++		goto out;
++	}
++	spin_unlock(&s->lock);
++out:
++	consume_skb(skb);
++	return 0;
++}
++
++static void probe_send(struct rtldsa_storm *s, int port, struct net_device *dev)
++{
++	struct sk_buff *skb = netdev_alloc_skb(dev, PROBE_LEN);
++	u8 *p;
++
++	if (!skb)
++		return;
++	p = skb_put_zero(skb, PROBE_LEN);
++	eth_broadcast_addr(p);
++	memcpy(p + 6, (u8[]){ 0x02, 0x93, 0x03, 'L', 'D', port }, 6);	/* never a real host: learning it is harmless */
++	put_unaligned_be16(RTL930X_LOOP_ETHERTYPE, p + 12);
++	p[14] = RTL930X_LOOP_PROTO_RLDP;
++	memcpy(p + 15, "STLD", 4);
++	p[19] = port;
++	put_unaligned_be32(s->nonce, p + 20);
++	put_unaligned_be32(s->seq, p + 24);
++	skb_reset_mac_header(skb);
++	skb->protocol = htons(RTL930X_LOOP_ETHERTYPE);
++	skb->priority = TC_PRIO_CONTROL;
++	skb->dev = dev;
++	dev_queue_xmit(skb);
++	s->probes++;
++}
++
++static void storm_poll(struct rtldsa_storm *s)
++{
++	u32 now, p;
++	int t;
++
++	for (t = 0; t < RTL930X_STORM_T_N; t++) {
++		now = rtl930x_storm_exceed(NULL, t, 1) & s->pmask;
++		for (p = 0; p < NPORTS; p++) {
++			if (now & BIT(p))
++				s->storm_s[p][t]++;
++			if ((now & ~s->exceed[t]) & BIT(p))
++				dev_warn(s->priv->dev, "storm: %s %s over the limit, excess dropped (#111)\n",
++					 p == s->priv->r->cpu_port ? "cpu" : pname(s, p), rtl930x_storm_names[t]);
++			else if ((s->exceed[t] & ~now) & BIT(p))
++				dev_info(s->priv->dev, "storm: %s %s back under the limit\n",
++					 p == s->priv->r->cpu_port ? "cpu" : pname(s, p), rtl930x_storm_names[t]);
++		}
++		s->exceed[t] = now;
++	}
++}
++
++static void storm_work(struct work_struct *w)
++{
++	struct rtldsa_storm *s = container_of(to_delayed_work(w), struct rtldsa_storm, work);
++	struct dsa_port *dp;
++	bool retry;
++	int p;
++
++	storm_poll(s);
++	s->seq++;
++	for (p = 0; p < NPORTS; p++) {
++		dp = storm_dp(s, p);
++		if (!dp || !dp->user)
++			continue;
++		spin_lock_bh(&s->lock);
++		retry = s->shut_until[p] && time_after(jiffies, s->shut_until[p]);
++		if (retry)
++			s->shut_until[p] = 0;
++		if (s->shut_until[p])
++			port_shut(s, p, true);	/* phylink link_up sets TX/RX again after a flap */
++		else if (retry && netif_carrier_ok(dp->user))
++			port_shut(s, p, false);
++		spin_unlock_bh(&s->lock);
++		if (retry)
++			dev_info(s->priv->dev, "loop: %s back up after %u s, probing again\n", pname(s, p),
++				 loop_recover_s);
++		if (s->on && !s->shut_until[p] && fwd_bridge(dp) && netif_running(dp->user) &&
++		    netif_carrier_ok(dp->user))
++			probe_send(s, p, dp->user);
++	}
++	schedule_delayed_work(&s->work, msecs_to_jiffies(LOOP_PERIOD_MS));
++}
++
++static void storm_apply(struct rtldsa_storm *s)
++{
++	rtl930x_storm_defaults(NULL, s->pmask, s->priv->r->cpu_port, s->bc, s->mc, s->uc);
++}
++
++static void storm_unshut_all(struct rtldsa_storm *s)
++{
++	struct dsa_port *dp;
++	int p;
++
++	spin_lock_bh(&s->lock);
++	for (p = 0; p < NPORTS; p++) {
++		if (!s->shut_until[p])
++			continue;
++		s->shut_until[p] = 0;
++		dp = storm_dp(s, p);
++		if (dp && dp->user && netif_carrier_ok(dp->user))
++			port_shut(s, p, false);
++	}
++	spin_unlock_bh(&s->lock);
++}
++
++static int storm_show(struct seq_file *m, void *v)
++{
++	struct rtldsa_storm *s = m->private;
++	u32 ctrl = sw_r32(RTL930X_STORM_CTRL), pps, burst, pmask = s->pmask | BIT(s->priv->r->cpu_port);
++	int p, t;
++
++	seq_printf(m, "storm: mode 0x%08x (bit = bps), bypass bpdu %d rma %d rtkpkt %d; probe trap %s\n",
++		   sw_r32(RTL930X_STORM_PORT_CTRL), !!(ctrl & RTL930X_STORM_ADMIT_BPDU),
++		   !!(ctrl & RTL930X_STORM_ADMIT_RMA), !!(ctrl & RTL930X_STORM_ADMIT_RTKPKT),
++		   (sw_r32(RTL930X_RLDP_CTRL) & 3) == RTL930X_RLDP_TRAP_CPU ? "cpu" : "off");
++	for (p = 0; p < NPORTS; p++) {
++		if (!(pmask & BIT(p)))
++			continue;
++		seq_printf(m, "%s (port %d):", p == s->priv->r->cpu_port ? "cpu" : pname(s, p), p);
++		for (t = 0; t < RTL930X_STORM_T_N; t++) {
++			if (rtl930x_storm_get(NULL, p, t, &pps, &burst))
++				seq_printf(m, " %s %u/%u", rtl930x_storm_names[t], pps, burst);
++			else
++				seq_printf(m, " %s off", rtl930x_storm_names[t]);
++			seq_printf(m, " storm_s %u%s", s->storm_s[p][t], s->exceed[t] & BIT(p) ? " NOW" : "");
++		}
++		seq_putc(m, '\n');
++	}
++	seq_printf(m, "loop: %s, period %u ms, recover %u s, probes %llu, ignored %u\n", s->on ? "on" : "off",
++		   LOOP_PERIOD_MS, loop_recover_s, s->probes, s->ignored);
++	for (p = 0; p < NPORTS; p++) {
++		if (!storm_dp(s, p))
++			continue;
++		seq_printf(m, "%s: loops %u", pname(s, p), s->loops[p]);
++		if (s->loops[p])
++			seq_printf(m, " last with %s", pname(s, s->last_from[p]));
++		if (s->shut_until[p])
++			seq_printf(m, " SHUT %lu s left", (s->shut_until[p] - jiffies) / HZ);
++		seq_putc(m, '\n');
++	}
++	return 0;
++}
++
++static int storm_open(struct inode *inode, struct file *f)
++{
++	return single_open(f, storm_show, inode->i_private);
++}
++
++/* "<bc> <mc> <uc>" pps (0 = off) | "loop on" | "loop off" (also re-opens shut ports) | "unshut" */
++static ssize_t storm_write(struct file *f, const char __user *ubuf, size_t len, loff_t *off)
++{
++	struct rtldsa_storm *s = ((struct seq_file *)f->private_data)->private;
++	char buf[48];
++	u32 bc, mc, uc;
++
++	if (len >= sizeof(buf) || copy_from_user(buf, ubuf, len))
++		return -EINVAL;
++	buf[len] = 0;
++	if (sysfs_streq(buf, "loop on")) {
++		s->on = true;
++	} else if (sysfs_streq(buf, "loop off")) {
++		s->on = false;
++		storm_unshut_all(s);
++	} else if (sysfs_streq(buf, "unshut")) {
++		storm_unshut_all(s);
++	} else if (sscanf(buf, "%u %u %u", &bc, &mc, &uc) == 3) {
++		s->bc = bc;
++		s->mc = mc;
++		s->uc = uc;
++		storm_apply(s);
++	} else {
++		return -EINVAL;
++	}
++	return len;
++}
++
++static const struct file_operations storm_fops = {
++	.owner = THIS_MODULE,
++	.open = storm_open,
++	.read = seq_read,
++	.write = storm_write,
++	.llseek = seq_lseek,
++	.release = single_release,
++};
++
++void rtldsa_930x_storm_init(struct rtl838x_switch_priv *priv)
++{
++	struct rtldsa_storm *s;
++	struct dsa_port *dp;
++
++	if (priv->family_id != RTL9300_FAMILY_ID)
++		return;
++	s = devm_kzalloc(priv->dev, sizeof(*s), GFP_KERNEL);
++	if (!s)
++		return;
++	s->priv = priv;
++	spin_lock_init(&s->lock);
++	s->nonce = get_random_u32();
++	s->on = loop_detect;
++	s->bc = storm_bc;
++	s->mc = storm_mc;
++	s->uc = storm_uc;
++	dsa_switch_for_each_user_port(dp, priv->ds)
++		if (dp->index < NPORTS)
++			s->pmask |= BIT(dp->index);
++	storm_apply(s);
++	dsa_switch_for_each_user_port(dp, priv->ds) {
++		if (dp->index >= NPORTS || !dp->user)
++			continue;
++		s->pt[dp->index].type = htons(ETH_P_ALL);	/* before the bridge rx_handler */
++		s->pt[dp->index].dev = dp->user;
++		s->pt[dp->index].func = probe_rcv;
++		s->pt[dp->index].af_packet_priv = s;
++		s->pt[dp->index].ignore_outgoing = true;	/* no TX clones */
++		dev_add_pack(&s->pt[dp->index]);
++	}
++	INIT_DELAYED_WORK(&s->work, storm_work);
++	schedule_delayed_work(&s->work, msecs_to_jiffies(LOOP_PERIOD_MS));
++	if (priv->dbgfs_dir)
++		s->dbg = debugfs_create_file("storm", 0600, priv->dbgfs_dir, s, &storm_fops);
++	priv->storm = s;
++	dev_info(priv->dev, "storm control bc/mc/uc %u/%u/%u pps per port, loop detect %s (recover %u s) (#111)\n",
++		 s->bc, s->mc, s->uc, s->on ? "on" : "off", loop_recover_s);
++}
++
++void rtldsa_930x_storm_remove(struct rtl838x_switch_priv *priv)
++{
++	struct rtldsa_storm *s = priv->storm;
++	int p;
++
++	if (!s)
++		return;
++	debugfs_remove(s->dbg);
++	cancel_delayed_work_sync(&s->work);
++	for (p = 0; p < NPORTS; p++)
++		if (s->pt[p].dev)
++			dev_remove_pack(&s->pt[p]);
++	storm_unshut_all(s);
++	priv->storm = NULL;
++}
+--- /dev/null
++++ b/drivers/net/dsa/rtl83xx/storm.h
+@@ -0,0 +1,11 @@
++/* SPDX-License-Identifier: GPL-2.0-only */
++#ifndef _RTL83XX_STORM_H
++#define _RTL83XX_STORM_H
++
++struct rtl838x_switch_priv;
++
++/* RTL930x storm control defaults + loop detection (awto-tl-st1008f #111) */
++void rtldsa_930x_storm_init(struct rtl838x_switch_priv *priv);
++void rtldsa_930x_storm_remove(struct rtl838x_switch_priv *priv);
++
++#endif

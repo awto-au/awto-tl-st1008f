@@ -12,6 +12,7 @@ obj-y += rtk_net.o
 obj-y += rtk_led.o
 obj-y += rtk_sfpmode.o rtk_sfppower.o
 obj-y += rtk_spg.o
+obj-y += rtk_storm.o
 obj-y += highmem.o memtest.o
 obj-y += clocks.o clocks_sram.o ddr_sram.o
 obj-y += bench.o

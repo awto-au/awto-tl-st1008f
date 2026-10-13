@@ -220,6 +220,7 @@ Built with `./dev.py build-kernel` (GCC 16.2); booted 2026-10-12 with IP traffic
 | `300-22` | `drivers/misc/st1008f-sram-bench.c`: debugfs `st1008f_sram_bench`, SRAM vs DDR ns per access (`./dev.py sram-bench`, #103) |
 | `300-23` | RTL930x: FDT fixup sets the LX fixed-clock (UART, timer, watchdog), the CPU fixed-clock and the UART `clock-frequency` from the PLL registers (bootloader `turbo` LX 306, #103) |
 | `300-24` | realtek-otto watchdog: program the hardware maximum when the timeout exceeds it (33 ticks x 2^28 / LX = 28.9 s at LX 306; DT 30 s failed probe with -EINVAL, #103) |
+| `300-26` | rtl83xx DSA (RTL930x): storm control defaults + loop detection (probe, RLDP trap, MAC shut), debugfs `rtl838x/storm`; core `shared/rtl930x-storm/rtl930x_storm.h` copied in by the build ([STORM-PROTECTION.md](STORM-PROTECTION.md), #111) |
 
 - Not applied: `300-14` (SMP doorbell + TX NAPI) is parked in `openwrt/patches-parked/` ([measured](#parked-300-14-both-ring-doorbell--tx-napi-on-smp-2026-10-12)).
 
@@ -389,6 +390,7 @@ Method: `scripts/openwrt_patch_status.py --tree <base>` (series order; reverse-a
 | `300-18`, `300-19` | applied | none |
 | `300-21`, `300-22` | new on next | written on next-20261009; W=1 clean (2026-10-13) |
 | `300-23`, `300-24` | new on next | written on next-20261009 (2026-10-13) |
+| `300-26` | new on next | written on next-20261009; W=1 clean (2026-10-13); not built on v7.3-rc6 (same copied rtl83xx files there) |
 
 - None of ours is in next. Generic `pending-6.18/700`, `701` and `hack-6.18/910`, `911`, `940` apply to next as-is.
 - Build: `./dev.py build-kernel --w1` on `next-20261009` (2026-10-12, GCC 16.2, SMP default config): 0 warnings, W=1 on the 12 objects our patches touch: 0 warnings; 618 `=y`; kernel raw 12,366,208 B, `mainline.bin` 4,891,140 B (16 MiB bootm limit).

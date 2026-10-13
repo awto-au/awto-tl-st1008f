@@ -268,7 +268,7 @@ Stage 0 uses none of them.
 - Network: CPU-port Ethernet driver (DM_ETH, polled) over our `rtk network on`; management through the CPU port with ports isolated (loop-safe).
 - Firmware update without TFTP: web failsafe (HTTP upload → verify uImage/FIT header, size, CRC → write `firmware`/`recovery` only), `wget` (HTTP; HTTPS needs lwIP), fastboot over UDP.
 - No SSH: no SSH server exists for U-Boot; netconsole + web failsafe on the isolated management port instead.
-- Unmanaged-switch mode: after `network on` the ASIC forwards with an idle CPU; needs ASIC storm control + loop detection (no STP in U-Boot). Fallback when Linux will not boot.
+- Unmanaged-switch mode: after `network on` the ASIC forwards with an idle CPU; needs loop detection (no STP in U-Boot; storm meters are on since #111, [STORM-PROTECTION.md](STORM-PROTECTION.md)). Fallback when Linux will not boot.
 - Router in U-Boot: not planned (ARP/neighbour/trap handling = a network stack in a bootloader; Linux does it).
 - Everything must work as if stock never ran: our `rtk network on` reproduces stock's full switch init ([UBOOT-REFERENCE.md](UBOOT-REFERENCE.md#datapath-registers-and-hand-derived-pokes)); proof = whole switch-core `reg-diff` on a cold boot, stock vs ours, every difference copied or listed with a reason. Primary test path = cold power-up → stock chain-load → ours.
 

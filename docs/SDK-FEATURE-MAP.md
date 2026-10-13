@@ -137,8 +137,8 @@ Ranked by value to this board (CPU offload, routing, monitoring, robustness). "N
 
 ### 15. RLDP / RLPP trap
 
-- `RLDP_RLPP_CTRL` 0xA250: `RLDP_RLPP_TRAP`, `DROP_MY_DEV`, `MY_DEV_ID`, `STK_PORT_SEL`. Hardware only recognises Realtek loop-detect frames; detection is software.
-- Bridge STP covers loops (#43); a software RLDP would need this trap.
+- `RLDP_RLPP_CTRL` 0xA250: `RLDP_RLPP_TRAP[1:0]` only (0 forward, 1 trap to CPU, 2 master CPU). `DROP_MY_DEV`, `MY_DEV_ID`, `STK_PORT_SEL` are `STK_GLB_CTRL` 0xA498 (stacking). Hardware only recognises Realtek frames (0x8899); detection is software.
+- Used: U-Boot `network on` + 300-26 set it to trap; 300-26 sends the probes ([STORM-PROTECTION.md](STORM-PROTECTION.md), #111).
 
 ## Other facts
 

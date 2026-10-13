@@ -35,6 +35,7 @@
 - [DEFAULT-BOOT.md](DEFAULT-BOOT.md) — OpenWrt on 7.3 as default boot + recovery (#73). Ops: [DEFAULT-BOOT-OPS.md](DEFAULT-BOOT-OPS.md).
 - [MAINLINE-PORT.md](MAINLINE-PORT.md) — Linux 7.3 port of the OpenWrt RTL930x drivers (#16). Ops: [MAINLINE-NET-OPS.md](MAINLINE-NET-OPS.md).
 - [OPENWRT-BUILD.md](OPENWRT-BUILD.md) — local OpenWrt build (#73). Ops: [OPENWRT-BUILD-OPS.md](OPENWRT-BUILD-OPS.md).
+- [STORM-PROTECTION.md](STORM-PROTECTION.md) — storm control + loop detection in the switch hardware, U-Boot and Linux defaults (#111). Ops: [STORM-PROTECTION-OPS.md](STORM-PROTECTION-OPS.md).
 - [SELFTEST.md](SELFTEST.md) — boot self-test `st1008f-selftest` under Linux: memory, CPU, SRAM, clocks, registers, mode switch, ASIC, flash (#108).
 - [FIRMWARE-ANALYSIS.md](FIRMWARE-ANALYSIS.md) — stock flash/kernel/initramfs; related managed firmware.
 - [MANAGED-FEATURES.md](MANAGED-FEATURES.md) — TL-ST5008F v2 managed feature inventory vs ours (#79).
