@@ -49,7 +49,8 @@ def community() -> str:
 
 
 def ssh(ip: str, cmd: str, limit: int, stdin: str | None = None) -> subprocess.CompletedProcess:
-    return subprocess.run(["ssh", "-o", f"ConnectTimeout={SSH_S}", "-o", "BatchMode=yes", f"root@{ip}", cmd],
+    return subprocess.run(["ssh", "-o", f"ConnectTimeout={SSH_S}", "-o", "BatchMode=yes",
+                           "-o", "StrictHostKeyChecking=accept-new", f"root@{ip}", cmd],
                           input=stdin, capture_output=True, text=True, timeout=limit)
 
 

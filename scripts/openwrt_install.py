@@ -16,14 +16,16 @@ from __future__ import annotations
 import json
 import re
 import shutil
+import subprocess
 import sys
 import time
 from pathlib import Path
 
 sys.path.insert(0, str(Path(__file__).resolve().parent))
 import flash_guard  # noqa: E402
+from boards import BENCH_IP  # noqa: E402
 from default_boot import fetch, mtd_index, sh  # noqa: E402
-from st1008_ramload import OW_READY, ROOT, TFTP_ROOT, Console, openwrt_stp  # noqa: E402
+from st1008_ramload import OW_PROMPT, OW_READY, ROOT, TFTP_ROOT, Console, openwrt_stp  # noqa: E402
 from uboot_chain_env import set_policy  # noqa: E402
 
 LOG = ROOT / "tmp/logs/openwrt_install.log"
@@ -55,7 +57,22 @@ def check_image() -> None:
     shutil.copy2(SRC, TFTP_ROOT / NAME)
 
 
+def after_reboot(con) -> None:
+    """New flash OpenWrt at its console: activate, first-boot sync, STP saved."""
+    # first Enter only activates the console (a command sent with it is dropped, #113); prompt < 1 s
+    con.run("", OW_PROMPT, 3, "OpenWrt shell")
+    # first boot formats the JFFS2 overlay: a sync blocked 67 s on sw2 (2026-10-12, ~23 MiB free); x1.3
+    sh(con, "sync; echo SYNC_OK", r"\nSYNC_OK", cap=90)
+    openwrt_stp(con)
+    # new install = new dropbear host key; ssh tools then accept the new one (accept-new)
+    subprocess.run(["ssh-keygen", "-R", BENCH_IP], capture_output=True, timeout=5)  # local file edit
+
+
 def main() -> int:
+    if sys.argv[1:] == ["--after-reboot"]:  # resume: the upgrade + reboot already ran
+        after_reboot(Console())
+        log("PASS: after-reboot steps, STP on (saved)")
+        return 0
     flash_guard.check_range(*FIRMWARE, "openwrt-install firmware")  # #81: never the stock area
     flash_guard.check_mtd("firmware", "openwrt-install")
     check_image()
@@ -72,9 +89,7 @@ def main() -> int:
         con.expect(OW_READY, 90, mark, "flash OpenWrt console", boot_ok=True)  # stock boota + kernel ~45 s; x2
     finally:
         set_policy("hold")
-    # first boot formats the JFFS2 overlay: a sync blocked 67 s on sw2 (2026-10-12, ~23 MiB free); x1.3
-    sh(con, "sync; echo SYNC_OK", r"\nSYNC_OK", cap=90)
-    openwrt_stp(con)
+    after_reboot(con)
     log("PASS: flash OpenWrt installed, STP on (saved)")
     return 0
 

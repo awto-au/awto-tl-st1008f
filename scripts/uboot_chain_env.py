@@ -108,7 +108,9 @@ def boot() -> int:
     try:
         # stock banner ~2 s after power-on; chain + our banner < 1 s more; x1.25 + relay latency
         con.expect(r"U-Boot 2026\.07", 6, mark, "stock -> saved bootcmd -> our U-Boot", boot_ok=True)
-        m, _ = con.expect(r"bootsel: M\d: [^\n]*", 4, mark, "our autoboot: clock policy (#46)", boot_ok=True)
+        # clock line after the 2 s window: `bootsel: M<n>:` (#46 slot) or `clocks: fast =` (pre-#46 slot, #113)
+        m, _ = con.expect(r"bootsel: M\d: [^\n]*|clocks: fast = [^\n]*", 4, mark,
+                          "our autoboot: clock policy (#46)", boot_ok=True)
         log(f"  {m.group(0).strip()}")
         # 2 s ESC window + bootm from flash + kernel to console ~24 s after ours (measured 24 s with a
         # 1 s window); x1.25

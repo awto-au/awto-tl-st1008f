@@ -149,10 +149,10 @@ squashfs: version 4\.0 \(2009/01/31\) Phillip Lougher  # squashfs init
 jffs2: version 2\.2 \(NAND\) \(SUMMARY\) \(ZLIB\) \(LZMA\) \(RTIME\) \(CMODE_PRIORITY\) \(c\) 2001-2006 Red Hat, Inc\.  # jffs2 init
 2 uimage-fw partitions found on MTD device firmware  # OpenWrt split of the firmware partition
 Creating 2 MTD partitions on "firmware":  # OpenWrt split of the firmware partition
-0x000000000000-0x000000330000 : "kernel"  # firmware split
-0x000000330000-0x000001d00000 : "rootfs"  # firmware split
+0x000000000000-0x[0-9a-f]{12} : "kernel"  # firmware split; boundary = installed image's kernel size (#113)
+0x[0-9a-f]{12}-0x000001d00000 : "rootfs"  # firmware split
 1 squashfs-split partitions found on MTD device rootfs  # rootfs_data split
-0x000000570000-0x000001d00000 : "rootfs_data"  # rootfs split
+0x[0-9a-f]{12}-0x000001d00000 : "rootfs_data"  # rootfs split; start = end of the installed squashfs
 mtd: setting mtd7 \(rootfs\) as root device  # root device
 bridge: filtering via arp/ip/ip6tables is no longer available by default\. Update your scripts to load br_netfilter if you need this\.  # bridge module notice, br_netfilter unused
 8021q: 802\.1Q VLAN Support v1\.8  # VLAN module

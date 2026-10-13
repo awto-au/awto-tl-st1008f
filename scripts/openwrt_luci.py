@@ -49,7 +49,8 @@ def main() -> int:
     for name, cmd, limit in STEPS:
         t0 = time.monotonic()
         try:
-            r = subprocess.run(["ssh", "-o", f"ConnectTimeout={SSH_S}", "-o", "BatchMode=yes", f"root@{a.ip}", cmd],
+            r = subprocess.run(["ssh", "-o", f"ConnectTimeout={SSH_S}", "-o", "BatchMode=yes",
+                                "-o", "StrictHostKeyChecking=accept-new", f"root@{a.ip}", cmd],
                                capture_output=True, text=True, timeout=limit)
         except subprocess.TimeoutExpired:
             log(f"FAIL {name}: no result after {limit} s (limit)")
