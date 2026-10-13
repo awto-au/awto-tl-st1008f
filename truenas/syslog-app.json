@@ -1,0 +1,36 @@
+[
+ {
+  "custom_app": true,
+  "app_name": "syslog",
+  "custom_compose_config": {
+   "configs": {
+    "sng": {
+     "content": "@version: 4.11\n@include \"scl.conf\"\noptions { keep-hostname(yes); chain-hostnames(no); use-dns(no); };\nsource s_net { udp(port(514)); tcp(port(601)); };\ndestination d_host { file(\"/var/log/remote/$${SOURCEIP}/$${YEAR}-$${MONTH}-$${DAY}.log\" create-dirs(yes) dir-perm(0755) perm(0644)); };\nlog { source(s_net); destination(d_host); };\n"
+    }
+   },
+   "services": {
+    "syslog": {
+     "image": "balabit/syslog-ng:4.11.0",
+     "restart": "unless-stopped",
+     "command": [
+      "--no-caps",
+      "-F"
+     ],
+     "ports": [
+      "514:514/udp",
+      "601:601/tcp"
+     ],
+     "configs": [
+      {
+       "source": "sng",
+       "target": "/etc/syslog-ng/syslog-ng.conf"
+      }
+     ],
+     "volumes": [
+      "/mnt/p3/syslog:/var/log/remote"
+     ]
+    }
+   }
+  }
+ }
+]

@@ -109,6 +109,10 @@ End-to-end workflow: [../README.md#workflow](../README.md#workflow).
 - Purpose: full `dmesg` + `logread` of a running OpenWrt over SSH, read-only; dmesg classified against `boot_log_allowlist.txt` ([linux] + [openwrt]), logread warn/err lines listed; grouped by message.
 - Run: `./dev.py switch-logs [--ip A.B.C.D] [--show-ok]` (default sw1 .48). Raw copies: `tmp/switch-logs/<ip>-<ts>/`. Log: `tmp/logs/switch_logs.log`.
 
+### openwrt_syslog.py
+- Purpose: point a running OpenWrt's logd at the TrueNAS syslog receiver (uci, persistent) and verify a test line arrives (#115, docs/SYSLOG.md). Any unit (`NET_MANAGE`).
+- Run: `./dev.py openwrt-syslog [--ip A.B.C.D]`. Log: `tmp/logs/openwrt_syslog.log`.
+
 ### boot_timeline.py
 - Purpose: stage table of the last Linux boot of a running OpenWrt (kernel start, init, preinit, procd, dropbear, linkcheck, netifd, bridge up, init complete, selftest) from `dmesg` + `logread` over SSH, read-only; gaps above a threshold flagged; runs saved as JSON and compared stage by stage (#114).
 - Run: `./dev.py boot-timeline run [--ip A.B.C.D] [--gap S] [--label L]` (default sw2 .56) | `compare A B`. Runs: `tmp/boot-timeline/<label>.json`. Log: `tmp/logs/boot_timeline.log`.
