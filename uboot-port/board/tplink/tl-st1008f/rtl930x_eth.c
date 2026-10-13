@@ -42,6 +42,12 @@ static inline void rtl930x_nic_wr(void *ctx, u32 off, u32 v)
 #define CPU_MAX_LEN		1600		/* 1522 + slack: one frame = one descriptor */
 #define FCS_LEN			4
 #define TX_MIN			60		/* frame without FCS */
+/* env ethsram=1 (#103 NIC-DMA-into-SRAM test, read at the first start): TX buffers + ring-0 slots
+ * 0-15 in the on-chip SRAM window (KSEG0, bus 0x1f000000), clear of the clocks code/params */
+#define SRAM_TX			0x9f005000
+#define SRAM_RX			0x9f007000
+#define SRAM_RXN		16
+#define SRAM_WIN_EN		0x1f000001	/* SRAMSAR0: bus 0x1f000000, enabled (stock/PLR value) */
 #define TX_BYPASS		(RTL930X_NIC_TAG1_BP_FLTR | RTL930X_NIC_TAG1_BP_STP | \
 				 RTL930X_NIC_TAG1_BP_VLAN_EGR)
 /* A TX slot frees when the NIC has fetched it: Linux 17-23 us per packet incl. DMA
@@ -66,7 +72,7 @@ struct rtl930x_eth_priv {
 	unsigned int rx_idx[NRX], tx_idx, port, cage;
 	int rx_pend;			/* flat RX slot handed to the stack, -1 = none */
 	ulong rx_ring_frames[NRX];
-	bool hw_ready, rx_any;
+	bool hw_ready, rx_any, sram;
 	u32 dma_if_ctrl;		/* doorbell base from rtl930x_nic_enable() */
 	ulong rx_other, rx_bad, tx_timeout, tx_rekick;
 	struct rtl930x_nic_rx_tag last;	/* tag of the last RX frame */
@@ -100,6 +106,16 @@ static int laser_only(int cage)
 	return 0;
 }
 
+static u8 *rxb(struct rtl930x_eth_priv *p, unsigned int i)
+{
+	return p->sram && i < SRAM_RXN ? (u8 *)SRAM_RX + i * BUF_SIZE : p->rx_buf + i * BUF_SIZE;
+}
+
+static u8 *txb(struct rtl930x_eth_priv *p, unsigned int i)
+{
+	return p->sram ? (u8 *)SRAM_TX + i * BUF_SIZE : p->tx_buf + i * BUF_SIZE;
+}
+
 static unsigned int ring_first(int r)
 {
 	return r ? RX_N + (r - 1) * RXS : 0;
@@ -114,7 +130,7 @@ static void rx_arm(struct rtl930x_eth_priv *p, int r, unsigned int slot)
 {
 	unsigned int i = ring_first(r) + slot;
 	volatile struct rtl930x_nic_hdr *h = &p->d->rx[i];
-	u8 *b = p->rx_buf + i * BUF_SIZE;
+	u8 *b = rxb(p, i);
 
 	invalidate_dcache_range((ulong)b, (ulong)b + BUF_SIZE);	/* drop lines the stack dirtied */
 	h->buf = phys(b);
@@ -182,6 +198,13 @@ static int rtl930x_eth_start(struct udevice *dev)
 		return -EINVAL;
 	}
 	if (!p->hw_ready) {
+		p->sram = env_get_yesno("ethsram") == 1;
+		if (p->sram) {
+			__raw_writel(SRAM_WIN_EN, (void __iomem *)0xb8004000);	/* SRAMSAR0 */
+			__asm__ __volatile__("sync");
+			printf("rtl930x-eth: TX + RX ring 0 slots 0-%d in SRAM (bus %08lx)\n", SRAM_RXN - 1,
+			       virt_to_phys((void *)SRAM_TX));
+		}
 		/* stock `rtk network on` forces the CPU port link (MAC_FORCE 0x217); else run ours */
 		if (!rtk_net_is_on() && (sw_r(RTL930X_NIC_MAC_FORCE) & 3) != 3) {
 			printf("rtl930x-eth: switch not set up, running `rtk network on`\n");
@@ -212,7 +235,7 @@ static int rtl930x_eth_send(struct udevice *dev, void *packet, int length)
 	struct rtl930x_eth_priv *p = dev_get_priv(dev);
 	unsigned int i = p->tx_idx;
 	volatile struct rtl930x_nic_hdr *h = &p->d->tx[i];
-	u8 *b = p->tx_buf + i * BUF_SIZE;
+	u8 *b = txb(p, i);
 	int len = max(length, TX_MIN) + FCS_LEN;
 	ulong t0 = timer_get_us(), dt, next;
 
@@ -289,7 +312,7 @@ static int rtl930x_eth_recv(struct udevice *dev, int flags, uchar **packetp)
 			} else if (!p->rx_any && p->last.port != p->port) {
 				p->rx_other++;		/* isolated cages still reach the CPU: not ours */
 			} else {
-				b = p->rx_buf + f * BUF_SIZE;
+				b = rxb(p, f);
 				invalidate_dcache_range((ulong)b, (ulong)b + BUF_SIZE);
 				*packetp = b;
 				p->rx_pend = r;

@@ -87,7 +87,7 @@ One quick test per point: the change reports OK, prompt, 16 MiB `crc32`, tempera
 
 - DDR uncached writes are not slower at the picks (61.2 → 56.3 ns; U-Boot `membench` 12.4 → 9.0 ns, DDR 662 alone no change). The earlier +13 % came from the sram-bench ns column: `div_u64` truncated the u64 divisor to u32; fixed in `300-22` (`div64_u64`).
 - `mem-stress` hung the kernel at every clock incl. stock: 300-21's unmap segment hid Linux phys `0x2f000000` (HARDWARE-INVENTORY.md 64 KiB SRAM, #107); 300-21 now maps the SRAM segment only.
-- Not done: NIC DMA into SRAM.
+- NIC DMA reaches the on-chip SRAM (2026-10-13T11:53, U-Boot `uboot-test net --ethsram`: TX buffers + RX ring-0 slots 0-15 at bus `0x1f005000`-`0x1f00d7ff`): ping, DHCP, TFTP + wget of 475 KB with matching CRC32, netconsole.
 
 ## CPU above 1000 MHz (sw2, 2026-10-13, CPU_SRAM_ASY_TIMING written)
 

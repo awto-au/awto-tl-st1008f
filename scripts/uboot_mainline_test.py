@@ -504,10 +504,16 @@ def main() -> int:
     ap.add_argument("--sw-defaults", metavar="CATS",
                     help="before the checks: setenv rtk_sw_defaults CATS (none | all | cpu,perf,policy); takes "
                          "effect at this boot's first network on, so use on a fresh boot (#80 bisect)")
+    ap.add_argument("--ethsram", action="store_true",
+                    help="before the checks: setenv ethsram 1 (NIC TX buffers + RX ring-0 slots 0-15 in on-chip SRAM, "
+                         "#103); fresh boot only, read at the first Ethernet start")
     a = ap.parse_args()
     con = Console()
     # presence probe: a command with a known reply (a bare CR once got no reply at all)
     con.run("echo PROMPT_OK", r"\r?\nPROMPT_OK" + PROMPT, 1, "mainline prompt present")
+    if a.ethsram:
+        con.run("setenv ethsram 1; echo ESR_OK", r"ESR_OK" + PROMPT, 1, "ethsram")
+        log("ethsram = 1: NIC buffers in SRAM")
     if a.sw_defaults:
         con.run(f"setenv rtk_sw_defaults {a.sw_defaults}; echo SWD_OK", r"SWD_OK" + PROMPT, 1, "rtk_sw_defaults")
         log(f"rtk_sw_defaults = {a.sw_defaults}")
