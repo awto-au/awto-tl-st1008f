@@ -216,7 +216,7 @@ Built with `./dev.py build-kernel` (GCC 16.2); booted 2026-10-12 with IP traffic
 | `300-17` | `l3.c`: on-link neighbour host entries (v4+v6) + default-route offload, opt-in module parameters `l3_onlink` / `l3_default_v4` / `l3_default_v6` ([ROUTING-OFFLOAD.md](ROUTING-OFFLOAD.md), #59) |
 | `300-18` | irqchip `realtek-rtl`: one effective target CPU per IRQ + parent IM bits opened on secondary VPEs (cpuhp STARTING hook) ([section 9](#irq-affinity-300-18-devpy-irq-check), #73) |
 | `300-20` | rteth RTL930x paths on the NIC core shared with U-Boot (`shared/rtl930x-nic/rtl930x_nic.h`, copied in by the build; #83) |
-| `300-21` | RTL930x: re-map the 64 KiB on-chip SRAM at bus `0x1f000000` after the highmem remap (which clears it); PLR values ([HARDWARE-INVENTORY.md](HARDWARE-INVENTORY.md#64-kib-sram), #103) |
+| `300-21` | RTL930x: re-map the 64 KiB on-chip SRAM at bus `0x1f000000` after the highmem remap (which clears it); SRAM segment only, no unmap segment (#107); PLR values ([HARDWARE-INVENTORY.md](HARDWARE-INVENTORY.md#64-kib-sram), #103) |
 | `300-22` | `drivers/misc/st1008f-sram-bench.c`: debugfs `st1008f_sram_bench`, SRAM vs DDR ns per access (`./dev.py sram-bench`, #103) |
 | `300-23` | RTL930x: FDT fixup sets the LX fixed-clock (UART, timer, watchdog), the CPU fixed-clock and the UART `clock-frequency` from the PLL registers (bootloader `turbo` LX 306, #103) |
 | `300-24` | realtek-otto watchdog: program the hardware maximum when the timeout exceeds it (33 ticks x 2^28 / LX = 28.9 s at LX 306; DT 30 s failed probe with -EINVAL, #103) |

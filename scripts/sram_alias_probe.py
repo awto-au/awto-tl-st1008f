@@ -3,7 +3,7 @@
 
 - Power-cycle + `ramload uboot-mainline --stock-clocks`, `highmem map` (zone-3 remap: Linux phys
   0x20000000.. = DRAM 0x10000000..; window 0xc0000000 uncached), then UMSAR0/SRAMSAR0 = --bus
-  (64 KiB, PLR values, as kernel 300-21).
+  (64 KiB, PLR values, as kernel 300-21); `--no-unmap`: SRAM segment only, UMSAR0 stays 0.
 - Write a marker to SRAM (KSEG1 of --bus) and a different one to the high-DRAM word at Linux phys
   0x20000000 + (--bus - 0x10000000); read both back. Alias = the high-DRAM write shows in SRAM
   (or the SRAM write in high DRAM): the unmap segment matches the DRAM-side address.
@@ -46,6 +46,8 @@ def main() -> int:
     ap = argparse.ArgumentParser(description=__doc__.splitlines()[0])
     ap.add_argument("--bus", type=lambda s: int(s, 0), default=0x1F000000, help="SRAM window bus address")
     ap.add_argument("--no-boot", action="store_true")
+    ap.add_argument("--no-unmap", action="store_true",
+                    help="SRAM segment only (size, base, then addr+enable); UMSAR0 left 0 (#107 option 1)")
     a = ap.parse_args()
     if not a.no_boot:
         r = subprocess.run([sys.executable, str(ROOT / "scripts/st1008_ramload.py"), "uboot-mainline",
@@ -56,8 +58,10 @@ def main() -> int:
     con = Console()
     con.run("", PROMPT, 2, "our prompt")
     con.run("highmem map", r"highmem: \d+ MiB[^\n]*" + PROMPT, 1, "highmem map")
-    for reg, val in ((0xB8001300, a.bus | 1), (0xB8001304, 9), (0xB8004000, a.bus | 1), (0xB8004004, 9),
-                     (0xB8004008, 0x00030000)):
+    seq = [(0xB8004004, 9), (0xB8004008, 0x00030000), (0xB8004000, a.bus | 1)]  # enable last
+    if not a.no_unmap:
+        seq = [(0xB8001300, a.bus | 1), (0xB8001304, 9)] + seq
+    for reg, val in seq:
         con.run(f"mw.l {reg:x} {val:x}", PROMPT, 1, f"mw {reg:x}")
     sram = 0xA0000000 | a.bus
     high = 0xC0000000 + (a.bus - 0x10000000)  # Linux phys 0x20000000 + off -> window 0xc0000000 + off

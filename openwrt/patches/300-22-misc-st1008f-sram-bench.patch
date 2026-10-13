@@ -214,7 +214,7 @@ hide latency. Refuses when SRAM segment 0 is not mapped at the pool address.
 +/* Count cycles for NLINES accesses -> tenths of ns per access */
 +static u32 dns(u32 cyc)
 +{
-+	return div_u64((u64)cyc * 10000000000ULL, (u64)mips_hpt_frequency * NLINES);
++	return div64_u64((u64)cyc * 10000000000ULL, (u64)mips_hpt_frequency * NLINES);	/* u64 divisor */
 +}
 +
 +static int bench_show(struct seq_file *m, void *v)

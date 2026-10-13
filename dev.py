@@ -195,7 +195,7 @@ def cmd_ddr_retrain(extra: list[str]) -> int:
 
 
 @command("SRAM window vs high DRAM alias check after the zone-3 remap, in U-Boot (#107)",
-         args="[--bus 0x1f000000] [--no-boot]", kind="hardware")
+         args="[--bus 0x1f000000] [--no-unmap] [--no-boot]", kind="hardware")
 def cmd_sram_alias_probe(extra: list[str]) -> int:
     return _script("sram_alias_probe.py", extra)
 

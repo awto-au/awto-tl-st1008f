@@ -55,7 +55,7 @@ One quick test per point: the change reports OK, prompt, 16 MiB `crc32`, tempera
 
 ## Linux at the picks (sw2, 2026-10-13T10:36-11:26+11:00, mainline next + SRAM patches)
 
-- Base = `nic-bench boot` clocks: our U-Boot `clocks fast` (CPU 1000, DDR 600, SRAM 250); points add `turbo` before `bootm` (`ST1008F_RAMLOAD_EXTRA="--pre|turbo …"`).
+- Base = `nic-bench boot` clocks: our U-Boot `clocks fast` (CPU 1000, DDR 650, tREFI 4608, prefetch on, SRAM 250, LX 175); points add `turbo` before `bootm` (`ST1008F_RAMLOAD_EXTRA="--pre|turbo …"`).
 - Quick test per point now includes a kernel boot to the initramfs shell (`clocks-cycle --session`, default): U-Boot unlzma + kernel initramfs XZ unpack catch CPU faults the 16 MiB `crc32` misses.
 
 ### Kernel boot per clock (one boot each)
@@ -74,19 +74,20 @@ One quick test per point: the change reports OK, prompt, 16 MiB `crc32`, tempera
 - CPU 1400: 4 fails, 1 pass; 1425: 1 pass. DRAM is clean at the same clocks (DRAM.md "Memtest"): the fault is CPU-side (decompressor = core + L1 load). 1400/1425 are marginal; 1375 passed all 5 boots.
 - LX 306 under Linux (2026-10-13T11:39, `turbo lx=306` before `bootm`): console clean, shell reached, boot log clean, uptime vs host 12.98 s / 12.98 s. Kernel reads LX/CPU from the PLLs (`300-23`); watchdog probe failed (-EINVAL: DT 30 s > 28.9 s hardware max at LX 306) until `300-24`.
 
-### At cpu=1375,ddr=662,sram=500 vs base (one run each)
+### At the picks vs base (one run each)
 
-| Test | Base | Picks (1375) |
-|---|---|---|
-| nic-bench tcp-P4 | 291 Mbit/s | 418 Mbit/s |
-| nic-bench udp1400 900 Mbit/s offered: loss | 26.5 % | 0.2 % |
-| nic-bench udp64 forward | 61.5 kpps | 92.2 kpps |
-| sram-bench SRAM uc read / cached miss | 5571 / 6676 ns | 3764 / 4445 ns |
-| sram-bench DDR uc read / cached miss / uc write | 7504 / 7805 / 4270 ns | 7228 / 7433 / 4827 ns |
+| Test | Base | 1375/662/500 | + LX 306 |
+|---|---|---|---|
+| nic-bench tcp-P4 | 291 Mbit/s | 418 Mbit/s | 436 Mbit/s |
+| nic-bench udp1400 900 Mbit/s offered: loss | 26.5 % | 0.2 % | 0.3 % |
+| nic-bench udp64 forward | 61.5 kpps | 92.2 kpps | 92.8 kpps |
+| sram-bench SRAM uc read / cached miss (ns per access) | 71.8 / 86.9 | — | 43.9 / 51.8 |
+| sram-bench DDR uc read / cached miss / uc write (ns) | 100.2 / 103.0 / 61.2 | — | 84.4 / 86.7 / 56.3 |
+| mem-stress (416-432 MiB tmpfs fill + md5) | pass, 4.1 s fill | — | pass, 3.2 s fill |
 
-- sram-bench ns = raw loop time from `sram_bench`; cached hit 274 → 195 ns tracks the CPU ratio (1000 → 1375). DDR uncached writes got slower (+13 %).
-- `mem-stress` hung the kernel at every clock incl. stock: the 300-21 SRAM window shadows Linux phys `0x2f000000` (HARDWARE-INVENTORY.md 64 KiB SRAM, #107, fixed by a DTS reservation).
-- Not done: NIC DMA into SRAM, Linux load test at the picks.
+- DDR uncached writes are not slower at the picks (61.2 → 56.3 ns; U-Boot `membench` 12.4 → 9.0 ns, DDR 662 alone no change). The earlier +13 % came from the sram-bench ns column: `div_u64` truncated the u64 divisor to u32; fixed in `300-22` (`div64_u64`).
+- `mem-stress` hung the kernel at every clock incl. stock: 300-21's unmap segment hid Linux phys `0x2f000000` (HARDWARE-INVENTORY.md 64 KiB SRAM, #107); 300-21 now maps the SRAM segment only.
+- Not done: NIC DMA into SRAM.
 
 ## CPU above 1000 MHz (sw2, 2026-10-13, CPU_SRAM_ASY_TIMING written)
 
