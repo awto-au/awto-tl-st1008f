@@ -380,6 +380,12 @@ def cmd_mem_dump(extra: list[str]) -> int:
     return _script("mem_dump.py", extra)
 
 
+@command("sysupgrade a running flash OpenWrt over SSH, config kept, backup first (sw1 only on owner request, 2026-10-13; #114)",
+         args="--ip A.B.C.D", kind="hardware")
+def cmd_openwrt_sysupgrade_ssh(extra: list[str]) -> int:
+    return _script("openwrt_sysupgrade_ssh.py", extra)
+
+
 @command("full-flash backup of a RAM-booted OpenWrt over SSH (every MTD, sha256 both ends) to private/mtd-backup-<ts>/",
          args="[--host A.B.C.D] [--out DIR]", kind="hardware")
 def cmd_backup(extra: list[str]) -> int:
@@ -673,7 +679,8 @@ HOST_ONLY = {"storm-watch", "check-log", "flash-guard", "doc-check", "console-wa
              "switch-check", "mode-watch", "switch-logs"}
 # Owner-approved management of a running switch over SSH (any unit, sw1 included): no power, console or flash.
 NET_MANAGE = {"openwrt-snmp", "openwrt-luci", "switch-net-clean", "switch-snmp", "switch-vlan",
-              "uboot-chain-install-ssh"}  # last: jffs2-log write only (flash_guard), owner OK 2026-10-13
+              "uboot-chain-install-ssh",  # jffs2-log write only (flash_guard), owner OK 2026-10-13
+              "openwrt-sysupgrade-ssh"}  # firmware only (flash_guard), config kept; sw1 on owner request
 # NET_MANAGE only with --ssh: u-boot-env write via fw_setenv (flash_guard), coordinator/owner OK 2026-10-13 (#105)
 NET_MANAGE_SSH = {"uboot-chain-env"}
 

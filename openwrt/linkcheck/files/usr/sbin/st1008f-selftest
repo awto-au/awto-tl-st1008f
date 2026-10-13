@@ -22,7 +22,7 @@ DBG=/sys/kernel/debug
 : "${MEM_RESERVE:=64}"	# MiB of MemAvailable left to the system (scripts/mem_stress.py: 48 + margin)
 MARK_TURBO_BAD=0	# opt-in: FAIL at non-stock clocks -> fw_setenv st1008f_turbo_bad
 PERSIST_ON=1
-THERM_WARN=90		# raw degC: 15 below the cpu-thermal critical trip (105, docs/hardware.md)
+THERM_WARN=90		# degC: 15 below the cpu-thermal critical trip (105, docs/hardware.md)
 SPI_SAFE_KHZ=25600	# stock SCK 25.52 MHz; faster corrupts Linux flash reads (#50)
 STOCK="cpu=800,ddr=600,lx=175,sram=250"
 # shellcheck disable=SC1090
@@ -200,7 +200,7 @@ step_thermal() {
 		[ -r "$z/temp" ] || continue
 		t=$(cat "$z/temp") ty=$(cat "$z/type" 2>/dev/null)
 		n=$((n + 1))
-		log "thermal: $ty $((t / 1000)).$(( (t % 1000) / 100 )) degC (raw TEMP_OUT for the SoC; #13)"
+		log "thermal: $ty $((t / 1000)).$(( (t % 1000) / 100 )) degC (SoC: Realtek 1.29 x TEMP_OUT - 10 via DT coefficients; SFP: module DDM)"
 		kv thermal "${z##*/}.$ty" "$t"
 		why="$why $ty $((t / 1000))"
 		[ "$ty" = cpu-thermal ] && [ $((t / 1000)) -ge $THERM_WARN ] && st=WARN

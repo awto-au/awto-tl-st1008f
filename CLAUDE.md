@@ -6,7 +6,7 @@
 
 ## Units (owner, 2026-10-12; `scripts/boards.py`)
 
-- **sw1 = st1008f-1**: in service as a house switch, mgmt `.48`, no relay, no serial. Never power-cycle, ramload or flash it; network checks only (`./dev.py switch-check`).
+- **sw1 = st1008f-1**: in service as a house switch, mgmt `.48`, no relay, no serial. Never power-cycle or ramload it; network checks only (`./dev.py switch-check`). Reflash only when the owner requests it (owner 2026-10-13): `./dev.py openwrt-sysupgrade-ssh --ip 192.168.25.48` (config kept, backup first).
 - **sw2 = st1008f-2**: bench unit on the relay (`.49`) and the serial console; every hardware flow targets it. Bench mgmt `.56`.
 
 ## Speed sweeps (owner, 2026-10-13)

@@ -298,6 +298,8 @@
 		cpu-thermal {
 			polling-delay-passive = <1000>;
 			polling-delay = <1000>;
+			/* Realtek SDK dal_longan_switch_thermalTemp_get: TEMP_OUT * 1.29 - 10 degC (#13) */
+			coefficients = <1290 (-10000)>;
 			thermal-sensors = <&soc_thermal>;
 			trips {
 				critical {

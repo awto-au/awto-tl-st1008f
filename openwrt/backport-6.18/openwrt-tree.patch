@@ -162,3 +162,17 @@ index 74f0649..59d94c4 100644
  CONFIG_TREE_RCU=y
  CONFIG_TREE_SRCU=y
  CONFIG_USE_GENERIC_EARLY_PRINTK_8250=y
+diff --git a/target/linux/realtek/dts/rtl930x.dtsi b/target/linux/realtek/dts/rtl930x.dtsi
+index 660d2f2..0713879 100644
+--- a/target/linux/realtek/dts/rtl930x.dtsi
++++ b/target/linux/realtek/dts/rtl930x.dtsi
+@@ -448,7 +448,8 @@
+ 		cpu-thermal {
+ 			polling-delay-passive = <1000>;
+ 			polling-delay = <1000>;
+-			coefficients = <1000 0>;
++			/* Realtek SDK dal_longan_switch_thermalTemp_get: TEMP_OUT * 1.29 - 10 degC */
++			coefficients = <1290 (-10000)>;
+ 			thermal-sensors = <&soc_thermal>;
+ 			trips {
+ 				critical {

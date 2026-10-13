@@ -20,7 +20,9 @@
 
 #define TM_CTRL1	RTL9300_THERMAL_METER_CTRL_1	/* 31:16 SAMPLE_DLY */
 #define TM_CTRL2	RTL9300_THERMAL_METER_CTRL_2	/* bit 16 TM_ENABLE */
-#define TM_RESULT0	RTL9300_THERMAL_METER_RESULT_0	/* DATA_VALID 24, TEMP_OUT 22:16 (deg C) */
+#define TM_RESULT0	RTL9300_THERMAL_METER_RESULT_0	/* DATA_VALID 24, TEMP_OUT 22:16 (raw) */
+/* raw -> 0.01 degC: Realtek SDK dal_longan_switch_thermalTemp_get (#13) */
+#define TM_CENTI(raw)	((int)(raw) * 129 - 1000)
 #define TM_RESULT1	RTL9300_THERMAL_METER_RESULT_1	/* 14:8 TEMP_MAX, 6:0 TEMP_MIN since enable */
 #define TM_SAMPLE_DLY	0x0800	/* value OpenWrt uses: "makes get_temp succeed more often" */
 /* No measured settling time yet (#13): 100 x 1 ms is a cap, expiry is logged. */
@@ -143,8 +145,13 @@ int rtk_temp(int argc, char *const argv[])
 		printf("temp: no valid sample after %d ms\n", TM_POLL_N);
 		return CMD_RET_FAILURE;
 	}
-	printf("temp: %u C (since enable: min %u, max %u)\n", (r >> 16) & 0xff,
-	       sw_r(TM_RESULT1) & 0x7f, (sw_r(TM_RESULT1) >> 8) & 0x7f);
+	{
+		int t = TM_CENTI((r >> 16) & 0xff);
+		int lo = TM_CENTI(sw_r(TM_RESULT1) & 0x7f), hi = TM_CENTI((sw_r(TM_RESULT1) >> 8) & 0x7f);
+
+		printf("temp: %d.%d C (raw %u; since enable: min %d, max %d C)\n", t / 100, (t % 100) / 10,
+		       (r >> 16) & 0xff, lo / 100, hi / 100);
+	}
 	return 0;
 }
 
