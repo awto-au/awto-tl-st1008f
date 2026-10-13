@@ -1,0 +1,18 @@
+# Boot stamps (#114): every preinit hook function start/end -> /tmp/st1008f-boot.log, read by
+# ./dev.py boot-timeline. Replaces boot_run_hook from /lib/functions/preinit.sh (sourced before
+# this file); same loop, one stamp around each function. Not the console: kernel lines split the
+# shell prompt the flows wait for.
+boot_run_hook() {
+	local hook="$1"
+	local func
+
+	while boot_hook_shift "$hook" func; do
+		local ran; eval "ran=\$PI_RAN_$func"
+		[ -n "$ran" ] || {
+			export -n "PI_RAN_$func=1"
+			echo "preinit: $hook $func start $(cut -d' ' -f1 /proc/uptime)" >> /tmp/st1008f-boot.log
+			$func "$1" "$2"
+			echo "preinit: $hook $func end $(cut -d' ' -f1 /proc/uptime)" >> /tmp/st1008f-boot.log
+		}
+	done
+}

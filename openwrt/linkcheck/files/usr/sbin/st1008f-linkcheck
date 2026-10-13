@@ -5,7 +5,9 @@
 # Same vendor + serial on two ports = one cable = LOOP (passive DAC between two cages, #110).
 # More than one live port or a loop, and a bridge with STP off -> STP on in uci (committed), logged.
 # Loops leave the bridge (uci, before netifd), logged with the reason: same vendor + serial on two
-# ports (DAC), or a laser probe (one dark fibre port up alone, light appears on another) (#110).
+# ports (DAC), or a laser probe (all dark fibre ports lit together: one that then sees light is on a
+# loop, since with every laser off it saw none) (#110).
+# One awk per port and one probe round: 8 s -> ? on the boot path (#114).
 # Exit 0 = <= 1 live, 3 = multi live, 4 = loop (STP ensured). Output: one line per port + verdict.
 
 RX_LIVE=50	# 0.1 uW units: 5 uW = -23 dBm; a dark SR reads 1
@@ -14,37 +16,39 @@ names=""
 ids=""	# "vendor/serial port" per module, for the same-cable check
 dark=""	# DDM fibre ports with no light: laser probe
 
-# byte N of the `ethtool -m` hex dump (A0 0-255, A2 256-511); OpenWrt's ethtool prints hex only
-byte() { echo "$hex" | awk -v i="$1" '{ v = $(i + 1); print (v == "" ? -1 : ("0x" v) + 0) }'; }
+# `ethtool -m` hex dump (A0 0-255, A2 256-511; OpenWrt's ethtool prints hex only) -> one line:
+# rx(0.1 uW or -1) los(0/1/-) copper(0/1) dac(0/1) vendor/serial pn
+decode() {
+	ethtool -m "$1" 2>/dev/null | awk '
+	/^0x/ { for (i = 2; i <= NF; i++) b[n++] = ("0x" $i) + 0 }
+	function str(a, z,   s, i) { s = ""; for (i = a; i <= z; i++) if (b[i] > 32 && b[i] < 127) s = s sprintf("%c", b[i]); return s }
+	END {
+		if (n < 128) exit
+		rx = -1; los = "-"
+		if (and(b[92], 0x40) && n > 361) { rx = b[360] * 256 + b[361]; if (and(b[93], 0x10)) los = and(rshift(b[366], 1), 1) }
+		pn = str(40, 55); vs = str(20, 35) "/" str(68, 83)
+		# copper: 1000BASE-T (A0 6 bit 3), RJ45 (A0 2 = 0x22), 10GBASE-T (A0 36 = 0x16/0x1c), or PN "...-T"
+		# (FS SFP-10G-T claims 10GBASE-SR + LC and fakes DDM: RX 0, LOS 1)
+		copper = (and(b[6], 8) || b[2] == 34 || b[36] == 22 || b[36] == 28 || pn ~ /-T$/) ? 1 : 0
+		dac = and(b[8], 0x0c) ? 1 : 0
+		print rx, los, copper, dac, vs, pn
+	}'
+}
 
 for d in /sys/class/net/lan*; do
 	p=${d##*/}
-	hex=$(ethtool -m "$p" 2>/dev/null | awk '/^0x/ { for (i = 2; i <= NF; i++) printf "%s ", $i }')
-	[ -n "$hex" ] || { echo "linkcheck $p: empty"; continue; }
-	rx=-1
-	los=-
-	if [ $(( $(byte 92) & 0x40 )) -ne 0 ] && [ "$(byte 361)" -ge 0 ]; then	# DDM, A2 present
-		rx=$(( $(byte 360) * 256 + $(byte 361) ))	# A2 104-105, internal calibration
-		[ $(( $(byte 93) & 0x10 )) -ne 0 ] && los=$(( ($(byte 366) >> 1) & 1 ))	# soft RX_LOS
-	fi
-	b36=$(byte 36)
-	# copper: 1000BASE-T (A0 6 bit 3), RJ45 (A0 2 = 0x22), 10GBASE-T (A0 36 = 0x16/0x1c), or PN "...-T"
-	# (FS SFP-10G-T claims 10GBASE-SR + LC and fakes DDM: RX 0, LOS 1)
-	pn=$(echo "$hex" | awk '{ s = ""; for (i = 41; i <= 56; i++) { c = ("0x" $i) + 0; if (c > 32 && c < 127) s = s sprintf("%c", c) } print s }')
-	vs=$(echo "$hex" | awk '{ s = ""; for (i = 21; i <= 36; i++) { c = ("0x" $i) + 0; if (c > 32 && c < 127) s = s sprintf("%c", c) }
-		s = s "/"; for (i = 69; i <= 84; i++) { c = ("0x" $i) + 0; if (c > 32 && c < 127) s = s sprintf("%c", c) } print s }')
+	set -- $(decode "$p")
+	[ $# -ge 5 ] || { echo "linkcheck $p: empty"; continue; }
+	rx=$1 los=$2 copper=$3 dac=$4 vs=$5
 	case "$vs" in */) ;; *) ids="$ids
 $vs $p" ;; esac
-	copper=0
-	{ [ $(( $(byte 6) & 0x08 )) -ne 0 ] || [ "$(byte 2)" = 34 ] || [ "$b36" = 22 ] || [ "$b36" = 28 ] ||
-	  case "$pn" in *-T) true ;; *) false ;; esac; } && copper=1
 	car=$(cat "$d/carrier" 2>/dev/null)
 	is=no
 	[ "$rx" -ge $RX_LIVE ] && is=YES
 	[ "$los" = 0 ] && is=YES
 	[ "$car" = 1 ] && is=YES
 	[ $copper = 1 ] && is=YES	# PHY not up before netifd: a copper link cannot be ruled out
-	[ $(( $(byte 8) & 0x0c )) -ne 0 ] && is=YES	# DAC: electrical, no light, no TX-disable
+	[ $dac = 1 ] && is=YES	# DAC: electrical, no light, no TX-disable
 	echo "linkcheck $p: rx $rx (0.1 uW), los $los, carrier ${car:--}, copper $copper, live $is"
 	[ "$rx" -ge 0 ] && [ $is = no ] && [ $copper = 0 ] && dark="$dark $p"	# laser probe candidates
 	[ $is = YES ] && { live=$((live + 1)); names="$names $p"; }
@@ -59,21 +63,25 @@ for l in $(echo "$ids" | awk 'NF == 2 { if ($1 in p) print p[$1] "<->" $2; else 
 	nobridge="$nobridge ${l%%<->*} ${l##*<->}"
 done
 
-# laser probe: dark DDM fibre ports, one up at a time (standalone DSA port: CPU only, no bridge yet)
-rxp() { ethtool -m "$1" 2>/dev/null | awk '/^0x/ { for (i = 2; i <= NF; i++) printf "%s ", $i }' |
-	awk '{ v = ("0x" $361) * 256 + ("0x" $362); print ($362 == "" ? -1 : v) }'; }
-for n in $dark; do
-	ip link set "$n" up
-	sleep 1	# SFP TX enable + DDM refresh (<= 100 ms) after the netdev opens; 1 s = BusyBox sleep unit
+# laser probe, one round: every dark DDM fibre port up together (standalone DSA ports: CPU only, no
+# bridge yet); a dark port that now sees light gets it from one of ours = loop member (its partner
+# sees ours too). Only with two or more dark ports: one alone has nothing to loop to.
+rxp() { decode "$1" | awk '{ print $1 }'; }
+set -- $dark
+if [ $# -ge 2 ]; then
+	for n in $dark; do ip link set "$n" up; done
+	# SFP TX enable + DDM refresh <= 100 ms after the netdevs open (U-Boot twin settles 125 ms); no
+	# sub-second sleep in this BusyBox, so one throw-away EEPROM pass (70 ms per port, >= 140 ms for
+	# two or more ports) before the pass that counts
+	for m in $dark; do rxp "$m" > /dev/null; done
 	for m in $dark; do
-		[ "$m" = "$n" ] && continue
 		[ "$(rxp "$m")" -ge $RX_LIVE ] || continue
-		echo "linkcheck loop $n->$m: passive (light from $n at $m)"
+		echo "linkcheck loop $m: passive (light from another dark port with every laser lit)"
 		verdict=LOOP
-		nobridge="$nobridge $n $m"
+		nobridge="$nobridge $m"
 	done
-	ip link set "$n" down
-done
+	for n in $dark; do ip link set "$n" down; done
+fi
 # bridge membership = `ports` (option or list) of bridge devices and bridge-vlans: "lanN" / "lanN:t"
 for s in $(uci -q show network | sed -n "s/^network\.\([^.=]*\)\.ports=.*/\1/p"); do
 	keep=""

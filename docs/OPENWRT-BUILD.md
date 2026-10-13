@@ -15,6 +15,12 @@ Operations: [OPENWRT-BUILD-OPS.md](OPENWRT-BUILD-OPS.md). Script: `scripts/build
 | Config | seed in `SEED` (build_openwrt.py) + `make defconfig`; `CONFIG_AUTOREMOVE=y` |
 | Host prereqs added 2026-10-12 | `perl-IPC-Cmd`, `perl-Time-Piece` (dnf) |
 
+## Image overlay (`files/`, every image)
+
+- `openwrt/linkcheck/files`: st1008f-linkcheck + selftest (init.d, `/usr/sbin`), `/lib/preinit/01_st1008f_stamp` (boot stamps of every preinit hook to `/tmp/st1008f-boot.log`, #114), `/lib/preinit/02_st1008f_preinit` (no failsafe network: `pi_ifname=none`; 1 s console key window, #114), `/etc/rc.d/S19dropbear -> /bin/true` + `S21dropbear` (dropbear after `network`: procd runs init scripts one at a time and a RAM boot's host-key generation took 7-21 s before the bridge, #114).
+- `/etc/rc.common` = the buildroot's base-files copy + a stamp at start and exit of every init script (`build_openwrt.py rc_common_stamps`, #114).
+- `./dev.py boot-timeline run` reads the stamps, dmesg and logread into one stage table ([scripts/README.md](../scripts/README.md)).
+
 ## Step 1: OpenWrt 6.18 + backports
 
 Overlay (re-applied each run on a `git checkout`/`git clean` of `target/linux`):

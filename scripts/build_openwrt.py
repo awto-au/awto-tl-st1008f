@@ -394,6 +394,26 @@ def selftest_files(dst: Path) -> None:
     log(f"selftest: files/ += {out.relative_to(ROOT)}")
 
 
+RC_STAMP = """# boot stamps -> /tmp/st1008f-boot.log: start/end of every init script, read by ./dev.py boot-timeline (#114)
+_st1008f_stamp() { echo "rc: ${initscript##*/} $action $1 $(cut -d' ' -f1 /proc/uptime)" >> /tmp/st1008f-boot.log; }
+_st1008f_stamp start
+trap '_st1008f_stamp end' EXIT
+"""
+
+
+def rc_common_stamps(dst: Path) -> None:
+    """files/etc/rc.common = the buildroot's base-files rc.common + a kmsg stamp at start and exit."""
+    src = TREE / "package/base-files/files/etc/rc.common"
+    text = src.read_text()
+    anchor = "shift 2\n"
+    if anchor not in text:
+        sys.exit(f"rc.common: anchor {anchor!r} not found in {src}")
+    out = dst / "etc/rc.common"
+    out.parent.mkdir(parents=True, exist_ok=True)
+    out.write_text(text.replace(anchor, anchor + RC_STAMP, 1))
+    log("rc.common: files/ += base-files rc.common + boot stamps to /tmp/st1008f-boot.log (#114)")
+
+
 def default_boot_files(on: bool) -> str:
     """--default-boot: openwrt/default-boot/files -> buildroot files/ (image overlay) + diffconfig lines.
     Without it files/ holds only openwrt/linkcheck/files: images never carry a stale overlay."""
@@ -401,6 +421,7 @@ def default_boot_files(on: bool) -> str:
     shutil.rmtree(dst, ignore_errors=True)
     shutil.copytree(LINKCHECK, dst, symlinks=True)  # every image: live-link check before bridging (#97)
     log(f"linkcheck: files/ from {LINKCHECK.relative_to(ROOT)}")
+    rc_common_stamps(dst)
     selftest_files(dst)
     if not on:
         return ""

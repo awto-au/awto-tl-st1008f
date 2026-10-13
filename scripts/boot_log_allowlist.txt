@@ -13,7 +13,7 @@ SPI-F: WINBOND/EF4019/MMIO32-2/ModeC 1x32 MB \(plr_flash_info @ 83f922a4\)  # 32
 Loading 65536B env\. variables from offset 0xe0000  # u-boot-env partition read
 Net:   Net Initialization Skipped  # network is brought up on demand by `rtk network on`
 No ethernet found\.  # same: no NIC until `rtk network on`
-Hit Esc key to stop autoboot:  [0-9]  # autoboot countdown banner
+Hit Esc key to stop autoboot:(  [0-9])?  # autoboot countdown banner; the digit can land on the next line (daemon restart mid-line)
 \s*0  # tail of the autoboot countdown
 \s*Enable network  # `rtk network on` start
 \s*Please wait for PHY init-time \.\.\.  # `rtk network on` PHY init wait

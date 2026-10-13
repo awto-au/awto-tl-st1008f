@@ -1,0 +1,5 @@
+# Preinit on the ST1008F (#114): no failsafe network (serial console + U-Boot M3 are the recovery
+# paths), 1 s console key window ('f' for failsafe still works). Sourced after 00_preinit.conf.
+# pi_ifname names no netdev, so preinit_ip_config() returns before touching any port.
+pi_ifname=none
+fs_failsafe_wait_timeout=1
