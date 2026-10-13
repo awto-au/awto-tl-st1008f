@@ -196,36 +196,36 @@ static void counts(const char *what, const uint32_t *c, int n)
 	putchar('\n');
 }
 
-/* one pattern: write all, read all (32 KiB D-cache vs >100 MiB: reads come from DRAM) */
+/* one pattern over words start.. (wrapping), write then read; reads miss the 32 KiB D-cache */
 #define CHUNK	(4 * MIB / 4)	/* words between deadline checks */
 
-/* one pattern, write all then read all; the write stops at half the time left before `end`
- * (the read takes about as long), then the written part is checked */
-static uint32_t run(volatile uint32_t *buf, size_t bytes, int t, double end, int *cut)
+/* the write stops at half the time left before `end` (the read takes about as long), then the written
+ * part is checked; *words = words tested */
+static uint32_t run(volatile uint32_t *buf, size_t bytes, int t, size_t start, double end, size_t *words)
 {
 	struct stats s = { 0 };
 	uint32_t rs = seed ^ (t << 24);
-	size_t i, n = bytes / 4, w;
+	size_t i, j, n = bytes / 4, w;
 	double t0 = now(), wend = t0 + (end - t0) / 2;
 
-	for (i = 0; i < n; i++) {
+	for (i = 0, j = start; i < n; i++, j = j + 1 < n ? j + 1 : 0) {
 		if (!(i % CHUNK) && i && now() > wend)
 			break;
-		buf[i] = pat(t, (uintptr_t)&buf[i], &rs);
+		buf[j] = pat(t, (uintptr_t)&buf[j], &rs);
 	}
 	w = i;
-	*cut = w < n;
-	if (inject >= 0 && (size_t)inject < w)
+	*words = w;
+	if (inject >= 0 && (size_t)inject < n)
 		buf[inject] ^= 8;
 	rs = seed ^ (t << 24);
-	for (i = 0; i < w; i++) {
-		uint32_t want = pat(t, (uintptr_t)&buf[i], &rs), got = buf[i];
+	for (i = 0, j = start; i < w; i++, j = j + 1 < n ? j + 1 : 0) {
+		uint32_t want = pat(t, (uintptr_t)&buf[j], &rs), got = buf[j];
 
 		if (got != want)
-			note(&s, t, i * 4, want, got, buf[i]);
+			note(&s, t, j * 4, want, got, buf[j]);
 	}
-	printf("mem: S %s %zu MiB%s %.0f ms errs %u sticky %u xor %08x\n", tname[t], w * 4 / MIB,
-	       *cut ? " (cut at the deadline)" : "", (now() - t0) * 1e3, s.errs, s.sticky, s.xor_or);
+	printf("mem: S %s %zu MiB from %zu MiB %.0f ms errs %u sticky %u xor %08x\n", tname[t], w * 4 / MIB,
+	       start * 4 / MIB, (now() - t0) * 1e3, s.errs, s.sticky, s.xor_or);
 	if (s.errs) {
 		counts("bits0..31", s.bit, 32);
 		counts("bank", s.bank, 8);
@@ -234,6 +234,11 @@ static uint32_t run(volatile uint32_t *buf, size_t bytes, int t, double end, int
 	}
 	fflush(stdout);
 	return s.errs;
+}
+
+static size_t max_sz(size_t a, size_t b)
+{
+	return a > b ? a : b;
 }
 
 static long meminfo_kb(const char *key)
@@ -255,11 +260,11 @@ static long meminfo_kb(const char *key)
 
 static int mem(int argc, char **argv)
 {
-	double secs = 8, t0 = now(), per = 0;
+	double secs = 8, t0 = now();
 	long reserve = 64, cap = 0, avail = meminfo_kb("MemAvailable");
-	size_t bytes, pages, i, low = 0, high = 0, miss = 0;
+	size_t bytes, pages, i, low = 0, high = 0, miss = 0, cov = 0, sec, w[T_N] = { 0 };
 	uint32_t errs = 0;
-	int t, done = 0, ntests = T_N, fd, cut = 0;
+	int t, m, ntests = T_N, fd, cut = 0;
 	volatile uint32_t *buf;
 	FILE *f;
 
@@ -333,22 +338,30 @@ static int mem(int argc, char **argv)
 		else
 			low++;
 	}
+	sec = bytes / 4 / ntests;	/* words per pattern's start sector */
 	printf("mem: %zu MiB of MemAvailable %ld MiB (reserve %ld): low %zu MiB, high %zu MiB, "
 	       "no pfn %zu pages; budget %.1f s, seed %08x\n", bytes / MIB, avail / 1024, reserve,
 	       low * PAGE / MIB, high * PAGE / MIB, miss, secs, seed);
-	for (t = 0; t < ntests && !cut; t++) {
-		double t1 = now();
-
-		/* next pattern only if it fits the budget (estimate: slowest so far) */
-		if (done && t1 - t0 + per > secs)
-			break;
-		errs += run(buf, bytes, t, t0 + secs, &cut);
-		done++;
-		if (now() - t1 > per)
-			per = now() - t1;
+	/* every pattern runs: equal share of the time left, each from its own offset, so the patterns
+	 * together cover the buffer when one pass per pattern does not fit (#108) */
+	for (t = 0; t < ntests; t++) {
+		errs += run(buf, bytes, t, sec * t, now() + (t0 + secs - now()) / (ntests - t), &w[t]);
+		cut += w[t] < bytes / 4;
 	}
-	printf("mem: done errs %u tests %d/%d%s low %zu MiB high %zu MiB %.0f ms\n", errs, done,
-	       ntests, cut ? " (last cut)" : "", low * PAGE / MIB, high * PAGE / MIB, (now() - t0) * 1e3);
+	for (m = 0; m < ntests; m++) {	/* union: arc t covers a prefix of sector m */
+		size_t best = 0;
+
+		for (t = 0; t < ntests; t++) {
+			size_t lead = (size_t)((m - t + ntests) % ntests) * sec;
+			size_t c = w[t] > lead ? w[t] - lead : 0;
+
+			best = max_sz(best, c < sec ? c : sec);
+		}
+		cov += best;
+	}
+	printf("mem: done errs %u tests %d/%d (%d cut to their time share) covered %zu of %zu MiB low %zu MiB "
+	       "high %zu MiB %.0f ms\n", errs, ntests, ntests, cut, (cov * 4 + MIB / 2) / MIB, bytes / MIB, low * PAGE / MIB,
+	       high * PAGE / MIB, (now() - t0) * 1e3);
 	return errs ? 1 : 0;
 }
 
