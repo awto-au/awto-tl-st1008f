@@ -9,6 +9,11 @@ D-cache (KSEG0 line refills), cached hits, uncached stores incl. the write
 buffer drain. Line order is shuffled so the DRAM controller prefetch does not
 hide latency. Refuses when SRAM segment 0 is not mapped at the pool address.
 
+Reading /sys/kernel/debug/st1008f_sram_test allocates the largest free
+chunk of the pool and runs six word patterns (address, walking 1/0,
+checkerboard, inverse, xorshift) uncached, then cached with a write-back +
+invalidate between write and read; errors list address, want, got and XOR.
+
 --- a/drivers/misc/Kconfig
 +++ b/drivers/misc/Kconfig
 @@ -403,6 +403,13 @@
@@ -20,7 +25,7 @@ hide latency. Refuses when SRAM segment 0 is not mapped at the pool address.
 +	depends on SRAM && MACH_REALTEK_RTL && DEBUG_FS
 +	help
 +	  debugfs file st1008f_sram_bench: ns per access to the RTL930x on-chip SRAM
-+	  and to DDR, cached and uncached. Board bring-up aid; say N otherwise.
++	  and to DDR; st1008f_sram_test: SRAM pattern test. Bring-up aid; say N otherwise.
 +
  config DW_XDATA_PCIE
  	depends on PCI
@@ -37,11 +42,12 @@ hide latency. Refuses when SRAM segment 0 is not mapped at the pool address.
  obj-$(CONFIG_PCI_ENDPOINT_TEST)	+= pci_endpoint_test.o
 --- /dev/null
 +++ b/drivers/misc/st1008f-sram-bench.c
-@@ -0,0 +1,225 @@
+@@ -0,0 +1,323 @@
 +// SPDX-License-Identifier: GPL-2.0
 +/*
 + * RTL930x on-chip SRAM vs DDR access latency (TL-ST1008F, awto-tl-st1008f #103).
 + * `cat /sys/kernel/debug/st1008f_sram_bench` runs it: ns per access, CP0 Count timed, IRQs off.
++ * `cat /sys/kernel/debug/st1008f_sram_test`: pattern test of the free pool (st1008f-selftest, #108).
 + * SRAM comes from the mmio-sram gen_pool, found like OpenWrt clk-rtl83xx (whole-device pool).
 + */
 +
@@ -257,9 +263,106 @@ hide latency. Refuses when SRAM segment 0 is not mapped at the pool address.
 +}
 +DEFINE_SHOW_ATTRIBUTE(bench);
 +
++/* st1008f_sram_test: patterns of uboot-port memtest.c over the free pool, uncached then cached (#108) */
++enum { P_ADDR, P_WALK1, P_WALK0, P_CHECK, P_ICHECK, P_RAND, P_N };
++static const char * const pat_name[P_N] = { "addr", "walk1", "walk0", "check", "icheck", "rand" };
++
++static u32 sram_pat(int t, u32 pa, u32 *rs)
++{
++	u32 i = pa >> 2, x;
++
++	switch (t) {
++	case P_ADDR:	return pa;
++	case P_WALK1:	return 1u << (i & 31);
++	case P_WALK0:	return ~(1u << (i & 31));
++	case P_CHECK:	return i & 1 ? 0xaaaaaaaa : 0x55555555;
++	case P_ICHECK:	return i & 1 ? 0x55555555 : 0xaaaaaaaa;
++	default:
++		x = *rs;
++		x ^= x << 13;
++		x ^= x >> 17;
++		x ^= x << 5;
++		return *rs = x;
++	}
++}
++
++static u32 sram_unit(struct seq_file *m, unsigned long va, u32 pa, size_t size, bool cached, int t)
++{
++	u32 rs = 0x1008f ^ (t << 24), errs = 0, xor_or = 0, off;
++
++	for (off = 0; off < size; off += 4)
++		__raw_writel(sram_pat(t, pa + off, &rs), (void __iomem *)(va + off));
++	if (cached)
++		dma_cache_wback_inv(va, size);	/* reads below refill from the SRAM */
++	rs = 0x1008f ^ (t << 24);
++	for (off = 0; off < size; off += 4) {
++		u32 want = sram_pat(t, pa + off, &rs), got = __raw_readl((void __iomem *)(va + off));
++
++		if (got == want)
++			continue;
++		xor_or |= want ^ got;
++		if (errs++ < 16)
++			seq_printf(m, "sram_test: E %s %s pa %08x want %08x got %08x xor %08x\n",
++				   cached ? "cached" : "uncached", pat_name[t], pa + off, want, got,
++				   want ^ got);
++	}
++	seq_printf(m, "sram_test: S %s %s %zu B errs %u xor %08x\n", cached ? "cached" : "uncached",
++		   pat_name[t], size, errs, xor_or);
++	return errs;
++}
++
++static int sram_test_show(struct seq_file *m, void *v)
++{
++	u32 sar = __raw_readl(SRAMSAR0), errs = 0;
++	struct gen_pool *pool;
++	unsigned long va = 0;
++	size_t avail, size;
++	int ret = 0, t, c;
++	u32 pa;
++
++	mutex_lock(&bench_lock);
++	pool = sram_pool();
++	if (!pool) {
++		seq_puts(m, "sram_test: no mmio-sram pool (CONFIG_SRAM, DT node?)\n");
++		ret = -ENODEV;
++		goto out;
++	}
++	avail = gen_pool_avail(pool);
++	/* largest free chunk: the pool may be fragmented (bench buffers, clock code) */
++	for (size = avail & ~(size_t)(LINE - 1); size >= LINE; size = (size / 2) & ~(size_t)(LINE - 1)) {
++		va = gen_pool_alloc(pool, size);
++		if (va)
++			break;
++	}
++	if (!va) {
++		seq_printf(m, "sram_test: no free chunk (pool %zu B, avail %zu B)\n", gen_pool_size(pool), avail);
++		ret = -ENOMEM;
++		goto out;
++	}
++	pa = (u32)gen_pool_virt_to_phys(pool, va);
++	if (!(sar & 1) || (sar & ~0xffu) != (pa & ~0xffffu)) {	/* unmapped: decodes nowhere (#103) */
++		seq_printf(m, "sram_test: SRAMSAR0 %08x: segment 0 not mapped at %08x, refused\n", sar, pa);
++		ret = -ENXIO;
++		goto free;
++	}
++	seq_printf(m, "sram_test: SRAMSAR0 %08x, pool %zu B, testing %zu B at phys %08x\n", sar,
++		   gen_pool_size(pool), size, pa);
++	for (c = 0; c < 2; c++)
++		for (t = 0; t < P_N; t++)
++			errs += sram_unit(m, c ? CKSEG0ADDR(pa) : CKSEG1ADDR(pa), pa, size, c, t);
++	seq_printf(m, "sram_test: done errs %u\n", errs);
++free:
++	gen_pool_free(pool, va, size);
++out:
++	mutex_unlock(&bench_lock);
++	return ret;
++}
++DEFINE_SHOW_ATTRIBUTE(sram_test);
++
 +static int __init st1008f_sram_bench_init(void)
 +{
 +	debugfs_create_file("st1008f_sram_bench", 0400, NULL, NULL, &bench_fops);
++	debugfs_create_file("st1008f_sram_test", 0400, NULL, NULL, &sram_test_fops);
 +	return 0;
 +}
 +late_initcall(st1008f_sram_bench_init);

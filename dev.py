@@ -343,6 +343,13 @@ def cmd_switch_check(extra: list[str]) -> int:
     return _script("switch_check.py", extra)
 
 
+@command("boot self-test on a running switch (#108, docs/SELFTEST.md): memory, CPU, SRAM, clocks, registers, "
+         "mode switch, ASIC, SFP, flash; summary + JSON",
+         args="[--ip IP] [--console] [--last] [--full] [--mem-secs S] [--cpu-secs S]", kind="check")
+def cmd_selftest(extra: list[str]) -> int:
+    return _script("selftest.py", extra)
+
+
 @command("full dmesg + logread of a running OpenWrt over SSH, classified vs the boot allowlist; read-only",
          args="[--ip A.B.C.D] [--show-ok]  (default sw1 .48)", kind="check")
 def cmd_switch_logs(extra: list[str]) -> int:

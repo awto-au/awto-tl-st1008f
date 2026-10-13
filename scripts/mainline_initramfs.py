@@ -8,6 +8,8 @@
 - xz inside, not raw cpio: keeps the uImage raw size under the bootm limit (mainline_uimage.py).
 - NAT test tools (nft, iperf3, ethtool, tc, ip, dropbear): OpenWrt 24.10.7 packages via initramfs_tools.py;
   /sbin/ip and /sbin/tc point at them (BusyBox --install does not overwrite existing links).
+- st1008f-selftest (#108, docs/SELFTEST.md): script from openwrt/linkcheck/files + helper/data from
+  scripts/build_selftest.py (run it first); /init starts it in the background with bootargs st1008f.selftest=1.
 - /init: mount proc/sys/devtmpfs/debugfs, print INIT_MARKER, shell with PROMPT on the console.
   No network config: every port stays down and unbridged until a script brings one up (#16).
 - Log: tmp/logs/mainline_initramfs.log
@@ -18,9 +20,11 @@ import lzma
 import time
 from pathlib import Path
 
+import build_selftest
 import initramfs_tools
 
 ROOT = Path(__file__).resolve().parent.parent
+SELFTEST = ROOT / "openwrt/linkcheck/files/usr/sbin/st1008f-selftest"
 LOG = ROOT / "tmp/logs/mainline_initramfs.log"
 OUT = ROOT / "tmp/initramfs"
 BUSYBOX = ROOT / "sources/busybox/busybox-mips"
@@ -45,6 +49,8 @@ grep -q '^booting' $L/state 2>/dev/null && echo 1 > $L/clear
 cd /root
 # serial console has no size; ash would wrap its echo at 80 columns and split logged commands
 for t in /dev/ttyS0 /dev/console; do stty -F $t cols 4096 rows 100 2>/dev/null; done
+# boot self-test (#108) only with bootargs st1008f.selftest=1: console flows expect a quiet prompt
+grep -q 'st1008f[.]selftest=1' /proc/cmdline && (st1008f-selftest --quiet --console >/dev/null 2>&1 &)
 exec setsid cttyhack sh
 """
 
@@ -138,6 +144,12 @@ def build() -> Path:
         else:
             c.file(name, data, mode)
     c.file("usr/sbin/port-up", PORT_UP.encode())
+    # st1008f-selftest (#108): the OpenWrt overlay script + build_selftest.py helper/data
+    c.dir("usr/share")
+    c.dir("usr/share/st1008f-selftest")
+    c.file("usr/sbin/st1008f-selftest", SELFTEST.read_bytes())
+    for name, (data, mode) in sorted(build_selftest.staged().items()):
+        c.file(name, data, mode)
     c.dir("etc")
     c.dir("etc/dropbear")  # -R writes host keys here on first connect
     c.file("etc/passwd", b"root::0:0:root:/root:/bin/sh\n", 0o644)
