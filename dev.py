@@ -526,7 +526,7 @@ def cmd_rtk_parity(extra: list[str]) -> int:
 
 
 @command("Smart Packet Generator staged test (#70, docs/SPG.md): stage1 read-only, stage2 dark cage, stage3 cage 1 -> host",
-         args="stage1 | stage2 [--count N] [--ipg-probe N] | stage3 [--count <=1000] [--ipg N] [--nic enp7s0]",
+         args="stage1 | stage2 [--count N] [--ipg-probe N] | stage3 [--count <=1000] [--ipg N] [--nic enp7s0] | stage4 [--tx 7 --rx 8] [--count <=1000]",
          kind="hardware")
 def cmd_spg_test(extra: list[str]) -> int:
     return _script("spg_test.py", extra)

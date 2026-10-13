@@ -31,7 +31,11 @@ Catalogue of RTL9303 hardware that the datasheet omits, the SDK leaves unused, o
   - Sent counters `SPG_PORT_PKT_CNT_DBG` read 0; `TX_DONE` stays latched across stop/pause and later runs. `rtk spg` counts with the port MIB (`ifOutUcastPkts`, `STAT_PORT_MIB_CNTR` 0x664 + port × 0x100, word 11).
   - Link down (dark cage): nothing is sent, also with `force-link`.
   - First 1-2 stage3 runs within ~30 s of boot: switch sent all, host got 0 — the house switch port forwards only after its STP delay; later runs deliver all.
-- **Traffic source for the NAT bench / all-port test:** frames skip the pipeline, so SPG alone cannot load the CPU path. With a physical loop (LC loopback on a cage, or two cages cabled to each other) its frames re-enter as ingress at up to line rate: needs that cabling (owner) and a loop-safe forwarding setup first.
+- **Through a cage loop** (sw2 7 ↔ 8 fibre, #110; `./dev.py spg-test stage4`, our U-Boot, cages isolated to the CPU port, 2026-10-13T13:1x):
+  - 100 frames out of port 26, 100 in on port 27 (`ifInUcastPkts`), no drop reason.
+  - 1000 × 128 B at IPG 12 (line rate): 125 µs (8.0 Mfps, 8.2 Gbit/s), 1000 back in; `EGR_QUEUE` 774 = the CPU-port queue overflowing (U-Boot does not drain the NIC).
+  - Laser on → MAC link 0.3 s.
+- **Traffic source for the NAT bench / all-port test:** SPG → loop → switch ingress works at line rate. A CPU/NAT-path rate needs bursts longer than the lit-port cap (1000 frames ≈ 0.1 ms at line rate): blocked until the guard change (#111). Linux with the loops fitted also needs STP and the pairs kept out of the bridge first.
 - **Registers** ([GPL] `rtk_longan_reg_list.c`; base `0xBB000000`; ports 0-27; strides from SDK `macPpInfo`):
 
 | Register | Offset | Fields |

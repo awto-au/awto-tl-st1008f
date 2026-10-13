@@ -12,6 +12,8 @@
 - stage3: cage 1 (laser on, fibre to the house switch) -> host --nic. storm_watch armed first; host
   capture = AF_PACKET as root (sudo -n), ethertype 0x88b5 + our SA; pass = host frames == count == sent,
   no socket drops, storm_watch rc 0. Without root: host rx_packets delta only = UNVERIFIED (rc 3).
+- stage4: through a cage loop (sw2 7<->8 fibre, #110): lasers 1 + the pair, burst out --tx, count the
+  partner's ifInUcastPkts and the drop reasons; frames return to the CPU only (our isolation).
 - Log: tmp/logs/spg_test.log; results appended to tmp/logs/spg_test.jsonl.
 """
 
@@ -268,6 +270,59 @@ def stage3(con: Console, count: int, ipg: int, nic: str, watch_s: float) -> int:
     return 0 if ok else 1
 
 
+# ---- stage 4: through a cage loop ---------------------------------------------------------
+MIB = 0x664           # STAT_PORT_MIB_CNTR, + port << 8; word 5 ifInUcastPkts_L, 11 ifOutUcastPkts_L
+DROP = 0xB5B8         # 85 drop-reason counters, clear-on-read (drop_counters.py names)
+LINK_S = 2.5          # laser on -> MAC link 0.3 s + one status poll ~0.9 s (sw2 2026-10-13); x1.25 + poll
+
+
+def mib(con: Console, port: int, word: int) -> int:
+    return hw_probe.md(con, SW + MIB + (port << 8) + 4 * word, 1, f"MIB port {port} word {word}")[0]
+
+
+def drops(con: Console) -> dict[str, int]:
+    import drop_counters
+    v = hw_probe.md(con, SW + DROP, 85, "drop counters")
+    return {drop_counters.name(i): x & 0xFFFF for i, x in enumerate(v) if x & 0xFFFF}
+
+
+def stage4(con: Console, tx_cage: int, rx_cage: int, count: int, ipg: int) -> int:
+    """SPG out of tx_cage, back in on rx_cage through the owner's loop (sw2 7<->8 fibre, 3<->4 DAC, #110).
+    Our U-Boot isolates the cages to the CPU port, so returning frames go to the CPU only."""
+    if count > 1000:
+        raise SystemExit("stage4 count is capped at 1000 (allow-lit)")
+    tp, rp = CAGE_PORT[tx_cage - 1], CAGE_PORT[rx_cage - 1]
+    mask = 0xFF & ~(1 | 1 << (tx_cage - 1) | 1 << (rx_cage - 1))  # lasers: cage 1 (mgmt) + the pair
+    status(con)  # first `rtk spg status` may run `rtk network on`, which parks the lasers: before lighting
+    rtk(con, f"rtk i2c write 8 1 0x{mask:02x}; rtk i2c write 8 3 0", 1, f"lasers 1 + {tx_cage} + {rx_cage}")
+    t0 = time.monotonic()
+    while True:
+        cs = cages(status(con))
+        if cs[tx_cage]["link"] == "up" and cs[rx_cage]["link"] == "up":
+            break
+        if time.monotonic() - t0 > LINK_S:
+            rtk(con, "rtk laser 1", 1, "laser cage 1 only")
+            log(f"stage4 FAIL: loop link down after {LINK_S} s (cage {tx_cage} {cs[tx_cage]['link']}, "
+                f"cage {rx_cage} {cs[rx_cage]['link']})")
+            return 1
+    log(f"  loop {tx_cage}->{rx_cage} link up in {time.monotonic() - t0:.1f} s")
+    try:
+        drops(con)  # clear
+        out0, in0 = mib(con, tp, 11), mib(con, rp, 5)
+        load(con, tp, 128, DA_DARK)
+        row = start(con, tp, count, f"{ipg} allow-lit")
+        out1, in1 = mib(con, tp, 11), mib(con, rp, 5)
+        d = drops(con)
+    finally:
+        rtk(con, "rtk laser 1", 1, "laser cage 1 only")
+    tx, rx = (out1 - out0) & 0xFFFFFFFF, (in1 - in0) & 0xFFFFFFFF
+    log(f"  port {tp} out {tx}, port {rp} in {rx}, drop reasons {d or 'none'}")
+    ok = row["sent"] == count and rx == count
+    log(f"stage4 {'PASS' if ok else 'FAIL'}: sent {row['sent']}, back in {rx}, count {count}")
+    record({"stage": 4, "tx_cage": tx_cage, "rx_cage": rx_cage, "out": tx, "in": rx, "drops": d, **row})
+    return 0 if ok else 1
+
+
 # ---- root capture child ------------------------------------------------------------------
 def capture(nic: str, src: str, cap_s: float) -> int:
     srcb = bytes.fromhex(src.replace(":", ""))
@@ -321,6 +376,11 @@ def main() -> int:
     s3.add_argument("--ipg", type=int, default=10000, help="IPG_LEN: ~8 us/frame at 10G if byte times")
     s3.add_argument("--nic", default="enp7s0")
     s3.add_argument("--watch", type=float, default=15, help="storm_watch window, s (3 s baseline included)")
+    s4 = sub.add_parser("stage4", help="out of one cage, back in on its loop partner (#110)")
+    s4.add_argument("--tx", type=int, default=7)
+    s4.add_argument("--rx", type=int, default=8)
+    s4.add_argument("--count", type=int, default=100)
+    s4.add_argument("--ipg", type=int, default=10000)
     c = sub.add_parser("_capture")
     c.add_argument("--nic", required=True)
     c.add_argument("--src", required=True)
@@ -336,6 +396,8 @@ def main() -> int:
         return stage1(con)
     if a.stage == "stage2":
         return stage2(con, a.count, a.ipg_probe)
+    if a.stage == "stage4":
+        return stage4(con, a.tx, a.rx, a.count, a.ipg)
     return stage3(con, a.count, a.ipg, a.nic, a.watch)
 
 
