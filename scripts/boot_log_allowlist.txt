@@ -277,7 +277,7 @@ fuse: init \(API version 7\.\d+\)  # FUSE init
 9pnet: Installing 9P2000 support  # 9P init
 io scheduler (mq-deadline|kyber|bfq) registered  # block IO schedulers
 Serial: 8250/16550 driver, 4 ports, IRQ sharing disabled  # serial driver
-18002000\.serial: ttyS0 MMIO:0x18002000 \(irq = 30, base_baud = 10937500\) is a 16550A  # console UART
+18002000\.serial: ttyS0 MMIO:0x18002000 \(irq = 30, base_baud = (10937500|19140625)\) is a 16550A  # console UART: LX 175 or 306 MHz / 16 (300-23, #103)
 printk: console \[ttyS0\] enabled  # console hand-over
 loop: module loaded  # loop driver
 input: keys as /devices/platform/keys/input/input0  # gpio-keys input device registered

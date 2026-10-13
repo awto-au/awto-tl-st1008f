@@ -72,7 +72,7 @@ One quick test per point: the change reports OK, prompt, 16 MiB `crc32`, tempera
 | `clocks-cycle --session cpu --lo 1350` from stock clocks | 1375, 1400, 1425: shell (one boot each) |
 
 - CPU 1400: 4 fails, 1 pass; 1425: 1 pass. DRAM is clean at the same clocks (DRAM.md "Memtest"): the fault is CPU-side (decompressor = core + L1 load). 1400/1425 are marginal; 1375 passed all 5 boots.
-- LX 306: kernel console garbled. `ft_board_setup` patches the fixed-clocks to the live LX/CPU, but the kernel uses its appended DTB (`Working FDT set to 0`), so the patch never reaches it. Needs a separate DTB passed to `bootm` or kernel-side LX detection.
+- LX 306 under Linux (2026-10-13T11:39, `turbo lx=306` before `bootm`): console clean, shell reached, boot log clean, uptime vs host 12.98 s / 12.98 s. Kernel reads LX/CPU from the PLLs (`300-23`); watchdog probe failed (-EINVAL: DT 30 s > 28.9 s hardware max at LX 306) until `300-24`.
 
 ### At cpu=1375,ddr=662,sram=500 vs base (one run each)
 

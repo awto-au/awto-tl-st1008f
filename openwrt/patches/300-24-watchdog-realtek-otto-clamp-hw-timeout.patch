@@ -1,0 +1,20 @@
+From: Dan <dan@awto.au>
+Subject: [PATCH] watchdog: realtek-otto: clamp the hardware timeout to the maximum
+
+The maximum hardware timeout scales with the bus clock: 33 ticks x 2^28 /
+LX, 28.9 s at a 306 MHz LX. A timeout above it (the DT timeout-sec = 30,
+or procd's 30 s) failed probe and set_timeout with -EINVAL. The core already
+pings for timeouts above max_hw_heartbeat_ms: program the maximum instead.
+
+--- a/drivers/watchdog/realtek_otto_wdt.c
++++ b/drivers/watchdog/realtek_otto_wdt.c
+@@ -111,7 +111,8 @@
+ {
+ 	struct otto_wdt_ctrl *ctrl = watchdog_get_drvdata(wdev);
+ 	unsigned int pretimeout_ms = pretimeout * 1000;
+-	unsigned int timeout_ms = timeout * 1000;
++	/* above the hardware maximum the core pings: program the maximum, not -EINVAL */
++	unsigned int timeout_ms = min(timeout * 1000, wdev->max_hw_heartbeat_ms);
+ 	unsigned int prescale_next = 0;
+ 	unsigned int phase1_ticks;
+ 	unsigned int phase2_ticks;
