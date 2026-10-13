@@ -194,6 +194,12 @@ def cmd_ddr_retrain(extra: list[str]) -> int:
     return _script("ddr_retrain.py", extra)
 
 
+@command("SRAM window vs high DRAM alias check after the zone-3 remap, in U-Boot (#107)",
+         args="[--bus 0x1f000000] [--no-boot]", kind="hardware")
+def cmd_sram_alias_probe(extra: list[str]) -> int:
+    return _script("sram_alias_probe.py", extra)
+
+
 @command("DRAM pattern test + error map (bits -> DQ/lane, bank/row/col, sticky vs read) in U-Boot, optional turbo first (#48 #103)",
          args="[--clocks cpu=1400,ddr=662,sram=500] [--mib N] [--log N] [--args 'low uncached'] [--no-boot]",
          kind="hardware")
@@ -490,7 +496,7 @@ def cmd_build_uboot(extra: list[str]) -> int:
 
 
 @command("build mainline Linux (SMP: both VPEs) and wrap it as tmp/tftp/mainline.bin",
-         args="[--dtb-only] [--up] [--no-highmem] [--latency] [--w1]  (base: kernel-base; --up: one VPE, A/B #16; "
+         args="[--dtb-only] [--up] [--no-highmem] [--latency] [--w1] [--skip PREFIX]  (base: kernel-base; --skip: leave a patch out, A/B #107; --up: one VPE, A/B #16; "
               "--no-highmem: 256 MiB reference #27; --latency: irqsoff/timerlat tracers #73; --w1: W=1 on our patched objects)",
          kind="build")
 def cmd_build_kernel(extra: list[str]) -> int:

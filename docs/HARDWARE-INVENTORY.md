@@ -84,7 +84,7 @@ Per block: RTL9303, Board, Stock U-Boot, Stock Linux, OpenWrt, Ours (U-Boot / ma
 - Ours (U-Boot / mainline): clock/DDR routines run from it ([CLOCKS.md](CLOCKS.md)); `highmem map` unmaps it / Y: `300-21` re-maps it, DT `sram@1f000000` mmio-sram pool, bench `300-22` (#103)
 - Mapping (SDK PLR `SRAM_CTRL_INIT`, `platform/9300/arch.h`): `UMSAR0` = `0x1f000001` + `UMSSR0` = 9 (DRAM decode off there), `CPU_SRAM_SEG0_ADDR` = `0x1f000001`, `_SIZE` = 9 (64 KiB), `_BASE` = `0x00030000` (bits 17:16; SDK field map says 15:8). CPU view: KSEG0 `0x9f000000`, KSEG1 `0xbf000000`.
 - Survives both U-Boots (ours writes seg 0 only inside `clocks set`, restored after; `highmem map` is not in the boot chain). OpenWrt `300-02` `rtl930x_prepare_highmem` zeroes `UMSAR0-3` + `SRAMSAR0-3` on every HIGHMEM kernel with > 256 MiB, so Linux had no SRAM before `300-21`.
-- `0x1f000000` is outside OCP zones 1-3 (`0x0-0x0fffffff`, `0x10000000-0x13ffffff`, `0x20000000-0x9fffffff`) and outside DT memory: no conflict with the zone-3 remap.
+- The window shadows **DRAM** `0x1f000000`-`0x1f00ffff` too: after the zone-3 remap that DRAM is Linux phys `0x2f000000`-`0x2f00ffff`, and a CPU access there hangs (U-Boot `./dev.py sram-alias-probe`, 2026-10-13; the neighbouring words are plain DRAM). The unmap segment matches the DRAM-side address, not the bus address. DTS reserves the 64 KiB `no-map` (`sram-shadow@2f000000`); without it a tmpfs fill hung the kernel (#107).
 - Value if enabled: medium: hot data with ~110 ns DDR miss latency; NIC DMA reach unknown (field name `lx_sa` hints an LX-side decode; no SDK code puts a NIC ring there)
 
 ### DSP SRAM seg regs

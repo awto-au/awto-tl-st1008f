@@ -218,6 +218,7 @@ Built with `./dev.py build-kernel` (GCC 16.2); booted 2026-10-12 with IP traffic
 | `300-20` | rteth RTL930x paths on the NIC core shared with U-Boot (`shared/rtl930x-nic/rtl930x_nic.h`, copied in by the build; #83) |
 | `300-21` | RTL930x: re-map the 64 KiB on-chip SRAM at bus `0x1f000000` after the highmem remap (which clears it); PLR values ([HARDWARE-INVENTORY.md](HARDWARE-INVENTORY.md#64-kib-sram), #103) |
 | `300-22` | `drivers/misc/st1008f-sram-bench.c`: debugfs `st1008f_sram_bench`, SRAM vs DDR ns per access (`./dev.py sram-bench`, #103) |
+| `300-23` | RTL930x: FDT fixup sets the LX fixed-clock (UART, timer, watchdog), the CPU fixed-clock and the UART `clock-frequency` from the PLL registers (bootloader `turbo` LX 306, #103) |
 
 - Not applied: `300-14` (SMP doorbell + TX NAPI) is parked in `openwrt/patches-parked/` ([measured](#parked-300-14-both-ring-doorbell--tx-napi-on-smp-2026-10-12)).
 
@@ -386,6 +387,7 @@ Method: `scripts/openwrt_patch_status.py --tree <base>` (series order; reverse-a
 | `300-17` L3 on-link / default route | refreshed | its own `arp_tbl` uses -> `arp_table(&init_net)` |
 | `300-18`, `300-19` | applied | none |
 | `300-21`, `300-22` | new on next | written on next-20261009; W=1 clean (2026-10-13) |
+| `300-23` | new on next | written on next-20261009 (2026-10-13) |
 
 - None of ours is in next. Generic `pending-6.18/700`, `701` and `hack-6.18/910`, `911`, `940` apply to next as-is.
 - Build: `./dev.py build-kernel --w1` on `next-20261009` (2026-10-12, GCC 16.2, SMP default config): 0 warnings, W=1 on the 12 objects our patches touch: 0 warnings; 618 `=y`; kernel raw 12,366,208 B, `mainline.bin` 4,891,140 B (16 MiB bootm limit).

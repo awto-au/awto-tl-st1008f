@@ -54,6 +54,12 @@
 			reg = <0x0e000000 0x1000>;
 			no-map;
 		};
+
+		/* SRAM window (300-21) also hides DRAM 0x1f000000 = zone-3 phys 0x2f000000: access hangs (#107) */
+		sram-shadow@2f000000 {
+			reg = <0x2f000000 0x10000>;
+			no-map;
+		};
 	};
 
 	/* 64 KiB on-chip SRAM, bus address (OpenWrt 838x/839x dtsi use the KSEG0 VA 0x9f000000).

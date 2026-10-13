@@ -1,0 +1,61 @@
+From: Dan <dan@awto.au>
+Subject: [PATCH] realtek: rtl930x: take the LX and CPU fixed-clocks from the PLLs
+
+The bootloader may run the LX bus (UART, timer, watchdog) and the CPU at
+other rates than the DT fixed-clocks state (TL-ST1008F `turbo`: LX 306 MHz).
+Patch both fixed-clocks and the UART clock-frequency in the FDT fixup,
+before earlycon and the drivers read them. LX = switch PLL VCO /
+(2 x (DIVN2_LXB + 2)), the stock preloader math.
+
+--- a/arch/mips/generic/board-realtek.c
++++ b/arch/mips/generic/board-realtek.c
+@@ -415,7 +415,49 @@
+ 	return 0;
+ }
+ 
++#define RTL930X_PLL_SW_CTRL0		0xe214	/* same layout as CPU_CTRL0 */
++#define RTL930X_PLL_SW_DIV_CTRL		0xe220	/* REG_CMU_DIVN2_LXB 12:9 */
++
++/* LX bus clock: switch PLL VCO / (2 x (DIVN2_LXB + 2)); 175 MHz stock */
++static u32 __init rtl930x_lx_freq(void)
++{
++	u32 ctrl0 = sw_r32(RTL930X_PLL_SW_CTRL0);
++	u32 khz = 25000 * ((ctrl0 & BIT(2)) ? 4 : 1) * (((ctrl0 >> 4) & 0xff) + 2) * 2;
++
++	khz >>= ctrl0 & 3;
++	return khz / (2 * (((sw_r32(RTL930X_PLL_SW_DIV_CTRL) >> 9) & 0xf) + 2)) * 1000;
++}
++
++/*
++ * The bootloader may have changed the LX/CPU PLLs (st1008f `turbo`): the DT fixed-clocks are stale.
++ * Patch the LX clock (UART, timer, watchdog) and the CPU clock to the live rates, and give the
++ * UARTs clock-frequency so earlycon divides right too.
++ */
++static __init int realtek_fixup_clocks(void *fdt)
++{
++	u32 lx, cpu;
++	int node, err;
++
++	if (soc_info.family != RTL9300_FAMILY_ID)
++		return 0;
++	lx = rtl930x_lx_freq();
++	cpu = rtl930x_cpu_freq();
++	node = fdt_path_offset(fdt, "/clock-175mhz");
++	if (node >= 0 && (err = fdt_setprop_u32(fdt, node, "clock-frequency", lx)))
++		return err;
++	node = fdt_path_offset(fdt, "/clock-800mhz");
++	if (node >= 0 && (err = fdt_setprop_u32(fdt, node, "clock-frequency", cpu)))
++		return err;
++	for (node = fdt_node_offset_by_compatible(fdt, -1, "ns16550a"); node >= 0;
++	     node = fdt_node_offset_by_compatible(fdt, node, "ns16550a"))
++		if ((err = fdt_setprop_u32(fdt, node, "clock-frequency", lx)))
++			return err;
++	pr_info("LX frequency from PLL: %u kHz, CPU %u kHz\n", lx / 1000, cpu / 1000);
++	return 0;
++}
++
+ static const struct mips_fdt_fixup realtek_fdt_fixups[] __initconst = {
++	{ realtek_fixup_clocks, "LX/CPU clocks from PLL" },
+ 	{ realtek_add_initrd, "add initrd" },
+ 	{},
+ };

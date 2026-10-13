@@ -85,8 +85,8 @@ One quick test per point: the change reports OK, prompt, 16 MiB `crc32`, tempera
 | sram-bench DDR uc read / cached miss / uc write | 7504 / 7805 / 4270 ns | 7228 / 7433 / 4827 ns |
 
 - sram-bench ns = raw loop time from `sram_bench`; cached hit 274 → 195 ns tracks the CPU ratio (1000 → 1375). DDR uncached writes got slower (+13 %).
-- `mem-stress` (tmpfs fill of 416 MiB) hangs the kernel at **every** clock incl. stock (no SysRq response); last pass 2026-10-12T07:40 on the pre-SMP kernel. Kernel regression, not clocks: #107.
-- Not done: NIC DMA into SRAM, Linux load test (blocked by #107).
+- `mem-stress` hung the kernel at every clock incl. stock: the 300-21 SRAM window shadows Linux phys `0x2f000000` (HARDWARE-INVENTORY.md 64 KiB SRAM, #107, fixed by a DTS reservation).
+- Not done: NIC DMA into SRAM, Linux load test at the picks.
 
 ## CPU above 1000 MHz (sw2, 2026-10-13, CPU_SRAM_ASY_TIMING written)
 

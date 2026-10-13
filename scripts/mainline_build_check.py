@@ -73,7 +73,7 @@ def owrt_copied():
     return out
 
 
-def apply_patches(tree, upto=None):
+def apply_patches(tree, upto=None, skip=()):
     """Derived state: reset every file the series touches to git, then copy + apply it all fresh.
     upto: stop before the first patch whose name starts with it (patch_rebase.py)."""
     touched, created = set(), set()
@@ -104,6 +104,9 @@ def apply_patches(tree, upto=None):
     for p in PATCHES:
         if upto and p.name.startswith(upto):
             return
+        if any(p.name.startswith(k) for k in skip):  # --skip: A/B bisects (#107)
+            print(f"skip {p.name}")
+            continue
         if run(["patch", "-p1", "--forward", "--batch", "-i", str(p)], tree):
             sys.exit(f"{p.name} does not apply, see log")
 
@@ -153,6 +156,8 @@ def main():
                     help="merge mainline/st1008f-v2-nohighmem.config (256 MiB reference, #27)")
     ap.add_argument("--latency", action="store_true",
                     help="merge mainline/st1008f-v2-latency.config (irqsoff/timerlat tracers; not for benches, #73)")
+    ap.add_argument("--skip", action="append", default=[], metavar="PREFIX",
+                    help="leave out patches whose name starts with PREFIX (A/B bisect, e.g. 300-21)")
     ap.add_argument("--w1", action="store_true",
                     help="after the build, rebuild the objects our openwrt/patches touch with W=1; warnings fail")
     a = ap.parse_args()
@@ -165,7 +170,7 @@ def main():
     if (c := owrt_commit()) != OWRT_COMMIT:
         sys.exit(f"tmp/openwrt is at {c or '?'}; patches are against {OWRT_COMMIT}")
 
-    apply_patches(tree)
+    apply_patches(tree, skip=a.skip)
     if a.apply_only:
         return
     dts_dir = tree / "arch/mips/boot/dts/realtek"

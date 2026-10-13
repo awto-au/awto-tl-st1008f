@@ -229,6 +229,7 @@ RTL930x DRAM controller prefetch on \(MCR [0-9a-f]{8}\)  # openwrt/patches/300-0
 highmem kernel with > 256 MB RAM, adapt SoC memory mapping  # OpenWrt 300-02 zone-3 remap
 Realtek RTL9303 rev B \(6487\) SoC with 512 MB  # OpenWrt 300-02 SoC detection
 CPU frequency from PLL: \d+MHz  # openwrt/patches/300-05 (#55)
+LX frequency from PLL: \d+ kHz, CPU \d+ kHz  # openwrt/patches/300-23: DT LX/CPU fixed-clocks from the PLLs (#103)
 Memory: \d+K/\d+K available \(.*\)  # 512 MiB (HIGHMEM) or 256 MiB (--no-highmem build)
 \s*HighMem\s+empty  # --no-highmem build or 256 MiB DTS
 SLUB: HWalign=32, Order=0-3, MinObjects=0, CPUs=1, Nodes=1  # allocator info
@@ -303,6 +304,10 @@ OF: reserved mem: 0x0e000000\.\.0x0e000fff \(4 KiB\) nomap non-reusable bootrec@
 \s+node   0: \[mem 0x0000000000000000-0x000000000dffffff\]  # RAM bank 0 below the boot-attempt record (#73)
 \s+node   0: \[mem 0x000000000e000000-0x000000000e000fff\]  # boot-attempt record page, nomap (#73)
 \s+node   0: \[mem 0x000000000e001000-0x000000000fffffff\]  # RAM bank 0 above the boot-attempt record (#73)
+\s+node   0: \[mem 0x0000000020000000-0x000000002effffff\]  # RAM bank 1 below the SRAM shadow (#107)
+\s+node   0: \[mem 0x000000002f000000-0x000000002f00ffff\]  # DRAM hidden by the SRAM window (300-21), nomap (#107)
+\s+node   0: \[mem 0x000000002f010000-0x000000002fffffff\]  # RAM bank 1 above the SRAM shadow (#107)
+OF: reserved mem: 0x2f000000\.\.0x2f00ffff \(64 KiB\) nomap non-reusable sram-shadow@2f000000  # DRAM under the SRAM window (DTS reserved-memory, #107)
 Performance counters: mips/34K PMU enabled, [12] 32-bit counters available to each CPU, irq 7  # 34K PMU (#67); SMP: 1 per VPE
 RCU Tasks Rude: Setting shift to [01] and lim to 1 rcu_task_cb_adjust=1 rcu_task_cpu_ids=[12]\.  # RCU tasks (ftrace) init; UP / SMP
 \s+Rude variant of Tasks RCU enabled\.  # RCU tasks (ftrace), SMP build
