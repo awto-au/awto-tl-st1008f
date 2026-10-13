@@ -55,15 +55,13 @@ cat /sys/kernel/debug/sfp-p1/state   # tx_disable: 0 now
 
 ## OpenWrt with the sw2 loopbacks fitted (#110)
 
-- Boot: `./dev.py ramload uboot-mainline --then openwrt-ours --nobridge 3,4,7,8`.
-  - Our U-Boot `rtk linkcheck` reports LOOP on 3 ↔ 4 / 7 ↔ 8; ramload allows it only when every looped cage is in `--nobridge`, else refuses.
-  - Bootargs `st1008f.nobridge=lan3,lan4,lan7,lan8`; `st1008f-linkcheck` (START=19, before netifd) removes them from every uci `ports` (bridge-vlan `lan_vlan`), also both ends of any same-serial pair it finds itself; STP on.
-- Verify (2026-10-13T15:06, sw2):
-  - `st1008f-linkcheck` console: `linkcheck bridge lan_vlan: removed lan3 lan4 lan7 lan8`.
-  - `bridge link`: lan1, lan2, lan5, lan6 only. `ip -br link`: lan3/4/7/8 DOWN.
-  - Port MIB `ifInUcastPkts` / `ifOutUcastPkts` of ports 16/20/26/27 (`devmem 0x1b000664 + (port << 8) + 20 / 44`): 0.
-  - Storm guard (`storm_watch.py --guard`) running, no trip.
-- Same image without `--nobridge` (all ports bridged, STP on): STP blocked lan4 (DAC) and lan8 (fibre); safe, but depends on STP.
+- Boot as usual: `./dev.py ramload uboot-mainline --then openwrt-ours`. Our U-Boot `rtk linkcheck` reports LOOP; ramload accepts it for `openwrt-ours*` (refuses it for other images).
+- `st1008f-linkcheck` (START=19, before netifd) finds the loops itself and takes both ends out of every uci `ports` list, logged with the reason; STP on as the second layer:
+  - same vendor + serial on two ports (DAC 3 ↔ 4);
+  - laser probe: each dark DDM fibre port up alone (standalone, CPU only), light on another port (7 ↔ 8).
+- Verified 2026-10-13T15:11 on sw2: console `linkcheck loop lan3<->lan4: same cable`, `lan7->lan8` / `lan8->lan7: passive`, `linkcheck bridge lan_vlan: removed lan3 lan4 lan7 lan8 (loop)`; `bridge link` without lan3/4/7/8; those ports DOWN.
+- Earlier check with the ports kept down (15:06): port MIB in/out of ports 16/20/26/27 = 0, storm guard no trip.
+- All ports bridged (before the automatic removal): STP blocked lan4 and lan8.
 
 ## SMP: IRQ routing and latency (#73)
 

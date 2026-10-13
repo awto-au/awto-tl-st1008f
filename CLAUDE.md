@@ -45,7 +45,7 @@
 
 - **Cage loop:** two cages to the same switch with both lasers on = broadcast storm. Light one cage only (`rtk i2c write 8 1 0xfe`); unplug other fibres before `bootm` OpenWrt.
   - **Happened for real 2026-10-10:** house LAN down intermittently from 15:16+11:00, SG2008P Gi1/0/6 `OSW_DET_LOOP`+`OSW_PB` ~20x over 20 h, dropping TrueNAS/HASS/OC200/selwyn each time. First alert 9 min after the 1000 MHz overclock commit; flash held OpenWrt 25.12.4, so every reboot re-bridged. Tracked awto-terminal#56. Flash OpenWrt has bridge STP saved and was verified loop-safe at boot and steady state (#43); the 20 h of alerts trace to a RAM-loaded OpenWrt without STP.
-- **sw2 cage loops (owner, 2026-10-13, #110):** cages 3 ↔ 4 (passive DAC, always transmitting) and 7 ↔ 8 (fibre). Never bridge both ends of a pair without STP; keep the pairs out of any bridge unless the run needs the loop. sw2 only; docs/hardware.md "sw2 loopbacks".
+- **sw2 cage loops (owner, 2026-10-13, #110):** 3 ↔ 4 (DAC) and 7 ↔ 8 (fibre); `st1008f-linkcheck` keeps looped cages out of the bridge at every OpenWrt boot, STP is the second layer (docs/MAINLINE-NET-OPS.md).
 - Cages 3 ↔ 7 are not cabled (owner, 2026-10-11). (superseded on sw2 by the loops above) Cabling them again with GLC-T modules (which ignore TX-disable) = in-switch loop under OpenWrt; needs bridge STP (#19).
 - Bridge STP stays on (fibre cage loops), forward_delay 2 s: ports forward ~4 s after STP on, not 16 s.
 - Storm guard is automatic: every `./dev.py` hardware command starts one singleton `storm_watch.py --guard` (1 s ethtool-ioctl sampling, exits 10 min after the last dev.py). Never start storm-watch by hand; not a per-task decision.

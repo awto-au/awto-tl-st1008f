@@ -4,14 +4,15 @@
 # Live = RX >= 5 uW (-23 dBm), LOS 0, or carrier; copper modules and DACs count live (no light to see).
 # Same vendor + serial on two ports = one cable = LOOP (passive DAC between two cages, #110).
 # More than one live port or a loop, and a bridge with STP off -> STP on in uci (committed), logged.
-# Ports in bootargs st1008f.nobridge=lanA,lanB and both ends of a same-cable loop leave the bridge
-# (uci, before netifd): they stay down, nothing forwards between them (sw2 loopbacks, #110).
+# Loops leave the bridge (uci, before netifd), logged with the reason: same vendor + serial on two
+# ports (DAC), or a laser probe (one dark fibre port up alone, light appears on another) (#110).
 # Exit 0 = <= 1 live, 3 = multi live, 4 = loop (STP ensured). Output: one line per port + verdict.
 
 RX_LIVE=50	# 0.1 uW units: 5 uW = -23 dBm; a dark SR reads 1
 live=0
 names=""
 ids=""	# "vendor/serial port" per module, for the same-cable check
+dark=""	# DDM fibre ports with no light: laser probe
 
 # byte N of the `ethtool -m` hex dump (A0 0-255, A2 256-511); OpenWrt's ethtool prints hex only
 byte() { echo "$hex" | awk -v i="$1" '{ v = $(i + 1); print (v == "" ? -1 : ("0x" v) + 0) }'; }
@@ -45,17 +46,33 @@ $vs $p" ;; esac
 	[ $copper = 1 ] && is=YES	# PHY not up before netifd: a copper link cannot be ruled out
 	[ $(( $(byte 8) & 0x0c )) -ne 0 ] && is=YES	# DAC: electrical, no light, no TX-disable
 	echo "linkcheck $p: rx $rx (0.1 uW), los $los, carrier ${car:--}, copper $copper, live $is"
+	[ "$rx" -ge 0 ] && [ $is = no ] && [ $copper = 0 ] && dark="$dark $p"	# laser probe candidates
 	[ $is = YES ] && { live=$((live + 1)); names="$names $p"; }
 done
 
 verdict=OK
 [ $live -gt 1 ] && verdict=MULTI
-loops=$(echo "$ids" | awk 'NF == 2 { if ($1 in p) print p[$1] "<->" $2; else p[$1] = $2 }')
-nobridge=$(sed -n 's/.*st1008f\.nobridge=\([^ ]*\).*/\1/p' /proc/cmdline | tr ',' ' ')
-for l in $loops; do
+nobridge=""
+for l in $(echo "$ids" | awk 'NF == 2 { if ($1 in p) print p[$1] "<->" $2; else p[$1] = $2 }'); do
 	echo "linkcheck loop $l: same cable (vendor/serial at both ports)"
 	verdict=LOOP
 	nobridge="$nobridge ${l%%<->*} ${l##*<->}"
+done
+
+# laser probe: dark DDM fibre ports, one up at a time (standalone DSA port: CPU only, no bridge yet)
+rxp() { ethtool -m "$1" 2>/dev/null | awk '/^0x/ { for (i = 2; i <= NF; i++) printf "%s ", $i }' |
+	awk '{ v = ("0x" $361) * 256 + ("0x" $362); print ($362 == "" ? -1 : v) }'; }
+for n in $dark; do
+	ip link set "$n" up
+	sleep 1	# SFP TX enable + DDM refresh (<= 100 ms) after the netdev opens; 1 s = BusyBox sleep unit
+	for m in $dark; do
+		[ "$m" = "$n" ] && continue
+		[ "$(rxp "$m")" -ge $RX_LIVE ] || continue
+		echo "linkcheck loop $n->$m: passive (light from $n at $m)"
+		verdict=LOOP
+		nobridge="$nobridge $n $m"
+	done
+	ip link set "$n" down
 done
 # bridge membership = `ports` (option or list) of bridge devices and bridge-vlans: "lanN" / "lanN:t"
 for s in $(uci -q show network | sed -n "s/^network\.\([^.=]*\)\.ports=.*/\1/p"); do
@@ -68,8 +85,8 @@ for s in $(uci -q show network | sed -n "s/^network\.\([^.=]*\)\.ports=.*/\1/p")
 	uci delete network.$s.ports
 	for v in $keep; do uci add_list network.$s.ports="$v"; done
 	uci commit network
-	logger -t st1008f-linkcheck "$s: removed$gone (loop / st1008f.nobridge)"
-	echo "linkcheck bridge $s: removed$gone (loop / st1008f.nobridge)"
+	logger -t st1008f-linkcheck "$s: removed$gone (loop)"
+	echo "linkcheck bridge $s: removed$gone (loop)"
 done
 if [ $verdict != OK ]; then
 	for s in $(uci -q show network | sed -n "s/^network\.\([^.=]*\)\.type='bridge'$/\1/p"); do

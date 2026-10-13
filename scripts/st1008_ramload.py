@@ -406,8 +406,8 @@ def linkcheck_gate(ours: bool) -> None:
     the image is ours (`openwrt-ours*`: st1008f-linkcheck turns STP on before netifd) (#97)."""
     r = subprocess.run([sys.executable, str(ROOT / "scripts/linkcheck.py"), "--boot"],
                        timeout=150)  # ramload ours ~25 s + check 14 s cap; x1.25 + relay latency
-    if r.returncode == 3 and ours:
-        log("linkcheck MULTI: allowed, image enforces STP before bridging (st1008f-linkcheck)")
+    if r.returncode in (3, 4) and ours:
+        log("linkcheck MULTI/LOOP: allowed, ours keeps looped cages out of the bridge + STP (st1008f-linkcheck)")
         return
     if r.returncode:
         raise SystemExit(f"linkcheck rc {r.returncode} (3 MULTI, 4 LOOP): OpenWrt boot refused (#97)")
@@ -441,9 +441,6 @@ def main() -> int:
                     help="with --then: our U-Boot command(s) run before bootm, in order (e.g. clock picks, #103)")
     ap.add_argument("--no-linkcheck", action="store_true",
                     help="skip the pre-OpenWrt live-link/loop check (`rtk linkcheck`, #97)")
-    ap.add_argument("--nobridge", metavar="CAGES",
-                    help="with --then openwrt-ours*: cages kept out of the bridge (e.g. 3,4,7,8, sw2 loops); "
-                         "a linkcheck LOOP on only these cages is then allowed (#110)")
     ap.add_argument("--bootargs", metavar="ARGS",
                     help="with --then: U-Boot bootargs before bootm, e.g. 'st1008f.mode=m2 st1008f.boot=primary'")
     a = ap.parse_args()
@@ -509,19 +506,15 @@ def main() -> int:
         con.run(cmd, r"st1008f-mainline # ", 3, f"pre: {cmd[:40]}")
     if (a.then or "").startswith("openwrt") and not a.no_linkcheck:
         from linkcheck import run as linkcheck_run  # late: linkcheck imports this module
-        verdict, live, rep = linkcheck_run(con)
-        looped = {int(c) for ln in rep for c in re.findall(r"linkcheck loop (\d)\D+(\d)", ln)[0:1] for c in c}
-        nob = {int(c) for c in a.nobridge.split(",")} if a.nobridge else set()
-        if verdict == "LOOP" and a.then.startswith("openwrt-ours") and looped and looped <= nob:
-            log(f"linkcheck LOOP on cages {sorted(looped)}: allowed, all out of the bridge (--nobridge), STP on")
-        elif verdict == "LOOP" or (verdict == "MULTI" and not a.then.startswith("openwrt-ours")):
+        verdict, live, _ = linkcheck_run(con)
+        if verdict in ("LOOP", "MULTI") and a.then.startswith("openwrt-ours"):
+            log(f"linkcheck {verdict}: ours keeps looped cages out of the bridge and turns STP on "
+                "(st1008f-linkcheck, #110)")
+        elif verdict in ("LOOP", "MULTI"):
             raise SystemExit(f"linkcheck {verdict}: {live} live link(s) or a loop; RAM OpenWrt bridges "
                              "without STP until openwrt_stp -> refused (#97)")
     if a.then:
         ow = IMAGES[a.then]
-        if a.nobridge:  # st1008f-linkcheck takes these lanN out of the bridge before netifd (#110)
-            a.bootargs = " ".join(x for x in (a.bootargs, "st1008f.nobridge=" + ",".join(
-                f"lan{c}" for c in a.nobridge.split(","))) if x)
         if a.bootargs:  # appended to the DT bootargs by DTB_EXTEND kernels (OpenWrt-on-7.3, #73)
             con.run(f"setenv bootargs {a.bootargs}", r"st1008f-mainline # ", 1, "bootargs")
         # memtest=N: kernel early pattern test of lowmem, ~2.2 s per pattern at stock (#103); x1.25 + boot cap
