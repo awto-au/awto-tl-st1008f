@@ -311,7 +311,8 @@ def tftp(con: Console, fname: str, addr: int, retransmits: int = 1) -> None:
         cap = 5 * retransmits + size / 1.2e6 * 1.25 + 3
         m, _ = con.run(f"setenv ipaddr {SWITCH_IP}; setenv serverip {SERVER_IP}; "
                        f"tftpboot 0x{addr:08x} {fname}",
-                       r"Bytes transferred = (\d+)", cap, f"tftp {fname} ({size} B)")
+                       # the " (" after the number: a streamed partial number matched once (4848 of 484865)
+                       r"Bytes transferred = (\d+) \(", cap, f"tftp {fname} ({size} B)")
         if int(m.group(1)) != size:
             raise SystemExit(f"tftp size {m.group(1)} != file {size}")
     finally:

@@ -414,6 +414,21 @@ def rc_common_stamps(dst: Path) -> None:
     log("rc.common: files/ += base-files rc.common + boot stamps to /tmp/st1008f-boot.log (#114)")
 
 
+def dropbear_after_network(dst: Path) -> None:
+    """files/etc/init.d/dropbear = the package's dropbear.init with START=21: after network (S20), since
+    procd runs init scripts one at a time and a RAM boot's host-key generation (7-21 s) held the bridge
+    back (#114). The image postinst creates the rc.d link from START, so an rc.d override alone is undone."""
+    src = TREE / "package/network/services/dropbear/files/dropbear.init"
+    text = src.read_text()
+    if "\nSTART=19\n" not in text:
+        sys.exit(f"dropbear.init: START=19 not found in {src}")
+    out = dst / "etc/init.d/dropbear"
+    out.parent.mkdir(parents=True, exist_ok=True)
+    out.write_text(text.replace("\nSTART=19\n", "\nSTART=21\n", 1))
+    out.chmod(0o755)
+    log("dropbear: files/ += dropbear.init with START=21 (after network, #114)")
+
+
 def default_boot_files(on: bool) -> str:
     """--default-boot: openwrt/default-boot/files -> buildroot files/ (image overlay) + diffconfig lines.
     Without it files/ holds only openwrt/linkcheck/files: images never carry a stale overlay."""
@@ -422,6 +437,7 @@ def default_boot_files(on: bool) -> str:
     shutil.copytree(LINKCHECK, dst, symlinks=True)  # every image: live-link check before bridging (#97)
     log(f"linkcheck: files/ from {LINKCHECK.relative_to(ROOT)}")
     rc_common_stamps(dst)
+    dropbear_after_network(dst)
     selftest_files(dst)
     if not on:
         return ""
