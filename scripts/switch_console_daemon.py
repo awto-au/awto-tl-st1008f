@@ -54,6 +54,9 @@ DEV = os.environ.get(
     "/dev/serial/by-id/usb-Prolific_Technology_Inc._USB-Serial_Controller-if00-port0",  # sw2 bench UART; same as scripts/boards.py
 )
 LOG = Path(__file__).resolve().parent.parent / "private/serial/st1008-console.log"
+# Held [TX] marker: the rest of a prompt line arrives within ~2 ms at 115200 (16 B);
+# 0.2 s = generous for a 10.94 MBd/115200 mix, short enough that the log stays live. Expiry: write it.
+TX_PENDING_S = 0.2
 
 
 class Owner:
@@ -81,6 +84,10 @@ class Owner:
         self._dumping = False               # reader pauses during a bulk dump
         self._typed = b""                   # unfinished input line for flash_guard (#81)
         self._tx_line = b""                 # chunks typed since the last [TX] marker
+        self._log_lock = threading.Lock()   # RX and [TX] markers interleave in one log
+        self._rx_bol = True                 # last RX byte logged was a newline
+        self._tx_pending: list[bytes] = []  # markers waiting for the RX line to end
+        self._tx_pending_t = 0.0
         self._open()
         self._reader = threading.Thread(target=self._read_loop, daemon=True)
         self._reader.start()
@@ -117,9 +124,10 @@ class Owner:
                     n = ser.in_waiting if ser else 0
                     data = ser.read(n) if (ser and n) else b""
                 if data:
-                    self._logfh.write(data)
+                    self._log_rx(data)
                     self._watch(data)
                 else:
+                    self._flush_tx_pending()
                     time.sleep(0.01)  # nothing waiting; yield without the lock
             except Exception as exc:
                 # Adapter powered from the switch header re-enumerates on every
@@ -177,8 +185,35 @@ class Owner:
 
     # --- operations ---------------------------------------------------
     def _mark_tx(self, label: str):
-        """Write a visible TX marker to the log so a tail shows both sides."""
-        self._logfh.write(f"\n[TX {time.strftime('%T')}] {label}\n".encode())
+        """Write a visible TX marker to the log so a tail shows both sides.
+        Mid-line (e.g. a prompt still arriving) it waits for the line end so it never splits RX text."""
+        marker = f"\n[TX {time.strftime('%T')}] {label}\n".encode()
+        with self._log_lock:
+            if self._rx_bol:
+                self._logfh.write(marker)
+            else:
+                self._tx_pending.append(marker)
+                self._tx_pending_t = self._tx_pending_t or time.monotonic()
+
+    def _log_rx(self, data: bytes):
+        """RX to the log; queued [TX] markers go in after the next newline."""
+        with self._log_lock:
+            if self._tx_pending and b"\n" in data:
+                cut = data.index(b"\n") + 1
+                self._logfh.write(data[:cut] + b"".join(self._tx_pending))
+                self._tx_pending, self._tx_pending_t = [], 0.0
+                data = data[cut:]
+            if data:
+                self._logfh.write(data)
+                self._rx_bol = data.endswith(b"\n")
+
+    def _flush_tx_pending(self):
+        """A prompt never ends in a newline: after TX_PENDING_S of RX silence write the markers anyway."""
+        with self._log_lock:
+            if self._tx_pending and time.monotonic() - self._tx_pending_t > TX_PENDING_S:
+                self._logfh.write(b"".join(self._tx_pending))
+                self._tx_pending, self._tx_pending_t = [], 0.0
+                self._rx_bol = True
 
     def _guard(self, raw: bytes):
         """#81: check each line completed by `raw` (chunked typing included) before it goes out.

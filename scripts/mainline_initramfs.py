@@ -43,6 +43,8 @@ echo "{INIT_MARKER} (Linux $(uname -r))"
 L=/sys/devices/platform/st1008f-leds
 grep -q '^booting' $L/state 2>/dev/null && echo 1 > $L/clear
 cd /root
+# serial console has no size; ash would wrap its echo at 80 columns and split logged commands
+for t in /dev/ttyS0 /dev/console; do stty -F $t cols 4096 rows 100 2>/dev/null; done
 exec setsid cttyhack sh
 """
 
