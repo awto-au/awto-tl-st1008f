@@ -483,7 +483,7 @@ Aquantia AQR113C smbus:sfp-p[1-8]:11: aqr_gen1_read_status failed: -145  # -ETIM
 
 # Local OpenWrt 6.18 backport image (openwrt-ours-6.18) on sw2, reviewed 2026-10-12
 [openwrt]
-Kernel command line: earlycon( st1008f\.mode=m[123] st1008f\.slot=[ab] st1008f\.boot=(good|trial|legacy))?  # DT bootargs + chain U-Boot bootsel args: slot a|b (#117), one copy (300-19, #122)
+Kernel command line: earlycon( watchdog\.open_timeout=\d+)?( st1008f\.mode=m[123] st1008f\.slot=[ab] st1008f\.boot=(good|trial|legacy))?  # DT bootargs + chain U-Boot bootsel args: slot a|b (#117), one copy (300-19, #122); open_timeout (#138): "timeout" is the param name, benign #138
 jffs2_scan_eraseblock\(\): End of filesystem marker found at 0x[0-9a-f]+  # first boot after sysupgrade: overlay formatted
 jffs2_build_filesystem\(\): unlocking the mtd device\.\.\.  # same
 done\.  # tail of the jffs2 unlock line
