@@ -417,9 +417,35 @@ def flood(dst: str, secs: float, size: int) -> int:
     return 0
 
 
-def rxdrop(secs: int, size: int) -> int:
-    """RX-only cost: UDP flood to the switch SVI, dropped at lan1 netdev ingress (driver + DSA rx only)."""
+XDP_TOOL = ROOT / "tmp/xdp/st1008f-xdp"  # scripts/build_xdp_tool.py (#140)
+
+
+def xdp_attach(mac: str, mode: str) -> None:
+    """XDP on eth0 dropping the flood's source MAC (everything else passes); detached by xdp_detach."""
+    if not XDP_TOOL.exists():
+        raise SystemExit(f"FAIL: {XDP_TOOL.relative_to(ROOT)} missing: python3 scripts/build_xdp_tool.py")
+    r = subprocess.run(SSH + ["cat > /tmp/st1008f-xdp && chmod +x /tmp/st1008f-xdp"], input=XDP_TOOL.read_bytes(),
+                       capture_output=True, timeout=SSH_TMO_S)
+    if r.returncode:
+        raise SystemExit(f"FAIL: push {XDP_TOOL.name}: {r.stderr.decode(errors='replace').strip()}")
+    out = sw(f"(/tmp/st1008f-xdp eth0 {mac} {mode} > /tmp/xdp.out 2>&1 &); "
+             "i=0; while [ $i -lt 30 ] && ! grep -qE 'ATTACHED|BPF_|usage' /tmp/xdp.out 2>/dev/null; do "
+             "sleep 0.1 2>/dev/null || sleep 1; i=$((i+1)); done; cat /tmp/xdp.out", check=False)
+    log(f"xdp: {out.strip()}")
+    if "ATTACHED" not in out:
+        raise SystemExit(f"FAIL: XDP attach ({mode}): {out.strip()[-400:]}")
+
+
+def xdp_detach() -> None:
+    log(f"xdp: {sw('killall st1008f-xdp 2>/dev/null; sleep 1; cat /tmp/xdp.out', check=False).strip()}")
+
+
+def rxdrop(secs: int, size: int, xdp: str | None = None) -> int:
+    """RX-only cost: UDP flood to the switch SVI, dropped at lan1 netdev ingress (driver + DSA rx only), or
+    with --xdp skb|drv by an XDP program on eth0 (no GRO, no DSA rx, no stack; #140)."""
     mac = host(["ip", "netns", "exec", NS_LAN, "cat", f"/sys/class/net/{HOST_NIC}.{LAN_VID}/address"]).strip()
+    if xdp:
+        xdp_attach(mac, xdp)
     sw("nft delete table netdev rxdrop 2>/dev/null; nft -f - <<'EOF'\n"
        f"table netdev rxdrop {{ chain in {{ type filter hook ingress device {SW_PORT} priority -500;\n"
        # match the source MAC: the frame may still carry its VLAN tag here, so `ip daddr` misses it
@@ -430,19 +456,21 @@ def rxdrop(secs: int, size: int) -> int:
     b = snap()
     cnt = sw("nft list table netdev rxdrop | grep counter")
     sw("nft delete table netdev rxdrop")
+    if xdp:
+        xdp_detach()
     sent = int(r.stdout.strip() or 0)
     dt = b["t"] - a["t"]
     cpu = cpu_report(a, b)
     dropped = int(cnt.split("packets")[1].split()[0])
     pps = dropped / dt
     busy = sum(cpu[c]["busy"] for c in cpu if c != "cpu") / 100
-    row = {"label": f"rxdrop-{size}B", "tag": TAG, "when": time.strftime("%Y-%m-%dT%H:%M:%S%z"), "sent": sent,
+    row = {"label": f"rxdrop-{size}B{'-xdp-' + xdp if xdp else ''}", "tag": TAG, "when": time.strftime("%Y-%m-%dT%H:%M:%S%z"), "sent": sent,
            "received_pps": int(pps), "cpu": cpu, "ns_vpe_per_pkt": round(busy * 1e9 / pps) if pps else None}
     # RX rate = eth0 packets: with rx-gro-list on (default) the ingress counter sees GRO skbs, not packets
     eth_pps = int(((b["eth0"]["rx_packets"] - a["eth0"]["rx_packets"]) % 2**32) / dt)
     row["eth0_rx_pps"] = eth_pps
     row["ns_vpe_per_pkt"] = round(busy * 1e9 / eth_pps) if eth_pps else None
-    log(f"RESULT rxdrop {size} B: host sent {sent} ({sent/secs:.0f} pps), eth0 rx {eth_pps} pps, ingress-dropped "
+    log(f"RESULT rxdrop {size} B{' xdp ' + xdp if xdp else ''}: host sent {sent} ({sent/secs:.0f} pps), eth0 rx {eth_pps} pps, ingress-dropped "
         f"{int(pps)} pps | cpu0 {cpu['cpu0']} cpu1 {cpu.get('cpu1')} | VPE-ns/pkt {row['ns_vpe_per_pkt']}")
     with JSONL.open("a") as fh:
         fh.write(json.dumps(row) + "\n")
@@ -521,6 +549,7 @@ def main() -> int:
     d = sub.add_parser("rxdrop")
     d.add_argument("--secs", type=int, default=10)
     d.add_argument("--size", type=int, default=1400)
+    d.add_argument("--xdp", choices=["skb", "drv"], help="drop with an XDP program on eth0 instead of nft ingress (#140)")
     f = sub.add_parser("_flood")
     f.add_argument("dst")
     f.add_argument("secs", type=float)
@@ -546,7 +575,7 @@ def main() -> int:
     if a.cmd == "pktgen":
         return pktgen(a.count, a.size)
     if a.cmd == "rxdrop":
-        return rxdrop(a.secs, a.size)
+        return rxdrop(a.secs, a.size, a.xdp)
     if a.cmd == "v6-setup":
         return v6_setup()
     if a.cmd == "v6-run":
