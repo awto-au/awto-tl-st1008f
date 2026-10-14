@@ -38,6 +38,7 @@ sys.path.insert(0, str(Path(__file__).resolve().parent))
 import flash_guard  # noqa: E402
 from boards import SW1_MAC  # noqa: E402
 from st1008_ramload import OW_READY, ROOT, SOCK, Console, openwrt_stp, power, restart_board, restart_daemon  # noqa: E402
+JFFS2_FORMAT = r"jffs2_build_filesystem\(\): unlocking"  # overlay format: first boot after sysupgrade
 from uboot_chain_image import LOAD, SLOT, check as slot_ok, stock_check_cmd  # noqa: E402
 
 LOG = ROOT / "tmp/logs/uboot_chain_env.log"
@@ -114,7 +115,12 @@ def boot() -> int:
         log(f"  {m.group(0).strip()}")
         # 2 s ESC window + bootm from flash + kernel to console ~24 s after ours (measured 24 s with a
         # 1 s window); x1.25
-        con.expect(OW_READY, 31, mark, "flash OpenWrt console", boot_ok=True)
+        m, _ = con.expect(f"(?:{OW_READY})|{JFFS2_FORMAT}", 31, mark, "flash OpenWrt console", boot_ok=True)
+        if re.search(JFFS2_FORMAT, m.group(0)):
+            # first boot after a sysupgrade formats the overlay: console ~65 s later than a normal boot
+            # (docs/OPENWRT-BUILD-OPS.md, #132); x1.25
+            log("  first boot after sysupgrade: jffs2 overlay format, waiting longer")
+            con.expect(OW_READY, 82, mark, "flash OpenWrt console (after jffs2 format)", boot_ok=True)
         openwrt_stp(con)
     finally:
         set_policy("hold")

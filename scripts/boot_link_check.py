@@ -25,7 +25,7 @@ ROOT = Path(__file__).resolve().parent.parent
 LOG = ROOT / "tmp/logs/boot_link_check.log"
 PROMPT = r"root@[^:\s]*:[^#]*# "
 EXPECT = ["lan1"]
-BOOT_S = 240   # uboot_chain_env boot: reboot + chain + kernel + STP wait, ~70 s measured; its own caps inside
+BOOT_S = 240   # backstop over uboot_chain_env boot's own caps: first-boot path (jffs2 format, #132) sums to ~190 s; x1.25
 SETTLE_S = 20  # after STP on: SerDes bring-up of every cage done by ~40 s uptime (dmesg); x1.5 from STP-on
 
 
@@ -46,7 +46,7 @@ def main() -> int:
         r = subprocess.run([sys.executable, str(ROOT / "scripts/uboot_chain_env.py"), "boot"],
                            capture_output=True, text=True, timeout=BOOT_S)
         if r.returncode:
-            log(f"round {i}: chain boot FAIL rc {r.returncode}: {r.stdout.strip().splitlines()[-1:]}")
+            log(f"round {i}: chain boot FAIL rc {r.returncode}: {(r.stderr.strip() or r.stdout.strip()).splitlines()[-1:]}")
             bad += 1
             continue
         con = Console()

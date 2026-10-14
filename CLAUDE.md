@@ -34,6 +34,7 @@
 
 - `scripts/switch_console_daemon.py` is the only owner of the UART. Drive the switch with `scripts/switch_console.py`; never open the tty with `tio`/`minicom` while the daemon runs.
 - Log: `private/serial/st1008-console.log`. The daemon lets autoboot run (policy `pass`, unattended power-up boots to OpenWrt); `ramload`/`stock` flows restart it with `hold`.
+  `dev.py` sets the policy back to `pass` after every console flow (#133).
 - Reboot sw2 in software (owner, 2026-10-13): `reboot` from Linux, `reset` from U-Boot. Every flow goes through `st1008_ramload.restart_board()`; the relay power cycle is only its fallback when no prompt answers or no stock banner follows (logged).
 - A power cut stalls the PL2303 RX (`urb stopped: -32`): restart the daemon before power-on (`restart_board` does it). Manual relay: `./dev.py power on|off`.
 - **Reboot in software, not by power-cycling** (owner, 2026-10-13): `reboot` from Linux, `reset` from U-Boot. The relay is only for a board that doesn't respond within a bounded wait (logged reason). Warm resets come back by themselves (#105).

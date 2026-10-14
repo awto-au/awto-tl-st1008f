@@ -341,8 +341,6 @@ def openwrt_stp(con: Console, persist_cap: float = 2) -> None:
     try:
         con.run("until [ -d $B ];do sleep 1;done;echo 1 >$B/stp_state", OW_PROMPT, 45, "stp on")
         con.run("cat $B/stp_state", r"\n1\r?\n" + OW_PROMPT, 1, "stp_state = 1")
-        # 2 s (sysfs unit 1/100 s) = bridge minimum: ports forward ~4 s after STP on, not 2 x 8 s
-        con.run("echo 200 >$B/forward_delay", OW_PROMPT, 1, "forward_delay 2 s", checked=True)
     except SystemExit:
         con.send("\x03")
         con.send("for p in /sys/class/net/lan*; do ip link set ${p##*/} down; done")
@@ -355,6 +353,13 @@ def openwrt_stp(con: Console, persist_cap: float = 2) -> None:
                 break
         power("off")
         raise SystemExit("FAIL: bridge STP not enabled in 45 s: lan* down + relay off (#19)")
+    # 2 s (sysfs unit 1/100 s) = bridge minimum: ports forward ~4 s after STP on, not 2 x 8 s.
+    # The write waits for RTNL, held by phylink SerDes calibration at boot (8 ports x ~0.3 s, #131); x1.25.
+    # STP is already on, so a miss only slows forwarding: warn, no kill.
+    try:
+        con.run("echo 200 >$B/forward_delay", OW_PROMPT, 3, "forward_delay 2 s", checked=True)
+    except SystemExit as e:
+        log(f"  WARN forward_delay 2 s not confirmed ({e}); STP on, uci below sets it for the next boot")
     # BusyBox wraps lines > 60 chars and breaks the echo check: short commands
     con.run("S=network.switch", OW_PROMPT, 1, "uci section", checked=True)
     con.run("uci set $S.stp='1'; uci set $S.forward_delay='2'", OW_PROMPT, 1, "stp uci", checked=True)

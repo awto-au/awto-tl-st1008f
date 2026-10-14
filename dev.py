@@ -707,7 +707,25 @@ def main(argv: list[str] | None = None) -> int:
             return rc
     if meta["kind"] == "hardware" and name != "storm-watch":
         _storm_guard()
-    return meta["fn"](extra)
+    try:
+        return meta["fn"](extra)
+    finally:
+        if meta["kind"] == "hardware" and name not in HOST_ONLY | NET_MANAGE | {"console-restart"} and not ssh_only:
+            _daemon_policy_pass()
+
+
+def _daemon_policy_pass() -> None:
+    """After a console flow: unattended reboots boot through to OpenWrt again (#133). No daemon = no-op."""
+    import socket
+    sock = Path(os.environ.get("XDG_RUNTIME_DIR", f"/run/user/{os.getuid()}")) / "tio-st1008.daemon.sock"
+    try:
+        with socket.socket(socket.AF_UNIX) as s:
+            s.settimeout(5)  # local unix socket; 5 s names a dead daemon
+            s.connect(str(sock))
+            s.sendall((json.dumps({"op": "policy", "policy": "pass"}) + "\n").encode())
+            s.recv(65536)
+    except OSError as e:
+        log(f"daemon policy -> pass skipped: {e}", "WARN")
 
 
 # no board contact, or read-only network checks that may target sw1 (#91)

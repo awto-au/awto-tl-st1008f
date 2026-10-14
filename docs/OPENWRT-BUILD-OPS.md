@@ -76,4 +76,5 @@ Writes only `firmware` (flash_guard, #81). Never on sw1.
 - A new install has a new dropbear host key; the flow drops the old one from `known_hosts` first. If a step still reports "REMOTE HOST IDENTIFICATION HAS CHANGED", run `ssh-keygen -R 192.168.25.56` and rerun that step.
 - `openwrt-install --after-reboot` resumes after the sysupgrade when the console step failed.
 - `openwrt-sysupgrade-ssh` timing (sw2, 2026-10-14, 6816044 B image r0-0ad1348): SSH stays up through the flash write; `sysupgrade` start to `Rebooting system` 61 s. `DOWN_S` 80 = x1.25 (was 60: timed out on this image).
+- First boot after a sysupgrade (sw2, 2026-10-14T11:12+11:00, same image): jffs2 overlay format; OpenWrt console at kernel 73.5 s vs 7.9-8.6 s for normal boots (last 11 chain boots). `uboot-chain-env boot` extends its console wait by 82 s (65 s x1.25) when it sees `jffs2_build_filesystem(): unlocking` (#132).
 - Moving the buildroot (`build-openwrt --update`) and the mainline pin (`OWRT_COMMIT`) go together: rebuild with `build-kernel` and boot `ramload mainline-kernel` once.
