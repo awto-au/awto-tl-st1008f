@@ -608,6 +608,12 @@ def cmd_build_kernel(extra: list[str]) -> int:
                    str(b / "arch/mips/boot/dts/realtek/tplink-tl-st1008f-v2.dtb")])
 
 
+@command("our mainline series as branch awto/st1008f/<base> in the machine Linux store (awto-dan#50); local, push needs approval",
+         args="[--base TAG]", kind="build")
+def cmd_kernel_series_branch(extra: list[str]) -> int:
+    return _script("kernel_series_branch.py", extra)
+
+
 @command("Linux base for build-kernel / build-openwrt --kernel mainline: linux-next PIN in scripts/kernel_base.py "
          "(env KERNEL_BASE=v7.3-rc6 = fallback); update = newest next-YYYYMMDD tag (#16)",
          args="[show | update [--tag next-YYYYMMDD] | checkout | setup --store PATH]", kind="build")
