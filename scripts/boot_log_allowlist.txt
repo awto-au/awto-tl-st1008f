@@ -486,6 +486,8 @@ Kernel command line: earlycon( st1008f\.mode=m[123] st1008f\.slot=[ab] st1008f\.
 jffs2_scan_eraseblock\(\): End of filesystem marker found at 0x[0-9a-f]+  # first boot after sysupgrade: overlay formatted
 jffs2_build_filesystem\(\): unlocking the mtd device\.\.\.  # same
 done\.  # tail of the jffs2 unlock line
+realtek-otto-pcs 1b000000\.ethernet-switch:pcs: SerDes \d+: no RX signal, calibration deferred until there is one  # 300-34 (#125): partner dark at config
+realtek-otto-pcs 1b000000\.ethernet-switch:pcs: SerDes \d+: RX signal present, calibrated  # 300-34 (#125): deferred calibration done
 0x[0-9a-f]{12}-0x[0-9a-f]{12} : "(jffs2-log|bootstate|firmware_a|firmware_b|kernel|rootfs|rootfs_data)"  # partition map, A/B layout (#117)
 [0-9] uimage-fw partitions found on MTD device firmware_[ab]  # booted slot split (300-33, #117)
 [0-9]+ fixed-partitions partitions found on MTD device spi0\.0  # DT partition table (#117 layout)

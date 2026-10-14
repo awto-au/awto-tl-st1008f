@@ -75,6 +75,8 @@ def main() -> int:
     if done:
         raise SystemExit(f"FAIL: SerDes {done} already configured this boot; use --reboot")
     log(f"=== {f} (SerDes {sds[f]}) up alone, then {s} (SerDes {sds[s]})")
+    # PCS debug on (DYNAMIC_DEBUG, #125): "no RX signal within 10 ms" shows what each SerDes saw at calibration
+    ssh(a.ip, "c=/sys/kernel/debug/dynamic_debug/control; [ -w $c ] && echo 'file pcs-rtl-otto.c +p' > $c || true")
     out = ssh(a.ip, f"ip link set {f} up; sleep {ALONE_S}; echo ALONE $(cat /sys/class/net/{f}/carrier)", ALONE_S)
     alone = re.search(r"ALONE (\d)", out)
     poll = (f"ip link set {s} up; i=0; while [ $i -lt {WATCH_S} ]; do sleep 1; i=$((i+1)); "
@@ -83,7 +85,7 @@ def main() -> int:
     rows = re.findall(r"T (\d+) (\d) (\d)", out)
     t_f = next((int(t) for t, cf, _ in rows if cf == "1"), None)
     t_s = next((int(t) for t, _, cs in rows if cs == "1"), None)
-    dm = ssh(a.ip, f"dmesg | grep -E '{f}:|{s}:|SerDes ({sds[f]}|{sds[s]}) ' | tail -6")
+    dm = ssh(a.ip, f"dmesg | grep -E '{f}:|{s}:|SerDes ({sds[f]}|{sds[s]})[: ]' | tail -12")
     ssh(a.ip, f"ip link set {f} down; ip link set {s} down")
     log(f"  {f} alone {ALONE_S} s: carrier {alone[1] if alone else '?'}")
     log(f"  after {s} up: {f} carrier at {t_f if t_f else f'never ({WATCH_S} s)'} s, "

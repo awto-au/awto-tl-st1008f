@@ -69,6 +69,7 @@ KERNEL_PATCHES = {
     "300-31-realtek-l3-route-on-standalone-port-dbg.patch": OURS,  # #124
     "300-32-jffs2-skip-erase-of-blank-blocks.patch": OURS,  # #114: first boot after sysupgrade
     "300-33-mtdsplit-uimage-cmdline-match.patch": OURS,  # #117: split only the booted A/B slot
+    "300-34-net-pcs-rtl-otto-defer-calibration-until-signal.patch": OURS,  # #125
 }
 TREE_PATCH = BACKPORT / "openwrt-tree.patch"
 # --parked: untested candidates from openwrt/patches-parked, 6.18 only; name -> OpenWrt patch dir
@@ -159,7 +160,9 @@ CONFIG_PACKAGE_kmod-pktgen=y
 CONFIG_PACKAGE_iperf3=y
 CONFIG_PACKAGE_ethtool-full=y
 CONFIG_PACKAGE_lldpd=y
-"""  # + nat-bench switch-side tools (docs/NAT-OPS.md): a RAM boot cannot apk-add matching kmods
+CONFIG_KERNEL_DYNAMIC_DEBUG=y
+"""  # dyndbg: pr_debug/dev_dbg switchable at runtime (#125); OpenWrt's KERNEL_* overrides the target config
+# + nat-bench switch-side tools (docs/NAT-OPS.md): a RAM boot cannot apk-add matching kmods
 # st1008f-selftest (#108, every image): /dev/mem + devmem (register reads), unxz/xzcat (CPU test), taskset
 SELFTEST_CFG = """CONFIG_KERNEL_DEVMEM=y
 CONFIG_BUSYBOX_CUSTOM=y

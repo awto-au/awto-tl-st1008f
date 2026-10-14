@@ -1,0 +1,102 @@
+From: awto-tl-st1008f
+Subject: [PATCH] net: pcs: rtl-otto: 930x: defer 10GBASE-R RX calibration until there is a signal (#125)
+
+post_config calibrated whatever was on the input. With the partner dark (laser off, partner port down)
+the calibration ends at vth_p/vth_n 7 and tap0 31 and the port never links when the partner lights:
+sw2 DAC lan3 <-> lan4, lan3 brought up first, 4/4 stuck; with a signal 1/1 and 15, link in 0.07 s.
+The Realtek SDK skips calibration when RX is idle. Do the same and calibrate from a delayed work as
+soon as the RX-idle bit shows a signal (polled once a second).
+---
+--- a/drivers/net/pcs/pcs-rtl-otto.c
++++ b/drivers/net/pcs/pcs-rtl-otto.c
+@@ -12,6 +12,7 @@
+ #include <linux/phylink.h>
+ #include <linux/platform_device.h>
+ #include <linux/property.h>
++#include <linux/workqueue.h>
+ #include <linux/regmap.h>
+ 
+ #define RTPCS_SDS_CNT				14
+@@ -477,6 +478,10 @@
+ 	u8 id;
+ 	u8 num_of_links;
+ 	bool first_start;
++	/* 10GBASE-R RX calibration deferred until the input carries a signal (930x, #125) */
++	struct delayed_work cal_work;
++	enum rtpcs_sds_mode cal_mode;
++	bool cal_pending;
+ };
+ 
+ struct rtpcs_ctrl {
+@@ -3229,15 +3234,11 @@
+ 	return rtpcs_930x_sds_tx_config(sds, hw_mode, tx_cfg);
+ }
+ 
+-static int rtpcs_930x_sds_post_config(struct rtpcs_serdes *sds, enum rtpcs_sds_mode hw_mode)
++static void rtpcs_930x_sds_calibrate(struct rtpcs_serdes *sds, enum rtpcs_sds_mode hw_mode)
+ {
+ 	bool calib_failed;
+ 	int calib_tries = 0;
+ 
+-	if (hw_mode == RTPCS_SDS_MODE_QSGMII)
+-		return 0;
+-
+-	rtpcs_930x_sds_10g_idle(sds);
+ 	do {
+ 		rtpcs_930x_sds_do_rx_calibration(sds, hw_mode);
+ 		calib_tries++;
+@@ -3246,6 +3247,46 @@
+ 	} while (calib_failed && calib_tries < 3);
+ 	if (calib_failed)
+ 		dev_warn(sds->ctrl->dev, "SerDes %u: RX calibration failed\n", sds->id);
++}
++
++/*
++ * 10GBASE-R with no RX signal at config: calibrating on noise leaves vth/tap0 at their limits and the
++ * port never links once the partner lights (#125; the SDK skips calibration when idle too). Poll the
++ * RX-idle bit once a second (one 10 ms check) and calibrate when the signal is there.
++ */
++#define RTPCS_CAL_POLL_MS	1000
++
++static void rtpcs_930x_sds_cal_work(struct work_struct *work)
++{
++	struct rtpcs_serdes *sds = container_of(to_delayed_work(work), struct rtpcs_serdes, cal_work);
++
++	guard(mutex)(&sds->ctrl->lock);
++	if (!sds->cal_pending || sds->hw_mode != sds->cal_mode)
++		return;
++	if (rtpcs_930x_sds_10g_idle(sds) == -ETIMEDOUT) {
++		schedule_delayed_work(&sds->cal_work, msecs_to_jiffies(RTPCS_CAL_POLL_MS));
++		return;
++	}
++	sds->cal_pending = false;
++	rtpcs_930x_sds_calibrate(sds, sds->cal_mode);
++	dev_info(sds->ctrl->dev, "SerDes %u: RX signal present, calibrated\n", sds->id);
++}
++
++static int rtpcs_930x_sds_post_config(struct rtpcs_serdes *sds, enum rtpcs_sds_mode hw_mode)
++{
++	if (hw_mode == RTPCS_SDS_MODE_QSGMII)
++		return 0;
++
++	sds->cal_pending = false;
++	if (rtpcs_930x_sds_10g_idle(sds) == -ETIMEDOUT && hw_mode == RTPCS_SDS_MODE_10GBASER) {
++		sds->cal_mode = hw_mode;
++		sds->cal_pending = true;
++		dev_info(sds->ctrl->dev, "SerDes %u: no RX signal, calibration deferred until there is one\n",
++			 sds->id);
++		schedule_delayed_work(&sds->cal_work, msecs_to_jiffies(RTPCS_CAL_POLL_MS));
++		return 0;
++	}
++	rtpcs_930x_sds_calibrate(sds, hw_mode);
+ 
+ 	return 0;
+ }
+@@ -3256,6 +3297,7 @@
+ 	struct regmap *map = sds->ctrl->map;
+ 	u8 id = sds->id;
+ 
++	INIT_DELAYED_WORK(&sds->cal_work, rtpcs_930x_sds_cal_work);
+ 	if (id < 2)
+ 		sds->type = RTPCS_SDS_TYPE_5G;
+ 	else if (id <= 9)

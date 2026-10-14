@@ -109,3 +109,13 @@ Found while porting: `rtk sdsreg get <x> <sds> <page>` (one argument short) dere
 
 - Far-end loopback (no register known). Square-wave test pattern (SDK has it; no use found).
 - Linux: a debugfs equivalent for the 7.3 port (#74).
+
+## RX calibration with no input signal (Linux, #125)
+
+- `pcs-rtl-otto.c` post_config calibrates RX (vth, tap0) once per mode change. With the partner dark, the old code calibrated anyway: the values end at the limits and the port never links once the partner lights.
+- Measured sw2, 2026-10-14T21:07-22:36+11:00, DAC lan3 <-> lan4 (SerDes 4/5), both out of the bridge, `./dev.py sds-cal-test` (debug via DYNAMIC_DEBUG):
+  - lan3 up first (no signal): SerDes 4 `vth_p = 7, vth_n = 7`, `tap0 even coefficient = 31`; lan3 never linked within 10 s of lan4 up, 4/4.
+  - lan4 calibrated with lan3's signal: `vth 1/1`, `tap0 15`, link 0.07 s after config.
+  - lan4 up first: both linked, 3/3 (SerDes 5 recovers; not explained).
+- Fix `openwrt/patches/300-34` (SDK behaviour: skip when idle): 10GBASE-R with no signal at config -> calibration deferred; a delayed work checks the RX-idle bit once a second (one 10 ms check) and calibrates when a signal appears. 2026-10-14T22:43-22:45: lan3 first 2/2 linked (SerDes 4 calibrated to vth 2/2 0.5 s after lan4 up), lan4 first 1/1; boot-link-check 6/6, check-log clean.
+- At boot it also catches the natural case: SerDes 8 (lan7) deferred at 20.7 s, calibrated at 22.6 s when lan8 lit.
