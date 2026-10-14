@@ -112,9 +112,9 @@ Found while porting: `rtk sdsreg get <x> <sds> <page>` (one argument short) dere
 
 ## RX calibration with no input signal (Linux, #125)
 
-- `pcs-rtl-otto.c` post_config calibrates RX (vth, tap0) once per mode change. With the partner dark, the old code calibrated anyway: the values end at the limits and the port never links once the partner lights.
+- `pcs-rtl-otto.c` post_config calibrates RX (vth, tap0) once per mode change. With the partner dark, the old code calibrated anyway: adaptation never runs, the init seeds get locked in, and the port never links once the partner lights.
 - Measured sw2, 2026-10-14T21:07-22:36+11:00, DAC lan3 <-> lan4 (SerDes 4/5), both out of the bridge, `./dev.py sds-cal-test` (debug via DYNAMIC_DEBUG):
-  - lan3 up first (no signal): SerDes 4 `vth_p = 7, vth_n = 7`, `tap0 even coefficient = 31`; lan3 never linked within 10 s of lan4 up, 4/4.
+  - lan3 up first (no signal): SerDes 4 `vth_p = 7, vth_n = 7`, `tap0 even coefficient = 31` (= the init seeds, never adapted); lan3 never linked within 10 s of lan4 up, 4/4.
   - lan4 calibrated with lan3's signal: `vth 1/1`, `tap0 15`, link 0.07 s after config.
   - lan4 up first: both linked, 3/3 (SerDes 5 recovers; not explained).
 - Fix `openwrt/patches/300-34` (SDK behaviour: skip when idle): 10GBASE-R with no signal at config -> calibration deferred; a delayed work checks the RX-idle bit once a second (one 10 ms check) and calibrates when a signal appears. 2026-10-14T22:43-22:45: lan3 first 2/2 linked (SerDes 4 calibrated to vth 2/2 0.5 s after lan4 up), lan4 first 1/1; boot-link-check 6/6, check-log clean.
@@ -126,4 +126,6 @@ Found while porting: `rtk sdsreg get <x> <sds> <page>` (one argument short) dere
 - Commands: `rd S P R`, `wr S P R V`, `link S` (3.32.12), `symerr S` (3.33 decoded), `rxeq S` (vth, tap0, manual bits), `idle S` (RX signal), `readapt S` (VTH/TAP0 adapt + lock, DFE adapt), `cal S` (full RX calibration in the current mode). SerDes N = lanN-1.
 - `--raw`: devmem path for kernels without 300-35 (rd/wr/rxeq/readapt only), NOT locked: refuses while a port of the SerDes pair has carrier unless `--force`. 2026-10-14T22:53+11:00 an unlocked `rxeq 2` on sw2 took the live lan1 down (interleaved with the 300-34 worker on SerDes 3).
 - Proof, sw2 2026-10-14T23:09+11:00 (`./dev.py sds-cal-test --dark-cal`): lan3 up with lan4 dark, `cal 4` -> vth 7/7, tap0 31; lan4 up -> lan3 no carrier for 10 s; `readapt 4` -> vth 3/3, tap0 20, lan3 carrier within 1 s.
-- vth 7/7 alone is not the failure signature: live lan1 (SerDes 2) linked with vth 7/7, tap0 0. tap0 31 (top of the 5-bit range) is.
+- Ranges (pcs-rtl-otto.c 6.18): vth_p, vth_n 3 bits each, 0-7 (readout WDIG 0x14 [2:0]/[5:3], value ANA_10G 0x13 [5:3]/[2:0], floor `vth_min` 1 in ANA_10G_EXT 0x0b [5:3]); tap0 sign-magnitude, 5-bit magnitude + sign = -31..+31 (ANA_10G_EXT 0x03 [5:0]).
+- The stuck values are the seeds, not noise: `rtpcs_930x_sds_rxcal_init` loads vth 7/7 and tap0 0x1f = 31, both the all-ones maximum. With no input the adapt engine never moves them, and the lock step writes back the unchanged seeds as manual values. Signature = vth 7/7 and tap0 31 together; vth 7/7 alone occurs on a good link (sw2 lan1: vth 7/7, tap0 0).
+- Adapted values seen on good links (sw2, 2026-10-14): SerDes 5 vth 1/1 tap0 15; SerDes 4 deferred cal vth 2/2; SerDes 4 readapt vth 3/3 tap0 20; SerDes 2 vth 7/7 tap0 0.
