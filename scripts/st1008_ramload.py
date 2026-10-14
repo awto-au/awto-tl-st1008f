@@ -210,6 +210,7 @@ PROMPTS = (  # (pattern of the prompt the board shows, reboot command)
     (r"root@[^:\s]*:[^#\n]*# $", "reboot"),       # OpenWrt: clean shutdown (overlay)
     (r"st1008f-mainline # $", "reset"),            # our U-Boot
     (r"RTL9300#[ #]*$", "reset"),                  # stock U-Boot (its CR echo can add a "#")
+    (r"^[~/][^#\n]* # $", "reboot -f"),            # bare BusyBox shell (init=/bin/sh, #138 hang-test)
 )
 PROBE_S = 1     # prompt redraw after a CR: one line at 115200, ms; 1 s names a hung / fast-baud console
 SOFT_S = 12     # reboot -> stock banner: OpenWrt shutdown ~5 s (#105) + banner ~2.5 s; x1.25 + slack

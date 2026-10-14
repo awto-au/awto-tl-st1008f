@@ -143,6 +143,29 @@ def boot() -> int:
     return 0
 
 
+HANG_RESET_S = 60  # init=/bin/sh: wdt registers ~1 s after bootm+LZMA (~9 s), open_timeout 5 + HW 30 s; ~45 s x1.25
+
+
+def hang_test(slot: str) -> int:
+    """#138: boot `slot` with init=/bin/sh (nothing opens /dev/watchdog): the kernel must stop feeding the
+    SoC watchdog after watchdog.open_timeout and the board must reset by itself, then boot normally."""
+    prompt()
+    con = Console()
+    addr = {"a": "0xb4300000", "b": "0xb5180000"}[slot]
+    con.run(f"setenv bootargs st1008f.slot={slot} init=/bin/sh", OURS_PROMPT, 1, "bootargs init=/bin/sh")
+    # the ESC prompt disarms the SoC watchdog; an unattended boot always has it armed (bootsel fast)
+    con.run("bootsel wdt on", OURS_PROMPT, 1, "SoC watchdog armed as for autoboot")
+    mark = con.size()
+    con.send(f"bootm {addr}")
+    con.expect(r"Run /bin/sh as init process", 30, mark, "kernel reached init=/bin/sh", boot_ok=True)
+    t0 = time.monotonic()
+    con.expect(r"U-Boot 2011\.12", HANG_RESET_S, mark, "SoC watchdog reset with no userspace watchdog", boot_ok=True)
+    log(f"  reset {time.monotonic() - t0:.0f} s after /bin/sh started (kernel stops feeding at open_timeout)")
+    con.expect(OW_READY, 60, mark, "normal boot after the reset", boot_ok=True)
+    log("PASS hang-test: a hang before procd resets the board, next boot normal")
+    return 0
+
+
 def prompt() -> int:
     """Power cycle with the saved chain; ESC in our 2 s window (#46) -> our prompt."""
     con = Console()
@@ -258,7 +281,8 @@ def env_ssh(ip: str, mode: str, profile: str | None, allow_fallback: bool) -> in
 
 def main() -> int:
     ap = argparse.ArgumentParser(description=__doc__.splitlines()[0])
-    ap.add_argument("mode", choices=["test", "test-bad", "apply", "revert", "boot", "prompt", "set-mac", "turbo"])
+    ap.add_argument("mode", choices=["test", "test-bad", "apply", "revert", "boot", "prompt", "set-mac", "turbo", "hang-test"])
+    ap.add_argument("--slot", choices=["a", "b"], default="b", help="hang-test: slot to boot with init=/bin/sh")
     ap.add_argument("args", nargs="*", help="set-mac: [MAC] (default random, locally administered); "
                     "turbo: show | set PROFILE")
     ap.add_argument("--allow-fallback", action="store_true",
@@ -287,6 +311,8 @@ def main() -> int:
         return boot()
     if a.mode == "prompt":
         return prompt()
+    if a.mode == "hang-test":
+        return hang_test(a.slot)
     if a.mode == "set-mac":
         mac = pick_mac(a.mac)
         flash_guard.check_range(0xE0000, 0x20000, "uboot-chain-env set-mac")

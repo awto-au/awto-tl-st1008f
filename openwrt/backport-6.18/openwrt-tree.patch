@@ -2,6 +2,7 @@ OpenWrt-tree overlay for TL-ST1008F v2 (#73), applied by scripts/build_openwrt.p
 - DTS: gpio-keys M1/M2/M3 -> mode-switch node (300-06, cage@N children); spi0 dirmap window (300-07);
   gpio0 applies pinmux_disable_spi0* (cage presence GPIO3-7, #29); eth0 MAC from u-boot-env ethaddr via nvmem (#86);
   3V3 fixed regulator as vcc-supply of spi-nor + pca9534 (#124);
+  chosen bootargs + watchdog.open_timeout=5 (#138);
   A/B layout (#117): jffs2-log 0xf0000 + bootstate 64 KiB, firmware_a / firmware_b 14.5 MiB with openwrt,cmdline-match
 - image/rtl930x.mk: IMAGE_SIZE 14848k (one slot), DEVICE_COMPAT_VERSION 2.0 (1.0 = one 29 MiB firmware)
 - base-files platform.sh: tl-st1008f-v2 -> st1008f_ab_upgrade (writes the inactive slot, linkcheck files);
@@ -38,7 +39,7 @@ index 5b4468b..5973052 100644
  	zyxel,xmg1915-10e|\
  	zyxel,xmg1915-10ep|\
 diff --git a/target/linux/realtek/dts/rtl9303_tplink_tl-st1008f-v2.dts b/target/linux/realtek/dts/rtl9303_tplink_tl-st1008f-v2.dts
-index d11a6fd..2feabbe 100644
+index d11a6fd..df7ba48 100644
 --- a/target/linux/realtek/dts/rtl9303_tplink_tl-st1008f-v2.dts
 +++ b/target/linux/realtek/dts/rtl9303_tplink_tl-st1008f-v2.dts
 @@ -2,7 +2,6 @@
@@ -65,8 +66,13 @@ index d11a6fd..2feabbe 100644
  	memory@0 {
  		device_type = "memory";
  		reg = <0x00000000 0x10000000>, /* first 256 MiB */
-@@ -20,31 +28,46 @@
+@@ -18,33 +26,51 @@
+ 
+ 	chosen {
  		stdout-path = "serial0:115200n8";
++		/* open_timeout: the kernel stops feeding the running SoC watchdog if procd has not opened it
++		 * 5 s after registration, so a hang before procd resets the board (#138; sizing in DEFAULT-BOOT.md) */
++		bootargs = "earlycon watchdog.open_timeout=5";
  	};
  
 -	keys {
@@ -134,7 +140,7 @@ index d11a6fd..2feabbe 100644
  		};
  	};
  
-@@ -69,6 +92,7 @@
+@@ -69,6 +95,7 @@
  		gpioexp0: i2c@38 {
  			reg = <0x38>;
  			compatible = "nxp,pca9534";
@@ -142,7 +148,7 @@ index d11a6fd..2feabbe 100644
  			gpio-controller;
  			#gpio-cells = <2>;
  		};
-@@ -185,11 +209,25 @@
+@@ -185,11 +212,25 @@
  	};
  };
  
@@ -168,7 +174,7 @@ index d11a6fd..2feabbe 100644
  		reg = <0>;
  		spi-max-frequency = <100000000>;
  
-@@ -207,6 +245,15 @@
+@@ -207,6 +248,15 @@
  			partition@e0000 {
  				label = "u-boot-env";
  				reg = <0xe0000 0x10000>;
@@ -184,7 +190,7 @@ index d11a6fd..2feabbe 100644
  			};
  
  			partition@f0000 {
-@@ -220,16 +267,34 @@
+@@ -220,16 +270,34 @@
  				reg = <0x100000 0x100000>;
  			};
  
@@ -222,7 +228,7 @@ index d11a6fd..2feabbe 100644
  			};
  		};
  	};
-@@ -276,3 +341,8 @@
+@@ -276,3 +344,8 @@
  		};
  	};
  };
