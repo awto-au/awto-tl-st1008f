@@ -70,6 +70,7 @@ KERNEL_PATCHES = {
     "300-32-jffs2-skip-erase-of-blank-blocks.patch": OURS,  # #114: first boot after sysupgrade
     "300-33-mtdsplit-uimage-cmdline-match.patch": OURS,  # #117: split only the booted A/B slot
     "300-34-net-pcs-rtl-otto-defer-calibration-until-signal.patch": OURS,  # #125
+    "300-35-net-pcs-rtl-otto-debugfs-sds.patch": OURS,  # #136: st1008f-sds through the driver
 }
 TREE_PATCH = BACKPORT / "openwrt-tree.patch"
 # --parked: untested candidates from openwrt/patches-parked, 6.18 only; name -> OpenWrt patch dir

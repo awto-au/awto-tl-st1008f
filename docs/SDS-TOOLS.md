@@ -119,3 +119,11 @@ Found while porting: `rtk sdsreg get <x> <sds> <page>` (one argument short) dere
   - lan4 up first: both linked, 3/3 (SerDes 5 recovers; not explained).
 - Fix `openwrt/patches/300-34` (SDK behaviour: skip when idle): 10GBASE-R with no signal at config -> calibration deferred; a delayed work checks the RX-idle bit once a second (one 10 ms check) and calibrates when a signal appears. 2026-10-14T22:43-22:45: lan3 first 2/2 linked (SerDes 4 calibrated to vth 2/2 0.5 s after lan4 up), lan4 first 1/1; boot-link-check 6/6, check-log clean.
 - At boot it also catches the natural case: SerDes 8 (lan7) deferred at 20.7 s, calibrated at 22.6 s when lan8 lit.
+
+## Linux: st1008f-sds (#136)
+
+- `openwrt/linkcheck/files/usr/sbin/st1008f-sds` on every image. With `openwrt/patches/300-35` it goes through debugfs `/sys/kernel/debug/rtl-otto-pcs/sds` (write a command, read the reply), under the PCS driver's lock; each command is logged (`debugfs sds: ...`).
+- Commands: `rd S P R`, `wr S P R V`, `link S` (3.32.12), `symerr S` (3.33 decoded), `rxeq S` (vth, tap0, manual bits), `idle S` (RX signal), `readapt S` (VTH/TAP0 adapt + lock, DFE adapt), `cal S` (full RX calibration in the current mode). SerDes N = lanN-1.
+- `--raw`: devmem path for kernels without 300-35 (rd/wr/rxeq/readapt only), NOT locked: refuses while a port of the SerDes pair has carrier unless `--force`. 2026-10-14T22:53+11:00 an unlocked `rxeq 2` on sw2 took the live lan1 down (interleaved with the 300-34 worker on SerDes 3).
+- Proof, sw2 2026-10-14T23:09+11:00 (`./dev.py sds-cal-test --dark-cal`): lan3 up with lan4 dark, `cal 4` -> vth 7/7, tap0 31; lan4 up -> lan3 no carrier for 10 s; `readapt 4` -> vth 3/3, tap0 20, lan3 carrier within 1 s.
+- vth 7/7 alone is not the failure signature: live lan1 (SerDes 2) linked with vth 7/7, tap0 0. tap0 31 (top of the 5-bit range) is.

@@ -58,6 +58,9 @@ def main() -> int:
     ap.add_argument("--second", default="lan4")
     ap.add_argument("--reboot", action="store_true", help="chain-boot sw2 first (fresh, unconfigured SerDes)")
     ap.add_argument("--ip", default=BENCH_IP)
+    ap.add_argument("--dark-cal", action="store_true",
+                    help="300-34/35 kernels: force a calibration of FIRST in the dark (debugfs `cal`), then try "
+                         "`readapt` once SECOND is up (#136)")
     a = ap.parse_args()
     f, s = a.first, a.second
     sds = {p: int(p[3:]) + 1 for p in (f, s)}  # cage N = lanN = SerDes N+1
@@ -79,21 +82,33 @@ def main() -> int:
     ssh(a.ip, "c=/sys/kernel/debug/dynamic_debug/control; [ -w $c ] && echo 'file pcs-rtl-otto.c +p' > $c || true")
     out = ssh(a.ip, f"ip link set {f} up; sleep {ALONE_S}; echo ALONE $(cat /sys/class/net/{f}/carrier)", ALONE_S)
     alone = re.search(r"ALONE (\d)", out)
+    if a.dark_cal:  # what the pre-300-34 driver did: calibrate with the partner dark
+        log("  dark cal: " + ssh(a.ip, f"st1008f-sds cal {sds[f]}", 5).strip())
     poll = (f"ip link set {s} up; i=0; while [ $i -lt {WATCH_S} ]; do sleep 1; i=$((i+1)); "
             f"echo T $i $(cat /sys/class/net/{f}/carrier) $(cat /sys/class/net/{s}/carrier); done")
     out = ssh(a.ip, poll, WATCH_S)
     rows = re.findall(r"T (\d+) (\d) (\d)", out)
     t_f = next((int(t) for t, cf, _ in rows if cf == "1"), None)
     t_s = next((int(t) for t, _, cs in rows if cs == "1"), None)
+    if a.dark_cal and t_f is None:
+        log("  readapt: " + ssh(a.ip, f"st1008f-sds readapt {sds[f]}", 5).strip())
+        out = ssh(a.ip, f"i=0; while [ $i -lt {WATCH_S} ]; do sleep 1; i=$((i+1)); "
+                        f"[ $(cat /sys/class/net/{f}/carrier) = 1 ] && break; done; echo AFTER $i "
+                        f"$(cat /sys/class/net/{f}/carrier)", WATCH_S)
+        m = re.search(r"AFTER (\d+) (\d)", out)
+        log(f"  after readapt: {f} carrier {m[2] if m else '?'} ({m[1] if m else '?'} s)")
+        if m and m[2] == "1":
+            t_f = -1  # recovered: reported below
     dm = ssh(a.ip, f"dmesg | grep -E '{f}:|{s}:|SerDes ({sds[f]}|{sds[s]})[: ]' | tail -12")
     ssh(a.ip, f"ip link set {f} down; ip link set {s} down")
     log(f"  {f} alone {ALONE_S} s: carrier {alone[1] if alone else '?'}")
-    log(f"  after {s} up: {f} carrier at {t_f if t_f else f'never ({WATCH_S} s)'} s, "
+    log(f"  after {s} up: {f} carrier at {t_f if t_f and t_f > 0 else f'never ({WATCH_S} s)'} s, "
         f"{s} carrier at {t_s if t_s else f'never ({WATCH_S} s)'} s")
     log("  dmesg: " + " | ".join(ln.strip() for ln in dm.splitlines()))
     stuck = t_f is None and t_s is not None
-    log(f"result: {'DARK-CALIBRATED PORT STUCK' if stuck else 'both linked' if t_f and t_s else 'other'} "
-        f"({f} first)")
+    verdict = ("DARK-CALIBRATED PORT STUCK, RECOVERED BY READAPT" if t_f == -1 else
+               "DARK-CALIBRATED PORT STUCK" if stuck else "both linked" if t_f and t_s else "other")
+    log(f"result: {verdict} ({f} first)")
     return 0
 
 

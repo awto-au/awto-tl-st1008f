@@ -405,7 +405,7 @@ def cmd_boot_link_check(extra: list[str]) -> int:
 
 
 @command("SerDes calibrated with no signal: does it link when the partner lights? sw2 loop pair (#125)",
-         args="[--first lanX] [--second lanY] [--reboot]", kind="hardware")
+         args="[--first lanX] [--second lanY] [--reboot] [--dark-cal]", kind="hardware")
 def cmd_sds_cal_test(extra: list[str]) -> int:
     return _script("sds_cal_test.py", extra)
 

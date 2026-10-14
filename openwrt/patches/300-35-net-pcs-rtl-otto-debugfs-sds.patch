@@ -1,0 +1,166 @@
+From: awto-tl-st1008f
+Subject: [PATCH] net: pcs: rtl-otto: debugfs SerDes access and RX calibration (#136)
+
+rtl-otto-pcs/sds: write a command, read the reply; runs under ctrl->lock, so it cannot interleave with
+the driver's indirect SerDes accesses (an unlocked devmem readout took a live port down).
+rd/wr/link/symerr for any family; rxeq, idle, readapt (VTH/TAP0 adapt + lock, DFE adapt) and cal
+(full RX calibration) on RTL930x. Each command is logged with dev_info.
+---
+--- a/drivers/net/pcs/pcs-rtl-otto.c
++++ b/drivers/net/pcs/pcs-rtl-otto.c
+@@ -1,6 +1,8 @@
+ // SPDX-License-Identifier: GPL-2.0-or-later
+ 
+ #include <linux/bitfield.h>
++#include <linux/debugfs.h>
++#include <linux/uaccess.h>
+ #include <linux/delay.h>
+ #include <linux/mdio.h>
+ #include <linux/mfd/syscon.h>
+@@ -491,6 +492,7 @@
+ 	const struct rtpcs_config *cfg;
+ 	struct rtpcs_serdes serdes[RTPCS_SDS_CNT];
+ 	struct mutex lock;
++	char dbg_out[256];	/* last debugfs `sds` reply (#136) */
+ 
+ 	/* meaning and source may be family-specific */
+ 	enum rtpcs_chip_version chip_version;
+@@ -4631,6 +4633,130 @@
+ 	return &sds->link[link_idx]->pcs;
+ }
+ 
++/*
++ * debugfs rtl-otto-pcs/sds (#136, docs/SDS-TOOLS.md): write one command, read the reply. Every command
++ * runs under ctrl->lock, so it never interleaves with the driver's indirect SerDes accesses.
++ *   rd S P R | wr S P R V | link S | symerr S   (any family)
++ *   rxeq S | readapt S | cal S | idle S          (RTL930x)
++ */
++static const struct rtpcs_sds_ops rtpcs_930x_sds_ops;
++
++static int rtpcs_dbg_930x_rxeq(struct rtpcs_serdes *sds, char *out, size_t len)
++{
++	unsigned int vth_p, vth_n;
++	int tap0, ret;
++
++	ret = rtpcs_930x_sds_rxeq_vth_get(sds, &vth_p, &vth_n);
++	if (!ret)
++		ret = rtpcs_930x_sds_rxeq_tap_get(sds, 0, &tap0, NULL);
++	if (ret)
++		return ret;
++	scnprintf(out, len, "SerDes %u: vth_p %u vth_n %u (manual %d), tap0 %d (manual %d)\n", sds->id,
++		  vth_p, vth_n, rtpcs_sds_read_bits(sds, PAGE_ANA_10G, 0x0f, 13, 13), tap0,
++		  rtpcs_sds_read_bits(sds, PAGE_ANA_10G, 0x0f, 7, 7));
++	return 0;
++}
++
++static int rtpcs_dbg_run(struct rtpcs_ctrl *ctrl, char *cmd)
++{
++	char *out = ctrl->dbg_out, op[12];
++	size_t len = sizeof(ctrl->dbg_out);
++	unsigned int s, p, r, v;
++	struct rtpcs_serdes *sds;
++	int n, a, b;
++
++	n = sscanf(cmd, "%11s %u %i %i %i", op, &s, &p, &r, &v);
++	if (n < 2 || s >= ctrl->cfg->serdes_count)
++		return -EINVAL;
++	sds = &ctrl->serdes[s];
++	if (!strcmp(op, "rd") && n == 4) {
++		a = rtpcs_sds_read(sds, p, r);
++		if (a < 0)
++			return a;
++		scnprintf(out, len, "SerDes %u page 0x%02x reg 0x%02x = 0x%04x\n", s, p, r, a);
++		return 0;
++	}
++	if (!strcmp(op, "wr") && n == 5) {
++		a = rtpcs_sds_write(sds, p, r, v);
++		scnprintf(out, len, "SerDes %u page 0x%02x reg 0x%02x <- 0x%04x: %d\n", s, p, r, v, a);
++		return a;
++	}
++	if (!strcmp(op, "link")) {	/* 3.32.12 PCS receive link: read twice (latched) */
++		rtpcs_sds_read(sds, PAGE_TGR_STD_1, 0);
++		a = rtpcs_sds_read_bits(sds, PAGE_TGR_STD_1, 0, 12, 12);
++		scnprintf(out, len, "SerDes %u: PCS receive link %d (mode %d)\n", s, a, sds->hw_mode);
++		return a < 0 ? a : 0;
++	}
++	if (!strcmp(op, "symerr")) {	/* 3.33: block lock / high BER latches, BER count, errored blocks */
++		a = rtpcs_sds_read(sds, PAGE_TGR_STD_1, 1);
++		b = rtpcs_sds_read(sds, PAGE_TGR_STD_1, 1);
++		if (a < 0 || b < 0)
++			return -EIO;
++		scnprintf(out, len, "SerDes %u: 3.33 0x%04x then 0x%04x: block lock %lu, high BER %lu, "
++			  "BER count %lu, errored blocks %lu\n", s, a, b, FIELD_GET(BIT(15), b),
++			  FIELD_GET(BIT(14), b), FIELD_GET(GENMASK(13, 8), b), FIELD_GET(GENMASK(7, 0), b));
++		return 0;
++	}
++	if (sds->ops != &rtpcs_930x_sds_ops)
++		return -EOPNOTSUPP;
++	if (!strcmp(op, "rxeq"))
++		return rtpcs_dbg_930x_rxeq(sds, out, len);
++	if (!strcmp(op, "idle")) {
++		a = rtpcs_930x_sds_10g_idle(sds);
++		scnprintf(out, len, "SerDes %u: %s\n", s, a == -ETIMEDOUT ? "RX idle (no signal)" :
++			  a ? "error" : "RX signal");
++		return a == -ETIMEDOUT ? 0 : a;
++	}
++	if (!strcmp(op, "readapt")) {	/* the driver's VTH/TAP0 adapt + lock, then DFE taps adapt */
++		rtpcs_930x_sds_rxcal_vth_tap0_adapt_lock(sds);
++		rtpcs_930x_sds_rxeq_dfe_taps_adapt(sds);
++		return rtpcs_dbg_930x_rxeq(sds, out, len);
++	}
++	if (!strcmp(op, "cal")) {	/* full RX calibration in the current mode */
++		if (sds->hw_mode == RTPCS_SDS_MODE_OFF)
++			return -ENOTCONN;
++		sds->cal_pending = false;
++		rtpcs_930x_sds_calibrate(sds, sds->hw_mode);
++		return rtpcs_dbg_930x_rxeq(sds, out, len);
++	}
++	return -EINVAL;
++}
++
++static ssize_t rtpcs_dbg_write(struct file *f, const char __user *ubuf, size_t count, loff_t *ppos)
++{
++	struct rtpcs_ctrl *ctrl = f->private_data;
++	char cmd[64];
++	int ret;
++
++	if (count >= sizeof(cmd))
++		return -EINVAL;
++	if (copy_from_user(cmd, ubuf, count))
++		return -EFAULT;
++	cmd[count] = 0;
++	guard(mutex)(&ctrl->lock);
++	ctrl->dbg_out[0] = 0;
++	ret = rtpcs_dbg_run(ctrl, cmd);
++	if (ret)
++		scnprintf(ctrl->dbg_out, sizeof(ctrl->dbg_out), "error %d\n", ret);
++	dev_info(ctrl->dev, "debugfs sds: %s -> %s", strim(cmd), ctrl->dbg_out);
++	return ret ? ret : count;
++}
++
++static ssize_t rtpcs_dbg_read(struct file *f, char __user *ubuf, size_t count, loff_t *ppos)
++{
++	struct rtpcs_ctrl *ctrl = f->private_data;
++
++	guard(mutex)(&ctrl->lock);
++	return simple_read_from_buffer(ubuf, count, ppos, ctrl->dbg_out, strlen(ctrl->dbg_out));
++}
++
++static const struct file_operations rtpcs_dbg_fops = {
++	.open = simple_open,
++	.read = rtpcs_dbg_read,
++	.write = rtpcs_dbg_write,
++	.llseek = default_llseek,
++};
++
+ static int rtpcs_probe(struct platform_device *pdev)
+ {
+ 	struct device_node *np = pdev->dev.of_node;
+@@ -4713,6 +4839,7 @@
+ 			return dev_err_probe(dev, PTR_ERR(provider), "Failed to add PCS provider\n");
+ 	}
+ 
++	debugfs_create_file("sds", 0600, debugfs_create_dir("rtl-otto-pcs", NULL), ctrl, &rtpcs_dbg_fops);
+ 	dev_info(dev, "Realtek PCS driver initialized\n");
+ 	return 0;
+ }

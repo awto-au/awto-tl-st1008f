@@ -5,6 +5,7 @@
 #   st1008f-sds rxeq SDS                 vth_p/vth_n, tap0, manual bits (10GBASE-R RX equaliser)
 #   st1008f-sds readapt SDS              rerun VTH/TAP0 adapt + lock, then DFE taps adapt (driver's
 #                                        rxcal_vth_tap0_adapt_lock): recovers a port calibrated in the dark
+#   with 300-35 also: link SDS | symerr SDS | idle SDS | cal SDS (full RX calibration); --raw = devmem path
 # SerDes N = cage N-1 = lanN-1 (lan3 = SerDes 4). Raw devmem, NOT locked against the kernel driver (#136:
 # took sw2 lan1 down 2026-10-14): refuses while a port of the SerDes pair has carrier, unless --force.
 # Indirect access: CMD 0x1b0003b0 (sds<<2 | page<<7 | reg<<13 | busy | write<<1), DATA 0x1b0003b4;
@@ -75,6 +76,19 @@ readapt() {
 	rxeq "$1"
 }
 
+# kernel with 300-35: every command through the driver (locked against its own SerDes accesses)
+F=/sys/kernel/debug/rtl-otto-pcs/sds
+if [ -w $F ] && [ "$1" != --raw ]; then
+	case "$1" in
+	rd|wr|link|symerr|rxeq|idle|readapt|cal) ;;
+	*) sed -n '2,7s/^# //p' "$0" >&2; exit 2 ;;
+	esac
+	[ "$1" = readapt ] || [ "$1" = cal ] && logger -t st1008f-sds "$*"
+	echo "$*" > $F || { cat $F >&2; exit 1; }
+	cat $F
+	exit 0
+fi
+[ "$1" = --raw ] && shift
 command -v devmem >/dev/null || die "no devmem in this image"
 FORCE=0
 [ "$1" = --force ] && { FORCE=1; shift; }
