@@ -356,10 +356,14 @@ Conditions: mainline next-20261009 + series through 300-35 (`awto/st1008f/next-2
 | `mainline-20261015` | 528 | 76.5 (0.1 %) | 110.8 |
 | `pt-loop-off` (300-26 handlers unregistered) | 534 | - | 111.1 |
 | `qdisc-noqueue` (eth0 `noqueue` instead of `mq`/`pfifo_fast`) | 544 | 75.8 (1.2 %) | 113.1 |
+| `udp-gro-fwd` (`rx-udp-gro-forwarding on` on eth0, lan1, lan1.99x) | 528 | 71.4 (4.4 %) | 109.9 |
 
 - Today's patches (300-29 .. 300-35) cost nothing on the forwarding path.
 - 300-26 loop-probe handler (`ETH_P_ALL` on every user port): +1 % TCP when removed, within spread; now registered only while loop detection is on.
 - eth0 `noqueue`: -4 % CPU per packet on TCP (14,642 -> 14,055 ns), +1.5 % UDP 64 B, but UDP overload loss 0.1 -> 1.2 % (no queue behind a full TX ring). Not made the default.
+- Batching ("many packets at once") already in place: NAPI polls up to 64 frames per IRQ (~6 IRQ/s under UDP 64 B: pure polling); TCP fraglist GRO merges ~40 packets so the stack + flowtable run once per merged skb; TX `xmit_more` + one doorbell per <= 16 frames (300-12, < 0.2 MMIO per frame).
+- UDP GRO for forwarding (`rx-udp-gro-forwarding`) made UDP worse (1400 B @700 offered 0.0 -> 1.7 % loss, @900 76.5 -> 71.4 kpps, 4.4 % loss; 64 B unchanged): a merged UDP skb is split again before TX, the per-packet driver cost stays, and holding packets for merging makes TX burstier. Off (kernel default).
+- What stays per packet: descriptor + DMA map/unmap + cache maintenance (~6 %), CPU tag, TX-ring reclaim. The NIC has no interrupt-coalescing register and no checksum/TSO bits in the TX CPU tag (see 'Driver facts'), so the hardware gives no batching beyond the rings.
 
 Call graph, TCP NAT, VPE0 (`./dev.py nat-perf --test tcp-P4 --callgraph`, inclusive %):
 - `rteth_poll_rx` (driver RX) 26.4; `gro_cell_poll` (second GRO pass, DSA user port) 68.6; `dev_gro_receive` 40.3.
