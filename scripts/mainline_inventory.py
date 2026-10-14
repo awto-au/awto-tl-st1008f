@@ -3,7 +3,7 @@
 
 Inputs (both under tmp/, gitignored):
   tmp/openwrt     sparse clone of openwrt/openwrt (target/linux/realtek, target/linux/generic)
-  tmp/linux.git   blobless bare clone of torvalds/linux (needs the --ref tag)
+  tmp/linux-store the machine Linux store, full history (kernel_base.py setup, awto-dan#50)
 Outputs: markdown tables on stdout and in tmp/logs/mainline_inventory.log
 """
 import argparse
@@ -114,7 +114,7 @@ def subject_of(patch):
 def main():
     ap = argparse.ArgumentParser()
     ap.add_argument("--openwrt", default=str(ROOT / "tmp/openwrt"))
-    ap.add_argument("--linux", default=str(ROOT / "tmp/linux.git"))
+    ap.add_argument("--linux", default=str(ROOT / "tmp/linux-store/.git"))
     ap.add_argument("--ref", default="v7.3-rc6")
     a = ap.parse_args()
     LOG.parent.mkdir(parents=True, exist_ok=True)

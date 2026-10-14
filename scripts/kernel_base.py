@@ -3,8 +3,10 @@
 
 - PIN = default base: a linux-next tag (owner 2026-10-12, docs/DECISIONS.md). FALLBACK = v7.3-rc6.
 - Select: env `KERNEL_BASE=v7.3-rc6` (or another fetched next tag) for any build command.
-- Git: one repo `tmp/linux-v7.3` (shallow; origin = torvalds tag v7.3-rc6, remote `linux-next`, depth-1
-  tag fetches). A next tag is checked out as its git worktree `tmp/linux-next`.
+- Git: the machine-wide Linux store (awto-dan#50: all upstreams as remotes, awto series as branches),
+  reached through the gitignored symlink `tmp/linux-store` (`./dev.py kernel-base setup --store PATH`).
+  Worktrees of it: `tmp/linux-next` (PIN, a next tag) and `tmp/linux-v7.3` (FALLBACK). Next tags are
+  fetched in full from remote `next` (never --depth: the store is shared and full).
 - Per-base patches: `openwrt/patches/` is the series for next; `openwrt/patches-v7.3-rc6/` holds the
   7.3 copy of every patch refreshed or dropped for next (same name = replaces; status: MAINLINE-PORT §8).
 - `./dev.py kernel-base [show | update [--tag next-YYYYMMDD] | checkout]`; update rewrites PIN below.
@@ -25,9 +27,15 @@ LOG = ROOT / "tmp/logs/kernel_base.log"
 PIN = "next-20261009"  # rewritten by `kernel-base update`
 FALLBACK = "v7.3-rc6"
 NEXT_URL = "https://git.kernel.org/pub/scm/linux/kernel/git/next/linux-next.git"
-REPO = ROOT / "tmp/linux-v7.3"
+REPO = ROOT / "tmp/linux-store"  # symlink -> the machine store (awto-dan#50); no host path in this repo
 NEXT_TREE = ROOT / "tmp/linux-next"
+FALLBACK_TREE = ROOT / "tmp/linux-v7.3"
 OURS = ROOT / "openwrt/patches"
+# 6.18-image only: they patch OpenWrt generic code a mainline tree lacks (build_openwrt.py lists them)
+OPENWRT_ONLY = {
+    "300-32-jffs2-skip-erase-of-blank-blocks.patch",  # on top of OpenWrt 532-jffs2_eofdetect
+    "300-33-mtdsplit-uimage-cmdline-match.patch",  # OpenWrt generic drivers/mtd/mtdsplit
+}
 # git.kernel.org ls-remote ~2 s, depth-1 fetch of a next tag ~300 MB at >=5 MB/s ~60 s; x1.25 rounded up
 LS_TIMEOUT, FETCH_TIMEOUT, CHECKOUT_TIMEOUT = 15, 600, 300
 
@@ -60,13 +68,13 @@ def is_next(base: str) -> bool:
 
 
 def tree(base: str | None = None) -> Path:
-    return NEXT_TREE if is_next(base or selected()) else REPO
+    return NEXT_TREE if is_next(base or selected()) else FALLBACK_TREE
 
 
 def patches(base: str | None = None) -> list[Path]:
     """Our openwrt/patches series for this base (fallback: 7.3 copies replace/add by name)."""
     base = base or selected()
-    series = {p.name: p for p in OURS.glob("*.patch")}
+    series = {p.name: p for p in OURS.glob("*.patch") if p.name not in OPENWRT_ONLY}
     if not is_next(base):
         series.update({p.name: p for p in (ROOT / f"openwrt/patches-{base}").glob("*.patch")})
     return [series[n] for n in sorted(series)]
@@ -80,33 +88,49 @@ def kernel_version(base: str | None = None) -> tuple[str, str]:
     return pv, pv + v["EXTRAVERSION"]
 
 
+def store_ok() -> None:
+    if not (REPO / ".git").exists() and not (REPO / "objects").exists():
+        sys.exit(f"{REPO.relative_to(ROOT)}: no Linux store; ./dev.py kernel-base setup --store PATH (awto-dan#50)")
+
+
 def fetch(tag: str) -> None:
+    store_ok()
     if git("tag", "-l", tag):
         return
-    if "linux-next" not in git("remote").split():
-        git("remote", "add", "--no-tags", "linux-next", NEXT_URL)
-        git("config", "--unset-all", "remote.linux-next.fetch", check=False)
-    log(f"fetch {tag} (depth 1) into {REPO.relative_to(ROOT)}")
-    git("fetch", "--depth", "1", "--no-tags", "linux-next", f"refs/tags/{tag}:refs/tags/{tag}",
+    if is_next(tag) and "next" not in git("remote").split():
+        git("remote", "add", "--no-tags", "next", NEXT_URL)
+    log(f"fetch {tag} into the store")
+    git("fetch", "--no-tags", "next" if is_next(tag) else "torvalds", f"refs/tags/{tag}:refs/tags/{tag}",
         timeout=FETCH_TIMEOUT)
 
 
 def checkout(base: str | None = None) -> Path:
-    """Tree at `base`, fetched/created if needed. Patched files are reset by the build scripts."""
+    """Worktree of the store at `base`, fetched/created if needed. Patched files are reset by the build scripts."""
     base = base or selected()
-    if not is_next(base):
-        return REPO
+    wt = tree(base)
     fetch(base)
     want = git("rev-parse", f"{base}^{{commit}}")
-    if not (NEXT_TREE / ".git").exists():
+    if not (wt / ".git").exists():
         git("worktree", "prune")
-        log(f"worktree add {NEXT_TREE.relative_to(ROOT)} @ {base}")
-        git("worktree", "add", "--detach", str(NEXT_TREE), base, timeout=CHECKOUT_TIMEOUT)
-    elif git("rev-parse", "HEAD", cwd=NEXT_TREE) != want:
-        log(f"checkout {base} in {NEXT_TREE.relative_to(ROOT)}")
-        git("checkout", "-f", "--detach", base, cwd=NEXT_TREE, timeout=CHECKOUT_TIMEOUT)
-        git("clean", "-fdq", cwd=NEXT_TREE, timeout=CHECKOUT_TIMEOUT)
-    return NEXT_TREE
+        log(f"worktree add {wt.relative_to(ROOT)} @ {base}")
+        git("worktree", "add", "--detach", str(wt), base, timeout=CHECKOUT_TIMEOUT)
+    elif git("rev-parse", "HEAD", cwd=wt) != want:
+        log(f"checkout {base} in {wt.relative_to(ROOT)}")
+        git("checkout", "-f", "--detach", base, cwd=wt, timeout=CHECKOUT_TIMEOUT)
+        git("clean", "-fdq", cwd=wt, timeout=CHECKOUT_TIMEOUT)
+    return wt
+
+
+def setup(store: str) -> None:
+    """tmp/linux-store -> the machine store; fails closed if it is not a full Linux repo."""
+    st = Path(store).expanduser().resolve()
+    if subprocess.run(["git", "-C", str(st), "rev-parse", "--is-shallow-repository"], capture_output=True,
+                      text=True).stdout.strip() != "false" or not (st / "MAINTAINERS").exists():
+        sys.exit(f"{st}: not a full (non-shallow) Linux checkout")
+    if REPO.is_symlink() or not REPO.exists():
+        REPO.unlink(missing_ok=True)
+        REPO.symlink_to(st)
+    log(f"{REPO.relative_to(ROOT)} -> {st}")
 
 
 def newest_next() -> str:
@@ -124,9 +148,15 @@ def set_pin(tag: str) -> None:
 
 def main() -> int:
     ap = argparse.ArgumentParser(description=__doc__.splitlines()[0])
-    ap.add_argument("action", nargs="?", default="show", choices=["show", "update", "checkout"])
+    ap.add_argument("action", nargs="?", default="show", choices=["show", "update", "checkout", "setup"])
     ap.add_argument("--tag", help="update: this next-YYYYMMDD instead of the newest")
+    ap.add_argument("--store", help="setup: path of the machine Linux store (awto-dan#50)")
     a = ap.parse_args()
+    if a.action == "setup":
+        if not a.store:
+            sys.exit("setup needs --store PATH")
+        setup(a.store)
+        return 0
     if a.action == "update":
         tag = a.tag or newest_next()
         checkout(tag)

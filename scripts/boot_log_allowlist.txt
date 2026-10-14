@@ -519,3 +519,10 @@ sfp sfp-p[1-8]: SFP: unknown connector id 0x03  # GLC-SX-MM (sn H33A663; cage 4 
 
 [uboot]
 Disable port \(0,(8|16|20|24|25|26|27|0)\)  # ramload `rtk port disable` of the cages not used for TFTP (#100)
+
+# A/B layout + 300-26 on the mainline kernel (#117, #111), reviewed 2026-10-15
+[mainline]
+0x[0-9a-f]{12}-0x[0-9a-f]{12} : "(jffs2-log|bootstate|firmware_a|firmware_b)"  # partition map, A/B layout (#117)
+[0-9]+ fixed-partitions partitions found on MTD device spi0\.0  # DT partition table (#117 layout)
+Creating [0-9]+ MTD partitions on "spi0\.0":  # DT partition table
+rtl83xx-switch 1b000000\.switch: storm control bc/mc/uc \d+/\d+/\d+ pps per port, loop detect (on|off) \(recover \d+ s\) \(#111\)  # 300-26 probe

@@ -610,7 +610,7 @@ def cmd_build_kernel(extra: list[str]) -> int:
 
 @command("Linux base for build-kernel / build-openwrt --kernel mainline: linux-next PIN in scripts/kernel_base.py "
          "(env KERNEL_BASE=v7.3-rc6 = fallback); update = newest next-YYYYMMDD tag (#16)",
-         args="[show | update [--tag next-YYYYMMDD] | checkout]", kind="build")
+         args="[show | update [--tag next-YYYYMMDD] | checkout | setup --store PATH]", kind="build")
 def cmd_kernel_base(extra: list[str]) -> int:
     return _script("kernel_base.py", extra)
 

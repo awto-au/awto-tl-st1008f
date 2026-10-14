@@ -8,7 +8,7 @@ Goal: Linux 7.x mainline-based kernel driving the 8 SFP+ ports of the TL-ST1008F
 |---|---|
 | Mainline target | linux-next `next-20261009` (Makefile `7.3-rc6` + `-next-20261009`; pinned `PIN` in `scripts/kernel_base.py`, `./dev.py kernel-base update` moves it), from 2026-10-12 ([DECISIONS](DECISIONS.md)) |
 | Fallback | `v7.3-rc6` (`KERNEL_BASE=v7.3-rc6`; tree `tmp/linux-v7.3`, out dir `tmp/build-mips-v7.3-rc6`); board-tested base for sections 7 and 9. Its `openwrt/patches-v7.3-rc6/` copies of 300-10/300-17 predate the `0ad1348` pin: rebase them (`scripts/patch_rebase.py`) before using the fallback |
-| Trees | one shallow git repo `tmp/linux-v7.3` (tag `v7.3-rc6` + remote `linux-next`, depth-1 tag fetches); next tag checked out as its worktree `tmp/linux-next` |
+| Trees | the machine-wide Linux store (full history, all upstreams as remotes, awto-dan#50) via the gitignored symlink `tmp/linux-store` (`./dev.py kernel-base setup --store PATH`); worktrees `tmp/linux-next` (PIN) and `tmp/linux-v7.3` (fallback). 300-32/300-33 are 6.18-image only (`kernel_base.OPENWRT_ONLY`) |
 | OpenWrt source | `main` @ `0ad1348` (2026-10-13, pin moved from `53ec2d0` under #113); newest kernel dir is `files-6.18` / `patches-6.18` (no 6.19 or 7.x dir exists) |
 | Tooling | OpenWrt sparse clone and mainline clones under `tmp/` (gitignored); cross gcc `mips64-linux-gnu-` (GCC 16.2, `-mabi=32` multilib) builds MIPS32r2 BE |
 | Scripts | `scripts/mainline_inventory.py` (inventory vs mainline), `scripts/mainline_patch_check.py` (apply OpenWrt patches onto 7.3 + build), `scripts/mainline_build_check.py` (stage-0 DTS + config build), `scripts/kernel_base.py` (base selection), `scripts/patch_rebase.py` (refresh one patch onto the base) |

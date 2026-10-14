@@ -410,7 +410,7 @@ Kept as used on 2026-10-07/08. New tooling is Python. Run from the repo root wit
 
 ## Mainline port (issue #16)
 
-Desk-only; no switch access. Needs `tmp/openwrt` (sparse clone of openwrt, `target/linux/realtek` + `target/linux/generic`), `tmp/linux.git` (blobless bare clone of torvalds/linux), `tmp/linux-v7.3` (shallow clone of `v7.3-rc6` + linux-next tags; `kernel_base.py`) and a `mips64-linux-gnu-` cross gcc. Results: [../docs/MAINLINE-PORT.md](../docs/MAINLINE-PORT.md).
+Desk-only; no switch access. Needs `tmp/openwrt` (sparse clone of openwrt, `target/linux/realtek` + `target/linux/generic`), `tmp/linux-store` (the machine Linux store, full history; `kernel_base.py setup`), `tmp/linux-v7.3` (its worktree at `v7.3-rc6`) and a `mips64-linux-gnu-` cross gcc. Results: [../docs/MAINLINE-PORT.md](../docs/MAINLINE-PORT.md).
 
 ### mainline_inventory.py
 - Purpose: compare OpenWrt `files-6.18` and version-tagged `patches-6.18` against a mainline ref (exists? first release? subject merged?).
@@ -431,7 +431,7 @@ Desk-only; no switch access. Needs `tmp/openwrt` (sparse clone of openwrt, `targ
 
 ### kernel_base.py
 - Purpose: one setting for the kernel base: `PIN` (linux-next `next-YYYYMMDD`, default) or env `KERNEL_BASE=v7.3-rc6` (fallback). Used by `mainline_build_check.py`, `build_openwrt.py`, `patch_rebase.py` and the patch helpers.
-- Run: `./dev.py kernel-base [show | update [--tag next-YYYYMMDD] | checkout]`. `update` = newest tag from `ls-remote`, depth-1 fetch into `tmp/linux-v7.3` (remote `linux-next`), worktree `tmp/linux-next`, rewrites `PIN`.
+- Run: `./dev.py kernel-base [show | update [--tag next-YYYYMMDD] | checkout | setup --store PATH]`. `setup` = symlink `tmp/linux-store` to the machine Linux store (awto-dan#50). `update` = newest tag from `ls-remote`, full fetch into the store (remote `next`), worktree `tmp/linux-next`, rewrites `PIN`. `checkout` creates the worktree of the selected base (`tmp/linux-next` or `tmp/linux-v7.3`).
 - Log: `tmp/logs/kernel_base.log`. After `update`: rebase the series (`patch_rebase.py`), record it in MAINLINE-PORT §8 and Baselines.
 
 ### patch_rebase.py
