@@ -62,7 +62,7 @@ def ssh(ip: str, cmd: str, cap: float, stdin: bytes | None = None) -> str:
 
 def install_ssh(ip: str, data: bytes, md5: str) -> int:
     """Running OpenWrt over SSH (sw1 has no console): replaces OUR older U-Boot in jffs2-log only."""
-    n = re.search(rf'mtd(\d+): 00100000 00010000 "{PART}"', ssh(ip, "cat /proc/mtd", SSH_S * 2)).group(1)
+    n = re.search(rf'mtd(\d+): 00(?:100000|0f0000) 00010000 "{PART}"', ssh(ip, "cat /proc/mtd", SSH_S * 2)).group(1)
     if f"mtdblock{n} " in ssh(ip, "mount", SSH_S * 2):
         log(f"FAIL: mtd{n} ({PART}) is mounted on {ip}")
         return 1
@@ -115,13 +115,13 @@ def main() -> int:
         return install_ssh(a.ssh, data, md5)
     con = Console()
     sh(con, "dmesg -n 1")
-    n = re.search(rf'mtd(\d+): 00100000 00010000 "{PART}"', sh(con, "cat /proc/mtd", r"mtd0:")).group(1)
+    n = re.search(rf'mtd(\d+): 00(?:100000|0f0000) 00010000 "{PART}"', sh(con, "cat /proc/mtd", r"mtd0:")).group(1)
     if f"mtdblock{n} " in sh(con, "mount"):
         log(f"FAIL: mtd{n} ({PART}) is mounted")
         return 1
     # unused = whole partition 0xff: hexdump collapses repeats to `*`; 1 MiB at ~22 MB/s < 0.1 s
-    blank = "" if a.overwrite else sh(con, f"hexdump -C /dev/mtdblock{n} | head -4", r"\n00100000")
-    if not a.overwrite and not re.search(r"00000000  (ff ){8} (ff ){8}.*\n\*\r?\n00100000", blank):
+    blank = "" if a.overwrite else sh(con, f"hexdump -C /dev/mtdblock{n} | head -4", r"\n00(?:100000|0f0000)")
+    if not a.overwrite and not re.search(r"00000000  (ff ){8} (ff ){8}.*\n\*\r?\n00(?:100000|0f0000)", blank):
         log(f"FAIL: {PART} (mtd{n}) is not blank; refusing (use --overwrite only for our own image)")
         return 1
     srv = http.server.ThreadingHTTPServer(

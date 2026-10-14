@@ -267,7 +267,7 @@ def env_ssh(ip: str, mode: str, profile: str | None, allow_fallback: bool) -> in
         log(f"FAIL {mode} --ssh: fw_printenv shows no ethaddr (env CRC bad?); nothing written")
         return 1
     if mode == "apply":
-        part = re.search(r'mtd(\d+): 00100000 00010000 "jffs2-log"', mtd)
+        part = re.search(r'mtd(\d+): 00(?:100000|0f0000) 00010000 "jffs2-log"', mtd)
         slot = ssh(ip, f"head -c {SLOT} /dev/mtdblock{part.group(1)}", SSH_S * 2) if part else b""
         ok, detail = slot_ok(slot)
         log(f"jffs2-log slot on {ip}: {'OK' if ok else 'BAD'}, {detail}")
