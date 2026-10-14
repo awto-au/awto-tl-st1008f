@@ -1,0 +1,69 @@
+From: awto-tl-st1008f
+Subject: [PATCH] jffs2: skip the erase of blocks that are already blank (#114)
+
+OpenWrt 532-jffs2_eofdetect erases every block after the EOF marker at the first mount after a
+sysupgrade: 362 x 64 KiB on this board, 65 s of boot, although nearly all of them are still 0xff.
+Read the block first; if it is all 0xff, file it as erase-succeeded. jffs2_mark_erased_block()
+still verifies it and writes the cleanmarker, so the on-flash result is the same as an erase.
+---
+--- a/fs/jffs2/erase.c
++++ b/fs/jffs2/erase.c
+@@ -24,6 +24,7 @@
+ static void jffs2_erase_failed(struct jffs2_sb_info *c, struct jffs2_eraseblock *jeb, uint32_t bad_offset);
+ static void jffs2_erase_succeeded(struct jffs2_sb_info *c, struct jffs2_eraseblock *jeb);
+ static void jffs2_mark_erased_block(struct jffs2_sb_info *c, struct jffs2_eraseblock *jeb);
++static bool jffs2_block_is_blank(struct jffs2_sb_info *c, struct jffs2_eraseblock *jeb);
+ 
+ static void jffs2_erase_block(struct jffs2_sb_info *c,
+ 			      struct jffs2_eraseblock *jeb)
+@@ -137,7 +138,10 @@
+ 			spin_unlock(&c->erase_completion_lock);
+ 			mutex_unlock(&c->erase_free_sem);
+ 
+-			jffs2_erase_block(c, jeb);
++			if (jffs2_block_is_blank(c, jeb))
++				jffs2_erase_succeeded(c, jeb);	/* already all 0xff: same state as after an erase */
++			else
++				jffs2_erase_block(c, jeb);
+ 
+ 		} else {
+ 			BUG();
+@@ -308,6 +312,38 @@
+ 	jeb->first_node = jeb->last_node = NULL;
+ }
+ 
++/*
++ * Read-only blank check before an erase: a NOR block erase costs ~150 ms, a 64 KiB read ~ms. Stops at the
++ * first non-0xff word. The block still goes through jffs2_mark_erased_block() (verify + cleanmarker).
++ */
++static bool jffs2_block_is_blank(struct jffs2_sb_info *c, struct jffs2_eraseblock *jeb)
++{
++	uint32_t ofs, len = min_t(uint32_t, PAGE_SIZE, c->sector_size);
++	unsigned long *buf;
++	size_t retlen;
++	bool blank = true;
++	int i;
++
++	buf = kmalloc(len, GFP_KERNEL);
++	if (!buf)
++		return false;
++	for (ofs = jeb->offset; blank && ofs < jeb->offset + c->sector_size; ofs += len) {
++		if (mtd_read(c->mtd, ofs, len, &retlen, (u_char *)buf) || retlen != len) {
++			blank = false;
++			break;
++		}
++		for (i = 0; i < len / sizeof(*buf); i++) {
++			if (buf[i] != ~0UL) {
++				blank = false;
++				break;
++			}
++		}
++		cond_resched();
++	}
++	kfree(buf);
++	return blank;
++}
++
+ static int jffs2_block_check_erase(struct jffs2_sb_info *c, struct jffs2_eraseblock *jeb, uint32_t *bad_offset)
+ {
+ 	void *ebuf;

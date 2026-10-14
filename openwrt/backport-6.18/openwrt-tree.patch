@@ -1,12 +1,45 @@
 OpenWrt-tree overlay for TL-ST1008F v2 (#73), applied by scripts/build_openwrt.py with git apply:
 - DTS: gpio-keys M1/M2/M3 -> mode-switch node (300-06, cage@N children); spi0 dirmap window (300-07);
   gpio0 applies pinmux_disable_spi0* (cage presence GPIO3-7, #29); eth0 MAC from u-boot-env ethaddr via nvmem (#86);
-  3V3 fixed regulator as vcc-supply of spi-nor + pca9534 (#124)
-- rtl930x/config-6.18: MIPS_PLATFORM_DEVICES + TPLINK_ST1008F_MODE_SWITCH built in; MIPS_CMDLINE_DTB_EXTEND
-  (DT bootargs + U-Boot bootargs: st1008f.mode/boot from bootsel, #73)
+  3V3 fixed regulator as vcc-supply of spi-nor + pca9534 (#124);
+  A/B layout (#117): jffs2-log 0xf0000 + bootstate 64 KiB, firmware_a / firmware_b 14.5 MiB with openwrt,cmdline-match
+- image/rtl930x.mk: IMAGE_SIZE 14848k (one slot), DEVICE_COMPAT_VERSION 2.0 (1.0 = one 29 MiB firmware)
+- base-files platform.sh: tl-st1008f-v2 -> st1008f_ab_upgrade (writes the inactive slot, linkcheck files);
+  board.d 05_compat-version: device compat 2.0 (matches the image)
+- rtl930x/config-6.18: MIPS_PLATFORM_DEVICES + TPLINK_ST1008F_MODE_SWITCH built in; MIPS_CMDLINE_DTB_EXTEND;
+  (DT bootargs + U-Boot bootargs: st1008f.mode/boot from bootsel, #73);
+  DYNAMIC_DEBUG (pr_debug/dev_dbg switchable at runtime: /sys/kernel/debug/dynamic_debug, #125)
 
+diff --git a/target/linux/realtek/base-files/etc/board.d/05_compat-version b/target/linux/realtek/base-files/etc/board.d/05_compat-version
+index 13c7447..eaa6b5f 100644
+--- a/target/linux/realtek/base-files/etc/board.d/05_compat-version
++++ b/target/linux/realtek/base-files/etc/board.d/05_compat-version
+@@ -13,6 +13,9 @@ case "$(board_name)" in
+ 	hpe,1920-24g-poe-370w)
+ 		ucidef_set_compat_version "1.1"
+ 	;;
++	tplink,tl-st1008f-v2)
++		ucidef_set_compat_version "2.0"	# A/B slots (#117)
++	;;
+ 	zyxel,gs1900-8-a1 | \
+ 	zyxel,gs1900-8-b1 | \
+ 	zyxel,gs1900-8hp-a1 | \
+diff --git a/target/linux/realtek/base-files/lib/upgrade/platform.sh b/target/linux/realtek/base-files/lib/upgrade/platform.sh
+index 5b4468b..5973052 100644
+--- a/target/linux/realtek/base-files/lib/upgrade/platform.sh
++++ b/target/linux/realtek/base-files/lib/upgrade/platform.sh
+@@ -75,6 +75,9 @@ platform_do_upgrade() {
+ 	linksys,lgs352c)
+ 		nand_do_upgrade "$1"
+ 		;;
++	tplink,tl-st1008f-v2)
++		st1008f_ab_upgrade "$1"	# /lib/upgrade/st1008f-ab.sh (#117)
++		;;
+ 	zyxel,xgs1930-28hp|\
+ 	zyxel,xmg1915-10e|\
+ 	zyxel,xmg1915-10ep|\
 diff --git a/target/linux/realtek/dts/rtl9303_tplink_tl-st1008f-v2.dts b/target/linux/realtek/dts/rtl9303_tplink_tl-st1008f-v2.dts
-index d11a6fd..607c87c 100644
+index d11a6fd..2feabbe 100644
 --- a/target/linux/realtek/dts/rtl9303_tplink_tl-st1008f-v2.dts
 +++ b/target/linux/realtek/dts/rtl9303_tplink_tl-st1008f-v2.dts
 @@ -2,7 +2,6 @@
@@ -152,7 +185,45 @@ index d11a6fd..607c87c 100644
  			};
  
  			partition@f0000 {
-@@ -276,3 +323,8 @@
+@@ -220,16 +267,34 @@
+ 				reg = <0x100000 0x100000>;
+ 			};
+ 
++			/* our U-Boot chain slot (512 KiB at the start, #105) */
+ 			partition@200000 {
+ 				label = "jffs2-log";
+-				reg = <0x200000 0x100000>;
++				reg = <0x200000 0xf0000>;
++			};
++
++			/* A/B boot state, written by Linux only (sysupgrade hook, mark-good), read by our U-Boot (#117) */
++			partition@2f0000 {
++				label = "bootstate";
++				reg = <0x2f0000 0x10000>;
+ 			};
+ 
++			/* A/B slots (#117): only the booted slot is split into kernel/rootfs/rootfs_data (300-33).
++			 * A is the default: stock U-Boot's fallback boota passes no slot argument. */
+ 			partition@300000 {
+ 				compatible = "openwrt,uimage", "denx,uimage";
+-				reg = <0x300000 0x1d00000>;
+-				label = "firmware";
++				reg = <0x300000 0xe80000>;
++				label = "firmware_a";
+ 				openwrt,ih-magic = <0x93030000>;
++				openwrt,cmdline-match = "!st1008f.slot=b";
++			};
++
++			partition@1180000 {
++				compatible = "openwrt,uimage", "denx,uimage";
++				reg = <0x1180000 0xe80000>;
++				label = "firmware_b";
++				openwrt,ih-magic = <0x93030000>;
++				openwrt,cmdline-match = "st1008f.slot=b";
+ 			};
+ 		};
+ 	};
+@@ -276,3 +341,8 @@
  		};
  	};
  };
@@ -175,11 +246,35 @@ index 660d2f2..0713879 100644
  			thermal-sensors = <&soc_thermal>;
  			trips {
  				critical {
+diff --git a/target/linux/realtek/image/rtl930x.mk b/target/linux/realtek/image/rtl930x.mk
+index dd86ade..07d9d8a 100644
+--- a/target/linux/realtek/image/rtl930x.mk
++++ b/target/linux/realtek/image/rtl930x.mk
+@@ -283,7 +283,9 @@ define Device/tplink_tl-st1008f-v2
+   DEVICE_VARIANT := v2.0
+   DEVICE_PACKAGES := kmod-gpio-pca953x
+   SUPPORTED_DEVICES += tplink,tl-st1008f,v2
+-  IMAGE_SIZE := 29696k
++  IMAGE_SIZE := 14848k
++  DEVICE_COMPAT_VERSION := 2.0
++  DEVICE_COMPAT_MESSAGE := A/B slot layout (two 14.5 MiB slots); 1.0 images use one 29 MiB firmware partition
+   $(Device/kernel-lzma)
+ endef
+ TARGET_DEVICES += tplink_tl-st1008f-v2
 diff --git a/target/linux/realtek/rtl930x/config-6.18 b/target/linux/realtek/rtl930x/config-6.18
-index 74f0649..59d94c4 100644
+index 74f0649..80ca58c 100644
 --- a/target/linux/realtek/rtl930x/config-6.18
 +++ b/target/linux/realtek/rtl930x/config-6.18
-@@ -134,8 +134,9 @@ CONFIG_MIGRATION=y
+@@ -45,6 +45,8 @@ CONFIG_DEBUG_SECTION_MISMATCH=y
+ CONFIG_DMA_NEED_SYNC=y
+ CONFIG_DMA_NONCOHERENT=y
+ CONFIG_DTC=y
++CONFIG_DYNAMIC_DEBUG=y
++CONFIG_DYNAMIC_DEBUG_CORE=y
+ CONFIG_EARLY_PRINTK=y
+ CONFIG_EARLY_PRINTK_8250=y
+ CONFIG_EEPROM_AT24=y
+@@ -134,8 +136,9 @@ CONFIG_MIGRATION=y
  CONFIG_MIPS=y
  CONFIG_MIPS_ASID_BITS=8
  CONFIG_MIPS_ASID_SHIFT=0
@@ -190,7 +285,7 @@ index 74f0649..59d94c4 100644
  CONFIG_MIPS_CPU_SCACHE=y
  CONFIG_MIPS_EXTERNAL_TIMER=y
  CONFIG_MIPS_L1_CACHE_SHIFT=5
-@@ -145,6 +146,7 @@ CONFIG_MIPS_MT_SMP=y
+@@ -145,6 +148,7 @@ CONFIG_MIPS_MT_SMP=y
  # CONFIG_MIPS_NO_APPENDED_DTB is not set
  CONFIG_MIPS_NR_CPU_NR_MAP=2
  CONFIG_MIPS_PERF_SHARED_TC_COUNTERS=y
@@ -198,7 +293,7 @@ index 74f0649..59d94c4 100644
  CONFIG_MIPS_RAW_APPENDED_DTB=y
  CONFIG_MIPS_SPRAM=y
  CONFIG_MMU_LAZY_TLB_REFCOUNT=y
-@@ -267,6 +269,7 @@ CONFIG_THERMAL_OF=y
+@@ -267,6 +271,7 @@ CONFIG_THERMAL_OF=y
  CONFIG_TICK_CPU_ACCOUNTING=y
  CONFIG_TIMER_OF=y
  CONFIG_TIMER_PROBE=y

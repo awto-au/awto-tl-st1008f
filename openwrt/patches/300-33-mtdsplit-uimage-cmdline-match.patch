@@ -1,0 +1,27 @@
+From: awto-tl-st1008f
+Subject: [PATCH] mtdsplit: uimage: honour openwrt,cmdline-match (A/B slots, #117)
+
+Same property as mtdsplit_fit: a firmware partition whose openwrt,cmdline-match string is not on the
+kernel command line is left unsplit, so only the booted slot yields kernel/rootfs/rootfs_data.
+A leading '!' inverts it, for the default slot (bootloader passes no slot argument).
+---
+--- a/drivers/mtd/mtdsplit/mtdsplit_uimage.c
++++ b/drivers/mtd/mtdsplit/mtdsplit_uimage.c
+@@ -137,6 +137,17 @@
+ 	u32 header_offset = 0;
+ 	u32 part_magic = 0;
+ 	enum mtdsplit_part_type type;
++	const char *cmdline_match = NULL;
++
++	/*
++	 * A/B slots: split only the slot the bootloader named on the command line (as mtdsplit_fit).
++	 * "!str" = split unless str is present: the default slot when a bootloader passes nothing.
++	 */
++	of_property_read_string(mtd_get_of_node(master), "openwrt,cmdline-match", &cmdline_match);
++	if (cmdline_match && (cmdline_match[0] == '!' ?
++			      strstr(saved_command_line, cmdline_match + 1) != NULL :
++			      strstr(saved_command_line, cmdline_match) == NULL))
++		return -ENOENT;
+ 
+ 	nr_parts = 2;
+ 	parts = kcalloc(nr_parts, sizeof(*parts), GFP_KERNEL);

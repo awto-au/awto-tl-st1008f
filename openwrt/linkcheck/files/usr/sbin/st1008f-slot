@@ -1,0 +1,38 @@
+#!/bin/sh
+# A/B slots (#117, docs/DEFAULT-BOOT.md#ab-slots)
+#   st1008f-slot              show booted slot + bootstate record
+#   st1008f-slot mark-good    after a good boot: booted slot = good, no trial; clears U-Boot's RAM attempts
+#   st1008f-slot boot a|b     next boot tries slot a|b once (trial), current slot stays the fallback
+. /lib/st1008f-slot.sh
+
+cur=$(st1008f_slot_current)
+st=$(st1008f_bootstate_read)
+good=${st% *} trial=${st#* }
+[ -n "$st" ] || good="" trial=""
+
+case "$1" in
+"")
+	echo "booted: $cur"
+	if [ -n "$st" ]; then echo "bootstate: good $good, trial $trial"; else echo "bootstate: none (U-Boot boots slot a)"; fi
+	;;
+mark-good)
+	if [ -n "$trial" ] && [ "$trial" != - ] && [ "$trial" != "$cur" ]; then
+		logger -p daemon.err -t st1008f-slot "trial slot $trial did not confirm: back on slot $cur"
+	fi
+	if [ "$st" != "$cur -" ]; then
+		st1008f_bootstate_write "$cur" - || { logger -p daemon.err -t st1008f-slot "bootstate write failed"; exit 1; }
+		logger -t st1008f-slot "slot $cur marked good"
+	fi
+	# U-Boot attempt record (reserved RAM, docs/DEFAULT-BOOT.md): attempts = 0
+	devmem 0x0e000004 32 0 && devmem 0x0e000008 32 0xffffffff && devmem 0x0e000000 32 0x5b007ec0
+	;;
+boot)
+	case "$2" in a|b) ;; *) echo "usage: st1008f-slot boot a|b" >&2; exit 2 ;; esac
+	[ "$2" = "$cur" ] && { echo "slot $2 is running" >&2; exit 2; }
+	st1008f_bootstate_write "$cur" "$2" && echo "next boot: trial slot $2, fallback slot $cur"
+	;;
+*)
+	sed -n '2,5s/^# //p' "$0" >&2
+	exit 2
+	;;
+esac

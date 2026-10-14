@@ -511,13 +511,26 @@
 
 			partition@200000 {
 				label = "jffs2-log";
-				reg = <0x200000 0x100000>;
+				reg = <0x200000 0xf0000>;
+				read-only;
+			};
+
+			/* A/B layout as the OpenWrt DTS (#117); read-only here */
+			partition@2f0000 {
+				label = "bootstate";
+				reg = <0x2f0000 0x10000>;
 				read-only;
 			};
 
 			partition@300000 {
-				label = "firmware";
-				reg = <0x300000 0x1d00000>;
+				label = "firmware_a";
+				reg = <0x300000 0xe80000>;
+				read-only;
+			};
+
+			partition@1180000 {
+				label = "firmware_b";
+				reg = <0x1180000 0xe80000>;
 				read-only;
 			};
 		};

@@ -67,6 +67,8 @@ KERNEL_PATCHES = {
     "300-29-net-pcs-rtl-otto-rx-signal-wait-dbg.patch": OURS,  # #124
     "300-30-net-phy-aquantia-hwmon-clamp-limits.patch": OURS,  # #124
     "300-31-realtek-l3-route-on-standalone-port-dbg.patch": OURS,  # #124
+    "300-32-jffs2-skip-erase-of-blank-blocks.patch": OURS,  # #114: first boot after sysupgrade
+    "300-33-mtdsplit-uimage-cmdline-match.patch": OURS,  # #117: split only the booted A/B slot
 }
 TREE_PATCH = BACKPORT / "openwrt-tree.patch"
 # --parked: untested candidates from openwrt/patches-parked, 6.18 only; name -> OpenWrt patch dir

@@ -65,60 +65,60 @@ Layered gates against writing `0x0`-`0xDFFFF` (stock LOADER):
   - Limit: U-Boot `$vars` in `cp`/`mw` are not resolved; in `sf` they are refused (fails closed).
 - Open: W25Q256 status-register block protect (BP/TB) for the bottom region. Power-of-two granularity also covers the env sectors, so it is last, once the env is final.
 
-## Where the images live: options
+## A/B slots
 
-| Option | Layout | For | Against |
-|---|---|---|---|
-| **A (recommended)** | `firmware` 22 MiB (OpenWrt on 7.3: kernel + squashfs + overlay) + `recovery` 7 MiB (OpenWrt initramfs uImage) | One partition for sysupgrade, as upstream; recovery is one read-only blob that `bootm` boots directly; ~16 MiB overlay left | Both images need the split DTS (local build); upstream images must not be flashed (below) |
-| B | Two full slots of 14.5 MiB (kernel + squashfs + overlay each) | Fallback keeps its own persistent config | Two overlays to keep in sync; sysupgrade needs a slot-select hook (`platform.sh`), more flash writes |
-| C | One image, fallback = TFTP/RAM recovery | Simplest; 29 MiB for one image | Needs a host + `ramload` (stock `rtk network on` + TFTP) to recover; nothing unattended |
-| D | One rootfs, two kernels | Small | OpenWrt kmods are bound to one kernel version |
-| E | 7.3 image as a file in the JFFS2 overlay | No layout change | U-Boot has no JFFS2 + LZMA; GC moves nodes |
-| F | `jffs2-cfg` + `jffs2-log` | Free today | 2 MiB total; image ~6 MiB |
-
-## Flash layout (option A)
+Chosen 2026-10-14 (#117, owner): two full slots. Replaces option A (22 MiB primary + 7 MiB recovery initramfs); the old options table is in git history.
 
 | MTD | Flash | Size | Holds | Written by |
 |---|---|---|---|---|
-| u-boot, u-boot-env, u-boot-env2 | 0x0000000-0x0100000 | 1 MiB | unchanged | - (`u-boot-env` only by an approved `fw_setenv`) |
-| jffs2-cfg | 0x0100000 | 1 MiB | unchanged (stock data) | - |
-| jffs2-log | 0x0200000 | 1 MiB | our U-Boot (~330 KB) | `uboot-chain-install` |
-| **firmware** | 0x0300000-0x1900000 | 22 MiB | OpenWrt on 7.3: uImage + squashfs + overlay | sysupgrade |
-| **recovery** | 0x1900000-0x2000000 | 7 MiB | OpenWrt initramfs uImage (fallback) | `default-boot install recovery` |
+| u-boot, u-boot-env, u-boot-env2 | 0x0000000 | 1 MiB | stock | - |
+| jffs2-cfg | 0x0100000 | 1 MiB | stock data | - |
+| jffs2-log | 0x0200000 | 960 KiB | our U-Boot (512 KiB slot) | `uboot-chain-install` |
+| bootstate | 0x02f0000 | 64 KiB | good + trial slot | Linux (`st1008f-slot`) |
+| firmware_a | 0x0300000 | 14.5 MiB | uImage + squashfs + overlay | sysupgrade |
+| firmware_b | 0x1180000 | 14.5 MiB | uImage + squashfs + overlay | sysupgrade |
 
-- Our U-Boot boots `bootm 0xb4300000` (primary) or `bootm 0xb5900000` (recovery) from the mmio window.
-- Recovery budget: upstream 25.12.4 initramfs = 5,383,940 B; 7 MiB leaves ~1.6 MiB.
-- Primary budget: OpenWrt 6.18 kernel 3.19 MiB + squashfs 2.25 MiB today; the 7.3 kernel without initramfs is ~2.9 MB LZMA (ours, fewer drivers) → expect ~6 MiB image, ~16 MiB overlay.
-- Build: `openwrt/default-boot/0001-realtek-tl-st1008f-v2-recovery-slot.patch` (DTS `firmware` 0x1600000 + `recovery` + reserved-memory; `IMAGE_SIZE := 22528k`), applied to the local buildroot for both images.
-- `u-boot` (LOADER) stays `read-only` in the split layout: upstream DTS has it, patch 0001 leaves partition@0 alone. `default-boot check`/`install` refuse an image whose DTB lacks it, and every install/revert range goes through `scripts/flash_guard.py` first (#81).
-- Hazard: an upstream image (29 MiB layout) booted from this flash grows its overlay over `recovery`. Only images built with patch 0001 go on this flash; RAM-booting upstream initramfs images is fine (they mount nothing from flash unless asked).
+- Slots = stock TP-Link `runtime1` / `runtime2` (same offsets and size, `scripts/flash_guard.py`).
+- Per-slot overlay, not shared: `rootfs_data` = the slot after its image. sysupgrade's keep-config writes the config into the new slot; a rollback boots the old slot with the config that went with it. No fstools change.
+- Slot use, 2026-10-14 image (6,816,425 B), sw2: kernel 0x310000 (3.1 MiB), squashfs to 0x650000 (3.3 MiB), `rootfs_data` 0x830000 (8.2 MiB); overlay used 368 KiB (config + our files).
+- Only the booted slot is split: `openwrt,cmdline-match` on both slot nodes, honoured by the uImage splitter (`openwrt/patches/300-33`). Slot a = `!st1008f.slot=b` (default: stock `boota` passes no slot), slot b = `st1008f.slot=b`.
+- Image: `IMAGE_SIZE := 14848k`, `DEVICE_COMPAT_VERSION := 2.0`; board.d sets the device to 2.0. A 1.0 image (single 29 MiB `firmware`) is refused without `-F`: written into a slot it would split slot a's range.
+- Migration from a 1.0 image: `./dev.py openwrt-sysupgrade-ssh --ip IP --force` once (image lands in slot a, config kept).
 
-## Images
+### bootstate record
 
-| Image | Kernel | Rootfs / config | File (`tmp/tftp/`) |
-|---|---|---|---|
-| primary | 7.3 + `openwrt/patches/300-*` | squashfs + JFFS2 overlay; uci-defaults on first boot, then owner config persists (sysupgrade keeps it) | `openwrt-73-sysupgrade.bin` |
-| recovery | OpenWrt 6.18 (local build, same commit) | initramfs, tmpfs overlay: uci-defaults every boot = immutable known-good config | `openwrt-recovery-initramfs.bin` |
-| RAM test | as primary | initramfs | `openwrt-ours-initramfs.bin` (`ramload openwrt-ours`) |
+- One line at the start of `bootstate`: `S1AB g=<a|b> t=<a|b|-> c=<crc32 hex of the first 12 bytes>`. No valid record = slot a, as before A/B.
+- Written only by Linux: `/lib/st1008f-slot.sh` (CRC32 from the gzip trailer; `mtd write`, read back). U-Boot only reads it (mmio window), so U-Boot still writes no flash.
+- sysupgrade (`/lib/upgrade/st1008f-ab.sh`, `platform.sh` hook): writes the slot not running, then `g=<running> t=<new>`. A failed record write leaves the running slot booting next.
+- `/etc/init.d/st1008f-slot` (START 99, every image): bridge `switch` with STP on within 15 s → `st1008f-slot mark-good`: `g=<booted> t=-`, attempt record 0. A trial that never confirmed is logged (`trial slot X did not confirm`).
+- By hand: `st1008f-slot` (show), `st1008f-slot boot a|b` (trial on next boot).
 
-- Recovery can `sysupgrade` the primary (its DTS has the same split layout), so it is also the reflash path.
-
-## Boot selection (our U-Boot, `uboot-port/board/tplink/tl-st1008f/bootsel.c`)
+### Boot selection (our U-Boot, `uboot-port/board/tplink/tl-st1008f/bootsel.c`)
 
 Chained boot only (`ramload` boots never autoboot). First match wins:
 
 | # | Condition | Boot |
 |---|---|---|
 | 1 | ESC during the 2 s `bootdelay` | prompt, no idle reset |
-| 2 | No valid uImage header in `recovery` | legacy = single-image boot (`bootm 0xb4300000`) |
-| 3 | Stock env `st1008f_boot=prompt` / `=fallback` | prompt / recovery |
-| 4 | Primary uImage header bad | recovery |
-| 5 | Attempt record ≥ 2 | recovery |
-| 6 | else | attempts + 1, primary |
+| 2 | Stock env `st1008f_boot=prompt` | prompt |
+| 3 | No valid bootstate | legacy: slot a, watchdog off before `bootm` |
+| 4 | Good slot uImage header bad, other slot fine | other slot |
+| 5 | No trial, or stock env `st1008f_boot=good` | good slot |
+| 6 | Trial slot header bad | good slot (LED `trial-bad`) |
+| 7 | Attempt record ≥ 2 | good slot (LED `unconfirmed`) |
+| 8 | else | attempts + 1, trial slot; its `bootm` falls through to the good slot |
 
-- The mode switch picks clocks, not the image (owner #46, 2026-10-13): [Clocks by mode](#clocks-by-mode-46). Linux still gets `st1008f.mode` ([Modes](#modes)). Invalid switch read = M1 (+ LED error latch).
-- `bootargs` per `bootm`: `st1008f.mode=m1|m2|m3 st1008f.boot=primary|fallback|legacy` (the primary's in-line fallback re-sets `boot=fallback`).
-- Primary `bootcmd` (LED hooks omitted): `setenv bootretry 300; bootsel fast; setenv bootargs …boot=primary; bootm 0xb4300000; bootsel wdt on; setenv bootargs …boot=fallback; bootm 0xb5900000; bootsel wdt off` (a bad data CRC falls through to recovery; the fallback `bootm` runs under a fresh watchdog).
+- `bootargs`: `st1008f.mode=m1|m2|m3 st1008f.slot=a|b st1008f.boot=good|trial|legacy`.
+- `bootm 0xb4300000` (a) / `0xb5180000` (b) from the mmio window.
+- The mode switch picks clocks, not the slot (owner #46): [Clocks by mode](#clocks-by-mode-46).
+
+### Measured on sw2 (2026-10-14T21:25-21:41+11:00)
+
+- Our U-Boot with no bootstate, old 1.0 image: `Boot: legacy (no bootstate record: slot a as before A/B)`, boots as before.
+- `--force` migration: slot a split (`firmware_a` → kernel, rootfs, `rootfs_data` 0x830000), config kept, `slot a marked good`. First-boot overlay erase 23.3 s (131 blocks, 178 ms each: blocks carry old JFFS2 cleanmarkers, so 300-32 skips none).
+- Upgrade from a: `A/B: running slot a, writing slot b` → `Boot: trial (trial slot b attempt 1/2, fallback slot a)` → `st1008f.slot=b`, only `firmware_b` split, config kept, `slot b marked good`.
+- Rollback: `st1008f-slot boot a`, two boots stopped at our prompt (unconfirmed) → attempts 1/2, 2/2 → `Boot: good (2 trial boots of slot a not confirmed by Linux)` → slot b logs `trial slot a did not confirm: back on slot b`, record `good b, trial -`, attempts 0.
+- First run of the hook failed safe: stage2's ramdisk lacked `head`, the record write failed, the board stayed on slot a (`RAMFS_COPY_BIN += head`).
 
 ### Autoboot stop and prompt (#46, #105)
 
@@ -126,9 +126,8 @@ Chained boot only (`ramload` boots never autoboot). First match wins:
 - Always on: the build fails without `AUTOBOOT_KEYED` / `BOOT_RETRY` (`#error` in `bootsel.c`); `bootsel` sets `bootdelay=2` and clears `bootstopkey` / `bootdelaykey` (env is RAM-only, `ENV_IS_NOWHERE`).
 - Ctrl-C is ignored while `bootcmd` runs (keyed autoboot without `AUTOBOOT_KEYED_CTRLC`).
 - Prompt after a failed autoboot: `bootcmd` sets `bootretry=300` first, so the prompt resets the board after 300 s without console input (`CONFIG_RESET_TO_RETRY`); each command restarts the 300 s. ESC never runs `bootcmd`, so a stopped prompt never times out. `BOOT_RETRY_TIME=-1` = off for `ramload` sessions.
-  - Waits for: a person at the console to start typing. Expected ≤ 240 s, x1.25 = 300 s (owner accepted 2026-10-13). Expiry: `Timeout waiting for command`, reset → attempt count → recovery after 2.
+  - Waits for: a person at the console to start typing. Expected ≤ 240 s, x1.25 = 300 s (owner accepted 2026-10-13). Expiry: `Timeout waiting for command`, reset → attempt count → good slot after 2.
 - Not covered: env flag `st1008f_boot=prompt` (owner-chosen prompt, no timeout).
-- Row 2 keeps today's behaviour until `recovery` is written: the new U-Boot can go into `jffs2-log` first.
 - Stock env flag: read-only from `u-boot-env` (0xe0000, 64 KiB, big-endian CRC32 over 0x10000 − 4 at offset 4, checked against the 2026-10-08 backup). Setting it is a flash write: `fw_setenv st1008f_boot fallback` (uboot-envtools, default package) or stock `setenv` + `saveenv`.
 - `bootsel` command: slots, flag, record, WDT state, what a chained boot would do now + its `st1008f.mode`; `bootsel clear`; `bootsel wdt on|off|<ms>`.
 
@@ -136,9 +135,9 @@ Chained boot only (`ramload` boots never autoboot). First match wins:
 
 - Phys `0x0e000000` (KSEG1 `0xae000000`), 3 words: magic `0x5b007ec0`, attempts, ~attempts. Invalid (cold boot: DRAM content random) = 0.
 - Above `bootm` decompression (0x00100000 + ≤ 16 MiB) and below relocated U-Boot (top of 256 MiB). `reserved-memory` `no-map` in both kernels' DTS.
-- Confirmed by Linux: `/etc/init.d/st1008f-bootok` (START=99) writes magic + 0 via `devmem` once bridge `switch` is loop-safe for its mode: `switch` = STP on; `isolated` = every bridge port `isolated` 1. O_SYNC `/dev/mem` = uncached mapping, so the write is in DRAM before any reset.
-- Unconfirmed boots: panic (`CONFIG_PANIC_TIMEOUT=1` in OpenWrt: reboot after 1 s), watchdog reset, hang, no bridge, STP off (switch), a port not isolated (isolated; forced on), no mode state. Two in a row → recovery.
-- Recovery is sticky until a power cycle (DRAM loses the record) or `bootsel clear` / `devmem` clear.
+- Confirmed by Linux: `st1008f-slot mark-good` (every image, [bootstate record](#bootstate-record)) and, in `--default-boot` images, `/etc/init.d/st1008f-bootok` (START=99), which also checks `isolated` mode. Both write magic + 0 via `devmem`. O_SYNC `/dev/mem` = uncached mapping, so the write is in DRAM before any reset.
+- Unconfirmed boots: panic (`CONFIG_PANIC_TIMEOUT=1` in OpenWrt: reboot after 1 s), watchdog reset, hang, no bridge, STP off (switch), a port not isolated (isolated; forced on), no mode state. Two in a row on a trial slot → good slot.
+- A power cycle loses the record (DRAM): the trial slot gets 2 fresh attempts.
 - DRAM keeps the record across a SoC watchdog reset and a switch-core reset through the stock preloader and stock U-Boot (sw2, 2026-10-13T10:05-10:07+11:00: `5b007ec0 00000000 ffffffff` read back at the stock prompt after each, #105).
 
 ### Watchdog

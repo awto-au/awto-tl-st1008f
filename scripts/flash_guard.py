@@ -30,6 +30,8 @@ PARTS = {
     "firmware": FIRMWARE, "kernel": FIRMWARE, "rootfs": FIRMWARE, "rootfs_data": FIRMWARE,
     "recovery": (0x1900000, 0x700000),
     "runtime1": (0x300000, 0xE80000), "runtime2": (0x1180000, 0xE80000),
+    # A/B (#117): same slots as stock runtime1/2; bootstate = last 64 KiB of jffs2-log
+    "bootstate": (0x2F0000, 0x10000), "firmware_a": (0x300000, 0xE80000), "firmware_b": (0x1180000, 0xE80000),
 }
 
 

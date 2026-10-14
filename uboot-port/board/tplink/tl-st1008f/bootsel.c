@@ -1,8 +1,9 @@
 // SPDX-License-Identifier: GPL-2.0+
 /*
- * Default boot (#73, docs/DEFAULT-BOOT.md): primary = OpenWrt on 7.3 in `firmware`, fallback =
- * OpenWrt initramfs in `recovery`. Chained boot only. No flash writes: stock env is read, the
- * attempt counter lives in reserved RAM, the SoC watchdog covers bootm -> kernel watchdog.
+ * Default boot (#73, #117, docs/DEFAULT-BOOT.md#ab-slots): A/B slots. Linux writes `bootstate`
+ * (good + trial slot); a trial slot gets MAX_ATTEMPTS unconfirmed boots, then the good slot boots.
+ * No flash writes here: stock env + bootstate are read, the attempt counter lives in reserved RAM,
+ * the SoC watchdog covers bootm -> kernel watchdog.
  */
 
 #include <command.h>
@@ -22,19 +23,19 @@
 #endif
 
 #define FLASH		0xb4000000UL	/* mmio window, KSEG1 */
-#define PRIMARY_OFF	0x0300000	/* `firmware`, 22 MiB after the split */
-#define PRIMARY_SIZE	0x1600000
-#define FALLBACK_OFF	0x1900000	/* `recovery`, 7 MiB */
-#define FALLBACK_SIZE	0x0700000
+#define SLOT_A_OFF	0x0300000	/* `firmware_a`; stock boota boots it too */
+#define SLOT_B_OFF	0x1180000	/* `firmware_b` */
+#define SLOT_SIZE	0x0e80000	/* 14.5 MiB each */
+#define BOOTSTATE_OFF	0x02f0000	/* `bootstate`: "S1AB g=a t=b c=<crc32 of 12 bytes>" */
 #define STOCK_ENV_OFF	0x00e0000	/* `u-boot-env`; Linux nvmem reads the MAC from it */
 #define STOCK_ENV_SIZE	0x10000
-#define FLAG_VAR	"st1008f_boot"	/* primary | fallback | prompt */
+#define FLAG_VAR	"st1008f_boot"	/* prompt | good (ignore a trial slot) */
 #define RTK_MAGIC	0x93030000
 
 /* phys 0x0e000000: reserved-memory (no-map) in both kernels' DTS; above bootm and below U-Boot */
 #define REC		((u32 __iomem *)0xae000000)
 #define REC_MAGIC	0x5b007ec0
-#define MAX_ATTEMPTS	2	/* primary boots not confirmed by Linux before the fallback */
+#define MAX_ATTEMPTS	2	/* trial boots not confirmed by Linux before the good slot */
 
 #define WDT		0xb8003260UL	/* SoC watchdog (Linux realtek_otto_wdt) */
 #define WDT_CNTR_PING	BIT(31)
@@ -48,22 +49,17 @@
 #define BOOT_WDT_MS	13000
 
 /* led boot-end before the clock switch; led fallback/error only run when a bootm returned (#9).
- * bootargs: Linux reads st1008f.mode (switch position) + st1008f.boot (image) (docs/DEFAULT-BOOT.md) */
-#define ARGS(img)	"setenv bootargs st1008f.mode=m%d st1008f.boot=" img "; "
-/* `bootsel fast` arms the wdt, then `clocks fast` (#101): a hang in the clock change resets the SoC
- * and the next boot skips the overclock. Legacy (upstream kernel, no keep-running wdt patch) disarms
- * before bootm; primary/fallback keep it through bootm -> kernel wdt, re-armed for the fallback bootm. */
+ * bootargs: Linux reads st1008f.mode (switch position), st1008f.slot (a|b: which slot it splits, 300-33)
+ * and st1008f.boot (good | trial | legacy) (docs/DEFAULT-BOOT.md) */
+#define ARGS		"setenv bootargs st1008f.mode=m%d st1008f.slot=%c st1008f.boot=%s; "
 /* Failed-autoboot prompt: waits for a person to start typing, expected <= 240 s (owner OK 2026-10-13),
- * x1.25 = 300 s; expiry = reset (RESET_TO_RETRY) -> attempt count -> fallback (#105). Set by bootcmd
+ * x1.25 = 300 s; expiry = reset (RESET_TO_RETRY) -> attempt count -> good slot (#105). Set by bootcmd
  * itself, so an ESC prompt never times out. */
 #define BOOT_IDLE	"setenv bootretry 300; "
-#define BOOT_PRIMARY	BOOT_IDLE "rtk led boot-end; bootsel fast; " ARGS("primary") "bootm 0xb4300000; " \
-			"bootsel wdt on; rtk led fallback bootm-primary; " ARGS("fallback") "bootm 0xb5900000; " \
-			"bootsel wdt off; rtk led error bootm"
-#define BOOT_FALLBACK	BOOT_IDLE "rtk led boot-end; bootsel fast; " ARGS("fallback") "bootm 0xb5900000; " \
-			"bootsel wdt off; rtk led error bootm"
-#define BOOT_LEGACY	BOOT_IDLE "rtk led boot-end; bootsel fast; bootsel wdt off; " ARGS("legacy") \
-			"bootm 0xb4300000; rtk led error bootm"
+/* `bootsel fast` arms the wdt, then `clocks fast` (#101). Legacy (no bootstate: image may lack the
+ * kernel wdt handover) disarms before bootm; good/trial keep it through bootm -> kernel wdt. */
+#define BOOT_HEAD	BOOT_IDLE "rtk led boot-end; bootsel fast; "
+#define BOOT_TAIL	"bootsel wdt off; rtk led error bootm"
 
 /* uImage header in flash: magic (std or Realtek), header CRC, payload fits the slot */
 static bool slot_ok(ulong off, ulong size, char *name)
@@ -267,58 +263,102 @@ static void wdt_off(void)
 	__raw_writel(WDT_INTR_ALL, (void __iomem *)(WDT + 4));
 }
 
-enum { SEL_LEGACY, SEL_PROMPT, SEL_PRIMARY, SEL_FALLBACK };
-static const char *fb_auto;	/* fallback chosen by a fault (not the owner flag): LED latch tag */
-static const char *const sel_name[] = { "legacy", "prompt", "primary", "fallback" };
+enum { SEL_LEGACY, SEL_PROMPT, SEL_GOOD, SEL_TRIAL };
+static const char *fb_auto;	/* good slot chosen by a fault (not the owner flag): LED latch tag */
+static const char *const sel_name[] = { "legacy", "prompt", "good", "trial" };
 
-/* Image decision for a chained boot; the mode switch picks clocks only (#46: M3 = turbo), not the
- * image. `why` = reason */
-static int decide(int mode, char *why, int len, bool count)
+static ulong slot_off(char slot)
 {
-	char flag[16] = "";
+	return slot == 'b' ? SLOT_B_OFF : SLOT_A_OFF;
+}
+
+/* bootstate written by Linux (st1008f-slot): good + trial ('-' = none); false = no valid record */
+static bool bootstate(char *good, char *trial)
+{
+	const char *r = (const char *)(FLASH + BOOTSTATE_OFF);
+	char hex[9];
+
+	if (memcmp(r, "S1AB g=", 7) || memcmp(r + 8, " t=", 3) || memcmp(r + 12, " c=", 3))
+		return false;
+	if ((r[7] != 'a' && r[7] != 'b') || (r[11] != 'a' && r[11] != 'b' && r[11] != '-'))
+		return false;
+	memcpy(hex, r + 15, 8);
+	hex[8] = 0;
+	if (hextoul(hex, NULL) != crc32(0, (const u8 *)r, 12))
+		return false;
+	*good = r[7];
+	*trial = r[11] == r[7] ? '-' : r[11];
+	return true;
+}
+
+/* Slot decision for a chained boot; the mode switch picks clocks only (#46: M3 = turbo), not the
+ * slot. `why` = reason; *slot = the slot to boot, *other = the inline fallback ('-' = none) */
+static int decide(char *slot, char *other, char *why, int len, bool count)
+{
+	char flag[16] = "", good, trial;
 	u32 n;
 
-	if (!slot_ok(FALLBACK_OFF, FALLBACK_SIZE, NULL)) {
-		snprintf(why, len, "no image in recovery slot: single-image boot as before");
+	*slot = 'a';
+	*other = '-';
+	st1008f_stock_env(FLAG_VAR, flag, sizeof(flag));
+	if (!strcmp(flag, "prompt")) {
+		snprintf(why, len, "stock env %s=prompt", FLAG_VAR);
+		return SEL_PROMPT;
+	}
+	if (!bootstate(&good, &trial)) {
+		snprintf(why, len, "no bootstate record: slot a as before A/B");
 		return SEL_LEGACY;
 	}
-	st1008f_stock_env(FLAG_VAR, flag, sizeof(flag));
-	if (!strcmp(flag, "prompt") || !strcmp(flag, "fallback")) {
-		snprintf(why, len, "stock env %s=%s", FLAG_VAR, flag);
-		return strcmp(flag, "prompt") ? SEL_FALLBACK : SEL_PROMPT;
+	*slot = good;
+	if (!slot_ok(slot_off(good), SLOT_SIZE, NULL) && slot_ok(slot_off(good ^ 'a' ^ 'b'), SLOT_SIZE, NULL)) {
+		*slot = good ^ 'a' ^ 'b';	/* a <-> b */
+		snprintf(why, len, "good slot %c uImage header bad", good);
+		fb_auto = "good-bad";
+		return SEL_GOOD;
 	}
-	if (!slot_ok(PRIMARY_OFF, PRIMARY_SIZE, NULL)) {
-		snprintf(why, len, "primary uImage header bad");
-		fb_auto = "primary-bad";
-		return SEL_FALLBACK;
+	if (trial == '-' || !strcmp(flag, "good")) {
+		snprintf(why, len, "slot %c good%s", good, trial == '-' ? "" : " (stock env flag: trial ignored)");
+		return SEL_GOOD;
+	}
+	if (!slot_ok(slot_off(trial), SLOT_SIZE, NULL)) {
+		snprintf(why, len, "trial slot %c uImage header bad", trial);
+		fb_auto = "trial-bad";
+		return SEL_GOOD;
 	}
 	n = rec_attempts();
 	if (n >= MAX_ATTEMPTS) {
-		snprintf(why, len, "%u primary boots not confirmed by Linux", n);
+		snprintf(why, len, "%u trial boots of slot %c not confirmed by Linux", n, trial);
 		fb_auto = "unconfirmed";
-		return SEL_FALLBACK;
+		return SEL_GOOD;
 	}
 	if (count)
 		rec_set(n + 1);
-	snprintf(why, len, "attempt %u/%u%s", n + 1, MAX_ATTEMPTS, n ? "" : " (cold boot or confirmed)");
-	return SEL_PRIMARY;
+	*slot = trial;
+	*other = good;
+	snprintf(why, len, "trial slot %c attempt %u/%u, fallback slot %c", trial, n + 1, MAX_ATTEMPTS, good);
+	return SEL_TRIAL;
 }
 
 /* board_late_init, chained boot (mode 1-3, invalid passed as 1): set bootcmd, bootargs, bootdelay */
 int st1008f_bootsel(int mode)
 {
-	char why[96], cmd[384];
-	int s = decide(mode, why, sizeof(why), true);
+	char why[96], cmd[512], slot, other;
+	int s = decide(&slot, &other, why, sizeof(why), true), n;
 
 	printf("Boot:  %s (%s)\n", sel_name[s], why);
 	if (fb_auto)
 		rtk_led_fallback(fb_auto);
 	if (s == SEL_PROMPT)
 		return 0;
-	if (s == SEL_PRIMARY)
-		snprintf(cmd, sizeof(cmd), BOOT_PRIMARY, mode, mode);
-	else
-		snprintf(cmd, sizeof(cmd), s == SEL_LEGACY ? BOOT_LEGACY : BOOT_FALLBACK, mode);
+	n = snprintf(cmd, sizeof(cmd), BOOT_HEAD);
+	if (s == SEL_LEGACY)
+		n += snprintf(cmd + n, sizeof(cmd) - n, "bootsel wdt off; ");
+	n += snprintf(cmd + n, sizeof(cmd) - n, ARGS "bootm 0x%08lx; ", mode, slot, sel_name[s],
+		      FLASH + slot_off(slot));
+	if (other != '-')	/* trial image did not start: the good slot, watchdog re-armed */
+		n += snprintf(cmd + n, sizeof(cmd) - n, "bootsel wdt on; rtk led fallback bootm-trial; "
+			      ARGS "bootm 0x%08lx; ", mode, other, "good", FLASH + slot_off(other));
+	snprintf(cmd + n, sizeof(cmd) - n, BOOT_TAIL);
 	env_set("bootcmd", cmd);
 	/* owner #46: 2 s window, ESC only (CONFIG_AUTOBOOT_STOP_STR); no env key may replace it */
 	env_set("bootdelay", "2");
@@ -329,7 +369,7 @@ int st1008f_bootsel(int mode)
 
 static int do_bootsel(struct cmd_tbl *cmdtp, int flag, int argc, char *const argv[])
 {
-	char name[IH_NMLEN + 1], why[96], f[16];
+	char name[IH_NMLEN + 1], why[96], f[16], good, trial, slot, other;
 	int mode, s;
 
 	if (argc == 3 && !strcmp(argv[1], "wdt")) {
@@ -347,22 +387,24 @@ static int do_bootsel(struct cmd_tbl *cmdtp, int flag, int argc, char *const arg
 	}
 	if (argc != 1)
 		return CMD_RET_USAGE;
-	printf("primary  0x%07x: %s\n", PRIMARY_OFF,
-	       slot_ok(PRIMARY_OFF, PRIMARY_SIZE, name) ? name : "no valid uImage");
-	printf("fallback 0x%07x: %s\n", FALLBACK_OFF,
-	       slot_ok(FALLBACK_OFF, FALLBACK_SIZE, name) ? name : "no valid uImage");
+	printf("slot a 0x%07x: %s\n", SLOT_A_OFF, slot_ok(SLOT_A_OFF, SLOT_SIZE, name) ? name : "no valid uImage");
+	printf("slot b 0x%07x: %s\n", SLOT_B_OFF, slot_ok(SLOT_B_OFF, SLOT_SIZE, name) ? name : "no valid uImage");
+	if (bootstate(&good, &trial))
+		printf("bootstate: good %c, trial %c\n", good, trial);
+	else
+		puts("bootstate: none\n");
 	printf("stock env %s: %s\n", FLAG_VAR, st1008f_stock_env(FLAG_VAR, f, sizeof(f)) ?: "(unset)");
 	printf("record: %s, attempts %u (max %u)\n", rec_valid() ? "valid" : "invalid", rec_attempts(),
 	       MAX_ATTEMPTS);
 	printf("wdt ctrl: %08x\n", __raw_readl((void __iomem *)(WDT + 8)));
 	mode = st1008f_boot_mode(NULL) ?: 1;
-	s = decide(mode, why, sizeof(why), false);
-	printf("chained boot now: M%d -> %s (%s), bootargs st1008f.mode=m%d\n", mode, sel_name[s], why, mode);
+	s = decide(&slot, &other, why, sizeof(why), false);
+	printf("chained boot now: M%d -> %s, slot %c (%s)\n", mode, sel_name[s], slot, why);
 	return 0;
 }
 
-U_BOOT_CMD(bootsel, 3, 0, do_bootsel, "default-boot selection (#73, docs/DEFAULT-BOOT.md)",
-	   "          - slots, stock env flag, attempt record, decision (read-only)\n"
+U_BOOT_CMD(bootsel, 3, 0, do_bootsel, "A/B slot selection (#117, docs/DEFAULT-BOOT.md)",
+	   "          - slots, bootstate, stock env flag, attempt record, decision (read-only)\n"
 	   "bootsel clear      - attempt record = 0 (RAM)\n"
 	   "bootsel fast       - `clocks fast`, skipped once after a boot whose change never finished\n"
 	   "bootsel wdt on|off|<ms> - SoC watchdog, SoC reset on expiry (on = boot value)");

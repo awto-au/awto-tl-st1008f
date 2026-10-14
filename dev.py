@@ -404,6 +404,12 @@ def cmd_boot_link_check(extra: list[str]) -> int:
     return _script("boot_link_check.py", extra)
 
 
+@command("SerDes calibrated with no signal: does it link when the partner lights? sw2 loop pair (#125)",
+         args="[--first lanX] [--second lanY] [--reboot]", kind="hardware")
+def cmd_sds_cal_test(extra: list[str]) -> int:
+    return _script("sds_cal_test.py", extra)
+
+
 @command("10G link bring-up failure rate on sw2 (#116): bounce a cage pair N times (default lan7+lan8 fibre loop)",
          args="[--pair lanX lanY] [--rounds N]", kind="hardware")
 def cmd_link_bounce(extra: list[str]) -> int:

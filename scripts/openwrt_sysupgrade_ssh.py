@@ -3,12 +3,12 @@
 
 - Owner 2026-10-13: sw1 is reflashed only when the owner requests it.
 - Image: the local upstream-layout sysupgrade image (same file as openwrt_install.py).
-- Refused unless the board is tplink,tl-st1008f-v2 and `firmware` is the upstream 29 MiB layout.
+- Refused unless the board is tplink,tl-st1008f-v2 with the upstream 29 MiB `firmware` or the A/B slots (#117).
 - Config backup first (`sysupgrade -b`) -> private/sysupgrade-backup/<ip>-<ts>.tar.gz (gitignored).
 - Image pushed over SSH stdin (dropbear has no sftp-server), md5 both ends, `sysupgrade -T`, then
   `sysupgrade` (config kept) detached; waits for the unit to drop off and come back, checks the new
   revision and STP, then runs switch_check.py.
-- Writes only `firmware` (flash_guard). Log: tmp/logs/openwrt_sysupgrade_ssh.log
+- Writes only `firmware` / the inactive A/B slot (flash_guard). Log: tmp/logs/openwrt_sysupgrade_ssh.log
 """
 
 from __future__ import annotations
@@ -70,13 +70,16 @@ def wait(ip: str, up: bool, cap: float, what: str) -> float:
 def main() -> int:
     ap = argparse.ArgumentParser(description=__doc__.splitlines()[0])
     ap.add_argument("--ip", required=True)
+    ap.add_argument("--force", action="store_true",
+                    help="sysupgrade -F: image compat change (1.0 single firmware -> 2.0 A/B, #117), config kept")
     a = ap.parse_args()
     flash_guard.check_range(*FIRMWARE, "openwrt-sysupgrade-ssh firmware")  # #81: never the stock area
     flash_guard.check_mtd("firmware", "openwrt-sysupgrade-ssh")
     raw = SRC.read_bytes()
     m = re.search(rb'\{ *"metadata_version".*\}', raw[-4096:])
     meta = json.loads(m.group(0)) if m else {}
-    if "tplink,tl-st1008f-v2" not in meta.get("supported_devices", []):
+    # a compat_version bump moves the board list to new_supported_devices (#117: 2.0 = A/B)
+    if "tplink,tl-st1008f-v2" not in meta.get("new_supported_devices", meta.get("supported_devices", [])):
         raise SystemExit(f"FAIL: {SRC.name}: metadata does not name tplink,tl-st1008f-v2")
     rev = meta.get("version", {}).get("revision", "?")
     md5 = hashlib.md5(raw).hexdigest()
@@ -85,9 +88,10 @@ def main() -> int:
     board = ssh(a.ip, "cat /tmp/sysinfo/board_name").strip()
     if board != "tplink,tl-st1008f-v2":
         raise SystemExit(f"FAIL: board {board!r}")
-    mtd = ssh(a.ip, "grep '\"firmware\"' /proc/mtd")
-    if f"{FIRMWARE[1]:08x}" not in mtd:
-        raise SystemExit(f"FAIL: firmware partition not the upstream layout: {mtd.strip()}")
+    # upstream single 29 MiB `firmware`, or A/B (#117: the box writes its inactive slot)
+    mtd = ssh(a.ip, "grep -E '\"firmware(_a|_b)?\"' /proc/mtd")
+    if f"{FIRMWARE[1]:08x}" not in mtd and not ("firmware_a" in mtd and "firmware_b" in mtd):
+        raise SystemExit(f"FAIL: firmware partitions neither upstream nor A/B: {mtd.strip()}")
     before = ssh(a.ip, ". /etc/openwrt_release; echo $DISTRIB_REVISION").strip()
     log(f"  running {before}; board {board}; {mtd.strip()}")
 
@@ -104,9 +108,10 @@ def main() -> int:
     got = ssh(a.ip, "md5sum /tmp/f.bin").split()[0]
     if got != md5:
         raise SystemExit(f"FAIL: md5 on the box {got} != {md5}")
-    ssh(a.ip, "sysupgrade -T /tmp/f.bin")
+    F = "-F " if a.force else ""
+    ssh(a.ip, f"sysupgrade {F}-T /tmp/f.bin")
     log("  pushed, md5 ok, sysupgrade -T ok; upgrading (config kept)")
-    subprocess.run([*SSH, f"root@{a.ip}", "sysupgrade /tmp/f.bin </dev/null >/dev/null 2>&1 &"],
+    subprocess.run([*SSH, f"root@{a.ip}", f"sysupgrade {F}/tmp/f.bin </dev/null >/dev/null 2>&1 &"],
                    capture_output=True, timeout=CMD_S)
     t = wait(a.ip, False, DOWN_S, "the unit to drop off (upgrade started)")
     log(f"  off the network after {t:.0f} s")

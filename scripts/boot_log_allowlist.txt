@@ -153,7 +153,7 @@ Creating 2 MTD partitions on "firmware":  # OpenWrt split of the firmware partit
 0x[0-9a-f]{12}-0x000001d00000 : "rootfs"  # firmware split
 1 squashfs-split partitions found on MTD device rootfs  # rootfs_data split
 0x[0-9a-f]{12}-0x000001d00000 : "rootfs_data"  # rootfs split; start = end of the installed squashfs
-mtd: setting mtd7 \(rootfs\) as root device  # root device
+mtd: setting mtd([789]|10) \(rootfs\) as root device  # root device (index depends on the layout and the A/B slot, #117)
 bridge: filtering via arp/ip/ip6tables is no longer available by default\. Update your scripts to load br_netfilter if you need this\.  # bridge module notice, br_netfilter unused
 8021q: 802\.1Q VLAN Support v1\.8  # VLAN module
 8021q: adding VLAN 0 to HW filter on device lan[1-8]  # per-port VLAN 0 filter
@@ -300,7 +300,7 @@ sit: IPv6, IPv4 and MPLS over IPv4 tunneling driver  # IPv6 core (#16)
 thermal_sys: Registered thermal governor 'step_wise'  # thermal core (#16)
 pktgen: Packet Generator for packet performance testing\. Version: 2\.75  # NET_PKTGEN for nat-bench pktgen (#65)
 Kernel command line: earlycon  # DTS bootargs
-Kernel command line: earlycon( st1008f\.mode=m[123] st1008f\.boot=(primary|fallback|legacy))?  # DTS bootargs + our U-Boot bootsel args (DTB_EXTEND, #73)
+Kernel command line: earlycon( st1008f\.mode=m[123] st1008f\.slot=[ab] st1008f\.boot=(good|trial|legacy))?  # DTS bootargs + our U-Boot bootsel args: slot a|b (#117) (DTB_EXTEND, #73)
 OF: reserved mem: 0x0e000000\.\.0x0e000fff \(4 KiB\) nomap non-reusable bootrec@e000000  # boot-attempt record (DTS reserved-memory, #73)
 \s+node   0: \[mem 0x0000000000000000-0x000000000dffffff\]  # RAM bank 0 below the boot-attempt record (#73)
 \s+node   0: \[mem 0x000000000e000000-0x000000000e000fff\]  # boot-attempt record page, nomap (#73)
@@ -376,7 +376,8 @@ Load address: 0x81000000  # tftpboot of uboot-mainline.bin
 
 [uboot-mainline]
 \#\# Booting kernel from Legacy Image at 84f00000 \.\.\.  # `ramload uboot-mainline --then`: bootm from ours
-\#\# Booting kernel from Legacy Image at b4300000 \.\.\.  # chain boot: bootm of flash OpenWrt (firmware partition via the mmio window, #105)
+\#\# Booting kernel from Legacy Image at b(4300000|5180000) \.\.\.  # chain boot: bootm of slot a / b via the mmio window (#105, #117)
+led: fallback latched \((unconfirmed|trial-bad|good-bad)\): `rtk led clear` or `rtk led hw` to release  # A/B rollback happened (#117): investigate the trial slot
 \s+Image Name:\s+(MIPS OpenWrt Linux-\d+\.\d+(\.\d+)?(-rc\d+)?|mainline ST1008F)  # bootm header: images we build
 \s+Image Type:\s+MIPS Linux Kernel Image \(lzma compressed\)  # bootm header; type pinned
 \s+Data Size:\s+\d+ Bytes = [0-9.]+ MiB  # bootm header
@@ -402,10 +403,11 @@ Loading Environment from <NULL>\.\.\. OK  # ENV_IS_NOWHERE: RAM-only env, no fla
 Mode:  M1 switch, pins 17/18/19 = [01]/1/1  # mode switch boot policy (#46): pins 18/19 decode; pin 17 open (#8)
 Mode:  M2 isolated, pins 17/18/19 = [01]/0/1  # mode switch boot policy (#46)
 Mode:  M3 recovery, pins 17/18/19 = [01]/1/0  # mode switch boot policy (#46)
-Boot:  (legacy|prompt) \(no image in recovery slot: single-image boot as before\)  # default boot (#73): no recovery image yet, today's behaviour (M3 = prompt)
-Boot:  primary \(attempt 1/2 \(cold boot or confirmed\)\)  # default boot (#73): last primary boot confirmed or power-up
-Boot:  fallback \(mode switch M3\)  # default boot (#73): owner selected recovery
-Boot:  (fallback|prompt) \(stock env st1008f_boot=(fallback|prompt)\)  # default boot (#73): owner-set env flag
+Boot:  legacy \(no bootstate record: slot a as before A/B\)  # A/B (#117): no record yet = slot a, today's behaviour
+Boot:  good \(slot [ab] good( \(stock env flag: trial ignored\))?\)  # A/B (#117): good slot, no trial
+Boot:  trial \(trial slot [ab] attempt [12]/2, fallback slot [ab]\)  # A/B (#117): new image on trial
+Boot:  good \((trial slot [ab] uImage header bad|good slot [ab] uImage header bad|[2-9] trial boots of slot [ab] not confirmed by Linux)\)  # A/B (#117): rollback to the good slot
+Boot:  prompt \(stock env st1008f_boot=prompt\)  # owner-set env flag
 rtk: SFP power \d+\.\d W declared by \d+ modules?, budget \d+\.\d W \(env sfp_budget_mw\)  # `rtk network on`/`rtk port` SFP power total (#30); over budget adds a WARNING line (not allowlisted)
 wdt: on, \d+ ms \(prescale [0-3], \d+ x \d+ ms ticks at lx 175000 kHz\), SoC reset on expiry  # bootsel arms the SoC watchdog before bootm (#73)
 Autoboot in 2 s, ESC for the prompt  # our countdown: ESC-only stop, 2 s (owner #46, #105)
@@ -480,10 +482,17 @@ Aquantia AQR113C smbus:sfp-p[1-8]:11: aqr_gen1_read_status failed: -145  # -ETIM
 
 # Local OpenWrt 6.18 backport image (openwrt-ours-6.18) on sw2, reviewed 2026-10-12
 [openwrt]
-Kernel command line: earlycon( st1008f\.mode=m[123] st1008f\.boot=(primary|fallback|legacy))?  # DT bootargs + chain U-Boot bootsel args, one copy (300-19, #122)
+Kernel command line: earlycon( st1008f\.mode=m[123] st1008f\.slot=[ab] st1008f\.boot=(good|trial|legacy))?  # DT bootargs + chain U-Boot bootsel args: slot a|b (#117), one copy (300-19, #122)
 jffs2_scan_eraseblock\(\): End of filesystem marker found at 0x[0-9a-f]+  # first boot after sysupgrade: overlay formatted
 jffs2_build_filesystem\(\): unlocking the mtd device\.\.\.  # same
 done\.  # tail of the jffs2 unlock line
+0x[0-9a-f]{12}-0x[0-9a-f]{12} : "(jffs2-log|bootstate|firmware_a|firmware_b|kernel|rootfs|rootfs_data)"  # partition map, A/B layout (#117)
+[0-9] uimage-fw partitions found on MTD device firmware_[ab]  # booted slot split (300-33, #117)
+[0-9]+ fixed-partitions partitions found on MTD device spi0\.0  # DT partition table (#117 layout)
+Creating [0-9] MTD partitions on "firmware_[ab]":  # booted slot split (300-33)
+Creating [0-9]+ MTD partitions on "spi0\.0":  # DT partition table
+VFS: Mounted root \(squashfs filesystem\) readonly on device 31:[0-9]+\.  # rootfs minor depends on the slot (#117)
+dyndbg: Ignore empty _ddebug table in a CONFIG_DYNAMIC_DEBUG_CORE build  # DYNAMIC_DEBUG on (#125): a module with no pr_debug sites
 jffs2_build_filesystem\(\): erasing all blocks after the end marker\.\.\.  # first boot after sysupgrade: overlay format
 mount_root: overlay filesystem has not been fully initialized yet  # same (overlay ready after the format)
 - config restore -  # first boot after sysupgrade with config kept (sysupgrade.tgz restored)

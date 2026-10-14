@@ -1,0 +1,23 @@
+#!/bin/sh /etc/rc.common
+# A/B (#117): confirm this boot once the bridge is up and loop-safe -> booted slot good, U-Boot attempts 0.
+# Unconfirmed trial boots count in U-Boot; 2 -> it boots the good slot again.
+
+START=99
+
+# bridge `switch` appears ~27 s uptime, S99 starts ~15 s: 12 s expected x1.25 (as st1008f-selftest)
+WAIT_S=15
+
+start() {
+	(
+		b=/sys/class/net/switch/bridge i=0
+		while [ ! -e $b/stp_state ] && [ $i -lt $WAIT_S ]; do
+			sleep 1
+			i=$((i + 1))
+		done
+		if [ "$(cat $b/stp_state 2>/dev/null)" = 1 ]; then
+			/usr/sbin/st1008f-slot mark-good
+		else
+			logger -p daemon.err -t st1008f-slot "no bridge with STP after ${WAIT_S} s: boot not confirmed"
+		fi
+	) >/dev/null 2>&1 &
+}
