@@ -1,0 +1,96 @@
+#!/bin/sh
+# RTL930x SerDes access from Linux via devmem (port of U-Boot `rtk sds`, #125, docs/SDS-TOOLS.md)
+#   st1008f-sds rd SDS PAGE REG          read one register (hex out)
+#   st1008f-sds wr SDS PAGE REG VAL      write one register
+#   st1008f-sds rxeq SDS                 vth_p/vth_n, tap0, manual bits (10GBASE-R RX equaliser)
+#   st1008f-sds readapt SDS              rerun VTH/TAP0 adapt + lock, then DFE taps adapt (driver's
+#                                        rxcal_vth_tap0_adapt_lock): recovers a port calibrated in the dark
+# SerDes N = cage N-1 = lanN-1 (lan3 = SerDes 4). Raw devmem, NOT locked against the kernel driver (#136:
+# took sw2 lan1 down 2026-10-14): refuses while a port of the SerDes pair has carrier, unless --force.
+# Indirect access: CMD 0x1b0003b0 (sds<<2 | page<<7 | reg<<13 | busy | write<<1), DATA 0x1b0003b4;
+# logical SerDes 3 pages 0-3 live in SerDes 10.
+
+CMD=0x1b0003b0 DATA=0x1b0003b4
+POLL_N=100	# busy clears in tens of us; 100 devmem reads (~ms each) names a stuck controller
+
+die() { echo "st1008f-sds: $*" >&2; exit 1; }
+
+io() {	# sds page reg op
+	local s=$1 i=0
+	[ "$s" = 3 ] && [ "$2" -lt 4 ] && s=10
+	devmem $CMD 32 $(( (s << 2) | ($2 << 7) | ($3 << 13) | 1 | $4 ))
+	while [ $(( $(devmem $CMD 32) & 1 )) = 1 ]; do
+		i=$((i + 1))
+		[ $i -lt $POLL_N ] || die "SerDes $1 page $2 reg $3: busy after $POLL_N polls"
+	done
+}
+rd() { io "$1" "$2" "$3" 0; echo $(( $(devmem $DATA 32) & 0xffff )); }
+wr() { devmem $DATA 32 "$4"; io "$1" "$2" "$3" 2; }
+# wbits sds page reg hi lo val
+wbits() {
+	local m=$(( ((1 << ($4 - $5 + 1)) - 1) << $5 )) v
+	v=$(rd "$1" "$2" "$3")
+	wr "$1" "$2" "$3" $(( (v & ~m) | (($6 << $5) & m) ))
+}
+rbits() { echo $(( ($(rd "$1" "$2" "$3") >> $5) & ((1 << ($4 - $5 + 1)) - 1) )); }
+
+# driver rtpcs_930x_sds_rxeq_set_debug: debug-out select on the even SerDes, RX test enable, RX debug sel
+set_debug() {
+	local e=$(( $1 & ~1 )) sel=0x2f
+	[ "$1" = "$e" ] || sel=0x31
+	wbits $e 0x1f 0x02 15 0 $sel
+	wbits "$1" 0x2e 0x15 9 9 1
+	wbits "$1" 0x21 0x06 11 6 "$2"
+}
+coef() {	# sds coef_sel -> 6-bit readout of WDIG 0x14
+	set_debug "$1" 0x20
+	wbits "$1" 0x2f 0x0c 5 0 "$2"
+	sleep 1	# driver 1-2 ms; BusyBox here: whole seconds only
+	rbits "$1" 0x1f 0x14 5 0
+}
+signmag() { [ $(( $1 & 0x20 )) = 0 ] && echo $(( $1 & 0x1f )) || echo $(( -($1 & 0x1f) )); }
+
+rxeq() {
+	local v t
+	v=$(coef "$1" 0xc)
+	t=$(coef "$1" 0)
+	echo "SerDes $1: vth_p $((v & 7)) vth_n $(((v >> 3) & 7)) (manual $(rbits "$1" 0x2e 0x0f 13 13))," \
+	     "tap0 $(signmag "$t") (manual $(rbits "$1" 0x2e 0x0f 7 7))"
+}
+
+readapt() {
+	local v t i
+	wbits "$1" 0x2e 0x0f 13 13 0	# vth adapt on
+	wbits "$1" 0x2e 0x0f 7 7 0	# tap0 adapt on
+	sleep 1				# driver: msleep(200)
+	v=$(coef "$1" 0xc)
+	wbits "$1" 0x2e 0x13 5 0 $(( ((v & 7) << 3) | ((v >> 3) & 7) ))	# VTHP_INIT [5:3], VTHN_INIT [2:0]
+	wbits "$1" 0x2e 0x0f 13 13 1
+	sleep 1
+	t=$(coef "$1" 0)
+	wbits "$1" 0x2f 0x03 5 0 "$t"	# tap0 value (sign-magnitude as read)
+	wbits "$1" 0x2e 0x0f 7 7 1
+	for i in 1 2 3 4; do wbits "$1" 0x2e 0x0f $((i + 7)) $((i + 7)) 0; done	# DFE tap1-4 adapt
+	sleep 1
+	rxeq "$1"
+}
+
+command -v devmem >/dev/null || die "no devmem in this image"
+FORCE=0
+[ "$1" = --force ] && { FORCE=1; shift; }
+# SerDes pair (even, even+1) = lan(even-1), lan(even); a live link on either = refuse (#136)
+guard() {
+	local e=$(( $1 & ~1 )) p
+	[ "$1" -ge 2 ] && [ "$1" -le 9 ] || die "SerDes $1: not a cage SerDes (2-9)"
+	for p in lan$((e - 1)) lan$e; do
+		[ "$(cat /sys/class/net/$p/carrier 2>/dev/null)" = 1 ] || continue
+		[ $FORCE = 1 ] || die "$p (SerDes pair of $1) has a link: raw access can break it (#136); --force to override"
+	done
+}
+case "$1" in
+rd)	[ $# = 4 ] || die "usage: rd SDS PAGE REG"; guard "$2"; printf '0x%04x\n' "$(rd "$2" "$3" "$4")" ;;
+wr)	[ $# = 5 ] || die "usage: wr SDS PAGE REG VAL"; guard "$2"; wr "$2" "$3" "$4" "$5" ;;
+rxeq)	[ $# = 2 ] || die "usage: rxeq SDS"; guard "$2"; rxeq "$2" ;;
+readapt) [ $# = 2 ] || die "usage: readapt SDS"; guard "$2"; logger -t st1008f-sds "readapt SerDes $2"; readapt "$2" ;;
+*)	sed -n '2,6s/^# //p' "$0" >&2; exit 2 ;;
+esac
