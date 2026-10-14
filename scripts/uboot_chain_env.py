@@ -103,12 +103,27 @@ def slot_check(con) -> bool:
     return ok
 
 
+def stamp_check(banner: str) -> None:
+    """Flashed chain U-Boot vs the source (#130, #121: a stale slot ran for a day unnoticed)."""
+    sys.path.insert(0, str(ROOT / "scripts"))
+    from build_uboot_mainline import src_stamp
+    got = re.search(r"-st1008f-([0-9a-f]+(?:-mod)?|nogit)", banner)
+    want = src_stamp().removeprefix("-st1008f-")
+    if not got:
+        log(f"  WARN chain U-Boot has no source stamp (built before #130): rebuild + uboot-chain-install")
+    elif got[1] != want:
+        log(f"  WARN chain U-Boot {got[1]} != source {want} (#130): ./dev.py build-uboot && uboot-chain-install")
+    else:
+        log(f"  chain U-Boot = source {want}")
+
+
 def boot() -> int:
     con = Console()
     mark = restart_board(con, policy="run bootcmd")  # software reboot; relay only as fallback
     try:
         # stock banner ~2 s after power-on; chain + our banner < 1 s more; x1.25 + relay latency
-        con.expect(r"U-Boot 2026\.07", 6, mark, "stock -> saved bootcmd -> our U-Boot", boot_ok=True)
+        m, _ = con.expect(r"U-Boot 2026\.07[^\n(]*", 6, mark, "stock -> saved bootcmd -> our U-Boot", boot_ok=True)
+        stamp_check(m.group(0))
         # clock line after the 2 s window: `bootsel: M<n>:` (#46 slot) or `clocks: fast =` (pre-#46 slot, #113)
         m, _ = con.expect(r"bootsel: M\d: [^\n]*|clocks: fast = [^\n]*", 4, mark,
                           "our autoboot: clock policy (#46)", boot_ok=True)

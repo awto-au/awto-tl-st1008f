@@ -388,7 +388,7 @@ led: fallback latched \((unconfirmed|trial-bad|good-bad)\): `rtk led clear` or `
 \s+Uncompressing Kernel Image to 80100000  # bootm LZMA unpack
 Working FDT set to 0  # bootm: no separate FDT (DTB appended to the kernel)
 Starting kernel \.\.\.  # bootm handoff
-U-Boot 2026\.07(-dirty)? \([A-Z][a-z]{2} +\d+ 20\d\d - \d\d:\d\d:\d\d [+-]\d{4}\)  # mainline U-Boot banner, pinned to v2026.07 (uboot-port/)
+U-Boot 2026\.07(-st1008f-[0-9a-f]+(-mod)?)?(-dirty)? \([A-Z][a-z]{2} +\d+ 20\d\d - \d\d:\d\d:\d\d [+-]\d{4}\)  # mainline U-Boot banner, pinned to v2026.07 (uboot-port/); -st1008f-<hash> = source stamp (#130)
 Model: TP-Link TL-ST1008F v2\.0  # DTS model pinned
 DRAM:  256 MiB  # stage 0 maps 256 MiB (second bank not linear); pinned
 Core:  24 devices, 11 uclasses, devicetree: separate  # DM: root, clock provider, 2 simple-bus, serial, gpio, gpio-keys+3, i2c master+8 SFP buses, i2c-gpio+expander, spi+nor flash, CPU-port NIC (#80); a change shows up here

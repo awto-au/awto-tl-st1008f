@@ -183,8 +183,20 @@ def stage() -> None:
         log(f"patched {rel} ({marker})")
 
 
+def src_stamp() -> str:
+    """-st1008f-<last commit touching uboot-port/ or shared/>[-mod]: in the banner, so a flashed build that
+    is older than the source shows at boot (uboot_chain_env.py, #130)."""
+    paths = ["uboot-port", "shared"]
+    h = subprocess.run(["git", "log", "-1", "--format=%h", "--", *paths], cwd=ROOT, capture_output=True,
+                       text=True).stdout.strip() or "nogit"
+    dirty = subprocess.run(["git", "status", "--porcelain", "--", *paths], cwd=ROOT, capture_output=True,
+                           text=True).stdout.strip()
+    return f"-st1008f-{h}{'-mod' if dirty else ''}"
+
+
 def build(cross: str) -> int:
-    env = dict(os.environ, CROSS_COMPILE=cross, ARCH="mips")
+    env = dict(os.environ, CROSS_COMPILE=cross, ARCH="mips", LOCALVERSION=src_stamp())
+    log(f"version stamp {env['LOCALVERSION']}")
     o = f"O={BUILDDIR}"
     BUILDDIR.mkdir(parents=True, exist_ok=True)
     if run(["make", o, DEFCONFIG], TREE, env):
