@@ -152,8 +152,10 @@ Chained boot only (`ramload` boots never autoboot). First match wins:
   - flash OpenWrt (W25Q256 in 4-byte mode), procd feeding stopped (`ubus call system watchdog '{"stop":true}'`): SoC reset 30 s later → stock → ours (`bootsel fast`, 1000/650) → OpenWrt console, no relay;
   - our U-Boot after `sf probe` (EN4B): `reset` (switch-core RST_GLB_CTRL) → stock banner, SPL reads flash fine;
   - our U-Boot `bootsel wdt 1000`: SoC reset after ~1.2 s → stock banner.
-- `watchdog.open_timeout=5` (OpenWrt board DTS bootargs, #138): the kernel feeds the running SoC watchdog only until procd opens `/dev/watchdog`, at most 5 s after the driver registers. Sizing: procd's `init: - watchdog -` at kernel 1.89-3.28 s over 204 logged boots (2026-10-15); 3.28 x 1.25 = 4.1 -> 5 s. Without it a hang between `Run /sbin/init` and procd was never reset (2026-10-15 boot-link-check round 4: console silent ~30 s until the relay).
-  - Verified sw2 2026-10-15T00:56+11:00, `./dev.py uboot-chain-env hang-test` (slot b, `init=/bin/sh`, wdt armed as autoboot): SoC reset 6 s after `/bin/sh` started, next boot normal. Not in the mainline DTS: its initramfs `/init` is a shell and never opens the watchdog.
+- `watchdog.open_timeout=92` (OpenWrt board DTS bootargs, #138): after it the kernel no longer feeds the running SoC watchdog while userspace has `/dev/watchdog` closed, so a hang before or between procd's opens resets the board instead of sitting until power is cut (2026-10-15 boot-link-check: console silent ~30 s after `Run /sbin/init` until the relay).
+  - Sizing: the deadline also governs procd's close/re-open (preinit -> init). Last `procd: - watchdog -` over 182 logged 6.18 boots (2026-10-15): 5.73-73.38 s, median 12.38 s; the 73 s boots are first boots after a sysupgrade with the pre-300-32 overlay erase. 73.38 x 1.25 = 92 s.
+  - 5 s (first attempt, sized from procd's first open only, 1.89-3.28 s over 204 boots) reset sw2 at procd's re-open at 5.73 s in 1 of 8 rounds.
+  - Not in the mainline DTS: its initramfs `/init` is a shell and never opens the watchdog.
 - Not measured: LX at boot.
 
 ## Modes

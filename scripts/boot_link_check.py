@@ -56,7 +56,14 @@ def main() -> int:
         _, out = con.run("grep . /sys/class/net/lan?/carrier", PROMPT, 3, "carriers")
         up = {m[1] for m in re.finditer(r"/(lan\d)/carrier:1", out)}
         miss = [p for p in EXPECT if p not in up]
-        log(f"round {i}: up {sorted(up)}; missing {miss or 'none'}")
+        # linkwatch bounces this boot (#116): a lan1 that only came up after a bounce still had the stall
+        _, lw = con.run("logread | grep linkwatch: | grep -c bounce", PROMPT, 3, "linkwatch")
+        nb = re.search(r"\n(\d+)\s*\r?\n", lw)
+        bounced = int(nb[1]) if nb else -1
+        if bounced > 0:
+            _, lwl = con.run("logread | grep linkwatch: | tail -4", PROMPT, 3, "linkwatch lines")
+            log(f"  linkwatch: {' | '.join(ln.split('linkwatch: ')[-1].strip() for ln in lwl.splitlines() if 'linkwatch: ' in ln)}")
+        log(f"round {i}: up {sorted(up)}; missing {miss or 'none'}; linkwatch bounces {bounced}")
         if miss:
             bad += 1
             for p in miss:

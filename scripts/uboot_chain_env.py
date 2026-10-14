@@ -159,7 +159,7 @@ def boot() -> int:
     return 0
 
 
-HANG_RESET_S = 60  # init=/bin/sh: wdt registers ~1 s after bootm+LZMA (~9 s), open_timeout 5 + HW 30 s; ~45 s x1.25
+HANG_RESET_S = 165  # init=/bin/sh: kernel feeds the wdt until open_timeout 92 s, then <= 30 s HW timeout + ~10 s boot; x1.25
 
 
 def hang_test(slot: str) -> int:

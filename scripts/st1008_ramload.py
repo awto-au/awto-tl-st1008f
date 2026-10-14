@@ -213,7 +213,8 @@ PROMPTS = (  # (pattern of the prompt the board shows, reboot command)
     (r"^[~/][^#\n]* # $", "reboot -f"),            # bare BusyBox shell (init=/bin/sh, #138 hang-test)
 )
 PROBE_S = 1     # prompt redraw after a CR: one line at 115200, ms; 1 s names a hung / fast-baud console
-SOFT_S = 12     # reboot -> stock banner: OpenWrt shutdown ~5 s (#105) + banner ~2.5 s; x1.25 + slack
+SOFT_S = 36     # reboot -> stock banner: shutdown while the boot selftest runs up to ~26 s (feeds image,
+                # scripts/console_stats.py reboot, #139) + banner 2.5 s; x1.25
 
 
 def _daemon_baud(baud: int) -> None:
