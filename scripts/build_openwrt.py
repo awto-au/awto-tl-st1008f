@@ -60,8 +60,12 @@ KERNEL_PATCHES = {
     "300-11-realtek-rteth-tx-ring32-bql-xmit-more.patch": OURS,  # 300-12 builds on it
     "300-12-realtek-rteth-930x-nic-path.patch": BACKPORT / "kernel",
     "300-13-mips-highmem-lowmem-fast-paths.patch": OURS,
+    "300-19-realtek-board-cmdline-once.patch": OURS,  # #122: fw_init_cmdline ran twice (args doubled)
     "300-27-realtek-rteth-select-queue-no-hash.patch": OURS,  # #65
     "300-28-realtek-rteth-rx-descriptor-cached-read.patch": OURS,  # #65
+    "300-29-net-pcs-rtl-otto-rx-signal-wait-dbg.patch": OURS,  # #124
+    "300-30-net-phy-aquantia-hwmon-clamp-limits.patch": OURS,  # #124
+    "300-31-realtek-l3-route-on-standalone-port-dbg.patch": OURS,  # #124
 }
 TREE_PATCH = BACKPORT / "openwrt-tree.patch"
 # --parked: untested candidates from openwrt/patches-parked, 6.18 only; name -> OpenWrt patch dir

@@ -1,0 +1,20 @@
+From: awto-tl-st1008f
+Subject: [PATCH] net: phy: aquantia: clamp hwmon limits instead of -ERANGE (#124)
+
+The thermal core programs set_trips(-INT_MAX, ...) when no trip lies below the current
+temperature; aqr_hwmon_set() rejected it with -ERANGE ("Failed to set trips: -34") before
+temp_max was written. Clamp to the register's s16 range, as hwmon expects of limit writes.
+---
+--- a/drivers/net/phy/aquantia/aquantia_hwmon.c
++++ b/drivers/net/phy/aquantia/aquantia_hwmon.c
+@@ -56,8 +56,8 @@
+ {
+ 	int temp;
+ 
+-	if (value >= 128000 || value < -128000)
+-		return -ERANGE;
++	/* s16, LSB = 1/256 degC: clamp like other hwmon limit writes (thermal core passes -INT_MAX) */
++	value = clamp_val(value, -128000, 127996);
+ 
+ 	temp = value * 256 / 1000;
+ 

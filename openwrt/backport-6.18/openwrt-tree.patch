@@ -1,11 +1,12 @@
 OpenWrt-tree overlay for TL-ST1008F v2 (#73), applied by scripts/build_openwrt.py with git apply:
 - DTS: gpio-keys M1/M2/M3 -> mode-switch node (300-06, cage@N children); spi0 dirmap window (300-07);
-  gpio0 applies pinmux_disable_spi0* (cage presence GPIO3-7, #29); eth0 MAC from u-boot-env ethaddr via nvmem (#86)
+  gpio0 applies pinmux_disable_spi0* (cage presence GPIO3-7, #29); eth0 MAC from u-boot-env ethaddr via nvmem (#86);
+  3V3 fixed regulator as vcc-supply of spi-nor + pca9534 (#124)
 - rtl930x/config-6.18: MIPS_PLATFORM_DEVICES + TPLINK_ST1008F_MODE_SWITCH built in; MIPS_CMDLINE_DTB_EXTEND
   (DT bootargs + U-Boot bootargs: st1008f.mode/boot from bootsel, #73)
 
 diff --git a/target/linux/realtek/dts/rtl9303_tplink_tl-st1008f-v2.dts b/target/linux/realtek/dts/rtl9303_tplink_tl-st1008f-v2.dts
-index d11a6fd..7c1a670 100644
+index d11a6fd..607c87c 100644
 --- a/target/linux/realtek/dts/rtl9303_tplink_tl-st1008f-v2.dts
 +++ b/target/linux/realtek/dts/rtl9303_tplink_tl-st1008f-v2.dts
 @@ -2,7 +2,6 @@
@@ -16,7 +17,23 @@ index d11a6fd..7c1a670 100644
  #include <dt-bindings/gpio/gpio.h>
  #include <dt-bindings/leds/common.h>
  
-@@ -20,31 +19,46 @@
+@@ -10,6 +9,15 @@
+ 	compatible = "tplink,tl-st1008f-v2", "realtek,rtl930x-soc";
+ 	model = "TP-Link TL-ST1008F v2.0";
+ 
++	/* board 3V3 rail (always on); named so spi-nor/pca953x get a real vcc-supply */
++	reg_3v3: regulator-3v3 {
++		compatible = "regulator-fixed";
++		regulator-name = "3v3";
++		regulator-min-microvolt = <3300000>;
++		regulator-max-microvolt = <3300000>;
++		regulator-always-on;
++	};
++
+ 	memory@0 {
+ 		device_type = "memory";
+ 		reg = <0x00000000 0x10000000>, /* first 256 MiB */
+@@ -20,31 +28,46 @@
  		stdout-path = "serial0:115200n8";
  	};
  
@@ -85,7 +102,15 @@ index d11a6fd..7c1a670 100644
  		};
  	};
  
-@@ -185,7 +199,20 @@
+@@ -69,6 +92,7 @@
+ 		gpioexp0: i2c@38 {
+ 			reg = <0x38>;
+ 			compatible = "nxp,pca9534";
++			vcc-supply = <&reg_3v3>;
+ 			gpio-controller;
+ 			#gpio-cells = <2>;
+ 		};
+@@ -185,11 +209,25 @@
  	};
  };
  
@@ -106,7 +131,12 @@ index d11a6fd..7c1a670 100644
  	status = "okay";
  
  	flash@0 {
-@@ -207,6 +234,15 @@
+ 		compatible = "jedec,spi-nor";
++		vcc-supply = <&reg_3v3>;
+ 		reg = <0>;
+ 		spi-max-frequency = <100000000>;
+ 
+@@ -207,6 +245,15 @@
  			partition@e0000 {
  				label = "u-boot-env";
  				reg = <0xe0000 0x10000>;
@@ -122,7 +152,7 @@ index d11a6fd..7c1a670 100644
  			};
  
  			partition@f0000 {
-@@ -276,3 +312,8 @@
+@@ -276,3 +323,8 @@
  		};
  	};
  };
@@ -131,6 +161,20 @@ index d11a6fd..7c1a670 100644
 +	nvmem-cells = <&macaddr_ubootenv_ethaddr 0>;
 +	nvmem-cell-names = "mac-address";
 +};
+diff --git a/target/linux/realtek/dts/rtl930x.dtsi b/target/linux/realtek/dts/rtl930x.dtsi
+index 660d2f2..0713879 100644
+--- a/target/linux/realtek/dts/rtl930x.dtsi
++++ b/target/linux/realtek/dts/rtl930x.dtsi
+@@ -448,7 +448,8 @@
+ 		cpu-thermal {
+ 			polling-delay-passive = <1000>;
+ 			polling-delay = <1000>;
+-			coefficients = <1000 0>;
++			/* Realtek SDK dal_longan_switch_thermalTemp_get: TEMP_OUT * 1.29 - 10 degC */
++			coefficients = <1290 (-10000)>;
+ 			thermal-sensors = <&soc_thermal>;
+ 			trips {
+ 				critical {
 diff --git a/target/linux/realtek/rtl930x/config-6.18 b/target/linux/realtek/rtl930x/config-6.18
 index 74f0649..59d94c4 100644
 --- a/target/linux/realtek/rtl930x/config-6.18
@@ -162,17 +206,3 @@ index 74f0649..59d94c4 100644
  CONFIG_TREE_RCU=y
  CONFIG_TREE_SRCU=y
  CONFIG_USE_GENERIC_EARLY_PRINTK_8250=y
-diff --git a/target/linux/realtek/dts/rtl930x.dtsi b/target/linux/realtek/dts/rtl930x.dtsi
-index 660d2f2..0713879 100644
---- a/target/linux/realtek/dts/rtl930x.dtsi
-+++ b/target/linux/realtek/dts/rtl930x.dtsi
-@@ -448,7 +448,8 @@
- 		cpu-thermal {
- 			polling-delay-passive = <1000>;
- 			polling-delay = <1000>;
--			coefficients = <1000 0>;
-+			/* Realtek SDK dal_longan_switch_thermalTemp_get: TEMP_OUT * 1.29 - 10 degC */
-+			coefficients = <1290 (-10000)>;
- 			thermal-sensors = <&soc_thermal>;
- 			trips {
- 				critical {

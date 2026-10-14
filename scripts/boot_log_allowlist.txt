@@ -349,16 +349,12 @@ Initrd not found or empty - disabling initrd  # no external initrd passed; benig
 Failed to get CPU clock: -2  # no CPU clk provider, falls back to DT 800 MHz; known #28
 UNKNOWN_MC_PMASK: 000000001fffffff  # driver debug print of a constant port mask; benign #28
 gpio_button_hotplug: loading out-of-tree module taints kernel\.  # OpenWrt package module; benign #28
-Cannot parse config file '/etc/fw_env\.config': No such file or directory  # st1008f-selftest runs fw_printenv before uci-defaults writes the config; known #124
-Failed to find NVMEM device  # fw_printenv fallback message, same cause; known #124
 realtek-otto-pcs 1b000000\.switchcore:pcs: pcs_config\(10gbase-r\) for port (0|8|27) and sds [239] not yet fully implemented  # OpenWrt 25.12.4 / kernel 6.12 flash image only (gone in 6.18 and 7.3 builds); goes when flash moves to ours; known #73
 realtek-otto-pcs 1b000000\.switchcore:pcs: pcs_config\(sgmii\) for port (16|20|24|25|26) and sds [4-8] not yet fully implemented  # OpenWrt 25.12.4 / kernel 6.12 flash image only (gone in 6.18 and 7.3 builds); known #73
 rtpcs_930x_sds_10g_idle WARNING: Waiting for RX idle timed out, SDS [4-8]  # empty cages 3-7, RX never idles; OpenWrt 6.12 images only (not seen on 6.18 / 7.3); known #73
 rtpcs_930x_sds_force_mode: SDS 9 could not reset state machine  # seen on lan8, OpenWrt 6.12 images only (not seen on 6.18 / 7.3); known #73
-rtl838x-eth 1b00a300\.ethernet eth0: Ring contention: r: 0, last a38000[0-9a-f]{2}, cur a38000[0-9a-f]{2}  # CPU-port RX ring swamped during the cage-loop storm; known #124
 
 [mainline]
-Failed to request irq 7 \(timer\)  # CP0 timer IRQ mapping; known #124
 (spi-nor spi0\.0|pca953x 8-0038): supply vcc not found, using dummy regulator  # no regulator nodes in the DTS yet; known #124
 VFS: Cannot open root device "" or unknown-block\(0,0\): error -19  # stage-0 has no rootfs; benign #28
 /dev/root: Can't lookup blockdev  # stage-0 has no rootfs; benign #28
@@ -419,9 +415,9 @@ clocks: turbo OK = cpu \d+ MHz, mem \d+ MHz, lx \d+ MHz, sram \d+ MHz, MCR [0-9a
 clocks: mem now \d+ kHz, DTR0 [0-9a-f]{8} DTR1 [0-9a-f]{8} DTR2 [0-9a-f]{8}, canary 0 bad  # turbo/clocks DDR change, zero canary errors ("0 bad" is not a DENY match)
 
 [mainline]
-rtl838x_eth 1b000000\.switch:ethernet eth0: Failed to create a device link to DSA switch 1b000000\.switch  # conduit is a child of the switch node: no device link; known #124
-rtl83xx-switch 1b000000\.switch: lower interface lan[1-8] not found  # l3.c route offload before the DSA ports exist; known #124
-rtl83xx-switch 1b000000\.switch: fib_add\(\) failed  # follows 'lower interface not found'; known #124
+rtl838x_eth 1b000000\.switch:ethernet eth0: Failed to create a device link to DSA switch 1b000000\.switch  # conduit is a child of the switch (simple-mfd): link would be a cycle; no probe/traffic effect, no upstream fix; benign #28
+rtl83xx-switch 1b000000\.switch: lower interface lan[1-8] not found  # l3.c route offload before the DSA ports exist; known #124 (300-29/300-31 remove it)
+rtl83xx-switch 1b000000\.switch: fib_add\(\) failed  # follows 'lower interface not found'; known #124 (300-29/300-31 remove it)
 tplink-st1008f-mode mode-switch: port [0-7]: unknown media insert  # module with no compliance code (Cisco-NEO PTB3370553): not classified; known #124
 realtek-rtl-spi 18001200\.spi: dirmap: window != PIO at 0x0 \(SFCR2 0xbbc14a00\), using PIO  # 300-07 self-check fell back to PIO after stock `rtk network on`; known #61
 realtek-rtl-spi 18001200\.spi: dirmap: diag at 0x[0-9a-f]+ op 0x[0-9a-f]{2}/\d/\d, window 0x[0-9a-f]{8} at 0x[0-9a-f]{8}, release -?\d+  # 300-07 self-check mismatch diag: op, window phys/virt, CS-release wait result; known #61
@@ -451,7 +447,7 @@ rtldsa_93xx_setup called|In rtldsa_vlan_setup|In rteth_mac_config, mode 1|RESETT
 rtl83xx-switch 1b000000\.ethernet-switch: led_set0 has 3 LEDs configured  # LED set from DTS
 (rtl83xx-switch 1b000000\.ethernet-switch|rtl838x_eth 1b000000\.ethernet-switch:ethernet eth0): configuring for fixed/internal link mode  # CPU port fixed link
 (rtl83xx-switch 1b000000\.ethernet-switch|rtl838x_eth 1b000000\.ethernet-switch:ethernet eth0): Link is Up - 1Gbps/Full - flow control off  # CPU port fixed link up
-rtl838x_eth 1b000000\.ethernet-switch:ethernet eth0: Failed to create a device link to DSA switch 1b000000\.ethernet-switch  # conduit is a child of the switch node: no device link; known #124
+rtl838x_eth 1b000000\.ethernet-switch:ethernet eth0: Failed to create a device link to DSA switch 1b000000\.ethernet-switch  # conduit is a child of the switch (simple-mfd): link would be a cycle; no probe/traffic effect, no upstream fix; benign #28
 rtl838x_eth 1b000000\.ethernet-switch:ethernet eth0: (entered|left) (promiscuous|allmulticast) mode  # DSA conduit / bridge
 rtl838x_eth 1b000000\.ethernet-switch:ethernet eth0: receive page pool below \d+ MB  # RX page pool info
 rtl838x_eth 1b000000\.ethernet-switch:ethernet eth0: Link is Down  # conduit down on network restart
@@ -465,13 +461,13 @@ sfp sfp-p[1-8]: Host maximum power [\d.]+W  # per-cage DTS power limit (#30)
 rtl83xx-switch 1b000000\.ethernet-switch lan[1-8]: configuring for inband/(1000base-x|sgmii|10gbase-r) link mode  # phylink config
 rtl83xx-switch 1b000000\.ethernet-switch lan[1-8]: switched to inband/(sgmii|10gbase-r|1000base-x) link mode  # phylink mode change on module/PHY
 realtek-otto-pcs 1b000000\.ethernet-switch:pcs: SerDes \d+ configured for (1000base-x|sgmii|10gbase-r) mode  # SerDes mode set
-realtek-otto-pcs 1b000000\.ethernet-switch:pcs: SerDes \d+: waiting for RX idle timed out  # 10 ms wait, some SerDes only; meaning of the status bit unknown; known #124
+realtek-otto-pcs 1b000000\.ethernet-switch:pcs: SerDes \d+: waiting for RX idle timed out  # 10 ms wait, some SerDes only; meaning of the status bit unknown; known #124 (300-29/300-31 remove it)
 rtl83xx-switch 1b000000\.ethernet-switch: (add|delete) IPv4 route \S+ (via \S+ )?\(VLAN \d+, MAC [0-9a-f:]{17}\)  # L3 offload route table
 rtl83xx-switch 1b000000\.ethernet-switch: skip loopback/broadcast addresses and default routes  # L3 offload info
 rtl83xx-switch 1b000000\.ethernet-switch: route allocated for gw 0\.0\.0\.0  # L3 offload info
 rtl83xx-switch 1b000000\.ethernet-switch: IPv4 forwarding offload (suspended|resumed) by the policy rules  # L3 offload vs nft rules at fw4 load
-rtl83xx-switch 1b000000\.ethernet-switch: lower interface lan1 not found  # l3.c route offload before the DSA ports exist; known #124
-rtl83xx-switch 1b000000\.ethernet-switch: fib_add\(\) failed  # follows 'lower interface not found'; known #124
+rtl83xx-switch 1b000000\.ethernet-switch: lower interface lan1 not found  # l3.c route offload before the DSA ports exist; known #124 (300-29/300-31 remove it)
+rtl83xx-switch 1b000000\.ethernet-switch: fib_add\(\) failed  # follows 'lower interface not found'; known #124 (300-29/300-31 remove it)
 jffs2: notice: \(\d+\) jffs2_build_xattr_subsystem: complete building xattr subsystem, .*  # JFFS2 overlay mount
 mount_root: switching to jffs2 overlay|overlayfs: upper fs does not support tmpfile\.|urandom-seed: Seeding with /etc/urandom\.seed  # OpenWrt preinit
 pktgen: Packet Generator for packet performance testing\. Version: 2\.75  # kmod-pktgen (nat-bench)
@@ -484,6 +480,10 @@ Aquantia AQR113C smbus:sfp-p[1-8]:11: aqr_gen1_read_status failed: -145  # -ETIM
 
 # Local OpenWrt 6.18 backport image (openwrt-ours-6.18) on sw2, reviewed 2026-10-12
 [openwrt]
+Kernel command line: earlycon( st1008f\.mode=m[123] st1008f\.boot=(primary|fallback|legacy))?  # DT bootargs + chain U-Boot bootsel args, one copy (300-19, #122)
+jffs2_scan_eraseblock\(\): End of filesystem marker found at 0x[0-9a-f]+  # first boot after sysupgrade: overlay formatted
+jffs2_build_filesystem\(\): unlocking the mtd device\.\.\.  # same
+done\.  # tail of the jffs2 unlock line
 - generating board file -  # OpenWrt board.d on first boot (whole line; fragments are cut by unsplice)
 CPU frequency from PLL: \d+MHz  # 300-05 hpt-freq-from-pll
 In otto_vlan_setup  # driver debug print (6.18 rtl83xx)

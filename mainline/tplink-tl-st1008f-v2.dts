@@ -36,6 +36,15 @@
 	compatible = "tplink,tl-st1008f-v2", "realtek,rtl9302-soc";
 	model = "TP-Link TL-ST1008F v2.0";
 
+	/* board 3V3 rail (always on); named so spi-nor/pca953x get a real vcc-supply */
+	reg_3v3: regulator-3v3 {
+		compatible = "regulator-fixed";
+		regulator-name = "3v3";
+		regulator-min-microvolt = <3300000>;
+		regulator-max-microvolt = <3300000>;
+		regulator-always-on;
+	};
+
 	/* DRAM 256-512 MiB is reached via OCP zone 3 at bus 0x20000000 (OpenWrt 300-02 remap,
 	 * HIGHMEM); a HIGHMEM=n kernel drops the second range (#27). */
 	memory@0 {
@@ -129,6 +138,7 @@
 
 		gpioexp0: gpio@38 {
 			compatible = "nxp,pca9534";
+			vcc-supply = <&reg_3v3>;
 			reg = <0x38>;
 			gpio-controller;
 			#gpio-cells = <2>;
@@ -457,6 +467,7 @@
 
 	flash@0 {
 		compatible = "jedec,spi-nor";
+		vcc-supply = <&reg_3v3>;
 		reg = <0>;
 		spi-max-frequency = <100000000>;
 

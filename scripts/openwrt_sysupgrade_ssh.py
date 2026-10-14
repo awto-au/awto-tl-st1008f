@@ -33,8 +33,9 @@ FIRMWARE = (0x300000, 0x1D00000)  # upstream layout: 0x300000 to the end of the 
 SSH = ["ssh", "-o", "ConnectTimeout=5", "-o", "BatchMode=yes", "-o", "StrictHostKeyChecking=accept-new"]
 CMD_S = 30     # one SSH command: sysupgrade -T / -b ~2-5 s on a 1 GHz MIPS; x6 for a loaded box
 PUSH_S = 60    # 6 MB over 1G LAN, dropbear cipher on MIPS: wget of the same file took 4.7 s on sw2; x12
-# drop off: sysupgrade -> reboot took 48 s on sw2 (openwrt_install, console); x1.25
-DOWN_S = 60
+# drop off: the unit stays reachable through the whole flash write, until the reboot
+# (docs/OPENWRT-BUILD-OPS.md sysupgrade timing); x1.25
+DOWN_S = 80
 # back: flash write worst 264 s (datasheet, as openwrt_install) + reboot to network ~50 s (sw2); x1.25
 UP_S = 390
 

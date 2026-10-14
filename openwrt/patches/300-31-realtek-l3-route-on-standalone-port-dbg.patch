@@ -1,0 +1,21 @@
+From: awto-tl-st1008f
+Subject: [PATCH] net: dsa: rtl83xx: l3: route on a non-switch upper is CPU-trapped by design, not an error (#124)
+
+A route directly on a standalone DSA port (OpenWrt preinit 192.168.1.1/24 on lan1) has only the
+conduit below it, so otto_l3_port_dev_lower_find() finds no port and the route is trapped to
+the CPU, as the comment above it intends. Log at debug and return 0 (no "fib_add() failed").
+---
+--- a/drivers/net/dsa/rtl83xx/l3.c
++++ b/drivers/net/dsa/rtl83xx/l3.c
+@@ -2779,9 +2779,9 @@
+ 	 */
+ 	port = otto_l3_port_dev_lower_find(ndev, ctrl);
+ 	if (port < 0) {
+-		dev_err(ctrl->dev, "lower interface %s not found\n", ndev->name);
++		dev_dbg(ctrl->dev, "route on %s: no switch port below, CPU-trapped\n", ndev->name);
+ 		otto_l3_fib_trap_v4(ctrl, info);
+-		return -ENODEV;
++		return 0;
+ 	}
+ 
+ 	/* Allocate route or host-route entry (if hardware supports this) */

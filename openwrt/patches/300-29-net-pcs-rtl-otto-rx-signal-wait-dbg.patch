@@ -1,0 +1,19 @@
+From: awto-tl-st1008f
+Subject: [PATCH] net: pcs: rtl-otto: RX signal wait timeout is normal, log at debug (#124)
+
+rtpcs_930x_sds_10g_idle() waits for WDIG 0x14 bit 0/1 = 0, i.e. RX signal present (Realtek SDK
+dal_longan_sds_10gRxIdle_get: 1 = idle). A dark partner (empty cage, laser off) times out, as the
+SDK does silently; the old warning also named the condition backwards.
+---
+--- a/drivers/net/pcs/pcs-rtl-otto.c
++++ b/drivers/net/pcs/pcs-rtl-otto.c
+@@ -2960,7 +2960,8 @@
+ 		usleep_range(100, 200); /* wait ~100 usecs before retry */
+ 	} while (ktime_before(ktime_get(), timeout));
+ 
+-	dev_warn(sds->ctrl->dev, "SerDes %u: waiting for RX idle timed out\n", sds->id);
++	/* bit = 1: RX idle (no signal). A dark partner is normal here (SDK: silent) */
++	dev_dbg(sds->ctrl->dev, "SerDes %u: no RX signal within 10 ms\n", sds->id);
+ 	return -ETIMEDOUT;
+ }
+ 
