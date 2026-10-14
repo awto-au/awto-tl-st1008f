@@ -119,6 +119,7 @@ Chained boot only (`ramload` boots never autoboot). First match wins:
 - Upgrade from a: `A/B: running slot a, writing slot b` → `Boot: trial (trial slot b attempt 1/2, fallback slot a)` → `st1008f.slot=b`, only `firmware_b` split, config kept, `slot b marked good`.
 - Rollback: `st1008f-slot boot a`, two boots stopped at our prompt (unconfirmed) → attempts 1/2, 2/2 → `Boot: good (2 trial boots of slot a not confirmed by Linux)` → slot b logs `trial slot a did not confirm: back on slot b`, record `good b, trial -`, attempts 0.
 - First run of the hook failed safe: stage2's ramdisk lacked `head`, the record write failed, the board stayed on slot a (`RAMFS_COPY_BIN += head`).
+- Hang during a trial (2026-10-15T01:07-01:10+11:00): `st1008f-slot boot a`, then `./dev.py uboot-chain-env hang-test --slot a` (attempt 1/2, `init=/bin/sh`). Slot a held the pre-#138 image (no `watchdog.open_timeout`): no reset in 60 s, as before #138. After a warm reboot: `Boot: trial (trial slot a attempt 2/2, fallback slot b)`, normal boot, `slot a marked good`. Same test on the #138 image (slot b): SoC reset 6 s after `/bin/sh`.
 
 ### Autoboot stop and prompt (#46, #105)
 
