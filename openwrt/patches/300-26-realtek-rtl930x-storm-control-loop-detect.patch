@@ -197,13 +197,13 @@ Subject: [PATCH] net: dsa: rtl83xx: RTL930x storm control defaults + loop detect
 +static void probe_send(struct rtldsa_storm *s, int port, struct net_device *dev)
 +{
 +	struct sk_buff *skb = netdev_alloc_skb(dev, PROBE_LEN);
-+	u8 *p;
++	u8 sa[ETH_ALEN] = { 0x02, 0x93, 0x03, 'L', 'D', port }, *p;
 +
 +	if (!skb)
 +		return;
 +	p = skb_put_zero(skb, PROBE_LEN);
 +	eth_broadcast_addr(p);
-+	memcpy(p + 6, (u8[]){ 0x02, 0x93, 0x03, 'L', 'D', port }, 6);	/* never a real host: learning it is harmless */
++	memcpy(p + 6, sa, ETH_ALEN);	/* never a real host: learning it is harmless */
 +	put_unaligned_be16(RTL930X_LOOP_ETHERTYPE, p + 12);
 +	p[14] = RTL930X_LOOP_PROTO_RLDP;
 +	memcpy(p + 15, "STLD", 4);

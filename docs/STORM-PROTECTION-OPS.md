@@ -73,6 +73,9 @@ Facts, limits and code: [STORM-PROTECTION.md](STORM-PROTECTION.md).
 
 - OpenWrt (flash layout, bridge `switch` with STP on, mgmt cage included) + cage 3 ↔ 4 added: STP blocks (L2 behaviour), no `loop:` line.
 - Then STP off on `switch` (the 2026-10-10 incident shape): expect a `loop:` shut ≤ 1 s and the host storm guard not tripping. If it trips, the relay kill ends the test: record the storm_watch log and dmesg in #111.
+- Run: `./dev.py ramload openwrt-ours-6.18`, then `./dev.py storm-test l6` (fibre pair 7 ↔ 8 by default, `--pair` to change).
+- lan1 (mgmt/uplink) is taken out of `switch` for the test: the loop never reaches sw1 or the house LAN. Same bridge, kernel and netifd path; a shut that takes 1 s would still put ~1 s of storm on the uplink if lan1 stayed in.
+- STP-on half (L2 behaviour in `switch`) not scripted yet.
 
 ## After the test
 

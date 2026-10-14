@@ -1,13 +1,15 @@
 #!/usr/bin/env python3
-"""storm_test — #111 steps L2-L5 on sw2 (docs/STORM-PROTECTION-OPS.md), mainline initramfs shell.
+"""storm_test — #111 steps L2-L6 on sw2 (docs/STORM-PROTECTION-OPS.md).
 
-- Needs `./dev.py ramload mainline-kernel` (300-26 kernel). sw2 only: board_guard via dev.py.
+- L2-L5: mainline initramfs shell (`./dev.py ramload mainline-kernel`). L6: OpenWrt 6.18 + 300-26
+  (`./dev.py ramload openwrt-ours-6.18`). sw2 only: board_guard via dev.py.
 - Test bridge `br-t` = one looped cage pair, default lan7 + lan8 (fibre). The 3 <-> 4 DAC does not
   link under the mainline kernel yet (#112 fix is OpenWrt-tree only): `--pair 3 4` to try it.
   The mgmt cage (lan1) is never in br-t, so a loop cannot reach the house LAN. Torn down after each step.
 - L2 STP on: one port blocks, no `loop:` shut. L3 STP off: `loop:` shut <= 2 s. L4 (after L3):
   back up at +60 s and shut again. L5 `loop off` + one broadcast: meters cap it (`storm_s`
-  rising, `storm:` line), then `loop on` shuts it <= 2 s.
+  rising, `storm:` line), then `loop on` shuts it <= 2 s. L6: the pair in OpenWrt's `switch` bridge
+  with STP off: `loop:` shut <= 2 s; lan1 (uplink) is taken out of `switch` first and put back after.
 - Log: tmp/logs/storm_test.log; results go in docs/STORM-PROTECTION.md.
 """
 
@@ -25,6 +27,8 @@ from st1008_ramload import Console  # noqa: E402
 ROOT = Path(__file__).resolve().parent.parent
 LOG = ROOT / "tmp/logs/storm_test.log"
 PROMPT = r"st1008f-linux # "
+OW_PROMPT = r"root@[^:\s]*:[^#\n]*# "
+BR = "br-t"
 DBG = "/sys/kernel/debug/rtl838x/storm"
 SHUT_S = 2      # loop period 1 s (300-26): probe out + back + shut = 1 period; x2 (one period may be missed)
 RECOVER_S = 60  # loop_recover_s default (300-26)
@@ -48,7 +52,7 @@ def sh(con: Console, cmd: str, cap: float = 3) -> str:
 
 def state_cmd() -> str:
     return (f"grep -E '^(loop|{A}|{B})' {DBG}; for p in {A} {B}; do "
-            "echo \"$p stp $(cat /sys/class/net/br-t/brif/$p/state 2>/dev/null) oper $(cat /sys/class/net/$p/operstate)\"; done")
+            f"echo \"$p stp $(cat /sys/class/net/{BR}/brif/$p/state 2>/dev/null) oper $(cat /sys/class/net/$p/operstate)\"; done")
 
 
 def bridge_up(con: Console, stp: int) -> None:
@@ -136,19 +140,48 @@ def l5(con: Console) -> bool:
     return capped and shut
 
 
+def l6(con: Console) -> bool:
+    """OpenWrt `switch` bridge, STP off, pair added: loop detect must shut one port; lan1 isolated.
+    OpenWrt's BusyBox echo check breaks on long lines: short commands only."""
+    sb = "/sys/class/net/switch/bridge"
+    n = dmesg_lines(con)
+    sh(con, "ip link set lan1 nomaster")  # uplink out first: the loop can never reach sw1 / the house LAN
+    try:
+        sh(con, f"echo 0 > {sb}/stp_state")
+        sh(con, f"ip link set {A} master switch")
+        sh(con, f"ip link set {B} master switch")
+        sh(con, f"ip link set {A} up; ip link set {B} up")
+        sh(con, f"sleep {LINK_S + SHUT_S}", LINK_S + SHUT_S + 2)
+        sh(con, f"D={DBG}")
+        st = sh(con, f"grep -E '^(loop|{A}|{B})' $D") + sh(con, "cat /proc/loadavg")
+        ev = dmesg_since(con, n)
+        log(f"L6 state:\n{st}\nL6 dmesg: {ev or '(none)'}")
+        return "shut down" in ev and "SHUT" in st
+    finally:
+        sh(con, f"ip link set {A} nomaster; ip link set {B} nomaster")
+        sh(con, f"ip link set {A} down; ip link set {B} down")
+        sh(con, f"echo 1 > {sb}/stp_state")
+        sh(con, "ip link set lan1 master switch")
+        sh(con, f"echo unshut > {DBG}")
+
 def main() -> int:
     global A, B
     ap = argparse.ArgumentParser(description=__doc__.splitlines()[0])
-    ap.add_argument("steps", nargs="*", default=["l2", "l3", "l4", "l5"], choices=["l2", "l3", "l4", "l5"])
+    ap.add_argument("steps", nargs="*", default=["l2", "l3", "l4", "l5"], choices=["l2", "l3", "l4", "l5", "l6"])
     ap.add_argument("--pair", nargs=2, type=int, default=[7, 8], metavar="CAGE")
     a = ap.parse_args()
     A, B = f"lan{a.pair[0]}", f"lan{a.pair[1]}"
     con = Console()
+    global PROMPT
+    if a.steps == ["l6"]:
+        PROMPT = OW_PROMPT
+    elif "l6" in a.steps:
+        raise SystemExit("l6 runs alone (OpenWrt shell); l2-l5 need the mainline initramfs shell")
     sh(con, "dmesg -n 1")
     res = {}
     for s in a.steps:
         log(f"=== {s.upper()} ({A} + {B})")
-        res[s] = {"l2": l2, "l3": l3, "l4": l4, "l5": l5}[s](con)
+        res[s] = {"l2": l2, "l3": l3, "l4": l4, "l5": l5, "l6": l6}[s](con)
         log(f"{s.upper()} {'PASS' if res[s] else 'FAIL'}")
     log("result: " + " ".join(f"{k.upper()} {'PASS' if v else 'FAIL'}" for k, v in res.items()))
     return 0 if all(res.values()) else 1

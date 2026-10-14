@@ -186,7 +186,7 @@ rtl838x-eth 1b00a300\.ethernet eth0: entered (allmulticast|promiscuous) mode  # 
 rtl83xx-switch switch@1b000000: configuring for fixed/internal link mode  # CPU port phylink
 rtl83xx-switch switch@1b000000: Link is Up - 10Gbps/Full - flow control off  # CPU port link
 rtl83xx-switch switch@1b000000: led_set0 has 3 LEDs configured  # LED set
-rtl83xx-switch (switch@1b000000|1b000000\.switch): storm control bc/mc/uc \d+/\d+/\d+ pps per port, loop detect (on|off) \(recover \d+ s\) \(#111\)  # 300-26 probe: storm meters + loop detect armed; a `loop:`/`storm:` warning is not allowlisted (a real loop/storm)
+rtl83xx-switch (switch@1b000000|1b000000\.switch|1b000000\.ethernet-switch): storm control bc/mc/uc \d+/\d+/\d+ pps per port, loop detect (on|off) \(recover \d+ s\) \(#111\)  # 300-26 probe: storm meters + loop detect armed; a `loop:`/`storm:` warning is not allowlisted (a real loop/storm)
 DSA: tree 0 setup  # DSA init
 RESETTING 9300, CPU_PORT 28  # rtl83xx-switch debug print: CPU port 28
 c45_mask: 00000000  # rtl83xx-switch debug print
@@ -484,6 +484,8 @@ Kernel command line: earlycon( st1008f\.mode=m[123] st1008f\.boot=(primary|fallb
 jffs2_scan_eraseblock\(\): End of filesystem marker found at 0x[0-9a-f]+  # first boot after sysupgrade: overlay formatted
 jffs2_build_filesystem\(\): unlocking the mtd device\.\.\.  # same
 done\.  # tail of the jffs2 unlock line
+jffs2_build_filesystem\(\): erasing all blocks after the end marker\.\.\.  # first boot after sysupgrade: overlay format
+mount_root: overlay filesystem has not been fully initialized yet  # same (overlay ready after the format)
 - generating board file -  # OpenWrt board.d on first boot (whole line; fragments are cut by unsplice)
 CPU frequency from PLL: \d+MHz  # 300-05 hpt-freq-from-pll
 In otto_vlan_setup  # driver debug print (6.18 rtl83xx)
@@ -496,7 +498,7 @@ tplink-st1008f-mode mode-switch: port [0-7]: unknown media insert  # module with
 === WARNING! =====================================  # OpenWrt banner: root has no password; owner OK for the private dev LAN (#123 closed); benign #28
 urandom-seed: Seed file not found \(/etc/urandom\.seed\)  # first boot after a flash/ramload, seed written later; benign #28
 umount: can't unmount /(dev|tmp): Resource busy  # procd shutdown on `reboot`; benign #28
-lan[1-8] \(port \d+\): broadcast \d+/\d+ storm_s \d+ multicast \d+/\d+ storm_s \d+ unknown-unicast \d+/\d+ storm_s \d+  # storm_test.py config readback ("unknown-unicast" is the class name); benign #111
+(lan[1-8]|cpu) \(port \d+\): broadcast \d+/\d+ storm_s \d+ multicast \d+/\d+ storm_s \d+ unknown-unicast (\d+/\d+|off) storm_s \d+  # storm config readback (debugfs rtl838x/storm, storm_test.py) ("unknown-unicast" is the class name); benign #111
 ddm +not implemented \(A0 byte 92 = 0x[0-9a-f]{2}\)  # st1008f-selftest: module without DDM (byte 92 bit 6 clear); benign #28
 ((root@\S+|st1008f-linux) # )?dmesg \| grep -ciE 'oops\|bug:\|out of memory\|oom-kill'  # echo of a dev.py check command; benign #28
 

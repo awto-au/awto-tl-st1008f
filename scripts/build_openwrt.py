@@ -61,6 +61,7 @@ KERNEL_PATCHES = {
     "300-12-realtek-rteth-930x-nic-path.patch": BACKPORT / "kernel",
     "300-13-mips-highmem-lowmem-fast-paths.patch": OURS,
     "300-19-realtek-board-cmdline-once.patch": OURS,  # #122: fw_init_cmdline ran twice (args doubled)
+    "300-26-realtek-rtl930x-storm-control-loop-detect.patch": OURS,  # #111
     "300-27-realtek-rteth-select-queue-no-hash.patch": OURS,  # #65
     "300-28-realtek-rteth-rx-descriptor-cached-read.patch": OURS,  # #65
     "300-29-net-pcs-rtl-otto-rx-signal-wait-dbg.patch": OURS,  # #124
@@ -286,6 +287,10 @@ def overlay_618(parked: list[str]) -> None:
     for name, src in KERNEL_PATCHES.items():
         shutil.copy2(src / name, TREE / RT / "patches-6.18" / name)
         log(f"overlay: {RT}/patches-6.18/{name} (from {src.relative_to(ROOT)})")
+    # 300-26 includes the storm core shared with U-Boot; files-6.18 lands in the kernel tree before patches
+    hdr = TREE / RT / "files-6.18/drivers/net/dsa/rtl83xx/rtl930x_storm.h"
+    shutil.copy2(ROOT / "shared/rtl930x-storm/rtl930x_storm.h", hdr)
+    log(f"overlay: {hdr.relative_to(TREE)} (from shared/rtl930x-storm)")
     r = subprocess.run(["git", "apply", "--whitespace=nowarn", str(TREE_PATCH)], cwd=TREE,
                        capture_output=True, text=True, timeout=30)
     if r.returncode:

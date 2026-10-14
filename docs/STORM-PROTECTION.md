@@ -112,4 +112,10 @@ Conditions: our U-Boot RAM-loaded (U1), mainline kernel next-20261009 + 300-26 R
 
 - `loops` counts every returned probe while the loop runs (hundreds per event), not events.
 - DAC pair 3 <-> 4 does not link under the mainline kernel (lan3 never up, lan4 flaps): the #112 DAC media fix is in the OpenWrt tree only. Fibre pair used instead.
-- Not run: L6 (OpenWrt management bridge with STP off): 300-26 is not in the OpenWrt 6.18 image yet.
+## Measured on sw2: L6 (2026-10-14T20:53+11:00)
+
+Conditions: OpenWrt 6.18.55 local image with 300-26 (build after 99f92b9; UC default off), RAM-loaded; `./dev.py storm-test l6`; lan7 + lan8 (fibre loop) added to OpenWrt's `switch` bridge with STP off; lan1 (uplink to sw1) taken out of `switch` first and put back after; host storm guard armed, no trip.
+
+- Result: pass. `loop: probe sent on lan7 came back on lan8: lan8 shut down for 60 s`, read 7 s after `ip link set up` (links + one probe period); `storm_s` 0 on both ports (the loop was cut before the meters engaged).
+- Defaults read back from debugfs: bc 10000 / mc 20000 pps per port, unknown-unicast off, CPU port same; loop on, period 1000 ms, recover 60 s.
+- First attempt aborted on a long console line (BusyBox echo check) and left the loop up 12 s: loop detect had already shut lan8 (`dmesg`); torn down by hand. L6 now uses short commands and tears down in `finally`.
