@@ -56,7 +56,7 @@ Subject: [PATCH] net: dsa: rtl83xx: RTL930x storm control defaults + loop detect
  	u64 lags_port_members[MAX_LAGS];
 --- /dev/null
 +++ b/drivers/net/dsa/rtl83xx/storm.c
-@@ -0,0 +1,371 @@
+@@ -0,0 +1,390 @@
 +// SPDX-License-Identifier: GPL-2.0-only
 +/*
 + * RTL930x storm control defaults + software loop detection (awto-tl-st1008f #111).
@@ -116,6 +116,8 @@ Subject: [PATCH] net: dsa: rtl83xx: RTL930x storm control defaults + loop detect
 +	struct delayed_work work;
 +	spinlock_t lock;		/* shut state: tap (softirq) vs work */
 +	struct packet_type pt[NPORTS];
++	bool pt_on;	/* handlers registered: only while loop detection is on (an ETH_P_ALL
++			 * handler puts every packet of the port through the nit path) */
 +	u32 nonce, seq, pmask;
 +	bool on;
 +	u32 bc, mc, uc;
@@ -336,6 +338,23 @@ Subject: [PATCH] net: dsa: rtl83xx: RTL930x storm control defaults + loop detect
 +	return single_open(f, storm_show, inode->i_private);
 +}
 +
++static void storm_pt_set(struct rtldsa_storm *s, bool on)
++{
++	int p;
++
++	if (s->pt_on == on)
++		return;
++	for (p = 0; p < NPORTS; p++) {
++		if (!s->pt[p].dev)
++			continue;
++		if (on)
++			dev_add_pack(&s->pt[p]);
++		else
++			dev_remove_pack(&s->pt[p]);
++	}
++	s->pt_on = on;
++}
++
 +/* "<bc> <mc> <uc>" pps (0 = off) | "loop on" | "loop off" (also re-opens shut ports) | "unshut" */
 +static ssize_t storm_write(struct file *f, const char __user *ubuf, size_t len, loff_t *off)
 +{
@@ -348,8 +367,10 @@ Subject: [PATCH] net: dsa: rtl83xx: RTL930x storm control defaults + loop detect
 +	buf[len] = 0;
 +	if (sysfs_streq(buf, "loop on")) {
 +		s->on = true;
++		storm_pt_set(s, true);
 +	} else if (sysfs_streq(buf, "loop off")) {
 +		s->on = false;
++		storm_pt_set(s, false);
 +		storm_unshut_all(s);
 +	} else if (sysfs_streq(buf, "unshut")) {
 +		storm_unshut_all(s);
@@ -402,8 +423,8 @@ Subject: [PATCH] net: dsa: rtl83xx: RTL930x storm control defaults + loop detect
 +		s->pt[dp->index].func = probe_rcv;
 +		s->pt[dp->index].af_packet_priv = s;
 +		s->pt[dp->index].ignore_outgoing = true;	/* no TX clones */
-+		dev_add_pack(&s->pt[dp->index]);
 +	}
++	storm_pt_set(s, s->on);
 +	INIT_DELAYED_WORK(&s->work, storm_work);
 +	schedule_delayed_work(&s->work, msecs_to_jiffies(LOOP_PERIOD_MS));
 +	if (priv->dbgfs_dir)
@@ -422,9 +443,7 @@ Subject: [PATCH] net: dsa: rtl83xx: RTL930x storm control defaults + loop detect
 +		return;
 +	debugfs_remove(s->dbg);
 +	cancel_delayed_work_sync(&s->work);
-+	for (p = 0; p < NPORTS; p++)
-+		if (s->pt[p].dev)
-+			dev_remove_pack(&s->pt[p]);
++	storm_pt_set(s, false);
 +	storm_unshut_all(s);
 +	priv->storm = NULL;
 +}
