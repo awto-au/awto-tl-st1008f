@@ -486,6 +486,7 @@ jffs2_build_filesystem\(\): unlocking the mtd device\.\.\.  # same
 done\.  # tail of the jffs2 unlock line
 jffs2_build_filesystem\(\): erasing all blocks after the end marker\.\.\.  # first boot after sysupgrade: overlay format
 mount_root: overlay filesystem has not been fully initialized yet  # same (overlay ready after the format)
+- config restore -  # first boot after sysupgrade with config kept (sysupgrade.tgz restored)
 - generating board file -  # OpenWrt board.d on first boot (whole line; fragments are cut by unsplice)
 CPU frequency from PLL: \d+MHz  # 300-05 hpt-freq-from-pll
 In otto_vlan_setup  # driver debug print (6.18 rtl83xx)
