@@ -13,7 +13,8 @@ SPI-F: WINBOND/EF4019/MMIO32-2/ModeC 1x32 MB \(plr_flash_info @ 83f922a4\)  # 32
 Loading 65536B env\. variables from offset 0xe0000  # u-boot-env partition read
 Net:   Net Initialization Skipped  # network is brought up on demand by `rtk network on`
 No ethernet found\.  # same: no NIC until `rtk network on`
-Hit Esc key to stop autoboot:(  [0-9])?  # autoboot countdown banner; the digit can land on the next line (daemon restart mid-line)
+Hit Esc key to stop autoboot(:(  [0-9])?)?  # autoboot countdown banner; ':' and the digit can land on the next line (daemon restart mid-line)
+:  [0-9]  # tail of the countdown banner after a mid-line split
 \s*0  # tail of the autoboot countdown
 \s*Enable network  # `rtk network on` start
 \s*Please wait for PHY init-time \.\.\.  # `rtk network on` PHY init wait
@@ -486,6 +487,7 @@ Kernel command line: earlycon( st1008f\.mode=m[123] st1008f\.slot=[ab] st1008f\.
 jffs2_scan_eraseblock\(\): End of filesystem marker found at 0x[0-9a-f]+  # first boot after sysupgrade: overlay formatted
 jffs2_build_filesystem\(\): unlocking the mtd device\.\.\.  # same
 done\.  # tail of the jffs2 unlock line
+rtl83xx-switch 1b000000\.ethernet-switch: IPv6 forwarding offload (suspended|resumed) by the policy rules  # l3 offload follows fw4 rule changes (firewall reload at boot)
 realtek-otto-pcs 1b000000\.ethernet-switch:pcs: SerDes \d+: no RX signal, calibration deferred until there is one  # 300-34 (#125): partner dark at config
 realtek-otto-pcs 1b000000\.ethernet-switch:pcs: SerDes \d+: RX signal present, calibrated  # 300-34 (#125): deferred calibration done
 0x[0-9a-f]{12}-0x[0-9a-f]{12} : "(jffs2-log|bootstate|firmware_a|firmware_b|kernel|rootfs|rootfs_data)"  # partition map, A/B layout (#117)

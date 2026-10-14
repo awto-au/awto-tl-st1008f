@@ -181,6 +181,7 @@ T_DOWNLOAD = 600       # ~0.43 GB dl/ (first run); 600 s = 0.7 MB/s floor, names
 T_WORLD = 1800         # first full build (tools 7 + toolchain 8 + packages/kernel/images ~8 min) ~1400 s x1.25
 T_KERNEL = 180         # --kernel-only 6.18: 132 s x1.25 (2026-10-12)
 T_GIT = 300            # shallow clone/fetch of OpenWrt main: ~10 s; 300 s names a stuck remote
+T_FEEDS = 600          # first feeds update = full clones of packages + luci (~0.4 GB) at >= 1 MB/s; later runs seconds
 DISK_POLL_S = 30       # free-space check while make runs: >4 GB cannot go in 30 s at -j8
 
 
@@ -211,6 +212,28 @@ def disk_check(phase: str, comment: bool) -> None:
     if gb < MIN_FREE_GB:
         disk_abort(phase, gb, comment)
         sys.exit(3)
+
+
+# Feeds in every image (#129): what sw1 carried as apk installs. Built in, the kmods match our kernel and
+# both A/B slots carry them (per-slot overlays would lose apk installs on the other slot, #117).
+FEEDS = {  # name -> (url, commit); pinned 2026-10-15 for OpenWrt main 0ad1348; move with OWRT_COMMIT
+    "packages": ("https://git.openwrt.org/feed/packages.git", "8eba6fba6efc462643425b584798d914dbeac3f3"),
+    "luci": ("https://git.openwrt.org/project/luci.git", "d8368b1236d6d0b758b1fe8c306e59e0329697aa"),
+}
+FEED_PKGS = ["luci", "luci-app-statistics", "luci-app-snmpd", "luci-app-lldpd", "luci-app-package-manager",
+             "collectd-mod-cpu", "collectd-mod-interface", "collectd-mod-load", "collectd-mod-memory",
+             "collectd-mod-network", "collectd-mod-rrdtool", "collectd-mod-thermal"]
+
+
+def feeds() -> int:
+    (TREE / "feeds.conf").write_text("".join(f"src-git {n} {u}^{c}\n" for n, (u, c) in FEEDS.items()))
+    rc = run(["./scripts/feeds", "update", "-a"], T_FEEDS)
+    if rc:
+        return rc
+    rc = run(["./scripts/feeds", "install", *FEED_PKGS], T_FEEDS)
+    if not rc:
+        log(f"feeds: {', '.join(f'{n}@{c[:8]}' for n, (_, c) in FEEDS.items())}; installed {len(FEED_PKGS)} packages")
+    return rc
 
 
 def run(cmd: list, timeout: float, cwd: Path = TREE, comment: bool = True) -> int:
@@ -484,7 +507,7 @@ def config(kernel: str, dboot: str = "") -> int:
     # 7.3+: PREEMPT_NONE needs ARCH_NO_PREEMPT; OpenWrt's default KERNEL_PREEMPT_NONE would leave full
     # PREEMPT. Voluntary = the model the mainline port boots with (mainline/st1008f-v2.config).
     extra = "CONFIG_TESTING_KERNEL=y\nCONFIG_KERNEL_PREEMPT_VOLUNTARY=y\n" if kernel == "mainline" else ""
-    extra += SELFTEST_CFG + dboot
+    extra += SELFTEST_CFG + dboot + "".join(f"CONFIG_PACKAGE_{p}=y\n" for p in FEED_PKGS)
     (TREE / ".config").write_text(SEED + extra)
     rc = run(["make", "defconfig"], T_DEFCONFIG)
     if rc:
@@ -620,6 +643,8 @@ def main() -> int:
     disk_check("clone", comment)
     clone(a.update)
     overlay(a.kernel, a.no_overlay, a.parked)
+    if feeds():
+        return 1
     disk_check("config", comment)
     if config(a.kernel, default_boot_files(a.default_boot)):
         return 1
