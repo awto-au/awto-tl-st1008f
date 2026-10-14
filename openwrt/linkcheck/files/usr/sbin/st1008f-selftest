@@ -180,7 +180,8 @@ step_mode() {
 	# pin 17 is one-hot: low at M1 only (#8 open)
 	{ [ $pos = M1 ] && [ $p17 = 1 ]; } || { [ $pos != M1 ] && [ $pos != invalid ] && [ $p17 = 0 ]; } &&
 		warn "pin 17 = $p17 at $pos: stuck? (#8)"
-	[ "$d1" = "$d2" ] || warn "pins changed between two reads (switch moving?)"
+	# mode pins only: GPIO 22/23 (SFP I2C bit-bang) and others toggle between the reads (#128)
+	[ "$(fld "$d1" 17 3)" = "$(fld "$d2" 17 3)" ] || warn "pins 17-19 changed between two reads (switch moving?)"
 	[ "$(fld "$dir" 17 3)" = 0 ] || warn "pins 17-19 not all inputs (DIR)"
 	m=$(cmdarg mode)
 	[ -z "$m" ] || [ "$m" = "$(echo $pos | tr M m)" ] || warn "switch now $pos, U-Boot booted mode $m"
