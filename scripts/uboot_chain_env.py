@@ -117,6 +117,18 @@ def stamp_check(banner: str) -> None:
         log(f"  chain U-Boot = source {want}")
 
 
+def alive_probe() -> None:
+    """Console timeout (#138): is the board up with a silent console, or down? ping 2 x 1 s, SSH 5 s."""
+    sys.path.insert(0, str(ROOT / "scripts"))
+    from boards import BENCH_IP
+    ping = subprocess.run(["ping", "-c", "2", "-W", "1", BENCH_IP], capture_output=True).returncode == 0
+    ssh = subprocess.run(["ssh", "-o", "ConnectTimeout=5", "-o", "BatchMode=yes", f"root@{BENCH_IP}", "uptime"],
+                         capture_output=True, text=True, timeout=15)
+    up = ssh.stdout.strip() if ssh.returncode == 0 else ""
+    log(f"  console timeout: {BENCH_IP} ping {'yes' if ping else 'no'}, ssh {up or 'no'} -> "
+        f"{'board alive, console silent (PL2303 RX?)' if ping or up else 'board silent (hang or no network yet)'}")
+
+
 def boot() -> int:
     con = Console()
     mark = restart_board(con, policy="run bootcmd")  # software reboot; relay only as fallback
@@ -130,7 +142,11 @@ def boot() -> int:
         log(f"  {m.group(0).strip()}")
         # 2 s ESC window + bootm from flash + kernel to console ~24 s after ours (measured 24 s with a
         # 1 s window); x1.25
-        m, _ = con.expect(f"(?:{OW_READY})|{JFFS2_FORMAT}", 31, mark, "flash OpenWrt console", boot_ok=True)
+        try:
+            m, _ = con.expect(f"(?:{OW_READY})|{JFFS2_FORMAT}", 31, mark, "flash OpenWrt console", boot_ok=True)
+        except SystemExit:
+            alive_probe()
+            raise
         if re.search(JFFS2_FORMAT, m.group(0)):
             # first boot after a sysupgrade formats the overlay: console ~65 s later than a normal boot
             # (docs/OPENWRT-BUILD-OPS.md, #132); x1.25
