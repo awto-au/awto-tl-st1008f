@@ -14,6 +14,7 @@
 from __future__ import annotations
 
 import argparse
+import os
 import re
 import shutil
 import subprocess
@@ -39,8 +40,12 @@ def log(msg: str) -> None:
         fh.write(line + "\n")
 
 
+ENV: dict[str, str] = {}  # commit dates pinned to the base commit: same series = same hashes (push without force)
+
+
 def git(*args: str, cwd: Path, check: bool = True, data: str | None = None) -> str:
-    r = subprocess.run(["git", *args], cwd=cwd, capture_output=True, text=True, timeout=GIT_S, input=data)
+    r = subprocess.run(["git", *args], cwd=cwd, capture_output=True, text=True, timeout=GIT_S, input=data,
+                       env={**os.environ, **ENV})
     if check and r.returncode:
         raise SystemExit(f"FAIL git {' '.join(args)[:80]}: {r.stderr.strip()[:300]}")
     return r.stdout.strip()
@@ -66,6 +71,8 @@ def main() -> int:
     if a.base != kernel_base.selected():
         raise SystemExit("--base must match the build's base: run with KERNEL_BASE=<base> instead")
     series = mbc.PATCHES
+    when = git("log", "-1", "--format=%cI", f"{a.base}^{{commit}}", cwd=store)
+    ENV.update(GIT_AUTHOR_DATE=when, GIT_COMMITTER_DATE=when)
     git("worktree", "prune", cwd=store)
     if WT.exists():
         git("worktree", "remove", "--force", str(WT), cwd=store)
