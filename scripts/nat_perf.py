@@ -5,7 +5,8 @@
 - Pushes tmp/perf/perf (`scripts/build_perf.py`) to /tmp/perf over SSH, starts one nic-bench workload
   (--test, nat_bench.py run) and, once iperf3 is past its omit time, `perf record -e cpu-clock -a` for --secs
   (hrtimer sampling: the 34K PMU overflow IRQ gives no samples here, #67).
-- On the board: `perf report --sort sym` (kernel symbols from /proc/kallsyms) -> top symbols.
+- On the board: `perf report --sort sym` (kernel symbols from /proc/kallsyms) -> top symbols, VPE0 only by
+  default (`--cpu`); `--callgraph` = record -g, inclusive %% per symbol (cost per stage).
   No sampling IRQ -> falls back to `perf stat -a` counters.
 - Output: tmp/logs/nat_perf-<tag>.txt (report), summary in tmp/logs/nat_perf.log
 """
@@ -55,6 +56,9 @@ def main() -> int:
     ap.add_argument("--secs", type=int, default=5, help="perf record duration (inside the 10 s load)")
     ap.add_argument("--freq", type=int, default=2000, help="perf record -F")
     ap.add_argument("--no-push", action="store_true")
+    ap.add_argument("--callgraph", action="store_true",
+                    help="record -g; report inclusive (children) %% per symbol: cost per stage (RX, GRO, flowtable, TX)")
+    ap.add_argument("--cpu", default="0", help="report only this CPU (VPE0 carries the NAT path); '' = all")
     a = ap.parse_args()
     if not PERF.exists():
         log("FAIL: tmp/perf/perf missing (python3 scripts/build_perf.py)")
@@ -66,21 +70,23 @@ def main() -> int:
                              f"perf-{a.test}", *args], stdout=subprocess.PIPE, stderr=subprocess.STDOUT, text=True,
                             env=dict(os.environ, NAT_BENCH_TAG=f"perf-{a.tag}"))
     time.sleep(OMIT_S)
-    rec = nat_bench.sw(f"/tmp/perf record -e cpu-clock -a -F {a.freq} -o /tmp/perf.data -- sleep {a.secs} 2>&1",
+    rec = nat_bench.sw(f"/tmp/perf record -e cpu-clock -a {'-g ' if a.callgraph else ''}-F {a.freq} -o /tmp/perf.data -- sleep {a.secs} 2>&1",
                        check=False, tmo=a.secs + 15)
     out, _ = load.communicate(timeout=90)  # iperf3 10 s + setup; 90 s as nic_path_bench
     res = [ln.split("RESULT", 1)[1].strip() for ln in out.splitlines() if "RESULT" in ln]
     log(f"[{a.tag}] load {a.test}: {res[0] if res else out[-200:]}")
     log(f"[{a.tag}] record: {' | '.join(rec.strip().splitlines()[-3:])}")
     if "sample" in rec and "Error" not in rec:
-        rep = nat_bench.sw("/tmp/perf report -i /tmp/perf.data --stdio --sort sym --no-children "
-                           "--percent-limit 0.5 2>&1 | grep -v '^$'", check=False, tmo=REPORT_S)
+        cpu = f"--cpu {a.cpu} " if a.cpu else ""
+        mode = "--children -g none --percent-limit 2" if a.callgraph else "--no-children --percent-limit 0.5"
+        rep = nat_bench.sw(f"/tmp/perf report -i /tmp/perf.data --stdio --sort sym {cpu}{mode} "
+                           "2>&1 | grep -v '^$'", check=False, tmo=REPORT_S)
     else:
         log(f"[{a.tag}] no sampling: perf stat fallback")
         rep = nat_bench.sw(f"/tmp/perf stat -a -- sleep {a.secs} 2>&1", check=False, tmo=a.secs + 15)
     dst = ROOT / f"tmp/logs/nat_perf-{a.tag}.txt"
     dst.write_text(f"# {a.tag} {a.test} {res[0] if res else ''}\n{rec}\n{rep}")
-    top = [ln.strip() for ln in rep.splitlines() if "%" in ln and not ln.startswith("#")][:15]
+    top = [ln.strip() for ln in rep.splitlines() if "%" in ln and not ln.startswith("#")][:30 if a.callgraph else 15]
     for ln in top:
         log(f"[{a.tag}]   {ln}")
     log(f"[{a.tag}] report -> {dst.relative_to(ROOT)}")

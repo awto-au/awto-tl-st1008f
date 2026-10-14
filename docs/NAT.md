@@ -345,3 +345,24 @@ Conditions: mainline next-20261009 initramfs, SMP, picks (`turbo cpu=1350,ddr=66
 - RPS and threaded NAPI stay worse: both VPEs share one 34Kc pipeline, so moving work to VPE1 adds IPI/cache cost without compute.
 - GRO + fraglist GRO stay on: off costs 30-40 %.
 - Storm control at the old default (unknown-unicast 20000 pps) capped NAT at ~19 kpps (`STORM_CONTROL` drops; routed traffic to the switch's own MAC counts as unknown unicast): default now off (#111).
+
+## Mainline with today's series (sw2, 2026-10-15T08:17-08:45+11:00)
+
+Conditions: mainline next-20261009 + series through 300-35 (`awto/st1008f/next-20261009`), initramfs, picks (`turbo cpu=1350,ddr=662,lx=306,sram=500`), NAT + flowtable, `./dev.py nic-bench run --runs 1`. Rows: `tmp/logs/nat_bench.jsonl`.
+
+| Tag | TCP P4 Mbit/s | UDP 1400 B @900 kpps (loss) | UDP 64 B kpps |
+|---|---|---|---|
+| `picks-300-28` (2026-10-13, 3 runs) | 501-522 | 76.2-76.5 (0.0-0.1 %) | 109.6-111.2 |
+| `mainline-20261015` | 528 | 76.5 (0.1 %) | 110.8 |
+| `pt-loop-off` (300-26 handlers unregistered) | 534 | - | 111.1 |
+| `qdisc-noqueue` (eth0 `noqueue` instead of `mq`/`pfifo_fast`) | 544 | 75.8 (1.2 %) | 113.1 |
+
+- Today's patches (300-29 .. 300-35) cost nothing on the forwarding path.
+- 300-26 loop-probe handler (`ETH_P_ALL` on every user port): +1 % TCP when removed, within spread; now registered only while loop detection is on.
+- eth0 `noqueue`: -4 % CPU per packet on TCP (14,642 -> 14,055 ns), +1.5 % UDP 64 B, but UDP overload loss 0.1 -> 1.2 % (no queue behind a full TX ring). Not made the default.
+
+Call graph, TCP NAT, VPE0 (`./dev.py nat-perf --test tcp-P4 --callgraph`, inclusive %):
+- `rteth_poll_rx` (driver RX) 26.4; `gro_cell_poll` (second GRO pass, DSA user port) 68.6; `dev_gro_receive` 40.3.
+- `nf_flow_offload_ip_hook` 47.8, of which the lookup 6.6 and `nf_flow_queue_xmit` 36.0 -> `__dev_queue_xmit` 33.1 -> `dsa_user_xmit` 21.5 -> `sch_direct_xmit` 14.7 -> `rteth_start_xmit` 11.0.
+- `rteth_reclaim_tx_ring` 8.7 (TX completion freed inside each xmit); `validate_xmit_skb` 8.7 (incl. GSO of GRO'd packets).
+- Flat self-time profile (top: `rteth_start_xmit` 4.9-5.8, `dev_gro_receive` 4.8-5.0, `rteth_poll_rx` 4.1-4.2): no single hotspot.
