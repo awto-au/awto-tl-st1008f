@@ -1,67 +1,116 @@
 From: awto-tl-st1008f
-Subject: [PATCH] jffs2: skip the erase of blocks that are already blank (#114)
+Subject: [PATCH] jffs2: skip the erase of blocks that are already blank or clean (#114)
 
 OpenWrt 532-jffs2_eofdetect erases every block after the EOF marker at the first mount after a
-sysupgrade: 362 x 64 KiB on this board, 65 s of boot, although nearly all of them are still 0xff.
-Read the block first; if it is all 0xff, file it as erase-succeeded. jffs2_mark_erased_block()
-still verifies it and writes the cleanmarker, so the on-flash result is the same as an erase.
+sysupgrade (131-362 x 64 KiB on this board, 23-65 s of boot). Most of those blocks are either all
+0xff or hold only a cleanmarker from an earlier format. Read the block first:
+- all 0xff: file it as erase-succeeded (jffs2_mark_erased_block() verifies it, writes the marker);
+- cleanmarker + 0xff: it is already in the post-erase state: straight to the free list.
+Anything else is erased as before.
 ---
 --- a/fs/jffs2/erase.c
 +++ b/fs/jffs2/erase.c
-@@ -24,6 +24,7 @@
+@@ -24,6 +24,9 @@
  static void jffs2_erase_failed(struct jffs2_sb_info *c, struct jffs2_eraseblock *jeb, uint32_t bad_offset);
  static void jffs2_erase_succeeded(struct jffs2_sb_info *c, struct jffs2_eraseblock *jeb);
  static void jffs2_mark_erased_block(struct jffs2_sb_info *c, struct jffs2_eraseblock *jeb);
-+static bool jffs2_block_is_blank(struct jffs2_sb_info *c, struct jffs2_eraseblock *jeb);
++enum { BLOCK_DIRTY, BLOCK_BLANK, BLOCK_CLEAN };
++static int jffs2_block_state(struct jffs2_sb_info *c, struct jffs2_eraseblock *jeb);
++static void jffs2_mark_clean_block(struct jffs2_sb_info *c, struct jffs2_eraseblock *jeb);
  
  static void jffs2_erase_block(struct jffs2_sb_info *c,
  			      struct jffs2_eraseblock *jeb)
-@@ -137,7 +138,10 @@
+@@ -137,7 +140,16 @@
  			spin_unlock(&c->erase_completion_lock);
  			mutex_unlock(&c->erase_free_sem);
  
 -			jffs2_erase_block(c, jeb);
-+			if (jffs2_block_is_blank(c, jeb))
-+				jffs2_erase_succeeded(c, jeb);	/* already all 0xff: same state as after an erase */
-+			else
++			switch (jffs2_block_state(c, jeb)) {
++			case BLOCK_BLANK:	/* all 0xff: as after an erase; verify + cleanmarker follow */
++				jffs2_erase_succeeded(c, jeb);
++				break;
++			case BLOCK_CLEAN:	/* cleanmarker + 0xff: as after erase + cleanmarker */
++				jffs2_mark_clean_block(c, jeb);
++				break;
++			default:
 +				jffs2_erase_block(c, jeb);
++			}
  
  		} else {
  			BUG();
-@@ -308,6 +312,38 @@
+@@ -308,6 +320,77 @@
  	jeb->first_node = jeb->last_node = NULL;
  }
  
 +/*
-+ * Read-only blank check before an erase: a NOR block erase costs ~150 ms, a 64 KiB read ~ms. Stops at the
-+ * first non-0xff word. The block still goes through jffs2_mark_erased_block() (verify + cleanmarker).
++ * Read-only check before an erase: a NOR block erase costs ~150 ms, a 64 KiB read a few ms.
++ * BLANK = all 0xff; CLEAN = an in-band cleanmarker, then all 0xff (a block JFFS2 erased before and
++ * never wrote). Stops at the first other word.
 + */
-+static bool jffs2_block_is_blank(struct jffs2_sb_info *c, struct jffs2_eraseblock *jeb)
++static int jffs2_block_state(struct jffs2_sb_info *c, struct jffs2_eraseblock *jeb)
 +{
-+	uint32_t ofs, len = min_t(uint32_t, PAGE_SIZE, c->sector_size);
++	struct jffs2_unknown_node marker = {
++		.magic =	cpu_to_je16(JFFS2_MAGIC_BITMASK),
++		.nodetype =	cpu_to_je16(JFFS2_NODETYPE_CLEANMARKER),
++		.totlen =	cpu_to_je32(c->cleanmarker_size)
++	};
++	uint32_t ofs, skip = 0, len = min_t(uint32_t, PAGE_SIZE, c->sector_size);
++	int state = BLOCK_BLANK, i;
 +	unsigned long *buf;
 +	size_t retlen;
-+	bool blank = true;
-+	int i;
 +
 +	buf = kmalloc(len, GFP_KERNEL);
 +	if (!buf)
-+		return false;
-+	for (ofs = jeb->offset; blank && ofs < jeb->offset + c->sector_size; ofs += len) {
++		return BLOCK_DIRTY;
++	marker.hdr_crc = cpu_to_je32(crc32(0, &marker, sizeof(marker) - 4));
++	for (ofs = jeb->offset; ofs < jeb->offset + c->sector_size; ofs += len) {
 +		if (mtd_read(c->mtd, ofs, len, &retlen, (u_char *)buf) || retlen != len) {
-+			blank = false;
++			state = BLOCK_DIRTY;
 +			break;
 +		}
-+		for (i = 0; i < len / sizeof(*buf); i++) {
-+			if (buf[i] != ~0UL) {
-+				blank = false;
++		if (ofs == jeb->offset && c->cleanmarker_size == sizeof(marker) && !jffs2_cleanmarker_oob(c) &&
++		    !memcmp(buf, &marker, sizeof(marker))) {
++			state = BLOCK_CLEAN;
++			skip = sizeof(marker) / sizeof(*buf);
++		}
++		for (i = ofs == jeb->offset ? skip : 0; i < len / sizeof(*buf); i++)
++			if (buf[i] != ~0UL)
 +				break;
-+			}
++		if (i < len / sizeof(*buf)) {
++			state = BLOCK_DIRTY;
++			break;
 +		}
 +		cond_resched();
 +	}
 +	kfree(buf);
-+	return blank;
++	return state;
++}
++
++/* A CLEAN block: free-list accounting as jffs2_mark_erased_block(), without the erase or a new marker */
++static void jffs2_mark_clean_block(struct jffs2_sb_info *c, struct jffs2_eraseblock *jeb)
++{
++	if (jffs2_prealloc_raw_node_refs(c, jeb, 1)) {
++		jffs2_erase_block(c, jeb);	/* no ref for the marker: take the normal path */
++		return;
++	}
++	jeb->free_size = c->sector_size;
++
++	mutex_lock(&c->erase_free_sem);
++	spin_lock(&c->erase_completion_lock);
++
++	c->erasing_size -= c->sector_size;
++	c->free_size += c->sector_size;
++	jffs2_link_node_ref(c, jeb, jeb->offset | REF_NORMAL, c->cleanmarker_size, NULL);
++	list_move_tail(&jeb->list, &c->free_list);
++	c->nr_erasing_blocks--;
++	c->nr_free_blocks++;
++
++	jffs2_dbg_acct_sanity_check_nolock(c, jeb);
++	jffs2_dbg_acct_paranoia_check_nolock(c, jeb);
++
++	spin_unlock(&c->erase_completion_lock);
++	mutex_unlock(&c->erase_free_sem);
++	wake_up(&c->erase_wait);
 +}
 +
  static int jffs2_block_check_erase(struct jffs2_sb_info *c, struct jffs2_eraseblock *jeb, uint32_t *bad_offset)
