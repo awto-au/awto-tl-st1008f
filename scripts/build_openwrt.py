@@ -36,6 +36,7 @@ from pathlib import Path
 
 ROOT = Path(__file__).resolve().parent.parent
 TREE = ROOT / "tmp/openwrt-build"
+OWRT_STORE = Path(os.environ.get("ST1008F_OPENWRT_STORE", ROOT / "tmp/openwrt-store"))  # symlink, awto-dan#50
 # machine-shared download cache + ccache (awto-dan#50, awto-terminal#77) via gitignored symlinks: no host
 # path in this repo; env overrides. Shared with other buildroots: add only, never delete from them.
 DL_DIR = Path(os.environ.get("ST1008F_OPENWRT_DL", ROOT / "tmp/openwrt-dl"))
@@ -45,7 +46,6 @@ BACKPORT = ROOT / "openwrt/backport-6.18"
 TFTP = ROOT / "tmp/tftp"
 LOG = ROOT / "tmp/logs/build_openwrt.log"
 MAKE_LOG = ROOT / "tmp/logs/build_openwrt-make.log"
-URL = "https://github.com/openwrt/openwrt.git"
 RT = "target/linux/realtek"
 GEN = "target/linux/generic"
 DTS_FILE = f"{RT}/dts/rtl9303_tplink_tl-st1008f-v2.dts"
@@ -294,13 +294,21 @@ def git(*args, cwd=TREE, timeout=60) -> str:
 
 
 def clone(update: bool) -> None:
+    """TREE = detached worktree of the machine-shared OpenWrt store (awto-dan#50) at OWRT_COMMIT; --update moves
+    it to the store's freshly fetched origin/main (full fetch: never --depth into a shared store)."""
     if not (TREE / ".git").exists():
-        if run(["git", "clone", "--depth", "1", URL, TREE], T_GIT, cwd=ROOT):
-            sys.exit("clone failed")
+        if not (OWRT_STORE / ".git").exists() and not (OWRT_STORE / "objects").exists():
+            sys.exit(f"no OpenWrt store at {OWRT_STORE}: symlink it (docs/OPENWRT-BUILD-OPS.md, awto-dan#50)")
+        run(["git", "-C", str(OWRT_STORE), "worktree", "prune"], T_GIT, cwd=ROOT)
+        if run(["git", "-C", str(OWRT_STORE), "cat-file", "-e", f"{OWRT_COMMIT}^{{commit}}"], T_GIT, cwd=ROOT) and \
+                run(["git", "-C", str(OWRT_STORE), "fetch", "origin", "main"], T_GIT, cwd=ROOT):
+            sys.exit("fetch of OpenWrt main into the store failed")
+        if run(["git", "-C", str(OWRT_STORE), "worktree", "add", "--detach", str(TREE.absolute()), OWRT_COMMIT],
+               T_GIT, cwd=ROOT):
+            sys.exit("worktree add failed")
     elif update:
         reset_overlay()
-        if run(["git", "fetch", "--depth", "1", "origin", "main"], T_GIT) or \
-                run(["git", "reset", "--hard", "FETCH_HEAD"], 60):
+        if run(["git", "fetch", "origin", "main"], T_GIT) or run(["git", "reset", "--hard", "FETCH_HEAD"], 60):
             sys.exit("update failed")
     log(f"OpenWrt main @ {git('log', '-1', '--format=%H %cI %s')}")
 

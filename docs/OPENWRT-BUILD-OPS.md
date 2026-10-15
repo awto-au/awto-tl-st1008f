@@ -5,7 +5,7 @@ Facts, patch status, sizes: [OPENWRT-BUILD.md](OPENWRT-BUILD.md). Log: `tmp/logs
 ## Build
 
 - Downloads + ccache are machine-shared (awto-dan#50): gitignored symlinks `tmp/openwrt-dl` and `tmp/ccache-openwrt` (or `$ST1008F_OPENWRT_DL` / `$ST1008F_CCACHE_DIR`) point at the shared dirs; the build writes `CONFIG_DEVEL=y`, `CONFIG_DOWNLOAD_FOLDER`, `CONFIG_CCACHE=y`, `CONFIG_CCACHE_DIR` (DEVEL is required, else defconfig drops the other three) and fails if defconfig dropped any. Shared with other buildroots: add only, never delete. The mainline build's own kernel tarball goes there too (`linux-7.3-next-YYYYMMDD.tar.gz`: unique name).
-- `tmp/openwrt-build` itself stays a shallow clone at the pinned commit (moving it onto the OpenWrt store means rebuilding its build state; deferred).
+- `tmp/openwrt-build` is a detached worktree of the machine-shared OpenWrt store at `OWRT_COMMIT` (`scripts/mainline_build_check.py`), via the gitignored symlink `tmp/openwrt-store` (or `$ST1008F_OPENWRT_STORE`); `build-openwrt` creates it when missing. `--update` fetches `main` into the store in full (never `--depth`). Never `git gc` the store.
 
 ```
 ./dev.py build-openwrt                      # step 1: OpenWrt 6.18 + backports -> tmp/tftp/openwrt-ours-6.18-initramfs[-std].bin
