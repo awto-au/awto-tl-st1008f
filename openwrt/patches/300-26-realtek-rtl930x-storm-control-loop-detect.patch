@@ -56,7 +56,7 @@ Subject: [PATCH] net: dsa: rtl83xx: RTL930x storm control defaults + loop detect
  	u64 lags_port_members[MAX_LAGS];
 --- /dev/null
 +++ b/drivers/net/dsa/rtl83xx/storm.c
-@@ -0,0 +1,390 @@
+@@ -0,0 +1,389 @@
 +// SPDX-License-Identifier: GPL-2.0-only
 +/*
 + * RTL930x storm control defaults + software loop detection (awto-tl-st1008f #111).
@@ -437,7 +437,6 @@ Subject: [PATCH] net: dsa: rtl83xx: RTL930x storm control defaults + loop detect
 +void rtldsa_930x_storm_remove(struct rtl838x_switch_priv *priv)
 +{
 +	struct rtldsa_storm *s = priv->storm;
-+	int p;
 +
 +	if (!s)
 +		return;

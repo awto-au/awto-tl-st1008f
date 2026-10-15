@@ -28,6 +28,9 @@ BUILDDIR = ROOT / "tmp/uboot-mainline-build"
 TFTP = ROOT / "tmp/tftp"
 LOG = ROOT / "tmp/logs/build_uboot_mainline.log"
 TAG = "v2026.07"
+# machine-shared U-Boot store (awto-dan#50) via a gitignored symlink; TREE is its worktree at TAG
+STORE = Path(os.environ.get("ST1008F_UBOOT_STORE", ROOT / "tmp/u-boot-store"))
+GIT_S = 300  # worktree add of a U-Boot tree / tag fetch: tens of s; 300 s names a hang
 DEFCONFIG = "tplink_tl-st1008f_ram_defconfig"
 CROSS = "mips64-linux-gnu-"
 # Full clean build with net (#80, nice 19, -j30, 2026-10-12): 6 s. x1.25 rounded up = 8 s.
@@ -146,8 +149,18 @@ def run(cmd, cwd, env=None, timeout=BUILD_TIMEOUT_S):
 
 def check_tree() -> None:
     if not (TREE / "Makefile").exists():
-        sys.exit(f"missing U-Boot tree {TREE}; create with: git clone -s -n <awto-uboot clone> {TREE} "
-                 f"&& git -C {TREE} checkout --detach {TAG}")
+        if not (STORE / "objects").exists() and not (STORE / ".git").exists():
+            sys.exit(f"missing {TREE} and no U-Boot store at {STORE}: symlink it (docs/UBOOT-MAINLINE.md, awto-dan#50)")
+        g = lambda *a: subprocess.run(["git", "-C", str(STORE), *a], capture_output=True, text=True, timeout=GIT_S)
+        if g("rev-parse", "--verify", "-q", f"{TAG}^{{commit}}").returncode:
+            r = g("fetch", "--no-tags", "origin", f"refs/tags/{TAG}:refs/tags/{TAG}")
+            if r.returncode:
+                sys.exit(f"fetch {TAG} into the U-Boot store failed: {r.stderr.strip()[:200]}")
+        g("worktree", "prune")
+        r = g("worktree", "add", "--detach", str(TREE.absolute()), TAG)
+        if r.returncode:
+            sys.exit(f"worktree add {TREE} {TAG} failed: {r.stderr.strip()[:200]}")
+        log(f"{TREE.relative_to(ROOT)}: worktree of the U-Boot store at {TAG}")
     desc = subprocess.run(["git", "describe", "--tags", "--exact-match", "HEAD"], cwd=TREE,
                           capture_output=True, text=True, timeout=10).stdout.strip()
     if desc != TAG:

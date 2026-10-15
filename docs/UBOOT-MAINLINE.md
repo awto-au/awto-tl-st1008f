@@ -7,7 +7,7 @@ Runs on the board: first boot 2026-10-10 (18 s from power-off to prompt via `ram
 
 - Scaffold: `uboot-port/` (tracked) = `arch/mips/mach-otto/`, `arch/mips/dts/tplink_tl-st1008f.dts`, `board/tplink/tl-st1008f/`, `include/configs/tplink_tl-st1008f.h`, `configs/tplink_tl-st1008f_ram_defconfig`.
 - Build: `scripts/build_uboot_mainline.py` stages the scaffold into a pinned tree, patches 11 hooks idempotently (`arch/mips/Kconfig` x2, `arch/mips/Makefile`, `arch/mips/dts/Makefile`, Kconfig + Makefile of `drivers/gpio`, `drivers/i2c`, `drivers/spi`, `include/image.h` Realtek magic), builds out-of-tree.
-- Pinned tree: mainline tag `v2026.07` at `tmp/u-boot-v2026.07` (plain clone of the upstream mirror; `git clone -s -n <upstream clone> tmp/u-boot-v2026.07 && git -C tmp/u-boot-v2026.07 checkout --detach v2026.07`).
+- Pinned tree: mainline tag `v2026.07` at `tmp/u-boot-v2026.07`, a detached worktree of the machine-shared U-Boot store (awto-dan#50), reached through the gitignored symlink `tmp/u-boot-store` (`ln -s <store> tmp/u-boot-store`, or `$ST1008F_UBOOT_STORE`). `build-uboot` creates the worktree when missing (fetches the tag with `--no-tags` if absent). Never `git gc` the store.
 - Build dir `tmp/uboot-mainline-build`; outputs `tmp/tftp/uboot-mainline.{bin,elf}`; log `tmp/logs/build_uboot_mainline.log`.
 - Toolchain: `mips64-linux-gnu-` GCC 16.2.1, `-march=mips32r2 -mabi=32`, big-endian ELF32 (clang fallback not needed).
 - Build quirk: host OpenSSL has no `engine.h`; defconfig sets `# CONFIG_TOOLS_LIBCRYPTO` and `# CONFIG_TOOLS_KWBIMAGE` (host tools only; target unaffected).

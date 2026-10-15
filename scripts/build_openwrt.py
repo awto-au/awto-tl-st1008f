@@ -36,6 +36,10 @@ from pathlib import Path
 
 ROOT = Path(__file__).resolve().parent.parent
 TREE = ROOT / "tmp/openwrt-build"
+# machine-shared download cache + ccache (awto-dan#50, awto-terminal#77) via gitignored symlinks: no host
+# path in this repo; env overrides. Shared with other buildroots: add only, never delete from them.
+DL_DIR = Path(os.environ.get("ST1008F_OPENWRT_DL", ROOT / "tmp/openwrt-dl"))
+CCACHE_DIR = Path(os.environ.get("ST1008F_CCACHE_DIR", ROOT / "tmp/ccache-openwrt"))
 OURS = ROOT / "openwrt/patches"
 BACKPORT = ROOT / "openwrt/backport-6.18"
 TFTP = ROOT / "tmp/tftp"
@@ -332,7 +336,7 @@ def tarball_73() -> None:
     """dl/linux-<VER>.tar.gz (-rc) or .tar.xz (anything else: include/kernel.mk LINUX_SOURCE) from the local
     BASE tag (OpenWrt would fetch it); hash skip."""
     xz = "-rc" not in VER
-    dst = TREE / f"dl/linux-{VER}.tar.{'xz' if xz else 'gz'}"
+    dst = DL_DIR / f"linux-{VER}.tar.{'xz' if xz else 'gz'}"  # next: unique name; rc: = git archive of the tag
     if dst.exists():
         return
     dst.parent.mkdir(exist_ok=True)
@@ -348,7 +352,7 @@ def tarball_73() -> None:
         if p.wait(timeout=600):  # ~1.5 GB tar stream; gzip -6 / xz -0 at ~100 MB/s
             sys.exit(f"git archive of {BASE} failed")
     tmp.rename(dst)
-    log(f"overlay: {dst.relative_to(TREE)} {dst.stat().st_size} B from {kernel_base.REPO.relative_to(ROOT)} {BASE}")
+    log(f"overlay: shared dl {dst.name} {dst.stat().st_size} B from {kernel_base.REPO.relative_to(ROOT)} {BASE}")
 
 
 def overlay_73() -> None:
@@ -503,11 +507,21 @@ def default_boot_files(on: bool) -> str:
                    if ln.startswith("CONFIG_"))
 
 
+def shared_config() -> str:
+    """DEVEL=y is required: DOWNLOAD_FOLDER / CCACHE / CCACHE_DIR are `if DEVEL` and defconfig drops them."""
+    for d in (DL_DIR, CCACHE_DIR):
+        if not d.is_dir():
+            sys.exit(f"{d.relative_to(ROOT) if d.is_relative_to(ROOT) else d}: missing; symlink it to the shared "
+                     "dir (docs/OPENWRT-BUILD-OPS.md, awto-dan#50)")
+    return (f'CONFIG_DEVEL=y\nCONFIG_DOWNLOAD_FOLDER="{DL_DIR.absolute()}"\nCONFIG_CCACHE=y\n'
+            f'CONFIG_CCACHE_DIR="{CCACHE_DIR.absolute()}"\n')
+
+
 def config(kernel: str, dboot: str = "") -> int:
     # 7.3+: PREEMPT_NONE needs ARCH_NO_PREEMPT; OpenWrt's default KERNEL_PREEMPT_NONE would leave full
     # PREEMPT. Voluntary = the model the mainline port boots with (mainline/st1008f-v2.config).
     extra = "CONFIG_TESTING_KERNEL=y\nCONFIG_KERNEL_PREEMPT_VOLUNTARY=y\n" if kernel == "mainline" else ""
-    extra += SELFTEST_CFG + dboot + "".join(f"CONFIG_PACKAGE_{p}=y\n" for p in FEED_PKGS)
+    extra += SELFTEST_CFG + dboot + "".join(f"CONFIG_PACKAGE_{p}=y\n" for p in FEED_PKGS) + shared_config()
     (TREE / ".config").write_text(SEED + extra)
     rc = run(["make", "defconfig"], T_DEFCONFIG)
     if rc:

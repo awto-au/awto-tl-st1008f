@@ -263,7 +263,7 @@ End-to-end workflow: [../README.md#workflow](../README.md#workflow).
 ## Mainline U-Boot
 
 ### build_uboot_mainline.py
-- Purpose: stage `uboot-port/` into pinned mainline U-Boot `v2026.07` (`tmp/u-boot-v2026.07`, override `$UBOOT_TREE`), patch the Kconfig/Makefile hooks idempotently, build stage 0 (RAM chainload) out-of-tree. Doc: [../docs/UBOOT-MAINLINE.md](../docs/UBOOT-MAINLINE.md).
+- Purpose: stage `uboot-port/` into pinned mainline U-Boot `v2026.07` (`tmp/u-boot-v2026.07` = worktree of the shared U-Boot store via `tmp/u-boot-store`, created if missing; override `$UBOOT_TREE`), patch the Kconfig/Makefile hooks idempotently, build stage 0 (RAM chainload) out-of-tree. Doc: [../docs/UBOOT-MAINLINE.md](../docs/UBOOT-MAINLINE.md).
 - Run: `scripts/build_uboot_mainline.py [--clean] [--cross mips64-linux-gnu-]`
 - Output: `tmp/tftp/uboot-mainline.{bin,elf}` (load `tftpboot 0x81000000 uboot-mainline.bin; go 0x81000000`), build dir `tmp/uboot-mainline-build`, log `tmp/logs/build_uboot_mainline.log`.
 - Timeout: 6 s per `make` call (clean build measured 4 s, x1.5); expiry kills make and logs the elapsed time.
