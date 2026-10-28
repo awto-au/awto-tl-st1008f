@@ -1,0 +1,120 @@
+<!doctype html><html><head><meta charset=utf8><meta name=viewport content="width=device-width,initial-scale=1"><style>:root{color-scheme:light}body{margin:0;padding:0;font:14px -apple-system,BlinkMacSystemFont,sans-serif;background:#faf9f5;color:#141413}img{max-width:100%}[hidden]:not([hidden=until-found i]){display:none!important}</style></head><body>
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>ST1008F TFTP Boot</title>
+<style>
+  :root{
+    --bg:#f7f7f5; --card:#fff; --ink:#1a1a18; --muted:#6b6b66; --line:#e3e3df;
+    --accent:#2f6f4f; --accent-ink:#1b4a33; --warn-bg:#fdf1e3; --warn-ink:#8a4b16;
+    --ok-bg:#e8f3ec; --ok-ink:#1b4a33; --code-bg:#1e1f1c; --code-ink:#e8e8e3;
+    --q-bg:#eef2fb; --q-ink:#2a3f6b;
+  }
+  @media (prefers-color-scheme: dark){ :root:not([data-theme="light"]){
+    --bg:#16160f; --card:#1f1f1a; --ink:#ececdf; --muted:#9a9a8f; --line:#333;
+    --accent:#6fcf97; --accent-ink:#bfe8cf; --warn-bg:#3a2a16; --warn-ink:#f0c089;
+    --ok-bg:#1c3326; --ok-ink:#bfe8cf; --code-bg:#121310; --code-ink:#e8e8e3;
+    --q-bg:#1b2436; --q-ink:#b9c8e8;
+  }}
+  :root[data-theme="dark"]{
+    --bg:#16160f; --card:#1f1f1a; --ink:#ececdf; --muted:#9a9a8f; --line:#333;
+    --accent:#6fcf97; --accent-ink:#bfe8cf; --warn-bg:#3a2a16; --warn-ink:#f0c089;
+    --ok-bg:#1c3326; --ok-ink:#bfe8cf; --code-bg:#121310; --code-ink:#e8e8e3;
+    --q-bg:#1b2436; --q-ink:#b9c8e8;
+  }
+  *{box-sizing:border-box}
+  body{margin:0;background:var(--bg);color:var(--ink);
+    font:16px/1.55 -apple-system,BlinkMacSystemFont,"Segoe UI",Roboto,Helvetica,Arial,sans-serif;}
+  .wrap{max-width:800px;margin:0 auto;padding:32px 16px 72px;}
+  h1{font-size:1.6rem;margin:0 0 4px;letter-spacing:-.01em;}
+  h2{font-size:1.1rem;margin:28px 0 8px;color:var(--accent-ink);}
+  .sub{color:var(--muted);margin:0 0 16px;}
+  .pills{display:flex;flex-wrap:wrap;gap:8px;margin:0 0 20px;}
+  .pill{font-size:.78rem;font-weight:600;padding:4px 10px;border-radius:999px;}
+  .pill.ok{background:var(--ok-bg);color:var(--ok-ink);}
+  .pill.warn{background:var(--warn-bg);color:var(--warn-ink);}
+  blockquote{margin:0 0 14px;padding:10px 16px;border-left:3px solid var(--accent);
+    color:var(--muted);font-style:italic;}
+  pre{background:var(--code-bg);color:var(--code-ink);border-radius:10px;padding:14px 16px;overflow:auto;
+    font:13.5px/1.6 ui-monospace,SFMono-Regular,Menlo,Consolas,monospace;}
+  code{font-family:ui-monospace,SFMono-Regular,Menlo,Consolas,monospace;}
+  .cmdtbl{width:100%;border-collapse:collapse;margin:6px 0;font-size:.9rem;}
+  .cmdtbl td{border-top:1px solid var(--line);padding:8px;vertical-align:top;}
+  .cmdtbl td:first-child{white-space:nowrap;color:var(--accent-ink);
+    font-family:ui-monospace,Menlo,monospace;font-size:.8rem;}
+  ul{margin:6px 0;padding-left:20px;} li{margin:4px 0;}
+  .warn{background:var(--warn-bg);color:var(--warn-ink);border-radius:12px;padding:12px 16px;margin:14px 0;}
+  .q{background:var(--q-bg);color:var(--q-ink);border-radius:12px;padding:14px 18px;margin:14px 0;}
+  .q ol{margin:6px 0 0;padding-left:20px;} .q li{margin:7px 0;}
+  .muted{color:var(--muted);} .foot{margin-top:32px;color:var(--muted);font-size:.9rem;}
+</style>
+</head>
+<body>
+<div class="wrap">
+  <h1>TL-ST1008F v2 — stock U-Boot <em>can</em> TFTP</h1>
+  <p class="sub">Draft note for the OpenWrt maintainers.</p>
+  <div class="pills">
+    <span class="pill warn">Draft — openwrt/openwrt, not yet filed</span>
+    <span class="pill ok">Verified on hardware</span>
+  </div>
+
+  <p>Hi — and thanks for the excellent work bringing OpenWrt up on this device. I found a way to <strong>TFTP the image over the SFP+ ports</strong>. The install doc (commit 39b9b491bb) currently says serial/ymodem only:</p>
+  <blockquote>The stock U-boot has broken networking thus no TFTP available. Serial transfer only.</blockquote>
+
+  <h2>Recipe</h2>
+  <pre>rtk network on
+rtk i2c write 8 1 0xfe
+rtk i2c write 8 3 0
+setenv ipaddr &lt;switch-ip&gt;
+setenv serverip &lt;tftp-ip&gt;
+tftpboot 0x84f00000 &lt;initramfs-kernel.bin&gt;
+iminfo 0x84f00000
+bootm 0x84f00000</pre>
+
+  <table class="cmdtbl">
+    <tr><td>rtk network on</td><td>Inits the SDK (MAC + SerDes); registers I2C dev 0–7 = SFP EEPROMs, dev 8 = TCA9534A @ 0x38. Ends <code>Err:0xf030:FAIL</code> = benign (PHY-less SerDes ports). Run once per boot.</td></tr>
+    <tr><td>rtk i2c write 8 1 0xfe</td><td>Expander output latch. tx-disable active-high, pin N = cage N+1. <code>0xfe</code> = cage 1 on, 2–8 off. (<code>0xfd</code> = cage 2.)</td></tr>
+    <tr><td>rtk i2c write 8 3 0</td><td>Expander config reg → all pins output. Power-on default is all-input → lasers off. Write latch (reg 1) before direction (reg 3), or pins briefly drive low.</td></tr>
+    <tr><td>setenv ipaddr / serverip</td><td>Switch IP / TFTP server IP.</td></tr>
+    <tr><td>tftpboot 0x84f00000</td><td>Load to DDR clear of U-Boot's relocated code/stack (ymodem path uses 0x82000000).</td></tr>
+    <tr><td>iminfo 0x84f00000</td><td>Verify uImage header + CRC.</td></tr>
+    <tr><td>bootm 0x84f00000</td><td>Boot standard-magic uImage (not the RTK <code>boota</code>).</td></tr>
+  </table>
+
+  <h2>Laser control</h2>
+  <ul>
+    <li>No native laser/cage command exists — the two <code>rtk i2c write 8</code> lines are the only way.</li>
+    <li>Issue them <strong>after</strong> <code>rtk network on</code> — SDK init parks the expander all-off.</li>
+  </ul>
+
+  <h2>Verified</h2>
+  <ul>
+    <li>TFTP-booted the OpenWrt initramfs on two SFP+ cages, each with a <strong>generic FS 10GBASE-SR</strong> module — no vendor-SFP lock in U-Boot.</li>
+    <li><code>iminfo</code> checksum OK; initramfs booted.</li>
+  </ul>
+  <div class="warn"><strong>Light one cage only.</strong> Two cages + both lasers + <code>rtk network on</code> → broadcast storm. The OpenWrt initramfs lights every laser with no STP — unplug other fibres before <code>bootm</code>.</div>
+
+  <h2>Lighting more cages / speeds <span class="muted" style="font-weight:400;font-size:.85rem">— to confirm on-device</span></h2>
+  <ul>
+    <li>All lasers on: <code>rtk i2c write 8 1 0x00</code> — safe with only one fibre connected (no loop).</li>
+    <li>Multiple cages without a storm: <code>rtk port-isolation on</code> isolates the front ports (found in the loader) — likely prevents the front↔front forwarding storm. No STP in stock U-Boot (minimal loader).</li>
+    <li>Per-port speed: <code>rtk 10g &lt;port&gt; fiber10g | fiber1g</code> sets SerDes media (<code>fiber100m</code> is in help but not dispatched).</li>
+  </ul>
+
+  <h2>Open questions for you</h2>
+  <div class="q">
+    <ol>
+      <li><strong>File upstream?</strong> <code>openwrt/openwrt</code> is not ours — needs your OK to post there.</li>
+      <li><strong>playwrong repro URL</strong> (#31): failing ImageBuilder URL wasn't logged. Add the canonical snapshot URL, or do you have the exact one?</li>
+      <li><strong>Live laser-order check</strong> on-device next power cycle?</li>
+    </ol>
+  </div>
+
+  <p class="foot">Thanks to @jonasjelonek and everyone who brought OpenWrt up on this device.</p>
+</div>
+</body>
+</html>
+
+</body></html>

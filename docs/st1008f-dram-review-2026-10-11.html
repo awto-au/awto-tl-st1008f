@@ -1,0 +1,163 @@
+<!doctype html><html><head><meta charset=utf8><meta name=viewport content="width=device-width,initial-scale=1,viewport-fit=cover"><style>:root{color-scheme:light;box-sizing:border-box;padding-top:env(safe-area-inset-top,0px);padding-bottom:env(safe-area-inset-bottom,0px)}html{scroll-padding-top:env(safe-area-inset-top,0px)}body{margin:0;padding:0;font:14px -apple-system,BlinkMacSystemFont,sans-serif;background:#fff;color:#000}img{max-width:100%}[hidden]:not([hidden=until-found i]){display:none!important}</style></head><body>
+<title>ST1008F DRAM Review</title>
+<link rel="preconnect" href="https://fonts.googleapis.com">
+<link rel="stylesheet" href="https://fonts.googleapis.com/css2?family=IBM+Plex+Sans:wght@400;500;600&family=IBM+Plex+Mono:wght@400;500&family=Bricolage+Grotesque:opsz,wght@12..96,600&display=swap">
+<style>
+/* layout: single reading column, wide tables scroll in their own box; chart = horizontal bars to one scale */
+:root {
+  --bg: #f6f7f5; --panel: #ffffff; --fg: #1d2420; --muted: #5d6862; --rule: #d9ded9;
+  --accent: #1f6f5c; --accent-soft: #d8ebe5; --warn: #9a5b00; --bar-theory: #c9d2cd;
+  --display: "Bricolage Grotesque", "IBM Plex Sans", system-ui, sans-serif;
+  --body: "IBM Plex Sans", system-ui, -apple-system, "Segoe UI", sans-serif;
+  --mono: "IBM Plex Mono", ui-monospace, "SFMono-Regular", Menlo, monospace;
+}
+@media (prefers-color-scheme: dark) { :root:not([data-theme="light"]) {
+  --bg: #121614; --panel: #1a201d; --fg: #e3e9e5; --muted: #9aa7a0; --rule: #2d3631;
+  --accent: #5fc2a6; --accent-soft: #1d3a32; --warn: #e0a54a; --bar-theory: #3a4540; color-scheme: dark } }
+:root[data-theme="dark"] {
+  --bg: #121614; --panel: #1a201d; --fg: #e3e9e5; --muted: #9aa7a0; --rule: #2d3631;
+  --accent: #5fc2a6; --accent-soft: #1d3a32; --warn: #e0a54a; --bar-theory: #3a4540; color-scheme: dark }
+body { background: var(--bg); color: var(--fg); font: 15px/1.6 var(--body); }
+.wrap { max-width: 920px; margin: 0 auto; padding-inline: 20px; padding-block: 28px 56px; display: flex; flex-direction: column; gap: 28px; }
+h1 { font: 600 2.1rem/1.15 var(--display); margin: 0; text-wrap: balance; }
+h2 { font: 600 1.25rem/1.3 var(--display); margin: 0 0 10px; text-wrap: balance; }
+.lede { color: var(--muted); max-width: 68ch; margin: 6px 0 0; }
+section { background: var(--panel); border: 1px solid var(--rule); border-radius: 10px; padding: 18px 20px; min-width: 0; }
+.kpis { display: grid; grid-template-columns: repeat(auto-fit, minmax(180px, 1fr)); gap: 12px; }
+.kpi { border-left: 3px solid var(--accent); padding: 4px 0 4px 12px; }
+.kpi b { display: block; font: 600 1.6rem/1.2 var(--display); font-variant-numeric: tabular-nums; }
+.kpi span { color: var(--muted); font-size: .85rem; }
+.tbl { overflow-x: auto; }
+table { border-collapse: collapse; width: 100%; font-size: .9rem; font-variant-numeric: tabular-nums; }
+th, td { text-align: left; padding: 6px 10px; border-bottom: 1px solid var(--rule); vertical-align: top; }
+th { font-weight: 600; color: var(--muted); font-size: .78rem; letter-spacing: .03em; text-transform: uppercase; }
+td.n { text-align: right; font-family: var(--mono); white-space: nowrap; }
+td.best { color: var(--accent); font-weight: 600; }
+code { font-family: var(--mono); font-size: .88em; background: var(--accent-soft); padding: 1px 5px; border-radius: 4px; }
+ul { margin: 0; padding-left: 1.2em; display: flex; flex-direction: column; gap: 6px; max-width: 75ch; }
+.chart svg { width: 100%; height: auto; display: block; }
+.chart text { fill: var(--fg); font: 12px var(--body); }
+.chart .lbl { fill: var(--muted); }
+.note { color: var(--muted); font-size: .85rem; margin: 8px 0 0; }
+.decide li b { color: var(--warn); }
+</style>
+
+<div class="wrap">
+  <header>
+    <h1>ST1008F DRAM review</h1>
+    <p class="lede">TL-ST1008F v2 (RTL9303), one DDR3 x16 die, 512 MiB. Theoretical figures from the live controller timings against U-Boot <code>bench</code> measurements, 2026-10-11, heatsink off.</p>
+  </header>
+
+  <section>
+    <h2>In short</h2>
+    <div class="kpis">
+      <div class="kpi"><b>2400 MB/s</b><span>theoretical peak, DDR3-1200 x16</span></div>
+      <div class="kpi"><b>30–45 ns</b><span>DRAM read latency, row hit / closed</span></div>
+      <div class="kpi"><b>109–120 ns</b><span>measured per cache-line miss</span></div>
+      <div class="kpi"><b>65 %</b><span>best measured share of peak (stores, no fill)</span></div>
+    </div>
+    <ul style="margin-top:14px">
+      <li>Plain code is <b>latency-bound</b>: one 32-byte miss at a time, 32 B / 120 ns = 267 MB/s. The DRAM bus sits idle most of the time.</li>
+      <li>Most of each miss is spent outside the DRAM chip: CPU 800 → 1000 MHz cuts it 9 %, DDR 600 → 650 MHz cuts it 2 %.</li>
+      <li>The controller prefetch (off in stock, now on) lifts plain reads +49 % and writes +68 % with 1 GHz.</li>
+    </ul>
+  </section>
+
+  <section>
+    <h2>Theory, from the live timings</h2>
+    <div class="tbl"><table>
+      <tr><th>Quantity</th><th>DDR3-1200 (stock)</th><th>DDR3-1300</th><th>Chip rating DDR3-1866</th></tr>
+      <tr><td>Peak bandwidth, x16</td><td class="n">2400 MB/s</td><td class="n">2600 MB/s</td><td class="n">3732 MB/s</td></tr>
+      <tr><td>32 B cache line on the bus</td><td class="n">8 clk = 13.3 ns</td><td class="n">12.3 ns</td><td class="n">8.6 ns</td></tr>
+      <tr><td>Read latency at the DRAM (hit / closed / conflict)</td><td class="n">30 / 45 / 60 ns</td><td class="n">≈ 28 / 43 / 58 ns</td><td class="n">—</td></tr>
+      <tr><td>Refresh busy (tRFC / tREFI)</td><td class="n">7.0 %</td><td class="n">7.0 %</td><td class="n">3.5 % at normal refresh</td></tr>
+    </table></div>
+    <p class="note">Timings: CL 10, CWL 7, tRCD/tRP 15 ns, tRAS 38.3 ns, tRFC 270 ns. Part (board photo): Zentel A3T4GF40BBF-HP, DDR3-1866 (933 MHz, CL13).</p>
+  </section>
+
+  <section class="chart">
+    <h2>Measured throughput as a share of the 2400 MB/s peak</h2>
+    <svg viewBox="0 0 860 330" role="img" aria-label="Bar chart of measured throughput against peak">
+      <!-- scale: 0..2400 MB/s maps to x 230..830 (600 px) -->
+      <g stroke="var(--rule)" stroke-width="1">
+        <line x1="230" y1="10" x2="230" y2="300"/><line x1="380" y1="10" x2="380" y2="300"/>
+        <line x1="530" y1="10" x2="530" y2="300"/><line x1="680" y1="10" x2="680" y2="300"/>
+        <line x1="830" y1="10" x2="830" y2="300"/>
+      </g>
+      <g class="lbl" text-anchor="middle">
+        <text x="230" y="320">0</text><text x="380" y="320">600</text><text x="530" y="320">1200</text>
+        <text x="680" y="320">1800</text><text x="830" y="320">2400 MB/s</text>
+      </g>
+      <g text-anchor="end">
+        <text x="220" y="34">Stores, pref 30 (no fill)</text>
+        <text x="220" y="70">Reads, software prefetch</text>
+        <text x="220" y="106">Reads + controller prefetch</text>
+        <text x="220" y="142">memset + controller prefetch</text>
+        <text x="220" y="178">Uncached stores</text>
+        <text x="220" y="214">Reads, plain loop</text>
+        <text x="220" y="250">memset, plain</text>
+        <text x="220" y="286">Uncached reads</text>
+      </g>
+      <g fill="var(--accent)">
+        <rect x="230" y="20" width="391.4" height="20"/>
+        <rect x="230" y="56" width="245.9" height="20"/>
+        <rect x="230" y="92" width="108.3" height="20"/>
+        <rect x="230" y="128" width="100.0" height="20"/>
+      </g>
+      <g fill="var(--bar-theory)">
+        <rect x="230" y="164" width="108.2" height="20"/>
+        <rect x="230" y="200" width="84.1" height="20"/>
+        <rect x="230" y="236" width="59.4" height="20"/>
+        <rect x="230" y="272" width="15.2" height="20"/>
+      </g>
+      <g font-family="var(--mono)">
+        <text x="627" y="34">1566 (65 %)</text><text x="482" y="70">984 (41 %)</text>
+        <text x="344" y="106">433 (18 %)</text><text x="336" y="142">400 (17 %)</text>
+        <text x="344" y="178">433 (18 %)</text><text x="320" y="214">336 (14 %)</text>
+        <text x="295" y="250">238 (10 %)</text><text x="251" y="286">61 (2.5 %)</text>
+      </g>
+    </svg>
+    <p class="note">CPU 1000 MHz, DDR 600 MHz. Green: a path that hides latency (prefetch or no fill). Grey: plain code waiting on one miss at a time.</p>
+  </section>
+
+  <section>
+    <h2>All measurements</h2>
+    <div class="tbl"><table>
+      <tr><th>Test (MB/s unless marked)</th><th>800 / 600</th><th>1000 / 600</th><th>1000 / 650</th><th>1000 / 600 + prefetch</th></tr>
+      <tr><td>Random cached miss latency</td><td class="n">120 ns</td><td class="n">109 ns</td><td class="n">107 ns</td><td class="n">109 ns</td></tr>
+      <tr><td>Random uncached word latency</td><td class="n">116 ns</td><td class="n">106 ns</td><td class="n">104 ns</td><td class="n">106 ns</td></tr>
+      <tr><td>Sequential read, plain loop</td><td class="n">291.4</td><td class="n">336.3</td><td class="n">342.7</td><td class="n best">433.0</td></tr>
+      <tr><td>Sequential read, <code>pref 0</code> 4 lines ahead</td><td class="n">763.3</td><td class="n best">983.5</td><td class="n">977.2</td><td class="n">732.7</td></tr>
+      <tr><td>memset (write-allocate)</td><td class="n">237.6</td><td class="n">237.7</td><td class="n">237.0</td><td class="n best">400.1</td></tr>
+      <tr><td>Stores after <code>pref 30</code> (no fill)</td><td class="n">1286.6</td><td class="n best">1565.7</td><td class="n">1562.4</td><td class="n best">1566.5</td></tr>
+      <tr><td>Uncached stores</td><td class="n">363.5</td><td class="n">432.6</td><td class="n best">449.1</td><td class="n">432.6</td></tr>
+      <tr><td>Uncached reads</td><td class="n">53.5</td><td class="n">60.7</td><td class="n best">63.0</td><td class="n">60.7</td></tr>
+      <tr><td>memcpy (U-Boot generic C)</td><td class="n">158.2</td><td class="n best">162.4</td><td class="n best">162.4</td><td class="n">156.3</td></tr>
+    </table></div>
+    <p class="note">Columns are CPU MHz / DDR MHz. Controller prefetch = MCR bits 23/22 (<code>ip_ref</code>/<code>dp_ref</code>), off in stock. With it on: memory test 0 errors, OpenWrt rootfs hash identical to a stock boot.</p>
+  </section>
+
+  <section>
+    <h2>Why the gap</h2>
+    <ul>
+      <li><b>Latency, not bandwidth.</b> The DRAM needs 30–45 ns per read; a miss costs 109–120 ns. The other 65–80 ns sits in the CPU-side bus and controller path, which runs on the CPU clock.</li>
+      <li><b>Write-allocate doubles write traffic.</b> memset reads every line before writing it. Skipping the read (<code>pref 30</code>) reaches 65 % of peak, so the bus and controller can stream; plain code doesn't feed them.</li>
+      <li><b>Controller prefetch helps plain code</b> and competes with software prefetch (the <code>pref 0</code> loop drops 26 % with it on).</li>
+      <li><b>The DDR clock barely matters:</b> 600 → 650 MHz moved every test by 4 % or less.</li>
+      <li>Linux <code>memcpy</code> already prefetches on this CPU; Linux <code>memset</code> doesn't, so the controller prefetch helps it most.</li>
+      <li>DRAM speed affects only the CPU. Packet switching uses the chip's on-die buffer.</li>
+    </ul>
+  </section>
+
+  <section class="decide">
+    <h2>Open decisions and next steps</h2>
+    <ul>
+      <li><b>Decide:</b> post the OpenWrt prefetch patch upstream (#53)? It is ready and compile-checked; a boot test via stock U-Boot comes first.</li>
+      <li><b>Decided:</b> refresh stays at stock. Normal-rate refresh would free about 3.5 % of DRAM time, but access is latency-bound with the bus mostly idle, so the gain is near zero. DDR3 has no readable temperature sensor; the SoC sensor peaked at 75 °C.</li>
+      <li><b>Research:</b> the unexplained controller bits (<code>ocp0_frq_slower</code>, <code>rbf_f_dis</code>, <code>sync_ocp0_dram</code>) are the only candidates for the 65–80 ns overhead (#52).</li>
+      <li><b>In progress:</b> DDR above 650 MHz. The chip (Zentel A3T4GF40BBF-HP) is rated DDR3-1866; higher bins need mode-register writes for CL/CWL (#48).</li>
+    </ul>
+  </section>
+</div>
+
+</body></html>
