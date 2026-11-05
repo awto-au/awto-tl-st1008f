@@ -492,6 +492,13 @@ def cmd_nat_bench(extra: list[str]) -> int:
     return _script("nat_bench.py", extra)
 
 
+@command("NAT-speed ideas as live switches: list | set k=v | reset | matrix [--pairs] [--combo n=k=v,k=v] (#65, #60)",
+         args="list | reset | set K=V ... | matrix [--knobs a,b] [--pairs] [--combo NAME=K=V,K=V] [--secs N] [--udp]  (nat-bench set up first)",
+         kind="hardware")
+def cmd_nat_knobs(extra: list[str]) -> int:
+    return _script("nat_knobs.py", extra)
+
+
 @command("fill-verify most of RAM (tmpfs, md5) from the mainline 7.3 initramfs shell; meminfo check (#27)",
          args="[--passes N] [--min-total-kb K]  (run `ramload uboot-mainline --then mainline-kernel` first)",
          kind="check")

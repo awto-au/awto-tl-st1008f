@@ -95,6 +95,25 @@ Facts and results: [NAT.md](NAT.md). Everything runs through `./dev.py nat-bench
 - `rxdrop` rate = eth0 `rx_packets`. With rx-gro-list on (default), the lan1 ingress counter sees GRO skbs, not packets.
 - Registers are read-only: `/sys/kernel/debug/regmap/dummy-ethernet-switch@0x1b000000/registers`. There is no `/dev/mem` or devmem in the OpenWrt image.
 
+## Knobs: NAT-speed ideas as live switches (#65, #60)
+
+Bench first: `nat-bench setup`, `v6-setup`, `dflt-setup`, `offload --onlink 0 --default-v4 0 --default-v6 0`, `mode nat-ft`. Log `tmp/logs/nat_knobs.log`, rows `tmp/logs/nat_knobs.jsonl` and `nat_bench.jsonl` (tag `knobs:<cell>`).
+
+```
+./dev.py nat-knobs list                       # every knob, default, live state
+./dev.py nat-knobs set napi_thread=on napi_pin=split tx_by_cpu=1 qdisc=noqueue
+./dev.py nat-knobs reset
+./dev.py nat-knobs matrix --udp               # default + each knob alone
+./dev.py nat-knobs matrix --knobs a,b --pairs # + every pair
+./dev.py nat-knobs matrix --base "k=v,k=v" --knobs x,y,z   # flip knobs on top of a combination
+./dev.py nat-knobs matrix --knobs "" --combo "name=k=v,k=v"
+```
+
+- Every state resets between cells; the default cell is the `--base`.
+- `napi_pin=split` needs `napi_thread=on` first (pins the two `napi/eth0-*` kthreads, one per VPE).
+- `tx_by_cpu` and `rxq` (`/sys/kernel/debug/rteth/rxq`: frames per RX ring, ring of each reason) come from `300-38`.
+- New ideas: add an entry to `KNOBS` in `scripts/nat_knobs.py` (states, set command, read command); boot-time ideas stay in `nat-clock-variants` / `nat-matrix`.
+
 ## Recover
 
 - `./dev.py nat-bench teardown`.

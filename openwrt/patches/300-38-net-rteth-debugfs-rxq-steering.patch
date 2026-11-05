@@ -1,0 +1,162 @@
+From: Dan <dan@awto.au>
+Subject: [PATCH] net: rteth: debugfs rxq: steer RX reasons and flags to a CPU ring at run time, per-ring frame counters (#60, #65)
+
+- `/sys/kernel/debug/rteth/rxq` (RTL930x): read = frames per RX ring + the ring of 14 reason/flag fields;
+  write `<name|all> <ring>` sets a 5-bit QM_RSN2CPUQID / QM_FLAG2CPUQID field, `rr` restores round robin.
+- Purpose: put part of the forwarded traffic on ring 1 so a NAPI pinned to VPE1 can serve it
+  (docs/NAT-PROGRESS.md, second CPU). Debug interface; no behaviour change until written.
+- Module parameter `tx_by_cpu` (run time): TX ring = forwarding CPU, reclaim only the own ring.
+---
+--- a/drivers/net/ethernet/realtek/rtl838x_eth.h
++++ b/drivers/net/ethernet/realtek/rtl838x_eth.h
+@@ -271,6 +271,7 @@
+ 	int			slot;
+ 	struct rteth_ctrl	*ctrl;
+ 	struct napi_struct	napi;
++	unsigned long		pkts; /* frames received on this ring (debugfs rxq) */
+ 	struct page_pool	*pool;
+ 	struct sk_buff		*skb; /* unprocessed SKB from last receive loop */
+ 	struct page		*page[RTETH_RX_RING_SIZE];
+--- a/drivers/net/ethernet/realtek/rtl838x_eth.c
++++ b/drivers/net/ethernet/realtek/rtl838x_eth.c
+@@ -4,6 +4,7 @@
+  */
+ 
+ #include <linux/cacheflush.h>
++#include <linux/debugfs.h>
+ #include <linux/dma-mapping.h>
+ #include <linux/etherdevice.h>
+ #include <linux/genalloc.h>
+@@ -37,6 +38,11 @@
+ module_param(sram_rings, uint, 0444);
+ MODULE_PARM_DESC(sram_rings, "descriptor rings in the DT sram pool: bit 0 RX, bit 1 TX");
+ 
++/* 1 = TX ring follows the CPU that forwards (each VPE its own ring + reclaim, no shared ring lock) */
++static uint tx_by_cpu;
++module_param(tx_by_cpu, uint, 0644);
++MODULE_PARM_DESC(tx_by_cpu, "TX ring = CPU number (run time, for NAPI pinned per VPE, #65)");
++
+ /* RTL930x NIC core shared with U-Boot (awto-tl-st1008f shared/rtl930x-nic, #83); ctx = regmap */
+ static inline u32 rtl930x_nic_rd(void *ctx, u32 off)
+ {
+@@ -659,6 +665,9 @@
+ 	for (int r = 0; r < RTETH_TX_RINGS; r++) {
+ 		struct netdev_queue *txq;
+ 
++		if (READ_ONCE(tx_by_cpu) && r != (raw_smp_processor_id() & 1))
++			continue;
++
+ 		/* Cached-memory fast path, made stable by the lock below */
+ 		if (READ_ONCE(ctrl->tx_info[r].send_count) ==
+ 		    READ_ONCE(ctrl->tx_info[r].clean_count))
+@@ -1451,6 +1460,85 @@
+ 	return work_done;
+ }
+ 
++/* RX ring steering at run time (RTL930x): the ASIC picks the CPU ring per reason / flag, a 5-bit field each.
++ * `rxq` read: frames per ring + every field below. Write `<name|all> <ring>`; `rr` = round robin again.
++ */
++static const struct {
++	const char *name;
++	u16 reg;
++	u8 shift;
++} rteth_rxq_fields[] = {
++	{ "l3_host_route", 0xa358, 25 }, { "l3_net_route", 0xa358, 20 }, { "router_mac_if", 0xa350, 20 },
++	{ "normal_fwd", 0xa364, 0 }, { "acl_hit", 0xa36c, 15 }, { "arp", 0xa360, 20 }, { "nd", 0xa360, 15 },
++	{ "dhcp", 0xa360, 25 }, { "l2_ntfy", 0xa360, 0 }, { "ipuc_ttl", 0xa35c, 10 }, { "new_sa", 0xa368, 20 },
++	{ "bridge_lu_miss", 0xa348, 20 }, { "ip_bridge_lu_miss", 0xa348, 15 }, { "null_route", 0xa354, 5 },
++};
++
++static int rteth_rxq_show(struct seq_file *m, void *unused)
++{
++	struct rteth_ctrl *ctrl = m->private;
++	unsigned int v;
++
++	for (int r = 0; r < RTETH_RX_RINGS; r++)
++		seq_printf(m, "ring%d_frames %lu\n", r, READ_ONCE(ctrl->rx_info[r].pkts));
++	for (int i = 0; i < ARRAY_SIZE(rteth_rxq_fields); i++) {
++		regmap_read(ctrl->map, rteth_rxq_fields[i].reg, &v);
++		seq_printf(m, "%s %u\n", rteth_rxq_fields[i].name, (v >> rteth_rxq_fields[i].shift) & 0x1f);
++	}
++	return 0;
++}
++
++static ssize_t rteth_rxq_write(struct file *file, const char __user *buf, size_t len, loff_t *off)
++{
++	struct rteth_ctrl *ctrl = file_inode(file)->i_private;
++	char name[24], line[48];
++	unsigned int ring;
++
++	if (len >= sizeof(line) || ctrl->cfg->qm_rsn2cpuqid_ctrl != 0xa344)
++		return -EINVAL;
++	if (copy_from_user(line, buf, len))
++		return -EFAULT;
++	line[len] = 0;
++	if (!strncmp(line, "rr", 2)) {
++		rteth_setup_cpu_rx_rings(ctrl);
++		return len;
++	}
++	if (sscanf(line, "%23s %u", name, &ring) != 2 || ring >= RTETH_RX_RINGS)
++		return -EINVAL;
++	for (int i = 0; i < ARRAY_SIZE(rteth_rxq_fields); i++) {
++		if (strcmp(name, "all") && strcmp(name, rteth_rxq_fields[i].name))
++			continue;
++		regmap_update_bits(ctrl->map, rteth_rxq_fields[i].reg, 0x1f << rteth_rxq_fields[i].shift,
++				   ring << rteth_rxq_fields[i].shift);
++		if (strcmp(name, "all"))
++			return len;
++	}
++	return !strcmp(name, "all") ? len : -EINVAL;
++}
++
++static int rteth_rxq_open(struct inode *inode, struct file *file)
++{
++	return single_open(file, rteth_rxq_show, inode->i_private);
++}
++
++static const struct file_operations rteth_rxq_fops = {
++	.owner = THIS_MODULE, .open = rteth_rxq_open, .read = seq_read, .write = rteth_rxq_write,
++	.llseek = seq_lseek, .release = single_release,
++};
++
++static void rteth_debugfs_remove(void *dir)
++{
++	debugfs_remove_recursive(dir);
++}
++
++static void rteth_debugfs_init(struct rteth_ctrl *ctrl)
++{
++	struct dentry *dir = debugfs_create_dir("rteth", NULL);
++
++	debugfs_create_file("rxq", 0600, dir, ctrl, &rteth_rxq_fops);
++	devm_add_action_or_reset(ctrl->dev->dev.parent, rteth_debugfs_remove, dir);
++}
++
+ static int rteth_poll_rx(struct napi_struct *napi, int budget)
+ {
+ 	struct rteth_rx_info *rx_q = container_of(napi, struct rteth_rx_info, napi);
+@@ -1461,6 +1549,7 @@
+ 	tx_pending = rteth_reclaim_tx_rings(ctrl, budget);
+ 
+ 	work_done = rteth_hw_receive(ctrl->dev, ring, budget);
++	rx_q->pkts += work_done;
+ 	if (tx_pending)
+ 		return budget;
+ 	if (work_done < budget && napi_complete_done(napi, work_done))
+@@ -1671,6 +1760,8 @@
+  */
+ static u16 rteth_select_queue(struct net_device *dev, struct sk_buff *skb, struct net_device *sb_dev)
+ {
++	if (READ_ONCE(tx_by_cpu))
++		return raw_smp_processor_id() & 1;
+ 	return skb->priority >= TC_PRIO_CONTROL ? 1 : 0;
+ }
+ 
+@@ -2038,6 +2129,7 @@
+ 	}
+ 
+ 	platform_set_drvdata(pdev, dev);
++	rteth_debugfs_init(ctrl);
+ 
+ 	phy_mode = PHY_INTERFACE_MODE_NA;
+ 	err = of_get_phy_mode(dn, &phy_mode);

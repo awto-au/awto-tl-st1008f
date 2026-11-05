@@ -9,17 +9,17 @@ Metric: TCP `-P 4`, NAT or route + nftables software flowtable, one-armed over l
 | Image / boot | Clocks | TCP Mbit/s | UDP 64 B kpps | Note |
 |---|---|---|---|---|
 | mainline initramfs, series to 300-35 (best) | picks | 514-544 | 110-113 | 2026-10-13..15 |
-| mainline initramfs | base | 350 | 73 | same boot family, 2026-10-13 |
-| OpenWrt 7.3 (b455c5b), `rx-gro-list on` | base | 264 | not run | 2026-11-06 |
-| OpenWrt 7.3 (b455c5b), image defaults | base | 195-203 | not run | `rx-gro-list` off |
-| OpenWrt 7.3, masquerade, no flowtable | base | 78 | not run | v6 NAT 73 |
+| mainline initramfs | base | 350 | 73 | 2026-10-13 |
+| OpenWrt 7.3 (b455c5b), best knob combination | base | 369-377 | 59 | 2026-11-06, see "Combinations" |
+| OpenWrt 7.3, image defaults | base | 283-294 | 53 | fraglist GRO now on at boot |
+| OpenWrt 7.3, fraglist GRO off (old image) | base | 195-203 | - | |
+| OpenWrt 7.3, masquerade, no flowtable | base | 78 | - | v6 NAT 73 |
 
 - Clocks: base = CPU 1000 / DDR 650; picks = CPU 1375 / DDR 662 / LX 306 / SRAM 500.
-- Best is 21 % of the target. IPv6 needs no NAT: 9.1 Gbit/s in the ASIC.
-- OpenWrt vs initramfs at base clocks: 264 vs 350 (-25 %), cause not isolated (suspects: fw4 and conntrack accounting, image kernel config, packages).
-- OpenWrt has not been measured at picks clocks.
-- The OpenWrt image does not enable fraglist GRO: +35 % when enabled by hand. Needs a boot-time default.
-- CPU use in every run: VPE0 96-97 % (softirq), VPE1 1-4 %.
+- Best is 15 % of the target (picks-clock best 22 %). IPv6 needs no NAT: 9.1 Gbit/s in the ASIC.
+- OpenWrt matches the initramfs at base clocks once tuned (375 vs 350); the old gap was fraglist GRO. The firewall ruleset costs nothing with the flowtable on (376 vs 377).
+- OpenWrt has not been measured at picks clocks, nor with the best combination at picks.
+- Only with the best combination do both VPEs work: VPE0 94 %, VPE1 95 %. Every other run: VPE1 1-4 %.
 
 ## Ledger (TCP P4, NAT + flowtable unless noted)
 
@@ -37,7 +37,8 @@ Metric: TCP `-P 4`, NAT or route + nftables software flowtable, one-armed over l
 | 2026-10-13 | `300-27` (select_queue, no hash) | 521-528 | 106-109 | same |
 | 2026-10-13 | `300-28` (RX descriptor read through cache) | 514-533 | 110-111 | same |
 | 2026-10-15 | series to 300-35; eth0 `noqueue` | 528; 544 | 111; 113 | Mainline with today's series |
-| 2026-11-06 | OpenWrt 7.3 b455c5b, base clocks | 195-203; 264 with GRO list | - | NAT.md OpenWrt on 7.3 |
+| 2026-11-06 | OpenWrt 7.3 b455c5b, base clocks | 195-203; 283-294 with GRO list | - | NAT.md OpenWrt on 7.3 |
+| 2026-11-06 | + pinned per-ring NAPI + TX ring per CPU + noqueue | 369-377 | 59 | Combinations |
 
 - Biggest steps: flowtable (3-4x over no flowtable), `300-12` (+15 %), picks clocks (+25 %), no tx hash (+16 %).
 - Per-packet cost: about 30 µs OpenWrt TCP (base, 2026-11-06); 13 µs mainline initramfs UDP 64 B (base), 10 µs (picks).
@@ -56,6 +57,42 @@ Metric: TCP `-P 4`, NAT or route + nftables software flowtable, one-armed over l
 | Descriptor rings in SRAM | NIC DMA does not work from SRAM | 2026-10-13 |
 | GRO or fraglist GRO off | -30 to -40 % | 2026-10-11, 13 |
 
+## Combinations (2026-11-06, `./dev.py nat-knobs`)
+
+Live switches, no rebuild: [NAT-OPS.md](NAT-OPS.md) "Knobs". OpenWrt 7.3 b455c5b, base clocks, sw2 RAM boot, NAT + flowtable, default route destination, TCP `-P 4` 10 s, one run per cell (spread about +-3 %). Rows: `tmp/logs/nat_knobs.jsonl`.
+
+Each idea alone against the default (283-294):
+
+| Knob (non-default state) | Mbit/s change | Note |
+|---|---|---|
+| eth0 qdisc `noqueue` | +12 to +15 % | overload loss was 1.2 % (2026-10-15) |
+| fraglist GRO off | -29 % | now on by default |
+| RPS to VPE1 | -31 % | |
+| threaded NAPI | -9 % | |
+| flowtable off | -74 % | |
+| IRQ on VPE1 | +1 % | work moves wholesale, VPE1 95 % |
+| conntrack accounting off, UDP GRO forwarding, NAPI budget x2 | +1 to +2 % | within spread |
+| IRQ coalescing emulation (`napi_defer_hard_irqs`) | -2 % | |
+| threaded NAPI, kthreads pinned one per ring | +2 % | |
+| TX ring follows the CPU (`tx_by_cpu`) | 0 % | |
+
+Combinations (default 283):
+
+| Combination | Mbit/s | Change | CPU0 / CPU1 |
+|---|---|---|---|
+| pinned NAPI + `tx_by_cpu` | 320 | +13 % | 92 / 95 |
+| pinned NAPI + `tx_by_cpu` + `noqueue` | **370** | **+31 %** | 94 / 95 |
+| `tx_by_cpu` + RPS | 193 | -32 % | |
+| same best, but all frames on ring 0 (one VPE) | 344 | +21 % | 2 / 96 |
+
+On the best combination (369), one more knob at a time: NAPI defer +3 %, UDP GRO forwarding +2 %, conntrack accounting off +2 %, NAPI budget +1 %, firewall off 0 %, IRQ on VPE1 -11 %, fraglist GRO off -41 %. UDP 64 B: 59 kpps vs 53 (+11 %).
+
+- Ideas that lost alone stack: pinned threads gain nothing until the two rings stop sharing a TX ring lock (a spinning VPE takes pipeline slots from its sibling), and `noqueue` removes the qdisc lock; together +31 %.
+- The second VPE itself adds 7 % (344 to 369) here. Most of the gain is the lock and queue work, which also helps on one VPE.
+- The split is by direction: the return stream (host-route reason) is ring 1, about one third of the frames; VPE1 does that. A split by flow would balance better (not tried).
+- Not safe as an image default yet: with `tx_by_cpu` a ring is reclaimed only by its own CPU's NAPI, so skbs of local sockets sent from an idle CPU can wait. Fix first (reclaim at xmit).
+- Not tried in combination: SRAM packet buffers, `300-14` doorbell, picks clocks, `rx-gro-list` variants on `switch.*`, per-flow ring split (PIE ACL hit -> ring via `QM_FLAG2CPUQID`).
+
 ## The second CPU
 
 - Hardware: MIPS 34Kc with 2 VPEs = two hardware threads on one pipeline and one L1. It is not two cores. The gain is filling stall cycles (a miss costs about 109 ns), not 2x.
@@ -63,8 +100,8 @@ Metric: TCP `-P 4`, NAT or route + nftables software flowtable, one-armed over l
   - eth0 has one IRQ; both RX rings' NAPI run on the CPU that takes it (VPE0).
   - RX ring = RX reason parity (`rteth_setup_cpu_rx_rings`). All forwarded traffic has one reason, so ring 1 is idle.
   - The XPS and `300-27` gain was removing the TX hash, not using VPE1 (forwarding transmits inside the RX softirq).
-- Why the attempts lost: each handed single packets across VPEs (IPI per packet, a second GRO pass, ring locks). RPS 0.56x; `tx_cpu` 0.44x.
-- What has not been tried: a split with no per-packet cross-VPE traffic.
+- Why the attempts lost: each handed single packets across VPEs (IPI per packet, a second GRO pass, ring locks). RPS 0.56x; `tx_cpu` 0.44x. Pinned per-ring NAPI with one TX ring per CPU works (see Combinations).
+- Done 2026-11-06 with the existing ring map (`/sys/kernel/debug/rteth/rxq`, `300-38`). Not yet tried: a split by flow with no per-packet cross-VPE traffic.
   - The ASIC steers frames to a CPU ring by PIE action CPU QID (DS section 7.13.1; `ACT_MSK_QID`, not implemented in `tc.c`/`pie.c`).
   - Match L4 port parity (or ingress port) in the PIE: half the flows to ring 1.
   - NAPI of ring 1 on VPE1 (one IPI per poll, or a threaded NAPI pinned to VPE1); each VPE then does RX, GRO, flowtable and TX for its own flows.

@@ -153,7 +153,8 @@ def set_mode(mode: str) -> int:
     nat = mode.startswith("nat")
     ft = mode.endswith("-ft")
     log(f"mode {mode}: masquerade={'on' if nat else 'off'} flowtable={'on' if ft else 'off'}")
-    fw4 = "true" if mainline() or not has_nft() else (
+    fw4 = "true" if mainline() or not has_nft() or sw("nft list table inet fw4 >/dev/null 2>&1 && echo y || echo n",
+                                                      check=False).strip() == "n" else (
        "nft list chain inet fw4 forward | grep -q nattest || "
        f"nft insert rule inet fw4 forward iifname '{{ switch.{LAN_VID}, switch.{WAN_VID} }}' accept "
        "comment nattest; "

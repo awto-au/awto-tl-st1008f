@@ -464,6 +464,21 @@ def modules_link(dst: Path) -> None:
     log(f"files/lib/modules/{VER} -> {PV}")
 
 
+GRO_HOTPLUG = """#!/bin/sh
+# fraglist GRO on the CPU port and the user ports: +35 % IPv4 NAT with the flowtable (docs/NAT-PROGRESS.md)
+[ "$ACTION" = ifup ] || exit 0
+for d in eth0 /sys/class/net/lan*; do ethtool -K "${d##*/}" rx-gro-list on 2>/dev/null; done
+"""
+
+
+def nat_tuning_files(dst: Path) -> None:
+    hp = dst / "etc/hotplug.d/iface/50-st1008f-gro"
+    hp.parent.mkdir(parents=True, exist_ok=True)
+    hp.write_text(GRO_HOTPLUG)
+    hp.chmod(0o755)
+    log("files/etc/hotplug.d/iface/50-st1008f-gro (rx-gro-list on, eth0 + lan*)")
+
+
 RC_STAMP = """# boot stamps -> /tmp/st1008f-boot.log: start/end of every init script, read by ./dev.py boot-timeline (#114)
 _st1008f_stamp() { echo "rc: ${initscript##*/} $action $1 $(cut -d' ' -f1 /proc/uptime)" >> /tmp/st1008f-boot.log; }
 _st1008f_stamp start
@@ -523,6 +538,7 @@ def default_boot_files(on: bool) -> str:
     init_after_network(dst)
     selftest_files(dst)
     modules_link(dst)
+    nat_tuning_files(dst)
     if not on:
         return ""
     shutil.copytree(DEFAULT_BOOT / "files", dst, symlinks=True, dirs_exist_ok=True)
