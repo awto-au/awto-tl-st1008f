@@ -93,6 +93,27 @@ On the best combination (369), one more knob at a time: NAPI defer +3 %, UDP GRO
 - Not safe as an image default yet: with `tx_by_cpu` a ring is reclaimed only by its own CPU's NAPI, so skbs of local sockets sent from an idle CPU can wait. Fix first (reclaim at xmit).
 - Not tried in combination: SRAM packet buffers, `300-14` doorbell, picks clocks, `rx-gro-list` variants on `switch.*`, per-flow ring split (PIE ACL hit -> ring via `QM_FLAG2CPUQID`).
 
+## Memory path and the second VPE (2026-11-06, `scripts/mt_interference.py`)
+
+Question (owner): do the VPEs lose to each other through memory bandwidth, and can one VPE use a small private memory? Forwarding confined to VPE1 (344-347 Mbit/s: threaded NAPI pinned, one ring, `tx_by_cpu`, `noqueue`); a synthetic probe (`openwrt/selftest/st1008f-mtprobe.c`) on VPE0, 18 s, one run each, OpenWrt 7.3 b455c5b, base clocks, sw2 RAM boot.
+
+| Probe on VPE0 | Forwarding Mbit/s | Change | Probe rate vs alone |
+|---|---|---|---|
+| none | 344-347 | - | - |
+| spin (ALU only, no memory) | 255 | -26 % | 71 % |
+| small (8 KiB, L1 resident) | 240 | -30 % | 69 % |
+| sram (64 KiB on-chip, uncached reads) | 293 | -16 % | 85 % (90 ns / load, alone) |
+| chase (8 MiB, one DRAM miss at a time) | 226 | -34 % | 79-80 % (215 ns / load, alone) |
+| stream (4 MiB copies, 130 MB/s alone) | **86** | **-75 %** | 90 % |
+
+- Pipeline sharing works as designed: forwarding keeps 74 % while the sibling keeps 71 %, 1.45x the work of one thread.
+- Memory is the shared bottleneck, not the pipeline: a DRAM-latency neighbour costs 19 points more than an on-chip-SRAM neighbour, and a streaming neighbour (130 MB/s, about 1 % of DDR3 peak) removes 75 %. Misses queue behind each other: with no L2, effectively one miss in flight.
+- This matches the best combination (two VPEs forwarding: 369 vs 344 on one, +7 %): both VPEs wait on the same miss queue.
+- Cache size per VPE is not configurable: the 34Kc VPEs share one core and one pair of L1 caches. Cache locking (`CACHE` fetch-and-lock) could reserve lines for hot data; not tried.
+- On-chip SRAM is the only memory off the DDR queue (90 ns uncached reads, no DDR traffic). Descriptors cannot live there (NIC DMA fails, #103). Packet buffers can, but are not `struct page` memory: 64 KiB is about 30 buffers.
+- Probe caveats: `chase` over 8 MiB also takes TLB refills (4 KiB pages); `sram` is uncached (the cached alias is not reachable from user space); one run per cell.
+- Next ideas, none tried: fewer DDR misses per packet (software prefetch of the next descriptor and headers in the RX loop, trimming per-packet touched lines); small-frame RX (ACKs) copied into an SRAM-backed buffer; cache-locked hot tables; keep memory-heavy daemons (collectd, logging) off the forwarding path.
+
 ## The second CPU
 
 - Hardware: MIPS 34Kc with 2 VPEs = two hardware threads on one pipeline and one L1. It is not two cores. The gain is filling stall cycles (a miss costs about 109 ns), not 2x.
