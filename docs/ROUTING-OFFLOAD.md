@@ -180,7 +180,7 @@ OpenWrt-on-7.3 (linux-next 20261009, SMP, `ramload openwrt-ours`), one 10G SR in
 | Default v6 | 197 | 9055-9085 | 99.8 % / 0.9 % |
 
 - Default v4 alone reaches 2.5-2.7 Gbit/s: the return path to the on-link LAN stays on the CPU unless `l3_onlink=1` too. Use both.
-- Checks a, c, d, i pass (as in the table above; d: the box's own `/32` stays `trap`, neighbour row returns after `ip addr del`). e needs `ip rule`, b, f, g, h not run.
+- Checks a, c, d, i pass (as in the table above; d: the box's own `/32` stays `trap`, neighbour row returns after `ip addr del`). e passes too (`ip rule add from 10.99.1.2 table 100`: log `IPv4 forwarding offload suspended by the policy rules`, every v4 row incl. neighbour and default `trap`; `ip rule del`: `resumed`, rows back `fwd`). b, f, g, h not run.
 - Found on this pass: `nd_tbl` is only a template on next-20261009 (per-netns ND tables); the first v6 route add oopsed in `neigh_lookup`. Fixed in `300-10` (macro to `nd_table(&init_net)`).
 - `check-log`: CLEAN.
 
