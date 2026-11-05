@@ -1,7 +1,7 @@
 /* st1008f-mtprobe: synthetic load for the second VPE (docs/NAT-PROGRESS.md, scripts/mt_interference.py)
  * usage: st1008f-mtprobe MODE SECONDS   MODE = spin | small | chase | stream | sram
  *   spin   ALU only (xorshift), no memory
- *   small  dependent loads inside 8 KiB (L1 resident)
+ *   small  dependent loads inside N KiB, default 8 (L1 resident; third argument = KiB)
  *   chase  dependent loads over 8 MiB, random order (every load a DRAM miss, one at a time)
  *   stream copy 4 MiB buffers (DRAM bandwidth)
  *   sram   dependent reads over the on-chip SRAM (64 KiB at 0x1f000000, /dev/mem, uncached, read only)
@@ -59,7 +59,7 @@ int main(int argc, char **argv)
 		sink = x;
 		printf("spin rate=%.1f Miter/s\n", n / (t - t0) / 1e6);
 	} else if (!strcmp(mode, "small") || !strcmp(mode, "chase")) {
-		size_t words = !strcmp(mode, "small") ? 2048 : 2 * 1024 * 1024;
+		size_t words = !strcmp(mode, "small") ? (argc > 3 ? atoi(argv[3]) : 8) * 256 : 2 * 1024 * 1024;
 		uint32_t *p = perm(words), i = 0;
 
 		do {

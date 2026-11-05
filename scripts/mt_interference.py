@@ -72,6 +72,9 @@ def main() -> int:
     for load in loads:
         alone = load.startswith("alone-")
         mode = load.split("-")[-1] if load != "none" else None
+        arg = ""
+        if mode and mode.startswith("small") and mode[5:].isdigit():  # small16 = 16 KiB working set
+            mode, arg = "small", mode[5:]
         if alone:  # probe with no forwarding: its unloaded rate
             nk.apply({**nk.DEFAULTS})
         elif load == "none" or load == "spin":
@@ -79,7 +82,7 @@ def main() -> int:
         p = None
         if mode:
             p = subprocess.Popen(["ssh", "-o", "StrictHostKeyChecking=no", f"root@{nb.SW_IP}",
-                                  f"taskset 1 /tmp/st1008f-mtprobe {mode} {RUN_S + 6}"], stdout=subprocess.PIPE, text=True)
+                                  f"taskset 1 /tmp/st1008f-mtprobe {mode} {RUN_S + 6} {arg}"], stdout=subprocess.PIPE, text=True)
         fwd = {} if alone else forward()
         probe = p.communicate(timeout=RUN_S + 30)[0].strip() if p else ""  # probe ends by itself at RUN_S + 6
         row = {"load": load, "forward": fwd, "probe": probe}

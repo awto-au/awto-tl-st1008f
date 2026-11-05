@@ -10,15 +10,18 @@ Metric: TCP `-P 4`, NAT or route + nftables software flowtable, one-armed over l
 |---|---|---|---|---|
 | mainline initramfs, series to 300-35 (best) | picks | 514-544 | 110-113 | 2026-10-13..15 |
 | mainline initramfs | base | 350 | 73 | 2026-10-13 |
-| OpenWrt 7.3 (b455c5b), best knob combination | base | 369-377 | 59 | 2026-11-06, see "Combinations" |
-| OpenWrt 7.3, image defaults | base | 283-294 | 53 | fraglist GRO now on at boot |
-| OpenWrt 7.3, fraglist GRO off (old image) | base | 195-203 | - | |
-| OpenWrt 7.3, masquerade, no flowtable | base | 78 | - | v6 NAT 73 |
+| OpenWrt 7.3, best knob combination | **picks 1350** | **507** | 88 | 2026-11-06, see "Combinations" |
+| OpenWrt 7.3, `noqueue` only | picks 1350 | 467 | 90 | |
+| OpenWrt 7.3, image defaults | picks 1350 | 388 | 76 | |
+| OpenWrt 7.3, best knob combination | stock 800 | 369-377 | 59 | |
+| OpenWrt 7.3, image defaults | stock 800 | 283-294 | 53 | fraglist GRO now on at boot |
+| OpenWrt 7.3, fraglist GRO off (old image) | stock 800 | 195-203 | - | |
+| OpenWrt 7.3, masquerade, no flowtable | stock 800 | 78 | - | v6 NAT 73 |
 
-- Clocks: base = CPU 1000 / DDR 650; picks = CPU 1375 / DDR 662 / LX 306 / SRAM 500.
-- Best is 15 % of the target (picks-clock best 22 %). IPv6 needs no NAT: 9.1 Gbit/s in the ASIC.
-- OpenWrt matches the initramfs at base clocks once tuned (375 vs 350); the old gap was fraglist GRO. The firewall ruleset costs nothing with the flowtable on (376 vs 377).
-- OpenWrt has not been measured at picks clocks, nor with the best combination at picks.
+- Clocks: stock = CPU 800 / DDR 600; base = CPU 1000 / DDR 650 (`clocks fast`); picks = CPU 1350-1375 / DDR 662 / LX 306 / SRAM 500 (1350 for OpenWrt runs; 1375 had 1 wrong decode in 55 under load, #109).
+- Best is 20 % of the target (507 of 2500). IPv6 needs no NAT: 9.1 Gbit/s in the ASIC.
+- No OpenWrt-vs-initramfs gap: 283-294 at 800 MHz vs 350 at 1000 MHz is the clock ratio (0.8); the old low OpenWrt numbers were fraglist GRO off. The firewall ruleset costs nothing with the flowtable on (376 vs 377).
+- OpenWrt at picks: CPU 1350 / DDR 662 / LX 306 / SRAM 500 via `ramload uboot-mainline --then openwrt-ours --pre "turbo cpu=1350,ddr=662,lx=306,sram=500"`. Not the default: the flash chain runs stock clocks unless the M3 turbo profile is set (#109).
 - Only with the best combination do both VPEs work: VPE0 94 %, VPE1 95 %. Every other run: VPE1 1-4 %.
 
 ## Ledger (TCP P4, NAT + flowtable unless noted)
@@ -37,11 +40,11 @@ Metric: TCP `-P 4`, NAT or route + nftables software flowtable, one-armed over l
 | 2026-10-13 | `300-27` (select_queue, no hash) | 521-528 | 106-109 | same |
 | 2026-10-13 | `300-28` (RX descriptor read through cache) | 514-533 | 110-111 | same |
 | 2026-10-15 | series to 300-35; eth0 `noqueue` | 528; 544 | 111; 113 | Mainline with today's series |
-| 2026-11-06 | OpenWrt 7.3 b455c5b, base clocks | 195-203; 283-294 with GRO list | - | NAT.md OpenWrt on 7.3 |
+| 2026-11-06 | OpenWrt 7.3 b455c5b, stock 800 MHz | 195-203; 283-294 with GRO list | - | NAT.md OpenWrt on 7.3 |
 | 2026-11-06 | + pinned per-ring NAPI + TX ring per CPU + noqueue | 369-377 | 59 | Combinations |
 
 - Biggest steps: flowtable (3-4x over no flowtable), `300-12` (+15 %), picks clocks (+25 %), no tx hash (+16 %).
-- Per-packet cost: about 30 µs OpenWrt TCP (base, 2026-11-06); 13 µs mainline initramfs UDP 64 B (base), 10 µs (picks).
+- Per-packet cost: about 30 µs OpenWrt TCP (stock 800 MHz, 2026-11-06); 13 µs mainline initramfs UDP 64 B (base), 10 µs (picks).
 
 ## Tried, did not help
 
@@ -59,7 +62,7 @@ Metric: TCP `-P 4`, NAT or route + nftables software flowtable, one-armed over l
 
 ## Combinations (2026-11-06, `./dev.py nat-knobs`)
 
-Live switches, no rebuild: [NAT-OPS.md](NAT-OPS.md) "Knobs". OpenWrt 7.3 b455c5b, base clocks, sw2 RAM boot, NAT + flowtable, default route destination, TCP `-P 4` 10 s, one run per cell (spread about +-3 %). Rows: `tmp/logs/nat_knobs.jsonl`.
+Live switches, no rebuild: [NAT-OPS.md](NAT-OPS.md) "Knobs". OpenWrt 7.3 b455c5b, stock clocks (CPU 800, `ramload openwrt-ours` boots from stock U-Boot), sw2 RAM boot, NAT + flowtable, default route destination, TCP `-P 4` 10 s, one run per cell (spread about +-3 %). Rows: `tmp/logs/nat_knobs.jsonl`.
 
 Each idea alone against the default (283-294):
 
@@ -95,7 +98,7 @@ On the best combination (369), one more knob at a time: NAPI defer +3 %, UDP GRO
 
 ## Memory path and the second VPE (2026-11-06, `scripts/mt_interference.py`)
 
-Question (owner): do the VPEs lose to each other through memory bandwidth, and can one VPE use a small private memory? Forwarding confined to VPE1 (344-347 Mbit/s: threaded NAPI pinned, one ring, `tx_by_cpu`, `noqueue`); a synthetic probe (`openwrt/selftest/st1008f-mtprobe.c`) on VPE0, 18 s, one run each, OpenWrt 7.3 b455c5b, base clocks, sw2 RAM boot.
+Question (owner): do the VPEs lose to each other through memory bandwidth, and can one VPE use a small private memory? Forwarding confined to VPE1 (344-347 Mbit/s: threaded NAPI pinned, one ring, `tx_by_cpu`, `noqueue`); a synthetic probe (`openwrt/selftest/st1008f-mtprobe.c`) on VPE0, 18 s, one run each, OpenWrt 7.3 b455c5b, stock clocks (CPU 800), sw2 RAM boot.
 
 | Probe on VPE0 | Forwarding Mbit/s | Change | Probe rate vs alone |
 |---|---|---|---|
@@ -109,6 +112,16 @@ Question (owner): do the VPEs lose to each other through memory bandwidth, and c
 - Pipeline sharing works as designed: forwarding keeps 74 % while the sibling keeps 71 %, 1.45x the work of one thread.
 - Memory is the shared bottleneck, not the pipeline: a DRAM-latency neighbour costs 19 points more than an on-chip-SRAM neighbour, and a streaming neighbour (130 MB/s, about 1 % of DDR3 peak) removes 75 %. Misses queue behind each other: with no L2, effectively one miss in flight.
 - This matches the best combination (two VPEs forwarding: 369 vs 344 on one, +7 %): both VPEs wait on the same miss queue.
+- L1 capacity (32 KB, 4-way, 32 B lines, shared by both VPEs): the sibling's L1-resident working set against forwarding on the other VPE, spin = 258 Mbit/s (no memory) as the reference:
+
+| Sibling working set | Forwarding Mbit/s | Change vs alone (346) |
+|---|---|---|
+| 8 KB | 242 | -30 % |
+| 16 KB | 217 | -37 % |
+| 28 KB (most of the L1) | 200 | -42 % |
+
+  - Taking most of the L1 costs 17 points beyond the pipeline share (spin -25 %): the forwarding working set is small (descriptors, headers, `skb` heads, flow entries: a few KB per packet batch). A smaller cache would lose, not gain; capacity is not the limit, the miss latency is.
+  - Cache maintenance (`dma` invalidate / write-back) is 5 % of the profile: syncing only the bytes a frame used (page-pool recycle syncs 4 KiB per 2 frames today) is the available part of "cache sized to the packet".
 - Cache size per VPE is not configurable: the 34Kc VPEs share one core and one pair of L1 caches. Cache locking (`CACHE` fetch-and-lock) could reserve lines for hot data; not tried.
 - On-chip SRAM is the only memory off the DDR queue (90 ns uncached reads, no DDR traffic). Descriptors cannot live there (NIC DMA fails, #103). Packet buffers can, but are not `struct page` memory: 64 KiB is about 30 buffers.
 - Probe caveats: `chase` over 8 MiB also takes TLB refills (4 KiB pages); `sram` is uncached (the cached alias is not reachable from user space); one run per cell.
