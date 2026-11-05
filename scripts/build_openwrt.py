@@ -75,6 +75,7 @@ KERNEL_PATCHES = {
     "300-33-mtdsplit-uimage-cmdline-match.patch": OURS,  # #117: split only the booted A/B slot
     "300-34-net-pcs-rtl-otto-defer-calibration-until-signal.patch": OURS,  # #125
     "300-35-net-pcs-rtl-otto-debugfs-sds.patch": OURS,  # #136: st1008f-sds through the driver
+    "300-36-realtek-dsa-phylib-reads-phy-on-link-change.patch": OURS,  # #142: upstream 906c981d2c
 }
 TREE_PATCH = BACKPORT / "openwrt-tree.patch"
 # --parked: untested candidates from openwrt/patches-parked, 6.18 only; name -> OpenWrt patch dir
