@@ -75,6 +75,17 @@ def mainline() -> bool:
     return _MAINLINE
 
 
+_NFT: bool | None = None
+
+
+def has_nft() -> bool:
+    """False where the kernel has no nf_tables (the 7.3 OpenWrt image): no fw4, no filtering."""
+    global _NFT
+    if _NFT is None:
+        _NFT = sw("nft list tables >/dev/null 2>&1 && echo y || echo n").strip() == "y"
+    return _NFT
+
+
 def svi(vid: int) -> str:
     return f"{SW_PORT}.{vid}" if mainline() else f"switch.{vid}"
 
@@ -142,7 +153,7 @@ def set_mode(mode: str) -> int:
     nat = mode.startswith("nat")
     ft = mode.endswith("-ft")
     log(f"mode {mode}: masquerade={'on' if nat else 'off'} flowtable={'on' if ft else 'off'}")
-    fw4 = "true" if mainline() else (
+    fw4 = "true" if mainline() or not has_nft() else (
        "nft list chain inet fw4 forward | grep -q nattest || "
        f"nft insert rule inet fw4 forward iifname '{{ switch.{LAN_VID}, switch.{WAN_VID} }}' accept "
        "comment nattest; "
@@ -150,6 +161,8 @@ def set_mode(mode: str) -> int:
        f"nft insert rule inet fw4 input iifname '{{ switch.{LAN_VID}, switch.{WAN_VID} }}' meta l4proto icmpv6 "
        "accept comment nattest-nd")  # IPv6 ND replies to the SVIs (fw4 input policy drop)
     sw("nft delete table inet nattest 2>/dev/null; " + fw4)
+    if not has_nft() and (nat or ft):
+        raise SystemExit("FAIL: mode nat/ft needs nf_tables; this kernel has none")
     rules = ["table inet nattest {"]
     if ft:
         rules += [f"  flowtable ft {{ hook ingress priority 0; devices = {{ {SW_PORT} }}; }}",
@@ -159,7 +172,8 @@ def set_mode(mode: str) -> int:
         rules += ["  chain post { type nat hook postrouting priority srcnat; policy accept;",
                   f"    oifname {svi(WAN_VID)} masquerade", "  }"]
     rules += ["}"]
-    sw("nft -f - <<'EOF'\n" + "\n".join(rules) + "\nEOF")
+    if has_nft():
+        sw("nft -f - <<'EOF'\n" + "\n".join(rules) + "\nEOF")
     # route mode: natwan needs the way back to the LAN subnet (no NAT hides it)
     host(["ip", "-n", NS_WAN, "route", "del", "10.99.1.0/24"], check=False)
     if not nat:
@@ -297,7 +311,7 @@ def run(args, local: bool) -> int:
     label = args.label or ("local" if local else "fwd") + \
         f"{'-R' if args.reverse else ''}-P{args.P}{f'-udp{args.udp}-l{args.len}' if args.udp else ''}"
     if local:
-        sw(("" if mainline() else "nft list chain inet fw4 input | grep -q nattest || "
+        sw(("" if mainline() or not has_nft() else "nft list chain inet fw4 input | grep -q nattest || "
             f"nft insert rule inet fw4 input iifname switch.{LAN_VID} accept comment nattest; ")
            + f"pidof iperf3 >/dev/null || iperf3 -s -D -B {SW_LAN}")
     a = snap()

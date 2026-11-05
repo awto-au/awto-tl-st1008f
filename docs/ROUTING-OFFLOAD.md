@@ -168,6 +168,22 @@ Mainline 7.3-rc6 SMP (both VPEs, 300-18, eth0 IRQ on CPU0), CPU 1 GHz, `ramload 
 
 - `check-log` on the boot: CLEAN.
 
+## Measured — `300-17` rebased, OpenWrt main b455c5b on 7.3 (2026-11-06)
+
+OpenWrt-on-7.3 (linux-next 20261009, SMP, `ramload openwrt-ours`), one 10G SR in cage 1, nat-bench `mode route`, TCP `-P 4`, 15 s, one run each, steady state (the second host row needs one more 5 s poll after `l3_onlink=1`).
+
+| Path | Offload off Mbit/s | Offload on Mbit/s | CPU0 off / on |
+|---|---|---|---|
+| On-link v4 | 118 | 9198 fwd / 9223 rev | 97 % / 1.2 % |
+| On-link v6 | 115 | 9032-9138 | 99.8 % / 1 % |
+| Default v4 | 118 | 9196 fwd / 9201 rev | 97 % / 0.7 % |
+| Default v6 | 197 | 9055-9085 | 99.8 % / 0.9 % |
+
+- Default v4 alone reaches 2.5-2.7 Gbit/s: the return path to the on-link LAN stays on the CPU unless `l3_onlink=1` too. Use both.
+- Checks a, c, d, i pass (as in the table above; d: the box's own `/32` stays `trap`, neighbour row returns after `ip addr del`). e needs `ip rule`, b, f, g, h not run.
+- Found on this pass: `nd_tbl` is only a template on next-20261009 (per-netns ND tables); the first v6 route add oopsed in `neigh_lookup`. Fixed in `300-10` (macro to `nd_table(&init_net)`).
+- `check-log`: CLEAN.
+
 ## Pending
 
 - True all-port routed test (ingress ≠ egress port, #22) needs a clean **second 10G endpoint** — host has one 10G SFP+ (single-port ConnectX), twin is SFP+-only.

@@ -6,12 +6,25 @@ OWRT_FILES). One line per fix:
   at_least as a macro (array-parameter "static"), which broke the prototype.
 - l3.c (linux-next): global arp_tbl is gone, ARP tables are per netns: arp_table(&init_net),
   the netns the FIB notifier is on. 7.3 copy: openwrt/patches-v7.3-rc6/.
+- l3.c (next-20261009): nd_tbl is only the template, the live ND table is per netns too; a
+  macro maps every `nd_tbl` use to nd_table(&init_net) (unmapped, the first v6 route add oopsed
+  in neigh_lookup on a NULL stats pointer).
 (NET_RTL838X select PAGE_POOL: nothing else selects it in our allnoconfig base; in 300-09.)
 ---
 diff --git a/drivers/net/dsa/rtl83xx/l3.c b/drivers/net/dsa/rtl83xx/l3.c
 index bf5808293..b0960e5db 100644
 --- a/drivers/net/dsa/rtl83xx/l3.c
 +++ b/drivers/net/dsa/rtl83xx/l3.c
+@@ -101,6 +101,9 @@
+ #include "rtl-otto.h"
+ #include "stats.h"
+
++/* 7.3: nd_tbl is only the template; the live table is per netns (cf. arp_table()) */
++#define nd_tbl (*nd_table(&init_net))
++
+ /* Route entry types */
+ #define ROUTE_TYPE_IP4UC	0
+ #define ROUTE_TYPE_IP4MC	1
 @@ -1354,14 +1354,14 @@ static int otto_l3_v6_slot(struct otto_l3_ctrl *ctrl, int row)
   * matching row rather than the most specific one. A lookup carries the entry
   * type, so a block is only ever matched against its own family.
