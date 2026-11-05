@@ -1,6 +1,6 @@
 # NAT on the TL-ST1008F (RTL9303)
 
-Target: NAT near 2.5 Gbit/s (owner ISP: NBN HFC ~2 Gbit/s down). Issue: "Fast NAT (target 2.5 Gbit/s)". How to run the measurements: [NAT-OPS.md](NAT-OPS.md).
+Target: NAT near 2.5 Gbit/s (owner ISP: NBN HFC ~2 Gbit/s down). Issue: "Fast NAT (target 2.5 Gbit/s)". How to run the measurements: [NAT-OPS.md](NAT-OPS.md). Current numbers and history: [NAT-PROGRESS.md](NAT-PROGRESS.md).
 
 ## Verdict
 

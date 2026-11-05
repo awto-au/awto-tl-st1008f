@@ -45,6 +45,7 @@
 ## Routing, NAT, NIC
 
 - [NAT.md](NAT.md) — NAT path, ceilings, measured results (#65). Ops: [NAT-OPS.md](NAT-OPS.md).
+- [NAT-PROGRESS.md](NAT-PROGRESS.md) — IPv4 NAT: current numbers, change-by-change ledger, what did not help, second-CPU analysis (#65, #60).
 - [ROUTING-OFFLOAD.md](ROUTING-OFFLOAD.md) — HW L3 routing offload (#59). Ops: [ROUTING-OFFLOAD-OPS.md](ROUTING-OFFLOAD-OPS.md).
 - [UPSTREAM-L3.md](UPSTREAM-L3.md) — upstream path for L3 offload: survey of router/flowtable offload code, shared `fib_offload` helper proposal (#85).
 - [VENDOR-NIC-TUNING.md](VENDOR-NIC-TUNING.md) — vendor CPU-NIC tuning vs OpenWrt `rtl838x_eth` (#60).
