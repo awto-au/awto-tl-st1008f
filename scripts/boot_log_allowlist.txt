@@ -37,7 +37,7 @@ Bytes transferred = \d+ \([0-9a-f]+ hex\)  # tftpboot done
 \#\# Checking Image at 84f00000 \.\.\.  # iminfo / bootm image check
 \#\# Booting kernel from Legacy Image at 84f00000 \.\.\.  # bootm
 \s+Legacy image found  # iminfo / bootm
-\s+Image Name:\s+(MIPS OpenWrt Linux-\d+\.\d+(\.\d+)?(-rc\d+)?|mainline ST1008F)  # iminfo image names we build
+\s+Image Name:\s+(MIPS OpenWrt Linux-\d+\.\d+(\.\d+)?(-rc\d+|-next-\d+)?|mainline ST1008F)  # iminfo image names we build
 \s+Created:\s+20\d\d-\d\d-\d\d\s+\d+:\d\d:\d\d UTC  # iminfo build time
 \s+Image Type:\s+MIPS Linux Kernel Image \(lzma compressed\)  # iminfo; type pinned
 \s+Data Size:\s+\d+ Bytes = [0-9.]+ MB  # iminfo
@@ -222,7 +222,7 @@ vth_set_bin = \d+  # SerDes RX calibration debug print
 
 [mainline]
 Linux version 7\.\d+\.\d+(-rc\d+)?(-next-\d{8})?(-dirty)? \(.*\) #\d+ .*  # our mainline build (tmp/linux-v7.3)
-Linux version 7\.\d+(\.\d+)?(-rc\d+)? \(\w+@\w+\) \(mips-openwrt-linux-musl-gcc \(OpenWrt GCC [0-9.]+ toolchain-[0-9a-f]+\) [0-9.]+, GNU ld \(GNU Binutils\) [0-9.]+\) #0 SMP( PREEMPT)? [A-Z][a-z]{2} [A-Z][a-z]{2} +\d+ \d\d:\d\d:\d\d 20\d\d  # OpenWrt-on-7.3 banner, local build (#73)
+Linux version 7\.\d+(\.\d+)?(-rc\d+)?(-next-\d{8})? \(\w+@\w+\) \(mips-openwrt-linux-musl-gcc \(OpenWrt GCC [0-9.]+ toolchain-[0-9a-f]+\) [0-9.]+, GNU ld \(GNU Binutils\) [0-9.]+\) #0 SMP( PREEMPT)? [A-Z][a-z]{2} [A-Z][a-z]{2} +\d+ \d\d:\d\d:\d\d 20\d\d  # OpenWrt-on-7.3 banner, local build (#73)
 Serial: 8250/16550 driver, 2 ports, IRQ sharing disabled  # serial driver, OpenWrt-on-7.3 config (#73)
 jffs2: version 2\.2\. \(NAND\) \(SUMMARY\)  © 2001-2006 Red Hat, Inc\.  # jffs2 init, OpenWrt-on-7.3 config (#73)
 hwmon hwmon\d: temp1_input not attached to any thermal zone  # OpenWrt-on-7.3: realtek thermal hwmon without a zone binding (#73)
@@ -379,7 +379,7 @@ Load address: 0x81000000  # tftpboot of uboot-mainline.bin
 \#\# Booting kernel from Legacy Image at 84f00000 \.\.\.  # `ramload uboot-mainline --then`: bootm from ours
 \#\# Booting kernel from Legacy Image at b(4300000|5180000) \.\.\.  # chain boot: bootm of slot a / b via the mmio window (#105, #117)
 led: fallback latched \((unconfirmed|trial-bad|good-bad)\): `rtk led clear` or `rtk led hw` to release  # A/B rollback happened (#117): investigate the trial slot
-\s+Image Name:\s+(MIPS OpenWrt Linux-\d+\.\d+(\.\d+)?(-rc\d+)?|mainline ST1008F)  # bootm header: images we build
+\s+Image Name:\s+(MIPS OpenWrt Linux-\d+\.\d+(\.\d+)?(-rc\d+|-next-\d+)?|mainline ST1008F)  # bootm header: images we build
 \s+Image Type:\s+MIPS Linux Kernel Image \(lzma compressed\)  # bootm header; type pinned
 \s+Data Size:\s+\d+ Bytes = [0-9.]+ MiB  # bootm header
 \s+Load Address: 80100000  # bootm header; load address pinned
@@ -529,3 +529,4 @@ Disable port \(0,(8|16|20|24|25|26|27|0)\)  # ramload `rtk port disable` of the 
 [0-9]+ fixed-partitions partitions found on MTD device spi0\.0  # DT partition table (#117 layout)
 Creating [0-9]+ MTD partitions on "spi0\.0":  # DT partition table
 rtl83xx-switch 1b000000\.switch: storm control bc/mc/uc \d+/\d+/\d+ pps per port, loop detect (on|off) \(recover \d+ s\) \(#111\)  # 300-26 probe
+kmodloader: no module folders for kernel version 7\.\d+-next-\d{8} found  # 7.3 image has everything built in, no /lib/modules (#73)

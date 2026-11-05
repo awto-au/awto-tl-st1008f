@@ -36,6 +36,13 @@ OPENWRT_ONLY = {
     "300-32-jffs2-skip-erase-of-blank-blocks.patch",  # on top of OpenWrt 532-jffs2_eofdetect
     "300-33-mtdsplit-uimage-cmdline-match.patch",  # OpenWrt generic drivers/mtd/mtdsplit
 }
+# Not applied on either kernel: upstream's PCS/L3 rework (OpenWrt b455c5b, #142) replaced or removed what they
+# patch. Files stay in openwrt/patches/ until re-ported or deleted.
+SUPERSEDED = {
+    "300-29-net-pcs-rtl-otto-rx-signal-wait-dbg.patch",
+    "300-31-realtek-l3-route-on-standalone-port-dbg.patch",
+    "300-34-net-pcs-rtl-otto-defer-calibration-until-signal.patch",
+}
 # git.kernel.org ls-remote ~2 s, depth-1 fetch of a next tag ~300 MB at >=5 MB/s ~60 s; x1.25 rounded up
 LS_TIMEOUT, FETCH_TIMEOUT, CHECKOUT_TIMEOUT = 15, 600, 300
 
@@ -74,7 +81,7 @@ def tree(base: str | None = None) -> Path:
 def patches(base: str | None = None) -> list[Path]:
     """Our openwrt/patches series for this base (fallback: 7.3 copies replace/add by name)."""
     base = base or selected()
-    series = {p.name: p for p in OURS.glob("*.patch") if p.name not in OPENWRT_ONLY}
+    series = {p.name: p for p in OURS.glob("*.patch") if p.name not in OPENWRT_ONLY | SUPERSEDED}
     if not is_next(base):
         series.update({p.name: p for p in (ROOT / f"openwrt/patches-{base}").glob("*.patch")})
     return [series[n] for n in sorted(series)]

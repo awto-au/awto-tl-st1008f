@@ -62,7 +62,7 @@ KERNEL_PATCHES = {
     "300-06-realtek-rtl930x-tplink-mode-switch.patch": OURS,
     "300-07-realtek-spi-dirmap-read.patch": BACKPORT / "kernel",
     "300-11-realtek-rteth-tx-ring32-bql-xmit-more.patch": OURS,  # 300-12 builds on it
-    "300-12-realtek-rteth-930x-nic-path.patch": BACKPORT / "kernel",
+    "300-12-realtek-rteth-930x-nic-path.patch": OURS,
     "300-13-mips-highmem-lowmem-fast-paths.patch": OURS,
     "300-19-realtek-board-cmdline-once.patch": OURS,  # #122: fw_init_cmdline ran twice (args doubled)
     "300-26-realtek-rtl930x-storm-control-loop-detect.patch": OURS,  # #111
@@ -71,6 +71,7 @@ KERNEL_PATCHES = {
     "300-30-net-phy-aquantia-hwmon-clamp-limits.patch": OURS,  # #124
     "300-32-jffs2-skip-erase-of-blank-blocks.patch": OURS,  # #114: first boot after sysupgrade
     "300-33-mtdsplit-uimage-cmdline-match.patch": OURS,  # #117: split only the booted A/B slot
+    "300-35-net-pcs-rtl-otto-debugfs-sds.patch": OURS,  # #136, re-ported on the rewritten PCS driver
     "300-36-net-pcs-rtl-otto-clock-sync-retry.patch": OURS,  # #142: SerDes clock sync missed on sw1 first boot
 }
 TREE_PATCH = BACKPORT / "openwrt-tree.patch"
@@ -91,7 +92,7 @@ from mainline_build_check import (OWRT as OWRT_PIN, OWRT_COMMIT, OWRT_FILES, OWR
 BASE = kernel_base.selected()
 PV = "7.3"  # VERSION.PATCHLEVEL of BASE, set in main() from the checked-out tree
 VER = ""    # OpenWrt LINUX_VERSION: PV + "-rc6" (v7.3-rc6) or PV + "-next-YYYYMMDD"
-PENDING73 = ["700", "701"]  # generic pending-6.18 nft flowtable patches; apply on 7.3 and next (MAINLINE-PORT §8)
+PENDING73 = ["700", "701", "344", "644", "645"]  # generic pending-6.18 nft flowtable patches; apply on 7.3 and next (MAINLINE-PORT §8)
 # generic hack-6.18 patches OpenWrt packages need on mainline (all apply as-is; status of the rest: docs/OPENWRT-BUILD.md)
 HACK73 = ["910", "911", "940"]  # uevent + broadcast_uevent (gpio-button-hotplug); 940: non-empty modules.builtin (kmod packaging)
 UP73 = False  # --up

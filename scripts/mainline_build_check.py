@@ -34,7 +34,7 @@ OWRT_FILES_DIR = OWRT / "files-6.18"
 # OpenWrt commit the verbatim patches/files and our forward-ports are taken against (#16).
 OWRT_COMMIT = "b455c5b8514f2a6de0e3c68276771f953bddb046"  # main 2026-11-04 (#142); was 0ad1348
 # Applied verbatim from OpenWrt realtek patches-6.18; status of every patch: docs/MAINLINE-PORT.md.
-OWRT_VERBATIM = ["300-01", "300-02", "300-03", "309", "330", "331", "712", "714", "718", "722"]
+OWRT_VERBATIM = ["300-01", "300-02", "300-03", "330", "331", "712", "714", "718", "722"]
 # Copied verbatim from files-6.18; 7.3 API fixes on top are in openwrt/patches/300-10.
 OWRT_FILES = [
     "arch/mips/include/asm/mach-rtl-otto",
@@ -46,6 +46,7 @@ OWRT_FILES = [
     "drivers/net/pcs/pcs-rtl-otto.c",
     "drivers/soc/realtek",
     "drivers/thermal/realtek-thermal.c",
+    "include/linux/soc/realtek/otto_common.h",
     "include/linux/soc/realtek/otto_table.h",
     "net/dsa/tag_rtl_otto.c",
 ]
@@ -54,7 +55,9 @@ SHARED_FILES = {
     "drivers/net/ethernet/realtek/rtl930x_nic.h": ROOT / "shared/rtl930x-nic/rtl930x_nic.h",
     "drivers/net/dsa/rtl83xx/rtl930x_storm.h": ROOT / "shared/rtl930x-storm/rtl930x_storm.h",  # 300-26
 }
+OWRT_GENERIC_PENDING = ["344"]  # csum_partial maddu: realtek 309 moved to generic pending-6.18 (OpenWrt 818516b)
 PATCHES = [*(next((OWRT / "patches-6.18").glob(f"{n}-*.patch")) for n in OWRT_VERBATIM),
+           *(next((OWRT.parent / "generic/pending-6.18").glob(f"{n}-*.patch")) for n in OWRT_GENERIC_PENDING),
            *kernel_base.patches()]
 
 

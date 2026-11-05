@@ -15,9 +15,9 @@ rd/wr/link/symerr for any family; rxeq, idle, readapt (VTH/TAP0 adapt + lock, DF
 +#include <linux/debugfs.h>
 +#include <linux/uaccess.h>
  #include <linux/delay.h>
+ #include <linux/jiffies.h>
  #include <linux/mdio.h>
- #include <linux/mfd/syscon.h>
-@@ -491,6 +492,7 @@
+@@ -595,6 +597,7 @@
  	const struct rtpcs_config *cfg;
  	struct rtpcs_serdes serdes[RTPCS_SDS_CNT];
  	struct mutex lock;
@@ -25,7 +25,7 @@ rd/wr/link/symerr for any family; rxeq, idle, readapt (VTH/TAP0 adapt + lock, DF
  
  	/* meaning and source may be family-specific */
  	enum rtpcs_chip_version chip_version;
-@@ -4631,6 +4633,130 @@
+@@ -5012,6 +5015,132 @@
  	return &sds->link[link_idx]->pcs;
  }
  
@@ -97,11 +97,12 @@ rd/wr/link/symerr for any family; rxeq, idle, readapt (VTH/TAP0 adapt + lock, DF
 +		return -EOPNOTSUPP;
 +	if (!strcmp(op, "rxeq"))
 +		return rtpcs_dbg_930x_rxeq(sds, out, len);
-+	if (!strcmp(op, "idle")) {
-+		a = rtpcs_930x_sds_10g_idle(sds);
-+		scnprintf(out, len, "SerDes %u: %s\n", s, a == -ETIMEDOUT ? "RX idle (no signal)" :
-+			  a ? "error" : "RX signal");
-+		return a == -ETIMEDOUT ? 0 : a;
++	if (!strcmp(op, "idle")) {	/* RX readiness: signal present or RX idle (10G modes) */
++		a = rtpcs_93xx_sds_rxcal_ready(sds);
++		if (a < 0)
++			return a;
++		scnprintf(out, len, "SerDes %u: %s\n", s, a ? "RX signal" : "RX idle (no signal)");
++		return 0;
 +	}
 +	if (!strcmp(op, "readapt")) {	/* the driver's VTH/TAP0 adapt + lock, then DFE taps adapt */
 +		rtpcs_930x_sds_rxcal_vth_tap0_adapt_lock(sds);
@@ -111,8 +112,9 @@ rd/wr/link/symerr for any family; rxeq, idle, readapt (VTH/TAP0 adapt + lock, DF
 +	if (!strcmp(op, "cal")) {	/* full RX calibration in the current mode */
 +		if (sds->hw_mode == RTPCS_SDS_MODE_OFF)
 +			return -ENOTCONN;
-+		sds->cal_pending = false;
-+		rtpcs_930x_sds_calibrate(sds, sds->hw_mode);
++		a = sds->ops->rx_calibrate(sds);
++		if (a < 0)
++			return a;
 +		return rtpcs_dbg_930x_rxeq(sds, out, len);
 +	}
 +	return -EINVAL;
@@ -156,7 +158,7 @@ rd/wr/link/symerr for any family; rxeq, idle, readapt (VTH/TAP0 adapt + lock, DF
  static int rtpcs_probe(struct platform_device *pdev)
  {
  	struct device_node *np = pdev->dev.of_node;
-@@ -4713,6 +4839,7 @@
+@@ -5094,6 +5223,7 @@
  			return dev_err_probe(dev, PTR_ERR(provider), "Failed to add PCS provider\n");
  	}
  

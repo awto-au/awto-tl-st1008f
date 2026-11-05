@@ -29,14 +29,12 @@ index bf5808293..b0960e5db 100644
  			n++;
  	}
  
-@@ -2111,8 +2111,8 @@ static int otto_l3_port_gw_resolve(struct otto_l3_ctrl *ctrl, struct net_device
+@@ -2111,7 +2111,7 @@ static int otto_l3_port_gw_resolve(struct otto_l3_ctrl *ctrl, struct net_device
  	/* An ARP neighbour is keyed on four bytes, which in a v4-mapped
  	 * address are the last word of it.
  	 */
 -	const void *key = tbl == &arp_tbl ? (const void *)&gw->s6_addr32[3] : gw;
--	u8 type = tbl == &arp_tbl ? ROUTE_TYPE_IP4UC : ROUTE_TYPE_IP6UC;
 +	const void *key = tbl == arp_table(&init_net) ? (const void *)&gw->s6_addr32[3] : gw;
-+	u8 type = tbl == arp_table(&init_net) ? ROUTE_TYPE_IP4UC : ROUTE_TYPE_IP6UC;
  	struct neighbour *n = neigh_lookup(tbl, key, dev);
  	int err = 0;
  	u64 mac;
@@ -53,8 +51,8 @@ index bf5808293..b0960e5db 100644
  
  	/* We need to resolve the mac address of the GW */
  	if (nh->fib_nh_gw4)
--		otto_l3_port_gw_resolve(ctrl, ndev, &arp_tbl, &gw);
-+		otto_l3_port_gw_resolve(ctrl, ndev, arp_table(&init_net), &gw);
+-		otto_l3_port_gw_resolve(ctrl, route, ndev, &arp_tbl, &gw);
++		otto_l3_port_gw_resolve(ctrl, route, ndev, arp_table(&init_net), &gw);
  
  	nh->fib_nh_flags |= RTNH_F_OFFLOAD;
  
