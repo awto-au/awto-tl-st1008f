@@ -1,0 +1,53 @@
+From: Dan <dan@awto.au>
+Subject: [PATCH] net: pcs: rtl-otto: rewrite the SerDes mode and wait again when the clock does not sync (#142)
+
+- 2026-11-05 sw1 first boot on main b455c5b: SerDes 2 (lan1 GLC-T, 1000base-x -> sgmii) logged
+  "could not sync clock" and lan1 never linked; the reboot linked. Upstream only logs.
+- IP-mode set (SGMII/1000/2500/10G): up to 3 tries, each rewrites the forced mode, then the
+  existing 3-consecutive-ready wait (20 x 10-15 ms). MAC-driven modes: one wait as before.
+- Warn per retry, error only when all 3 fail. No change when the first wait succeeds.
+- Untested on the failing path (1 sighting); see #137.
+---
+--- a/drivers/net/pcs/pcs-rtl-otto.c
++++ b/drivers/net/pcs/pcs-rtl-otto.c
+@@ -2463,7 +2463,8 @@
+ static int rtpcs_930x_sds_set_mode(struct rtpcs_serdes *sds, enum rtpcs_sds_mode hw_mode,
+ 				   enum rtpcs_sds_usxgmii_submode submode)
+ {
+-	int ret;
++	bool ip_mode = true;
++	int ret, try, unsynced = 0;
+
+ 	switch (hw_mode) {
+ 	case RTPCS_SDS_MODE_SGMII:
+@@ -2475,15 +2476,27 @@
+ 		break;
+
+ 	default:
++		ip_mode = false;
+ 		ret = rtpcs_93xx_sds_set_mac_driven_mode(sds, hw_mode, submode);
+ 		break;
+ 	}
+ 	if (ret)
+ 		return ret;
+
+-	if (sds->type == RTPCS_SDS_TYPE_10G && hw_mode != RTPCS_SDS_MODE_OFF &&
+-	    rtpcs_930x_sds_wait_clock_ready(sds))
+-		dev_err(sds->ctrl->dev, "SerDes %d could not sync clock\n", sds->id);
++	if (sds->type == RTPCS_SDS_TYPE_10G && hw_mode != RTPCS_SDS_MODE_OFF) {
++		/* #142: sw1 SerDes 2 once missed the clock sync and never linked; rewrite the mode, wait again */
++		for (try = 0; try < 3; try++) {
++			unsynced = rtpcs_930x_sds_wait_clock_ready(sds);
++			if (!unsynced || !ip_mode || try == 2)
++				break;
++			dev_warn(sds->ctrl->dev, "SerDes %d clock not ready, retry %d\n", sds->id, try + 1);
++			ret = rtpcs_93xx_sds_set_ip_mode(sds, hw_mode);
++			if (ret)
++				return ret;
++		}
++		if (unsynced)
++			dev_err(sds->ctrl->dev, "SerDes %d could not sync clock\n", sds->id);
++	}
+
+ 	if (rtpcs_930x_sds_init_state_machine(sds, hw_mode))
+ 		dev_err(sds->ctrl->dev, "SerDes %d could not reset state machine\n", sds->id);

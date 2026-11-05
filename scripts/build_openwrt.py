@@ -71,6 +71,7 @@ KERNEL_PATCHES = {
     "300-30-net-phy-aquantia-hwmon-clamp-limits.patch": OURS,  # #124
     "300-32-jffs2-skip-erase-of-blank-blocks.patch": OURS,  # #114: first boot after sysupgrade
     "300-33-mtdsplit-uimage-cmdline-match.patch": OURS,  # #117: split only the booted A/B slot
+    "300-36-net-pcs-rtl-otto-clock-sync-retry.patch": OURS,  # #142: SerDes clock sync missed on sw1 first boot
 }
 TREE_PATCH = BACKPORT / "openwrt-tree.patch"
 # --parked: untested candidates from openwrt/patches-parked, 6.18 only; name -> OpenWrt patch dir

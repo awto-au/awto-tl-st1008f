@@ -49,7 +49,8 @@ def check_image() -> None:
     raw = SRC.read_bytes()
     m = re.search(rb'\{ *"metadata_version".*\}', raw[-4096:])
     meta = json.loads(m.group(0)) if m else {}
-    if "tplink,tl-st1008f-v2" not in meta.get("supported_devices", []):
+    # compat 2.0 (A/B, #117) moves the board list to new_supported_devices
+    if "tplink,tl-st1008f-v2" not in meta.get("new_supported_devices", meta.get("supported_devices", [])):
         raise SystemExit(f"FAIL: {SRC.name}: metadata does not name tplink,tl-st1008f-v2")
     if len(raw) > FIRMWARE[1]:
         raise SystemExit(f"FAIL: image {len(raw)} B > firmware {FIRMWARE[1]:#x}")
