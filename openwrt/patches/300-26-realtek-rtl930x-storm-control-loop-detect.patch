@@ -16,8 +16,8 @@ Subject: [PATCH] net: dsa: rtl83xx: RTL930x storm control defaults + loop detect
 @@ -1,3 +1,3 @@
  # SPDX-License-Identifier: GPL-2.0
  obj-$(CONFIG_NET_DSA_RTL83XX) += rtl_otto_dsa.o
--rtl_otto_dsa-objs := common.o dsa.o rtl838x.o rtl839x.o rtl930x.o rtl931x.o debugfs.o lag.o l2.o qos.o tc.o pie.o vlan.o l3.o stats.o stp.o mirror.o
-+rtl_otto_dsa-objs := common.o dsa.o rtl838x.o rtl839x.o rtl930x.o rtl931x.o debugfs.o lag.o l2.o qos.o tc.o pie.o vlan.o l3.o stats.o stp.o mirror.o storm.o
+-rtl_otto_dsa-objs := common.o dsa.o fdb.o mac.o rtl838x.o rtl839x.o rtl930x.o rtl931x.o debugfs.o lag.o l2.o qos.o tc.o pie.o vlan.o l3.o stats.o stp.o mirror.o
++rtl_otto_dsa-objs := common.o dsa.o fdb.o mac.o rtl838x.o rtl839x.o rtl930x.o rtl931x.o debugfs.o lag.o l2.o qos.o tc.o pie.o vlan.o l3.o stats.o stp.o mirror.o storm.o
 --- a/drivers/net/dsa/rtl83xx/common.c
 +++ b/drivers/net/dsa/rtl83xx/common.c
 @@ -21,6 +21,7 @@
@@ -46,17 +46,17 @@ Subject: [PATCH] net: dsa: rtl83xx: RTL930x storm control defaults + loop detect
  	dsa_switch_shutdown(priv->ds);
 --- a/drivers/net/dsa/rtl83xx/rtl-otto.h
 +++ b/drivers/net/dsa/rtl83xx/rtl-otto.h
-@@ -500,6 +500,7 @@
- 	struct otto_l3_ctrl *l3_ctrl;
+@@ -548,6 +548,7 @@
  	u64 irq_mask;
  	struct dentry *dbgfs_dir;
+ 	struct dentry *stats_dbgfs_dir;
 +	struct rtldsa_storm *storm;	/* storm.c (#111) */
- 
+
  	/** @lags_port_members: Port (bit) is part of a specific LAG */
  	u64 lags_port_members[MAX_LAGS];
 --- /dev/null
 +++ b/drivers/net/dsa/rtl83xx/storm.c
-@@ -0,0 +1,389 @@
+@@ -0,0 +1,390 @@
 +// SPDX-License-Identifier: GPL-2.0-only
 +/*
 + * RTL930x storm control defaults + software loop detection (awto-tl-st1008f #111).
@@ -112,7 +112,7 @@ Subject: [PATCH] net: dsa: rtl83xx: RTL930x storm control defaults + loop detect
 +#define NPORTS		29
 +
 +struct rtldsa_storm {
-+	struct rtl838x_switch_priv *priv;
++	struct otto_dsa_priv *priv;
 +	struct delayed_work work;
 +	spinlock_t lock;		/* shut state: tap (softirq) vs work */
 +	struct packet_type pt[NPORTS];
@@ -213,6 +213,7 @@ Subject: [PATCH] net: dsa: rtl83xx: RTL930x storm control defaults + loop detect
 +	put_unaligned_be32(s->nonce, p + 20);
 +	put_unaligned_be32(s->seq, p + 24);
 +	skb_reset_mac_header(skb);
++	skb_set_network_header(skb, ETH_HLEN);	/* dev_queue_xmit_nit: "protocol is buggy" otherwise */
 +	skb->protocol = htons(RTL930X_LOOP_ETHERTYPE);
 +	skb->priority = TC_PRIO_CONTROL;
 +	skb->dev = dev;
@@ -394,7 +395,7 @@ Subject: [PATCH] net: dsa: rtl83xx: RTL930x storm control defaults + loop detect
 +	.release = single_release,
 +};
 +
-+void rtldsa_930x_storm_init(struct rtl838x_switch_priv *priv)
++void rtldsa_930x_storm_init(struct otto_dsa_priv *priv)
 +{
 +	struct rtldsa_storm *s;
 +	struct dsa_port *dp;
@@ -434,7 +435,7 @@ Subject: [PATCH] net: dsa: rtl83xx: RTL930x storm control defaults + loop detect
 +		 s->bc, s->mc, s->uc, s->on ? "on" : "off", loop_recover_s);
 +}
 +
-+void rtldsa_930x_storm_remove(struct rtl838x_switch_priv *priv)
++void rtldsa_930x_storm_remove(struct otto_dsa_priv *priv)
 +{
 +	struct rtldsa_storm *s = priv->storm;
 +
@@ -453,10 +454,10 @@ Subject: [PATCH] net: dsa: rtl83xx: RTL930x storm control defaults + loop detect
 +#ifndef _RTL83XX_STORM_H
 +#define _RTL83XX_STORM_H
 +
-+struct rtl838x_switch_priv;
++struct otto_dsa_priv;
 +
 +/* RTL930x storm control defaults + loop detection (awto-tl-st1008f #111) */
-+void rtldsa_930x_storm_init(struct rtl838x_switch_priv *priv);
-+void rtldsa_930x_storm_remove(struct rtl838x_switch_priv *priv);
++void rtldsa_930x_storm_init(struct otto_dsa_priv *priv);
++void rtldsa_930x_storm_remove(struct otto_dsa_priv *priv);
 +
 +#endif

@@ -240,36 +240,32 @@ Measured: docs/NAT.md "NIC path" and #60/#65 (per step, 3 runs each).
  	.ndo_open		= rteth_open,
  	.ndo_stop		= rteth_stop,
  	.ndo_change_mtu		= rteth_change_mtu,
-@@ -1514,6 +1565,7 @@
+@@ -1514,5 +1565,6 @@
  	.set_hol		= rteth_83xx_set_hol,
  	.set_max_packet_length	= rteth_838x_set_max_packet_length,
  	.set_rx_mode		= rteth_838x_set_rx_mode,
 +	.tx_kick		= rteth_83xx_tx_kick,
- 	.rx_csum_mask		= BIT(3),
  };
  
-@@ -1552,6 +1604,7 @@
+@@ -1552,5 +1604,6 @@
  	.set_hol		= rteth_83xx_set_hol,
  	.set_max_packet_length	= rteth_839x_set_max_packet_length,
  	.set_rx_mode		= rteth_839x_set_rx_mode,
 +	.tx_kick		= rteth_83xx_tx_kick,
- 	.rx_csum_mask		= BIT(3),
  };
  
-@@ -1591,6 +1644,7 @@
+@@ -1591,5 +1644,6 @@
  	.set_hol		= rteth_93xx_set_hol,
  	.set_max_packet_length	= rteth_930x_set_max_packet_length,
  	.set_rx_mode		= rteth_930x_set_rx_mode,
 +	.tx_kick		= rteth_930x_tx_kick,
- 	.rx_csum_mask		= BIT(4),
  };
  
-@@ -1630,6 +1684,7 @@
+@@ -1630,5 +1684,6 @@
  	.set_hol		= rteth_93xx_set_hol,
  	.set_max_packet_length	= rteth_931x_set_max_packet_length,
  	.set_rx_mode		= rteth_931x_set_rx_mode,
 +	.tx_kick		= rteth_83xx_tx_kick,
- 	.rx_csum_mask		= BIT(4),
  };
  
 @@ -1679,6 +1734,11 @@
@@ -340,11 +336,10 @@ Measured: docs/NAT.md "NIC path" and #60/#65 (per step, 3 runs each).
  };
  
  struct rteth_cfg {
-@@ -330,6 +341,7 @@
+@@ -330,5 +341,6 @@
  	void (*set_max_packet_length)(struct rteth_ctrl *ctrl, int len);
  	void (*update_counter)(struct rteth_ctrl *ctrl, int ring, int released);
  	void (*set_rx_mode)(struct net_device *dev);
 +	void (*tx_kick)(struct rteth_ctrl *ctrl, int ring);
- 	u32 rx_csum_mask;
  };
  

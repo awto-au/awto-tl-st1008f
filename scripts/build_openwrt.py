@@ -68,14 +68,9 @@ KERNEL_PATCHES = {
     "300-26-realtek-rtl930x-storm-control-loop-detect.patch": OURS,  # #111
     "300-27-realtek-rteth-select-queue-no-hash.patch": OURS,  # #65
     "300-28-realtek-rteth-rx-descriptor-cached-read.patch": OURS,  # #65
-    "300-29-net-pcs-rtl-otto-rx-signal-wait-dbg.patch": OURS,  # #124
     "300-30-net-phy-aquantia-hwmon-clamp-limits.patch": OURS,  # #124
-    "300-31-realtek-l3-route-on-standalone-port-dbg.patch": OURS,  # #124
     "300-32-jffs2-skip-erase-of-blank-blocks.patch": OURS,  # #114: first boot after sysupgrade
     "300-33-mtdsplit-uimage-cmdline-match.patch": OURS,  # #117: split only the booted A/B slot
-    "300-34-net-pcs-rtl-otto-defer-calibration-until-signal.patch": OURS,  # #125
-    "300-35-net-pcs-rtl-otto-debugfs-sds.patch": OURS,  # #136: st1008f-sds through the driver
-    "300-36-realtek-dsa-phylib-reads-phy-on-link-change.patch": OURS,  # #142: upstream 906c981d2c
 }
 TREE_PATCH = BACKPORT / "openwrt-tree.patch"
 # --parked: untested candidates from openwrt/patches-parked, 6.18 only; name -> OpenWrt patch dir
@@ -221,9 +216,9 @@ def disk_check(phase: str, comment: bool) -> None:
 
 # Feeds in every image (#129): what sw1 carried as apk installs. Built in, the kmods match our kernel and
 # both A/B slots carry them (per-slot overlays would lose apk installs on the other slot, #117).
-FEEDS = {  # name -> (url, commit); pinned 2026-10-15 for OpenWrt main 0ad1348; move with OWRT_COMMIT
-    "packages": ("https://git.openwrt.org/feed/packages.git", "8eba6fba6efc462643425b584798d914dbeac3f3"),
-    "luci": ("https://git.openwrt.org/project/luci.git", "d8368b1236d6d0b758b1fe8c306e59e0329697aa"),
+FEEDS = {  # name -> (url, commit); pinned 2026-11-05 for OpenWrt main 6fc74db; move with OWRT_COMMIT
+    "packages": ("https://git.openwrt.org/feed/packages.git", "5a350e9adf2e5c411205597f9092a8069bd04580"),
+    "luci": ("https://git.openwrt.org/project/luci.git", "59b4e336d732f493f51e77563ae4f73251983b8f"),
 }
 FEED_PKGS = ["luci", "luci-app-statistics", "luci-app-snmpd", "luci-app-lldpd", "luci-app-package-manager",
              "collectd-mod-cpu", "collectd-mod-interface", "collectd-mod-load", "collectd-mod-memory",

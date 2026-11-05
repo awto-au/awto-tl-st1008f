@@ -36,8 +36,8 @@ index 5b4468b..5973052 100644
 +		st1008f_ab_upgrade "$1"	# /lib/upgrade/st1008f-ab.sh (#117)
 +		;;
  	zyxel,xgs1930-28hp|\
+ 	zyxel,xgs2220-30hp|\
  	zyxel,xmg1915-10e|\
- 	zyxel,xmg1915-10ep|\
 diff --git a/target/linux/realtek/dts/rtl9303_tplink_tl-st1008f-v2.dts b/target/linux/realtek/dts/rtl9303_tplink_tl-st1008f-v2.dts
 index d11a6fd..dbad530 100644
 --- a/target/linux/realtek/dts/rtl9303_tplink_tl-st1008f-v2.dts
@@ -280,7 +280,7 @@ index 74f0649..59d94c4 100644
 +# CONFIG_MIPS_CMDLINE_FROM_DTB is not set
  CONFIG_MIPS_CPU_SCACHE=y
  CONFIG_MIPS_EXTERNAL_TIMER=y
- CONFIG_MIPS_L1_CACHE_SHIFT=5
+ CONFIG_MIPS_GENERIC=y
 @@ -145,6 +146,7 @@ CONFIG_MIPS_MT_SMP=y
  # CONFIG_MIPS_NO_APPENDED_DTB is not set
  CONFIG_MIPS_NR_CPU_NR_MAP=2
