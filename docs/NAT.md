@@ -370,3 +370,16 @@ Call graph, TCP NAT, VPE0 (`./dev.py nat-perf --test tcp-P4 --callgraph`, inclus
 - `nf_flow_offload_ip_hook` 47.8, of which the lookup 6.6 and `nf_flow_queue_xmit` 36.0 -> `__dev_queue_xmit` 33.1 -> `dsa_user_xmit` 21.5 -> `sch_direct_xmit` 14.7 -> `rteth_start_xmit` 11.0.
 - `rteth_reclaim_tx_ring` 8.7 (TX completion freed inside each xmit); `validate_xmit_skb` 8.7 (incl. GSO of GRO'd packets).
 - Flat self-time profile (top: `rteth_start_xmit` 4.9-5.8, `dev_gro_receive` 4.8-5.0, `rteth_poll_rx` 4.1-4.2): no single hotspot.
+
+## OpenWrt on 7.3 (main b455c5b, next-20261009), IPv4 and IPv6 NAT (sw2, 2026-11-06T08:05-08:08+11:00)
+
+`ramload openwrt-ours`, fw4 loaded, one 10G SR in cage 1, nat-bench one-armed, TCP `-P 4`, 15 s, one run each; ASIC offload parameters all 0; destination only the default route reaches (`--dst 198.51.100.5` / `2001:db8:22::5`), so every packet takes the CPU path.
+
+| Mode | v4 fwd / rev Mbit/s | v6 Mbit/s | CPU0 |
+|---|---|---|---|
+| masquerade | 77.7 / 76.8 | 72.7 | 97-100 % |
+| masquerade + software flowtable | 203.2 / 203.6 | 205.3 | 97-100 % |
+
+- Translation checked in conntrack: v4 source `10.99.1.2` -> `10.99.2.1`; v6 source `fd99:11::5` -> reply to `fd99:2::1`. Flowtable runs show conntrack `OFFLOAD` entries.
+- Gateway-routed far `/64` / far `/24` traffic never meets the masquerade rule: the ASIC forwards it (9.2 Gbit/s, #66). NAT is only exercised via the default route.
+- Image: nf_tables kmods are in the image; the kernel release (`7.3-next-...`) differs from the kmod directory (`7.3`), fixed by a link in the image (`build_openwrt.py` `modules_link`).

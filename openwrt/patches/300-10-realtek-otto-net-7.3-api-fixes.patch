@@ -7,20 +7,30 @@ OWRT_FILES). One line per fix:
 - l3.c (linux-next): global arp_tbl is gone, ARP tables are per netns: arp_table(&init_net),
   the netns the FIB notifier is on. 7.3 copy: openwrt/patches-v7.3-rc6/.
 - l3.c (next-20261009): nd_tbl is only the template, the live ND table is per netns too; a
-  macro maps every `nd_tbl` use to nd_table(&init_net) (unmapped, the first v6 route add oopsed
-  in neigh_lookup on a NULL stats pointer).
+  macro maps every `nd_tbl` use to otto_l3_nd_table() = nd_table(&init_net), which warns once on an
+  unset table (unmapped, the first v6 route add oopsed in neigh_lookup on a NULL stats pointer).
 (NET_RTL838X select PAGE_POOL: nothing else selects it in our allnoconfig base; in 300-09.)
 ---
 diff --git a/drivers/net/dsa/rtl83xx/l3.c b/drivers/net/dsa/rtl83xx/l3.c
 index bf5808293..b0960e5db 100644
 --- a/drivers/net/dsa/rtl83xx/l3.c
 +++ b/drivers/net/dsa/rtl83xx/l3.c
-@@ -101,6 +101,9 @@
+@@ -101,6 +101,19 @@
  #include "rtl-otto.h"
  #include "stats.h"
 
-+/* 7.3: nd_tbl is only the template; the live table is per netns (cf. arp_table()) */
-+#define nd_tbl (*nd_table(&init_net))
++/* 7.3: nd_tbl is only the template; the live table is per netns (cf. arp_table()).
++ * Every neighbour-table use goes through here; a table that is not set up warns once
++ * instead of oopsing in neigh_lookup().
++ */
++static inline struct neigh_table *otto_l3_nd_table(void)
++{
++	struct neigh_table *tbl = nd_table(&init_net);
++
++	WARN_ON_ONCE(!tbl || !tbl->stats);
++	return tbl;
++}
++#define nd_tbl (*otto_l3_nd_table())
 +
  /* Route entry types */
  #define ROUTE_TYPE_IP4UC	0

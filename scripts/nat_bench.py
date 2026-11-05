@@ -170,7 +170,7 @@ def set_mode(mode: str) -> int:
                   "    meta l4proto { tcp, udp } flow add @ft", "  }"]
     if nat:
         rules += ["  chain post { type nat hook postrouting priority srcnat; policy accept;",
-                  f"    oifname {svi(WAN_VID)} masquerade", "  }"]
+                  f"    oifname {svi(WAN_VID)} counter masquerade", "  }"]
     rules += ["}"]
     if has_nft():
         sw("nft -f - <<'EOF'\n" + "\n".join(rules) + "\nEOF")

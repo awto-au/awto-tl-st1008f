@@ -151,6 +151,9 @@ CONFIG_MEMTEST=y
 CONFIG_ST1008F_SRAM_BENCH=y
 """  # DTB_EXTEND: U-Boot bootargs (st1008f.mode, #73) appended to DT bootargs; MEMTEST + SRAM_BENCH: selftest (#108)
 
+NF_BUILTIN = ["nfnetlink", "nf-conntrack", "nf-nat", "nf-flow", "nf-reject", "nf-reject6", "nf-log",
+              "nft-core", "nft-nat", "nft-offload", "nft-fib"]  # firewall4 + nat-bench (docs/NAT-OPS.md)
+
 SEED = f"""CONFIG_TARGET_realtek=y
 CONFIG_TARGET_realtek_rtl930x=y
 CONFIG_TARGET_realtek_rtl930x_DEVICE_{DEVICE}=y
@@ -447,6 +450,17 @@ def selftest_files(dst: Path) -> None:
     log(f"selftest: files/ += {out.relative_to(ROOT)}")
 
 
+def modules_link(dst: Path) -> None:
+    """kmods install under lib/modules/<PV> but the kernel reports <VER>: link so kmodloader finds them."""
+    if not VER or VER == PV:  # 6.18 build: no 7.3 release string
+        return
+    link = dst / "lib/modules" / VER
+    link.parent.mkdir(parents=True, exist_ok=True)
+    link.unlink(missing_ok=True)
+    link.symlink_to(PV)
+    log(f"files/lib/modules/{VER} -> {PV}")
+
+
 RC_STAMP = """# boot stamps -> /tmp/st1008f-boot.log: start/end of every init script, read by ./dev.py boot-timeline (#114)
 _st1008f_stamp() { echo "rc: ${initscript##*/} $action $1 $(cut -d' ' -f1 /proc/uptime)" >> /tmp/st1008f-boot.log; }
 _st1008f_stamp start
@@ -505,6 +519,7 @@ def default_boot_files(on: bool) -> str:
     rc_common_stamps(dst)
     init_after_network(dst)
     selftest_files(dst)
+    modules_link(dst)
     if not on:
         return ""
     shutil.copytree(DEFAULT_BOOT / "files", dst, symlinks=True, dirs_exist_ok=True)
@@ -527,6 +542,8 @@ def config(kernel: str, dboot: str = "") -> int:
     # 7.3+: PREEMPT_NONE needs ARCH_NO_PREEMPT; OpenWrt's default KERNEL_PREEMPT_NONE would leave full
     # PREEMPT. Voluntary = the model the mainline port boots with (mainline/st1008f-v2.config).
     extra = "CONFIG_TESTING_KERNEL=y\nCONFIG_KERNEL_PREEMPT_VOLUNTARY=y\n" if kernel == "mainline" else ""
+    if kernel == "mainline":  # 7.3 image has no /lib/modules/<7.3 release>: firewall + NAT built in (=y), NAT bench
+        extra += "".join(f"CONFIG_PACKAGE_kmod-{k}=y\n" for k in NF_BUILTIN)
     extra += SELFTEST_CFG + dboot + "".join(f"CONFIG_PACKAGE_{p}=y\n" for p in FEED_PKGS) + shared_config()
     (TREE / ".config").write_text(SEED + extra)
     rc = run(["make", "defconfig"], T_DEFCONFIG)
