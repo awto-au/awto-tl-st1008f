@@ -7,7 +7,7 @@ Operations: [OPENWRT-BUILD-OPS.md](OPENWRT-BUILD-OPS.md). Script: `scripts/build
 | Item | Value |
 |---|---|
 | Buildroot | `tmp/openwrt-build` (gitignored), shallow clone of OpenWrt `main` |
-| Commit | `0ad1348` (2026-10-13, "libnetfilter-conntrack: update to version 1.1.1"); `--update` moves it, then the mainline pin follows (`OWRT_COMMIT`) |
+| Commit | `b455c5b` (2026-11-04, "uboot-tools: add helper script function to find working CRC range"); `--update` moves it, then the mainline pin follows (`OWRT_COMMIT`) |
 | Target | `realtek/rtl930x`, device `tplink_tl-st1008f-v2` only |
 | Toolchain | OpenWrt-built, GCC 14.4.0 + musl 1.2.6 (`mips_24kc`) |
 | Kernel | step 1: OpenWrt 6.18.55 + our backports; step 2: our 7.3-rc6 port (testing kernel) |
