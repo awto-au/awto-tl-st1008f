@@ -10,5 +10,20 @@ SW2_MAC = "3a:de:0a:91:10:d0"  # sw2 base MAC (set-mac 2026-10-12)
 BENCH_IP = "192.168.25.56"   # st1008f-2-mgmt (bench: ramload, nat-bench, U-Boot ipaddr)
 BENCH_CONSOLE = "/dev/serial/by-id/usb-Prolific_Technology_Inc._USB-Serial_Controller-if00-port0"  # sw2 UART (PL2303)
 
+BENCH_NIC_MAC = "00:02:c9:56:ff:e2"  # selwyn 10G NIC (bench cage 1, .30); its enpNs0 name moves between boots
+
+
+def bench_nic(default: str = "enp7s0") -> str:
+    """Host interface carrying BENCH_NIC_MAC (kernel names change with PCI enumeration)."""
+    from pathlib import Path
+    for p in Path("/sys/class/net").iterdir():
+        try:
+            if (p / "address").read_text().strip().lower() == BENCH_NIC_MAC:
+                return p.name
+        except OSError:
+            continue
+    return default
+
+
 # Hostname = registry box name (awto-dan ip-registry `[[block]] name`); sw1/sw2 are short aliases only.
 HOSTNAMES = {SW1_IP: "st1008f-1", BENCH_IP: "st1008f-2"}

@@ -114,7 +114,8 @@ def devpy_running() -> bool:
 
 def main() -> int:
     ap = argparse.ArgumentParser(description=__doc__.splitlines()[0])
-    ap.add_argument("--nic", default="enp7s0")
+    from boards import bench_nic
+    ap.add_argument("--nic", default=bench_nic())
     ap.add_argument("--abs-pps", type=int, default=2_000,
                     help="trip floor; house-LAN bcast+mcast idles ~5-10 pps; a loop through the "
                          "RTL930x ramps slowly (13k pps at +80 s), so 50k missed it")

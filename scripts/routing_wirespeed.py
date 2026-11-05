@@ -44,8 +44,8 @@ ROOT = Path(__file__).resolve().parent.parent
 LOG = ROOT / "tmp/logs/routing_wirespeed.log"
 
 # --- fixed test topology ---------------------------------------------------
-HOST_NIC = "enp7s0"                 # the single 10G host NIC (mlx4), mgmt + trunk
-from boards import BENCH_IP  # noqa: E402
+from boards import BENCH_IP, bench_nic  # noqa: E402
+HOST_NIC = bench_nic()              # the single 10G host NIC (mlx4), found by MAC, mgmt + trunk
 SW_IP = BENCH_IP                    # sw2 bench unit (scripts/boards.py)
 SW_PORT = "lan1"                    # hairpin front port (host is here)
 CPU_PORT = "eth0"                   # switch CPU port -- must stay flat

@@ -40,8 +40,8 @@ ROOT = Path(__file__).resolve().parent.parent
 LOG = ROOT / "tmp/logs/nat_bench.log"
 JSONL = ROOT / "tmp/logs/nat_bench.jsonl"
 
-HOST_NIC = "enp7s0"            # host 10G (mlx4); also house mgmt, untouched
-from boards import BENCH_IP  # noqa: E402
+from boards import BENCH_IP, bench_nic  # noqa: E402
+HOST_NIC = bench_nic()         # host 10G (mlx4), found by MAC; also house mgmt, untouched
 SW_IP = BENCH_IP               # sw2 bench unit (scripts/boards.py)
 SW_PORT = "lan1"
 LAN_VID, WAN_VID = 991, 992    # test-only VIDs, tagged on lan1 only

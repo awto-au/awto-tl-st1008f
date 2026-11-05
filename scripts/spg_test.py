@@ -31,6 +31,7 @@ from pathlib import Path
 sys.dont_write_bytecode = True  # the _capture child runs as root: no root-owned __pycache__
 sys.path.insert(0, str(Path(__file__).resolve().parent))
 import hw_probe  # noqa: E402
+from boards import bench_nic  # noqa: E402
 from st1008_ramload import Console, network_on  # noqa: E402
 
 ROOT = Path(__file__).resolve().parent.parent
@@ -374,7 +375,7 @@ def main() -> int:
     s3 = sub.add_parser("stage3")
     s3.add_argument("--count", type=int, default=1000)
     s3.add_argument("--ipg", type=int, default=10000, help="IPG_LEN: ~8 us/frame at 10G if byte times")
-    s3.add_argument("--nic", default="enp7s0")
+    s3.add_argument("--nic", default=bench_nic())
     s3.add_argument("--watch", type=float, default=15, help="storm_watch window, s (3 s baseline included)")
     s4 = sub.add_parser("stage4", help="out of one cage, back in on its loop partner (#110)")
     s4.add_argument("--tx", type=int, default=7)

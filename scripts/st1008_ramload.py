@@ -32,8 +32,8 @@ from boards import BENCH_CONSOLE  # noqa: E402
 DEV = BENCH_CONSOLE
 TFTP_ROOT = ROOT / "tmp/tftp"
 # awto-dan docs/network/ip-registry.toml: st1008f-1-mgmt .48, selwyn-enp7s0 .30 (was .148/.147)
-from boards import BENCH_IP  # noqa: E402  sw2 = bench unit
-SWITCH_IP, SERVER_IP, SERVER_NIC = BENCH_IP, "192.168.25.30", "enp7s0"
+from boards import BENCH_IP, bench_nic  # noqa: E402  sw2 = bench unit
+SWITCH_IP, SERVER_IP, SERVER_NIC = BENCH_IP, "192.168.25.30", bench_nic()  # by MAC, #142
 
 
 def ensure_server_ip() -> None:
