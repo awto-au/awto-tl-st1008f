@@ -69,6 +69,7 @@ KERNEL_PATCHES = {
     "300-27-realtek-rteth-select-queue-no-hash.patch": OURS,  # #65
     "300-28-realtek-rteth-rx-descriptor-cached-read.patch": OURS,  # #65
     "300-30-net-phy-aquantia-hwmon-clamp-limits.patch": OURS,  # #124
+    "300-37-realtek-tc-flower-tcp-flags.patch": OURS,  # #66
     "300-32-jffs2-skip-erase-of-blank-blocks.patch": OURS,  # #114: first boot after sysupgrade
     "300-33-mtdsplit-uimage-cmdline-match.patch": OURS,  # #117: split only the booted A/B slot
     "300-35-net-pcs-rtl-otto-debugfs-sds.patch": OURS,  # #136, re-ported on the rewritten PCS driver
@@ -152,7 +153,8 @@ CONFIG_ST1008F_SRAM_BENCH=y
 """  # DTB_EXTEND: U-Boot bootargs (st1008f.mode, #73) appended to DT bootargs; MEMTEST + SRAM_BENCH: selftest (#108)
 
 NF_BUILTIN = ["nfnetlink", "nf-conntrack", "nf-nat", "nf-flow", "nf-reject", "nf-reject6", "nf-log",
-              "nft-core", "nft-nat", "nft-offload", "nft-fib"]  # firewall4 + nat-bench (docs/NAT-OPS.md)
+              "nft-core", "nft-nat", "nft-offload", "nft-fib",
+              "sched-core", "sched-flower"]  # firewall4 + nat-bench (docs/NAT-OPS.md); tc flower offload (#66)
 
 SEED = f"""CONFIG_TARGET_realtek=y
 CONFIG_TARGET_realtek_rtl930x=y
@@ -164,6 +166,7 @@ CONFIG_PACKAGE_ip-bridge=y
 CONFIG_PACKAGE_tcpdump-mini=y
 CONFIG_PACKAGE_kmod-pktgen=y
 CONFIG_PACKAGE_iperf3=y
+CONFIG_PACKAGE_tc-full=y
 CONFIG_PACKAGE_ethtool-full=y
 CONFIG_PACKAGE_lldpd=y
 CONFIG_KERNEL_DYNAMIC_DEBUG=y

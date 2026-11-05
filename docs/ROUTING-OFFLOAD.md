@@ -92,12 +92,16 @@ Stock driver (OpenWrt `main` up to `e5ec5e199f`, 2026-10-11): both gaps are deli
   - 2K entries; actions drop / permit / redirect / trap / police / log.
   - The VLAN ACL phase runs before L2/L3 lookup, so it filters routed packets before routing.
   - The RTL930x template has `TCP_INFO` (TCP flags) at field 19 (`pie.c:1856`).
-- OpenWrt `tc.c` does not accept `FLOW_DISSECTOR_KEY_TCP`: a flower rule on TCP flags cannot be offloaded today. Accepted keys: control, basic, eth addrs, vlan, ipv4/ipv6 addrs, ports.
+- Upstream `tc.c` does not accept `FLOW_DISSECTOR_KEY_TCP`; `300-37` adds it (flags unshifted into `tcp_info`). Other accepted keys: control, basic, eth addrs, vlan, ipv4/ipv6 addrs, ports.
 - Consequence: IPv6 via the ASIC reaches every LAN host with a global address unless PIE rules drop it.
 - Options (policy not decided):
   - Stateless PIE: drop WAN-ingress TCP SYN=1 ACK=0 towards LAN prefixes; allow ICMPv6 per RFC 4890; per-host permits; UDP has no SYN equivalent (trap inbound UDP to nftables, or permit selected ports).
   - Keep WAN→LAN v6 as `trap` (firewall applies) and offload LAN→WAN only: costs the downstream direction, the bulk of the traffic.
-- Needed for stateless PIE: `FLOW_DISSECTOR_KEY_TCP` (flags) in `tc.c` → `pr->tcp_info` / `tcp_info_m`; test that a WAN-side SYN to a LAN host drops while LAN-initiated TCP runs at line rate.
+- Tested 2026-11-06 (sw2, OpenWrt 7.3 b455c5b, `300-37`): `tc qdisc add dev lan1 clsact`; `tc filter add dev lan1 ingress protocol ipv6 flower skip_sw ip_proto tcp dst_ip fd99:11::/64 tcp_flags 0x2/0x12 action drop` (`ip` / `10.99.1.0/24` for v4).
+  - Rule offloads (`in_hw`); `tcp_flags` bits are the TCP header flag bits unshifted (SYN 0x02, ACK 0x10).
+  - A connection started from the WAN side (SYN only) times out; hardware counter: 11 packets dropped, 0 in software.
+  - LAN-started TCP is unaffected: v6 9221 Mbit/s (SYN-ACK and ACKs do not match SYN-only); v4 82 Mbit/s (v4 on-link stays on the CPU path, `l3_onlink` 0).
+  - Not tested: UDP, ICMPv6 allow rules, PIE capacity with many per-host permits, rule interaction with `300-17` host rows.
 - `300-17` parameters are off by default for this reason.
 
 ## Kernel visibility of offloaded traffic (switchdev model)
