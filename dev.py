@@ -499,6 +499,13 @@ def cmd_nat_knobs(extra: list[str]) -> int:
     return _script("nat_knobs.py", extra)
 
 
+@command("stress a switch over the network only and record where it fails: 1 Hz telemetry per VPE, ping, stage, post-mortem (#144)",
+         args="[--ip A.B.C.D] [--cpu-secs N] [--mem-secs N] [--full] [--inject panic|hang --inject-at S] [--sw1-ok]",
+         kind="hardware")
+def cmd_stress_trace(extra: list[str]) -> int:
+    return _script("stress_trace.py", extra)
+
+
 @command("fill-verify most of RAM (tmpfs, md5) from the mainline 7.3 initramfs shell; meminfo check (#27)",
          args="[--passes N] [--min-total-kb K]  (run `ramload uboot-mainline --then mainline-kernel` first)",
          kind="check")
