@@ -124,6 +124,7 @@ static u32 rec_attempts(void)
  * missing = keep/stock); spi accepted at stock 25 only (#50). Autoboot applies it in M3 only; the
  * `turbo` command in any mode. */
 #define TURBO_VAR	"st1008f_turbo"
+#define TURBO_ALL_VAR	"st1008f_turbo_all"	/* "1" = the profile also applies in M1 (M2 stays stock: escape position) */
 #define TURBO_MAX	64	/* value incl. NUL; longer = refused */
 
 /* NULL = parsed; else why not. Bounded: <= 63 chars, values <= 4 digits */
@@ -179,7 +180,8 @@ static int turbo_run(const struct otto_turbo *t)
 
 static void wdt_on(u32 ms);
 
-/* M3: turbo profile from the stock env; M1/M2/invalid: stock clocks (#46). A failure never stops the boot. */
+/* M3, or M1 with st1008f_turbo_all=1: turbo profile from the stock env; M2/invalid: stock clocks (#46).
+ * A failure never stops the boot. */
 static int clk_fast(void)
 {
 	char val[TURBO_MAX] = "", raw[TURBO_MAX];
@@ -189,18 +191,19 @@ static int clk_fast(void)
 	int ret;
 
 	wdt_on(BOOT_WDT_MS);	/* every path: covers bootm -> kernel wdt probe */
-	if (mode != 3) {
-		printf("bootsel: M%d: stock clocks (turbo profile only in M3)\n", mode ?: 1);
+	if (mode != 3 && !(mode == 1 && st1008f_stock_env(TURBO_ALL_VAR, val, sizeof(val)) && !strcmp(val, "1"))) {
+		printf("bootsel: M%d: stock clocks (turbo profile in M3, or M1 with " TURBO_ALL_VAR "=1)\n", mode ?: 1);
 		return 0;
 	}
+	val[0] = 0;
 	if (!st1008f_stock_env(TURBO_VAR, val, sizeof(val))) {
-		puts("bootsel: M3: no " TURBO_VAR " in the stock env (or env CRC bad): stock clocks\n");
+		printf("bootsel: M%d: no " TURBO_VAR " in the stock env (or env CRC bad): stock clocks\n", mode);
 		return 0;
 	}
 	strlcpy(raw, val, sizeof(raw));
 	why = turbo_get(val, &t);
 	if (why) {
-		printf("bootsel: M3: " TURBO_VAR "=%s: %s: stock clocks\n", raw, why);
+		printf("bootsel: M%d: " TURBO_VAR "=%s: %s: stock clocks\n", mode, raw, why);
 		rtk_led_fallback("turbo");
 		return 0;
 	}
@@ -210,7 +213,7 @@ static int clk_fast(void)
 		rtk_led_fallback("clocks");
 		return 0;
 	}
-	printf("bootsel: M3: turbo cpu %u ddr %u lx %u sram %u (0 = keep)\n", t.cpu, t.ddr, t.lx, t.sram);
+	printf("bootsel: M%d: turbo cpu %u ddr %u lx %u sram %u (0 = keep)\n", mode, t.cpu, t.ddr, t.lx, t.sram);
 	/* KSEG1: in DRAM before the change; a reset in turbo_run keeps it -> next boot stock. If the
 	 * reset returns, the wdt armed above expires */
 	__raw_writel(REC_CLK_MAGIC, REC_CLK);

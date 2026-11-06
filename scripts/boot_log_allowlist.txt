@@ -412,8 +412,12 @@ Boot:  prompt \(stock env st1008f_boot=prompt\)  # owner-set env flag
 rtk: SFP power \d+\.\d W declared by \d+ modules?, budget \d+\.\d W \(env sfp_budget_mw\)  # `rtk network on`/`rtk port` SFP power total (#30); over budget adds a WARNING line (not allowlisted)
 wdt: on, \d+ ms \(prescale [0-3], \d+ x \d+ ms ticks at lx 175000 kHz\), SoC reset on expiry  # bootsel arms the SoC watchdog before bootm (#73)
 Autoboot in 2 s, ESC for the prompt  # our countdown: ESC-only stop, 2 s (owner #46, #105)
-bootsel: M[12]: stock clocks \(turbo profile only in M3\)  # mode switch picks clocks (#46): M1/M2 stock
-bootsel: M3: turbo cpu \d+ ddr \d+ lx \d+ sram \d+ \(0 = keep\)  # M3: st1008f_turbo profile parsed and applied (#46)
+bootsel: M[12]: stock clocks \(turbo profile in M3, or M1 with st1008f_turbo_all=1\)  # mode switch picks clocks (#46): M2 always stock, M1 unless st1008f_turbo_all=1
+bootsel: M[12]: stock clocks \(turbo profile only in M3\)  # older U-Boot slot text (#46)
+bootsel: M[13]: turbo cpu \d+ ddr \d+ lx \d+ sram \d+ \(0 = keep\)  # M3, or M1 with st1008f_turbo_all=1: st1008f_turbo profile parsed and applied (#46)
+clocks: (5 us, clk_oe = 0x[0-9a-f]+, 200 us|canary \d+ words at [0-9a-f]+, revert to the current set on mismatch|locked after \d+ us \(routine \d+ us\), CPU_SRAM_ASY_TIMING [0-9a-f]{8} \(\d+ MHz\), PLL_SRAM_CTRL [0-9a-f]{8} \(SRAM \d+\)|mem \d+ -> \d+ MHz, refresh off \(DMCR bit 24\); DTR before the clock change|mem set OK|routine \d+ us, status 0x[0-9a-f]+, DMCR polls left \d+, MPMR0 in SR [0-9a-f]{8} exit [0-9a-f]{8})  # turbo change trace of our U-Boot at boot (#46)
+clocks: write 0x[0-9a-f]+.*  # turbo register writes, verbose trace (#46)
+MSPXDC  # stock SPL token on every chained boot (#105)
 clocks: turbo OK = cpu \d+ MHz, mem \d+ MHz, lx \d+ MHz, sram \d+ MHz, MCR [0-9a-f]{8}, spi unchanged  # M3 turbo result (#46); `reverted` is not allowlisted
 clocks: mem now \d+ kHz, DTR0 [0-9a-f]{8} DTR1 [0-9a-f]{8} DTR2 [0-9a-f]{8}, canary 0 bad  # turbo/clocks DDR change, zero canary errors ("0 bad" is not a DENY match)
 

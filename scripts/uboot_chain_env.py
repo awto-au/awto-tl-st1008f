@@ -10,7 +10,7 @@
           then saveenv; printenv check.
 - revert: stock prompt: setenv bootcmd boota; clear the chain vars; saveenv.
 - prompt: power cycle with the saved chain, ESC in our 2 s window -> our prompt (#46).
-- turbo show|set PROFILE: `st1008f_turbo` in the stock env (#46; applied by our U-Boot in M3 only).
+- turbo show|set PROFILE [--all-modes]: `st1008f_turbo` in the stock env (#46; applied by our U-Boot in M3; with `--all-modes` also in M1, `st1008f_turbo_all=1`; M2 always stock).
   No profile (or stock values) = stock clocks in every mode; apply never writes one (owner 2026-10-13).
 - --ssh --ip A.B.C.D (apply, revert, turbo): from a running OpenWrt (sw1: no console) with
   `fw_setenv -s` (uboot-envtools, /etc/fw_env.config = u-boot-env mtd 0x0 0x10000, #86): one env
@@ -51,6 +51,7 @@ VARS = {  # saved in this order; bootcmd last
 }
 # Turbo profile (#46). Value sets mirror uboot-port clocks.c cpu_code / mem_bins / lx_pts + sram
 TURBO_VAR = "st1008f_turbo"
+TURBO_ALL_VAR = "st1008f_turbo_all"  # "1": profile also in M1 (bootsel.c); unset: M3 only
 STOCK_NOTE = "NOTE: default = stock clocks (CPU 800, DDR 600, LX 175, SRAM 250, SPI 25.5) in every mode; this unit leaves today's 1000/650 at its next power-up until a profile is written: ./dev.py uboot-chain-env turbo set PROFILE [--ssh --ip IP] + mode switch M3 (#46)"
 TURBO_SETS = {"cpu": {800, 1000, 1050} | set(range(1100, 1426, 25)),
               "ddr": {800, 775, 750, 725, 700, 675, 662, 650, 625, 600, 550, 500, 450, 400, 350, 300},
@@ -252,7 +253,7 @@ def ssh_env(ip: str) -> dict[str, str]:
     return dict(ln.split("=", 1) for ln in out.splitlines() if "=" in ln)
 
 
-def env_ssh(ip: str, mode: str, profile: str | None, allow_fallback: bool) -> int:
+def env_ssh(ip: str, mode: str, profile: str | None, allow_fallback: bool, all_modes: bool = False) -> int:
     """apply | revert | turbo over SSH: checks, one fw_setenv -s write, read-back."""
     flash_guard.check_range(0xE0000, 0x10000, f"uboot-chain-env {mode} --ssh")
     mtd = ssh(ip, "cat /proc/mtd", SSH_S * 2).decode()
@@ -281,7 +282,7 @@ def env_ssh(ip: str, mode: str, profile: str | None, allow_fallback: bool) -> in
     elif mode == "revert":
         want = {"bootcmd": "boota", "ub_ld": "", "ub_ck": "", "ub_go": ""}
     else:
-        want = {TURBO_VAR: profile}
+        want = {TURBO_VAR: profile, TURBO_ALL_VAR: "1" if all_modes else ""}
     for v in want.values():
         flash_guard.check_cmd(v)
     script = "".join(f"{k} {v}\n" if v else f"{k}\n" for k, v in want.items()).encode()
@@ -305,6 +306,8 @@ def main() -> int:
                     help="apply: save even if the slot does not verify (boots stock boota until reinstalled)")
     ap.add_argument("--ssh", action="store_true", help="apply/revert/turbo from a running OpenWrt (fw_setenv)")
     ap.add_argument("--ip", help="with --ssh: switch mgmt IP")
+    ap.add_argument("--all-modes", action="store_true",
+                    help="turbo set: also apply the profile in M1 (M2 stays stock); default M3 only")
     a = ap.parse_args()
     a.mac = a.args[0] if a.mode == "set-mac" and a.args else None
     profile = None
@@ -322,7 +325,7 @@ def main() -> int:
         if a.mode == "turbo" and profile is None:
             log(f"{TURBO_VAR} on {a.ip}: {ssh_env(a.ip).get(TURBO_VAR, '(unset)')}")
             return 0
-        return env_ssh(a.ip, a.mode, profile, a.allow_fallback)
+        return env_ssh(a.ip, a.mode, profile, a.allow_fallback, a.all_modes)
     if a.mode == "boot":
         return boot()
     if a.mode == "prompt":
@@ -347,6 +350,7 @@ def main() -> int:
         if profile is None:
             return 0
         con.run(f"setenv {TURBO_VAR} {profile}", STOCK, 1, "set turbo profile")
+        con.run(f"setenv {TURBO_ALL_VAR} 1" if a.all_modes else f"setenv {TURBO_ALL_VAR}", STOCK, 1, "set turbo_all")
         con.run("saveenv", STOCK, 4, "saveenv")  # 64 KiB erase + write (W25Q256 max 2 s) x1.25 + output
         _, out = con.run(f"printenv {TURBO_VAR}", STOCK, 1, "verify")
         ok = f"{TURBO_VAR}={profile}" in out

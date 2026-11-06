@@ -182,7 +182,8 @@ Owner decision 2026-10-12 (#73, #46); U-Boot side changed 2026-10-13 (#46): the 
 
 ### Clocks by mode (#46)
 
-- `bootsel fast` in `bootcmd`: M1, M2, invalid → stock clocks (CPU 800, DDR 600, LX 175, SPI 25.5): `bootsel: M1: stock clocks (turbo profile only in M3)`.
+- `bootsel fast` in `bootcmd`: M2 and invalid → stock clocks (CPU 800, DDR 600, LX 175, SPI 25.5). M1 → stock unless `st1008f_turbo_all=1` (then the profile applies, Linux stays in `switch` mode). M3 → profile, Linux `isolated`. Message: `bootsel: M1: stock clocks (turbo profile in M3, or M1 with st1008f_turbo_all=1)`.
+- `st1008f_turbo_all=1` (opt-in, 2026-11-06, #109): written by `uboot-chain-env turbo set PROFILE --all-modes [--ssh --ip A.B.C.D]`; plain `turbo set PROFILE` clears it. M2 stays stock on purpose: the slider position that is always safe. Every failure path below still gives stock clocks; a reset during the change gives stock on the next boot.
 - M3 → profile from the stock env (CRC-checked, read-only), stored like `ethaddr`: `st1008f_turbo=cpu=1100,ddr=650,lx=175`.
   - Keys `cpu`, `ddr`, `lx`, `sram` in MHz, any subset (missing = keep); `spi=25` accepted at stock only (#50). ≤ 62 chars, values ≤ 4 digits.
   - Supported: cpu 800 (stock /4), 1000, 1050 (/3), 1100-1425 step 25 (/2, VCO 2200-2850; 1450+ hung, [OVERCLOCK.md](OVERCLOCK.md)); ddr = a `clocks set mem` bin; lx 175 204 245 306; sram 250 500.
