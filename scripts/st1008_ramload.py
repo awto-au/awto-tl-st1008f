@@ -328,10 +328,11 @@ def tftp(con: Console, fname: str, addr: int, retransmits: int = 1) -> None:
 OW_PROMPT = r"root@[^:\s]*:[^#]*# "  # hostname is "(none)" early in boot
 
 
-def openwrt_stp(con: Console, persist_cap: float = 2) -> None:
+def openwrt_stp(con: Console, persist_cap: float = 2, mgmt_ip: str = "") -> None:
     """Bridge STP on as soon as the shell is up: the initramfs bridges every port with every
     laser lit, no STP (#19). A loop ramps slowly (~13k pps at +80 s), so this is in time.
-    persist_cap: `uci commit; sync` bound; 2 s on a RAM boot, 90 s on the first flash boot (#113)."""
+    persist_cap: `uci commit; sync` bound; 2 s on a RAM boot, 90 s on the first flash boot (#113).
+    mgmt_ip: RAM boots only; the image defaults to 192.168.1.1, bench scripts need BENCH_IP (#150)."""
     con.run("", OW_PROMPT, 3, "OpenWrt shell")  # 'Please press Enter'; prompt within ~1 s
     # kernel lines (SerDes calibration) interleave with replies and broke the check 2026-10-10
     # checked: right after the login banner the first char was dropped ('mesg: not found', 2026-10-11)
@@ -367,6 +368,23 @@ def openwrt_stp(con: Console, persist_cap: float = 2) -> None:
     con.run("uci set $S.stp='1'; uci set $S.forward_delay='2'", OW_PROMPT, 1, "stp uci", checked=True)
     con.run("uci commit network; sync", OW_PROMPT, persist_cap, "stp persistent", checked=True)
     log("  OpenWrt bridge STP on")
+    if mgmt_ip:
+        set_mgmt_ip(con, mgmt_ip)
+
+
+def set_mgmt_ip(con: Console, ip: str) -> None:
+    """Bench address on the lan SVI at runtime + in uci (RAM overlay); wait for ping (#150)."""
+    con.run(f"uci set network.lan.ipaddr='{ip}/24'", OW_PROMPT, 1, "uci lan ipaddr", checked=True)
+    con.run("uci commit network", OW_PROMPT, 2, "uci commit lan", checked=True)  # RAM overlay: ms
+    con.run(f"ip addr replace {ip}/24 dev switch.1", OW_PROMPT, 1, f"mgmt {ip}", checked=True)
+    (ROOT / "tmp/nat_bench.ssh").unlink(missing_ok=True)  # stale ssh mux from the previous boot hangs scripts 20 s
+    # STP forwards ~4 s after it is on (forward_delay 2 s); unreachable replies return at once, so pace with -i 1:
+    # 4 x 3 pings = 12 s = 3x that
+    for _ in range(4):
+        if subprocess.run(["ping", "-c3", "-i1", "-W1", ip], capture_output=True).returncode == 0:
+            log(f"  mgmt {ip} answers ping")
+            return
+    log(f"  WARN mgmt {ip} did not answer ping in 12 s (cage 1 uplink? STP still blocking?)")
 
 
 FAST_CPU_E208 = "0x3a8"  # 1000 MHz with DIVN2 /3: uboot-test 40/40 + 15 min Linux load (#38)
@@ -531,7 +549,7 @@ def main() -> int:
         cap = ow[4] + (3 * int(mt[1]) if mt else 0)
         con.run(f"bootm 0x{ow[1]:08x}", ow[3], cap, f"{a.then} via mainline bootm")
         if a.then.startswith("openwrt"):
-            openwrt_stp(con)
+            openwrt_stp(con, mgmt_ip=SWITCH_IP)
         r = subprocess.run([sys.executable, str(ROOT / "scripts/boot_log_check.py"), "--boot", "-1"],
                            capture_output=True, text=True, timeout=30)  # local file scan, <2 s
         sys.stdout.write(r.stdout)
