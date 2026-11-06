@@ -1,0 +1,37 @@
+From: Dan <dan@awto.au>
+Subject: [PATCH] net: rteth: RTL930x: raise the CPU queue 1 drop threshold (#148)
+
+- FC_CPU_Q_EGR_DROP_THR[1] (`0x7DC4`): ON/OFF in pages, boot value 78/68 (`0x4E0044`; a flash boot reads 52/36). Under forwarding load queue 1 peaked at 82 pages and the chip dropped there, not in our ring.
+- Set at open: ON = `cpuq_drop_pages` (default 1024), OFF = ON - 16; 0 keeps the chip value. Queue 1 only (the fast-path ring); queue 0 (control plane) unchanged.
+- Result and A/B: docs/CPU-PORT.md.
+---
+--- a/drivers/net/ethernet/realtek/rtl838x_eth.c
++++ b/drivers/net/ethernet/realtek/rtl838x_eth.c
+@@ -50,6 +50,12 @@
+ module_param(tx_by_cpu, uint, 0644);
+ MODULE_PARM_DESC(tx_by_cpu, "TX ring = CPU number (run time, for NAPI pinned per VPE, #65)");
+ 
++#define RTETH_930X_FC_CPU_Q_EGR_DROP_THR	(0x7dc0)
++
++static uint cpuq_drop_pages = 1024;
++module_param(cpuq_drop_pages, uint, 0444);
++MODULE_PARM_DESC(cpuq_drop_pages, "RTL930x CPU queue 1 drop threshold in pages, set at open (boot value 78, 0 = keep) (#148)");
++
+ /* In-place forward without an skb (#148 prototype): a UDP frame to zc_dport that arrives on RX ring zc_ring is
+  * rewritten in its RX buffer (DMAC, SMAC = our MAC, VLAN id, TTL) and sent from the same buffer; the page returns
+  * to the pool when the TX completes. Steer the flow to the ring first: rteth/rxq `l3_net_route 1`.
+@@ -875,6 +881,14 @@
+ 	regmap_write(ctrl->map, RTETH_930X_QM_CPUQID2QID_CTRL, q8);
+ 	regmap_write(ctrl->map, RTETH_930X_QM_CPUQID2XGQID_CTRL, lower_32_bits(q12));
+ 	regmap_write(ctrl->map, RTETH_930X_QM_CPUQID2XGQID_CTRL + 4, upper_32_bits(q12));
++
++	/* boot value of 78 pages drops a forwarding burst on ring 1 long before the ring is full */
++	if (cpuq_drop_pages) {
++		u32 on = min(cpuq_drop_pages, 0xfffu);
++
++		regmap_write(ctrl->map, RTETH_930X_FC_CPU_Q_EGR_DROP_THR + 4,
++			     FIELD_PREP(GENMASK(27, 16), on) | FIELD_PREP(GENMASK(11, 0), on - min(on, 16u)));
++	}
+ }
+ 
+ static void rteth_931x_hw_init(struct rteth_ctrl *ctrl)
