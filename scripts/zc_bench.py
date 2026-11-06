@@ -108,9 +108,12 @@ def main():
     ap.add_argument("--len", type=int, default=1400)
     ap.add_argument("--tcp", action="store_true", help="iperf3 TCP through both directions (needs --nat parameters; implies --nat)")
     ap.add_argument("--nat", action="store_true", help="source NAT the flow: 10.99.1.2 -> 10.99.2.1, port + 1000")
-    ap.add_argument("--napi", choices=["irq", "split"], default="irq",
-                    help="split = threaded NAPI, ring1 (fast path) thread on VPE1, other on VPE0")
+    ap.add_argument("--napi", choices=["irq", "split", "irq1"], default="irq",
+                    help="irq1 = no thread, NIC IRQ + softirq poll on VPE1 (no scheduler in the path); split = threaded NAPI, ring1 (fast path) thread on VPE1, other on VPE0")
     a = ap.parse_args()
+    if a.napi == "irq1":
+        nb.sw("echo 0 > /sys/class/net/eth0/threaded; echo 2 > /proc/irq/$(awk '/eth0/{print +$1}' /proc/interrupts)/smp_affinity")
+        log("napi: softirq on VPE1, irq affinity " + nb.sw("cat /proc/irq/$(awk '/eth0/{print +$1}' /proc/interrupts)/smp_affinity"))
     if a.napi == "split":
         nb.sw("echo 1 > /sys/class/net/eth0/threaded; i=0; for t in $(ps | awk '/napi\\/eth0/{print $1}'); do "
               "taskset -p $((2 >> (i % 2))) $t >/dev/null; i=$((i+1)); done")
