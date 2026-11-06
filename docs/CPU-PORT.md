@@ -42,6 +42,21 @@ Facts only. Procedures and results over time: [NAT-PROGRESS.md](NAT-PROGRESS.md)
 - 1400 B UDP + NAT, one direction, picks clocks: 143.7 kpps x 1446 B x 8 = 1.66 Gbit/s (1446 = 1400 + 8 UDP + 20 IP + 14 Ethernet + 4 FCS). Each frame crosses the CPU port twice (RX + TX): 3.3 Gbit/s total.
 - Size dependence: the same CPU (94-96 % busy) forwards 490.7 kpps at 64 B (2 us/packet) and 143 kpps at 1400 B (6.6-6.9 us/packet); a bare receive-and-drop (`rxdrop`, NAT.md) also tops out at 137 kpps at 1400 B. The extra ~4.6 us scales with frame size, so the ceiling is a byte-dependent path (NIC DMA, bus/DDR contention or the chip feeding the CPU queue), not forwarding work. Clock sweep below.
 
+## Frame-size sweep (2026-11-07, UDP + NAT, fast path, `--napi irq1`, picks clocks, 10 s per size)
+
+| UDP payload | kpps | Mbit/s (script, on the wire) | us/packet |
+|---|---|---|---|
+| 64 B frame | 490.7 | - | 2.0 |
+| 200 | 409.6 | 806 | 2.4 |
+| 500 | 313.6 | 1370 | 3.2 |
+| 800 | 225.6 | 1527 | 4.4 |
+| 1100 | 173.0 | 1586 | 5.8 |
+| 1400 | 142.5 | 1649 | 7.0 |
+
+- Not a flat byte-rate cap: Mbit/s keeps rising with size, and 5/3 Gbit/s (1.667) is only where 1400 B lands (no constant 5/3 pipe).
+- Cost model: ~1.5-2 us fixed per packet + ~4 ns per byte (~2 Gbit/s asymptote); the extra cost is proportional to frame size.
+- Forwarding VPE busy 97-99 % at every size, so the per-byte time is spent on the CPU (stalls on bytes crossing the NIC/RAM), not idle waiting for the chip.
+
 ## CPU queue 1 drop threshold (300-40, 2026-11-06, picks clocks, iperf3 TCP P4 through NAT, fast path, `--napi irq1`)
 - Queue 1 (fast-path ring) peaked at 82 pages / 17 packets under load against ON = 78: the chip drops there (egress-queue drops), not in our 128-entry ring.
 - A/B, one variable (queue-1 ON/OFF pages), forward / reverse:
