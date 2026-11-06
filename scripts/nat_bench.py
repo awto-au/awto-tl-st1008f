@@ -13,7 +13,7 @@ Topology (one-armed, all over the single 10G host link; lan1 reaches the host vi
 
 Usage (via ./dev.py nat-bench ...):
   setup                              switch SVIs + host netns
-  mode nat|nat-ft|route|route-ft     nft: masquerade and/or software flowtable (fw4 forward accept)
+  mode nat|nat-ft|nat-hw|route|route-ft|route-hw   nft: masquerade and/or flowtable (-hw = flags offload, 300-39)
   run [--secs N] [-P N] [--reverse] [--udp MBPS --len B]   iperf3 natlan -> natwan + switch CPU stats
   local [--secs N] [-P N] [--reverse] host <-> switch iperf3 (CPU terminates; NIC/stack ceiling)
   pktgen [--count N --size B]       TX-only driver cost (in-kernel pktgen, kmod-pktgen)
@@ -151,7 +151,8 @@ def setup() -> int:
 
 def set_mode(mode: str) -> int:
     nat = mode.startswith("nat")
-    ft = mode.endswith("-ft")
+    hw = mode.endswith("-hw")  # flowtable with `flags offload`: the driver gets the flows (300-39, #148)
+    ft = mode.endswith("-ft") or hw
     log(f"mode {mode}: masquerade={'on' if nat else 'off'} flowtable={'on' if ft else 'off'}")
     fw4 = "true" if mainline() or not has_nft() or sw("nft list table inet fw4 >/dev/null 2>&1 && echo y || echo n",
                                                       check=False).strip() == "n" else (
@@ -166,7 +167,7 @@ def set_mode(mode: str) -> int:
         raise SystemExit("FAIL: mode nat/ft needs nf_tables; this kernel has none")
     rules = ["table inet nattest {"]
     if ft:
-        rules += [f"  flowtable ft {{ hook ingress priority 0; devices = {{ {SW_PORT} }}; }}",
+        rules += [f"  flowtable ft {{ hook ingress priority 0; devices = {{ {SW_PORT} }}; {'flags offload;' if hw else ''} }}",
                   "  chain ftadd { type filter hook forward priority 0; policy accept;",
                   "    meta l4proto { tcp, udp } flow add @ft", "  }"]
     if nat:
@@ -541,7 +542,7 @@ def main() -> int:
     sub = ap.add_subparsers(dest="cmd", required=True)
     sub.add_parser("setup")
     m = sub.add_parser("mode")
-    m.add_argument("mode", choices=["nat", "nat-ft", "route", "route-ft"])
+    m.add_argument("mode", choices=["nat", "nat-ft", "nat-hw", "route", "route-ft", "route-hw"])
     for name in ("run", "local"):
         r = sub.add_parser(name)
         r.add_argument("--secs", type=int, default=15)

@@ -484,7 +484,7 @@ def cmd_console_window(_extra: list[str]) -> int:
 
 
 @command("CPU-path NAT/routing throughput, one-armed over lan1 VLANs 991/992 (docs/NAT-OPS.md)",
-         args="setup | mode nat|nat-ft|route|route-ft | run|local [--secs N] [-P N] [--reverse] "
+         args="setup | mode nat|nat-ft|nat-hw|route|route-ft|route-hw | run|local [--secs N] [-P N] [--reverse] "
               "[--udp MBPS --len B] [--dst A] | pktgen | rxdrop | v6-setup | v6-run [--onlink] [--dst A] | "
               "offload [--onlink 0|1] [--default-v4 0|1] [--default-v6 0|1] | dflt-setup | routes | status | teardown",
          kind="hardware")

@@ -117,7 +117,17 @@ OpenWrt 7.3, CPU 1350 / DDR 662 / LX 306 / SRAM 500, sw2 RAM boot. One UDP flow 
 | server -> client (`--reverse`) | 129.1 Mbit/s | **1309.8 Mbit/s** | 10.1x |
 
 - The stack saw 10-15 pps in the in-place runs (misses only). For reference the best stack path at the same clocks (NAT + flowtable + best knob combination) is 507 Mbit/s: in place is 2.6x that, 54 % of the 2.5 Gbit/s target.
-- Not done: conntrack (the NAT is one static rule pair: no timeouts, no new-flow handling, no ICMP errors, no fragments), flow table / more than one flow, SRAM buffers (#148), the other VPE, `zc_busy` (TX ring full, 1.4 % at 1400 B UDP).
+- **Real NAT, flow table fed by the kernel** (same boot and clocks): nftables masquerade + conntrack in the stack, flowtable with `flags offload` (`nat-bench mode nat-hw`). DSA hands the flowtable's `TC_SETUP_FT` to the NIC driver; each established connection becomes two entries (match = the packet's 5-tuple as it arrives, action = Ethernet addresses, NAT address and port, VLAN pop/push, egress port; incremental IP/TCP/UDP checksums); stats go back to the flowtable so timeouts refresh; new flows, SYN/FIN handling, conntrack and expiry stay in the stack. iperf3 TCP P4, 10 s, one run each:
+
+| Direction | Stack + software flowtable (hw flag set, fast path off) | Fast path with the flowtable's flows |
+|---|---|---|
+| client -> server | 420 Mbit/s | **1250 Mbit/s** (16049 retransmits) |
+| server -> client (`--reverse`) | - | **1187 Mbit/s** (10720 retransmits) |
+
+- The stack saw 33-66 pps during the fast-path runs; `zc_flows` 10 per run (4 data + 1 control connection, 2 directions). 2.5x the best software-NAT result (507 Mbit/s with the best knob combination), 50 % of the 2.5 Gbit/s target.
+- Retransmits are about 1 % of the segments: drops under load (not analysed: ring, ASIC queue or the TCP stream pacing).
+- `nf_flow_table_offload.c` builds the 16-bit Ethernet address pieces (`mask = ~0xffff0000`, `val = val16 [<< 16]`) from host-order constants: byte-correct on little-endian only. On this big-endian MIPS the 12 address bytes arrive rotated; the driver decodes the four Ethernet entries by numeric value for both byte orders. The IP and port entries use `htonl()` and are fine. Worth reporting upstream (#85 strategy).
+- Not done: SRAM buffers (#148), the other VPE, IPv6, ICMP errors and fragments (stay in the stack), more than 2048 flows, the retransmit rate, a soak, `zc_busy` (TX ring full).
 
 ## Memory path and the second VPE (2026-11-06, `scripts/mt_interference.py`)
 
