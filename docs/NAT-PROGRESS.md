@@ -108,7 +108,8 @@ OpenWrt 7.3, CPU 1350 / DDR 662 / LX 306 / SRAM 500, sw2 RAM boot. One UDP flow 
 - Per packet: about 44 µs through the stack, 2 µs in place (64 B), 6.6 µs (1400 B).
 - The 1400 B rate is not set by per-packet CPU cost: the NIC / CPU port moves 1.66 Gbit/s each way (RX + TX 3.3 Gbit/s total), so the CPU port is not a 1 Gbit/s cap.
 - TX length: the NIC takes frame + 4 bytes of FCS room (`frag->len` = RX length); trimming the 4 bytes sent truncated frames that the receiver dropped (found by comparing the stack's TX frame with ours: `zc_dbg`).
-- Not done: NAT address/port rewrite, TCP (both directions), flow table, SRAM buffers (#148), more than one flow, the other VPE, `zc_busy` (TX ring full, 1.4 % at 1400 B).
+- Source NAT of the flow (`zc_sip`, `zc_sport_add`; same run, plain UDP sender `scripts/tools/udpblast.c`, 4 flows, 1400 B): source 10.99.1.2:40000 -> 10.99.2.1:41000 on the wire, TTL 63, `[udp sum ok]` (tcpdump verifies the incrementally updated IP and UDP checksums), rate unchanged: 143.6 kpps (1661 Mbit/s). The stack path under the same flood: 9.2 kpps (15.6x). iperf3 cannot be the generator for NAT'd UDP (its server connects to the first source it sees).
+- Not done: TCP (both directions, ACK stream), flow table / more than one flow, SRAM buffers (#148), the other VPE, `zc_busy` (TX ring full, 1.4 % at 1400 B).
 
 ## Memory path and the second VPE (2026-11-06, `scripts/mt_interference.py`)
 
