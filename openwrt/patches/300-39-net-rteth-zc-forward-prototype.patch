@@ -1,7 +1,7 @@
 From: Dan <dan@awto.au>
 Subject: [PATCH] net: rteth: in-place UDP forward without an skb, behind a module parameter (#148 prototype)
 
-- zc=1: a UDP frame to zc_dport on RX ring zc_ring is rewritten in its RX buffer (DMAC zc_dmac, SMAC = our MAC,
+- zc=1: a UDP or TCP frame to zc_dport (and the reverse direction from it, zc_rmac / zc_rvid / zc_rip) on RX ring zc_ring is rewritten in its RX buffer (DMAC zc_dmac, SMAC = our MAC,
   VLAN id zc_vid, TTL-1 with incremental IP checksum) and sent from the same buffer on TX ring 0; the page
   returns to the page pool on TX completion. No skb, no GRO, no netfilter, no qdisc.
 - Prototype to measure the ceiling of a stack-less forward (and later the same with SRAM buffers); one flow,
@@ -20,16 +20,17 @@ Subject: [PATCH] net: rteth: in-place UDP forward without an skb, behind a modul
  struct rteth_ctrl {
 --- a/drivers/net/ethernet/realtek/rtl838x_eth.c
 +++ b/drivers/net/ethernet/realtek/rtl838x_eth.c
-@@ -5,6 +5,8 @@
+@@ -5,6 +5,9 @@
  
  #include <linux/cacheflush.h>
  #include <linux/debugfs.h>
 +#include <linux/ip.h>
++#include <linux/tcp.h>
 +#include <linux/udp.h>
  #include <linux/dma-mapping.h>
  #include <linux/etherdevice.h>
  #include <linux/genalloc.h>
-@@ -27,6 +29,7 @@
+@@ -27,6 +30,7 @@
  #include <linux/regmap.h>
  #include <linux/rtnetlink.h>
  #include <linux/workqueue.h>
@@ -37,7 +38,7 @@ Subject: [PATCH] net: rteth: in-place UDP forward without an skb, behind a modul
  #include <net/dsa.h>
  #include <net/dst_metadata.h>
  #include <net/page_pool/helpers.h>
-@@ -43,6 +46,38 @@
+@@ -43,6 +47,49 @@
  module_param(tx_by_cpu, uint, 0644);
  MODULE_PARM_DESC(tx_by_cpu, "TX ring = CPU number (run time, for NAPI pinned per VPE, #65)");
  
@@ -68,6 +69,17 @@ Subject: [PATCH] net: rteth: in-place UDP forward without an skb, behind a modul
 +static uint zc_sport_add;
 +module_param(zc_sport_add, uint, 0644);
 +MODULE_PARM_DESC(zc_sport_add, "source NAT: added to the UDP source port (0 = keep)");
++static unsigned char zc_rmac[ETH_ALEN];
++static unsigned int zc_rmac_n;
++module_param_array(zc_rmac, byte, &zc_rmac_n, 0644);
++MODULE_PARM_DESC(zc_rmac, "reverse direction: destination MAC (the client), 6 decimal bytes");
++static uint zc_rvid;
++module_param(zc_rvid, uint, 0644);
++MODULE_PARM_DESC(zc_rvid, "reverse direction: VLAN id to write (0 = keep)");
++static unsigned char zc_rip[4];
++static unsigned int zc_rip_n;
++module_param_array(zc_rip, byte, &zc_rip_n, 0644);
++MODULE_PARM_DESC(zc_rip, "reverse direction: the client's real IPv4 (replaces the NAT address as destination)");
 +static uint zc_dbg;
 +module_param(zc_dbg, uint, 0644);
 +MODULE_PARM_DESC(zc_dbg, "log the next N TX frames of both paths (len, cpu tag, first bytes)");
@@ -76,7 +88,7 @@ Subject: [PATCH] net: rteth: in-place UDP forward without an skb, behind a modul
  /* RTL930x NIC core shared with U-Boot (awto-tl-st1008f shared/rtl930x-nic, #83); ctx = regmap */
  static inline u32 rtl930x_nic_rd(void *ctx, u32 off)
  {
-@@ -611,6 +646,12 @@
+@@ -611,6 +658,12 @@
  			if (!tx_info->skb[i])
  				continue;
  
@@ -89,7 +101,7 @@ Subject: [PATCH] net: rteth: in-place UDP forward without an skb, behind a modul
  			dma_unmap_single(&ctrl->pdev->dev, dma,
  					 tx_info->skb[i]->len, DMA_TO_DEVICE);
  			rteth_free_skb(&tx_info->skb[i]);
-@@ -640,6 +681,13 @@
+@@ -640,6 +693,13 @@
  		if (ctrl->tx_data[r].ring[i] & RTETH_RING_OWN_HW)
  			break;
  
@@ -103,7 +115,7 @@ Subject: [PATCH] net: rteth: in-place UDP forward without an skb, behind a modul
  		dma_unmap_single(&ctrl->pdev->dev, ctrl->tx_data[r].frag[i].dma,
  				 tx_info->skb[i]->len, DMA_TO_DEVICE);
  		pkts++;
-@@ -1242,6 +1290,10 @@
+@@ -1242,6 +1302,10 @@
  	if (port >= 0)
  		ctrl->cfg->create_tx_header(frag, port, ctrl->cfg->tx_queue_from_priority ?
  					    min_t(u32, skb->priority, 7) : 0);
@@ -114,7 +126,7 @@ Subject: [PATCH] net: rteth: in-place UDP forward without an skb, behind a modul
  
  	/* Hand frag over to switch */
  	dma_wmb();
-@@ -1359,6 +1411,120 @@
+@@ -1359,6 +1423,149 @@
  	return 0;
  }
  
@@ -125,13 +137,16 @@ Subject: [PATCH] net: rteth: in-place UDP forward without an skb, behind a modul
 +	struct rteth_tx_info *txi = &ctrl->tx_info[0];
 +	struct page *page = rxi->page[slot];
 +	unsigned int off = rxi->offset[slot] + ctrl->cfg->skb_headroom;
-+	unsigned int len = frag->len, l2 = ETH_HLEN, txslot;
++	unsigned int len = frag->len, l2 = ETH_HLEN, txslot, vid;
 +	u8 *p = page_address(page) + off;
++	const u8 *mac;
 +	struct rteth_dsa_tag tag;
 +	struct rteth_frag *tf;
 +	struct iphdr *iph;
++	__be16 *l4, *chk, old;
++	__be32 nat_ip = 0, new_ip;
 +	dma_addr_t dma, packet_dma;
-+	__be16 old;
++	bool fwd, udp_csum;
 +
 +	if (len < ETH_ZLEN + ETH_FCS_LEN || zc_dmac_n != ETH_ALEN)
 +		goto miss;
@@ -140,45 +155,71 @@ Subject: [PATCH] net: rteth: in-place UDP forward without an skb, behind a modul
 +	if (p[l2 - 2] != 0x08 || p[l2 - 1] != 0x00)
 +		goto miss;
 +	iph = (struct iphdr *)(p + l2);
-+	if (iph->ihl != 5 || iph->protocol != IPPROTO_UDP || iph->ttl < 2 ||
-+	    (iph->frag_off & htons(IP_MF | IP_OFFSET)) || ((__be16 *)(iph + 1))[1] != htons(zc_dport))
++	if (iph->ihl != 5 || iph->ttl < 2 || (iph->frag_off & htons(IP_MF | IP_OFFSET)) ||
++	    (iph->protocol != IPPROTO_UDP && iph->protocol != IPPROTO_TCP) ||
++	    len < l2 + sizeof(*iph) + (iph->protocol == IPPROTO_TCP ? sizeof(struct tcphdr) : sizeof(struct udphdr)))
 +		goto miss;
++	l4 = (__be16 *)(iph + 1);
++	chk = iph->protocol == IPPROTO_TCP ? &l4[8] : &l4[3];	/* TCP checksum at +16, UDP at +6 */
++	if (zc_sip_n == 4)
++		nat_ip = htonl((zc_sip[0] << 24) | (zc_sip[1] << 16) | (zc_sip[2] << 8) | zc_sip[3]);
++	if (l4[1] == htons(zc_dport)) {
++		fwd = true;			/* client -> server: source NAT */
++	} else if (nat_ip && l4[0] == htons(zc_dport) && iph->daddr == nat_ip && zc_rmac_n == ETH_ALEN && zc_rip_n == 4) {
++		fwd = false;			/* server -> client: back to the client's address */
++	} else {
++		goto miss;
++	}
 +
 +	ctrl->cfg->decode_tag(frag, &tag);
-+	if (zc_sip_n == 4 || zc_sport_add) {	/* source NAT of the flow: addresses and port, checksums incremental */
-+		struct udphdr *uh = (struct udphdr *)(iph + 1);
-+		bool udp_csum = uh->check;
++	udp_csum = iph->protocol == IPPROTO_TCP || *chk;	/* UDP checksum 0 = none */
++	if (nat_ip || zc_sport_add) {
++		if (fwd) {
++			new_ip = nat_ip;
++			if (nat_ip) {
++				csum_replace4(&iph->check, iph->saddr, new_ip);
++				if (udp_csum)
++					csum_replace4(chk, iph->saddr, new_ip);
++				iph->saddr = new_ip;
++			}
++			if (zc_sport_add) {
++				__be16 np = htons(ntohs(l4[0]) + zc_sport_add);
 +
-+		if (zc_sip_n == 4) {
-+			__be32 new_ip = htonl((zc_sip[0] << 24) | (zc_sip[1] << 16) | (zc_sip[2] << 8) | zc_sip[3]);
-+
-+			csum_replace4(&iph->check, iph->saddr, new_ip);
++				if (udp_csum)
++					csum_replace2(chk, l4[0], np);
++				l4[0] = np;
++			}
++		} else {
++			new_ip = htonl((zc_rip[0] << 24) | (zc_rip[1] << 16) | (zc_rip[2] << 8) | zc_rip[3]);
++			csum_replace4(&iph->check, iph->daddr, new_ip);
 +			if (udp_csum)
-+				csum_replace4(&uh->check, iph->saddr, new_ip);
-+			iph->saddr = new_ip;
-+		}
-+		if (zc_sport_add) {
-+			__be16 new_port = htons(ntohs(uh->source) + zc_sport_add);
++				csum_replace4(chk, iph->daddr, new_ip);
++			iph->daddr = new_ip;
++			if (zc_sport_add) {
++				__be16 np = htons(ntohs(l4[1]) - zc_sport_add);
 +
-+			if (udp_csum)
-+				csum_replace2(&uh->check, uh->source, new_port);
-+			uh->source = new_port;
++				if (udp_csum)
++					csum_replace2(chk, l4[1], np);
++				l4[1] = np;
++			}
 +		}
-+		if (udp_csum && !uh->check)
-+			uh->check = CSUM_MANGLED_0;
++		if (iph->protocol == IPPROTO_UDP && udp_csum && !*chk)
++			*chk = CSUM_MANGLED_0;
 +	}
-+	memcpy(p, zc_dmac, ETH_ALEN);
++	mac = fwd ? zc_dmac : zc_rmac;
++	vid = fwd ? zc_vid : zc_rvid;
++	memcpy(p, mac, ETH_ALEN);
 +	memcpy(p + ETH_ALEN, ctrl->dev->dev_addr, ETH_ALEN);
-+	if (l2 > ETH_HLEN && zc_vid) {
-+		p[14] = (p[14] & 0xf0) | ((zc_vid >> 8) & 0x0f);
-+		p[15] = zc_vid & 0xff;
++	if (l2 > ETH_HLEN && vid) {
++		p[14] = (p[14] & 0xf0) | ((vid >> 8) & 0x0f);
++		p[15] = vid & 0xff;
 +	}
 +	old = *(__be16 *)&iph->ttl;
 +	iph->ttl--;
 +	csum_replace2(&iph->check, old, *(__be16 *)&iph->ttl);
 +
 +	dma = page_pool_get_dma_addr(page) + off;
-+	dma_sync_single_for_device(&ctrl->pdev->dev, dma, 64, DMA_TO_DEVICE);	/* the rewritten header lines */
++	dma_sync_single_for_device(&ctrl->pdev->dev, dma, 128, DMA_TO_DEVICE);	/* the rewritten header lines (TCP options included) */
 +
 +	__netif_tx_lock(txq, smp_processor_id());
 +	txslot = txi->send_count & (RTETH_TX_RING_SIZE - 1);
@@ -235,7 +276,7 @@ Subject: [PATCH] net: rteth: in-place UDP forward without an skb, behind a modul
  static int rteth_hw_receive(struct net_device *dev, int ring, int budget)
  {
  	int slot, work_done = 0, rx_packets = 0, rx_bytes = 0, rx_dropped = 0, rx_errors = 0;
-@@ -1411,6 +1577,10 @@
+@@ -1411,6 +1618,10 @@
  			goto recycle;
  		}
  
@@ -246,7 +287,7 @@ Subject: [PATCH] net: rteth: in-place UDP forward without an skb, behind a modul
  		if (is_head) {
  			skb = rteth_create_skb(ctrl, ring, slot);
  			if (unlikely(!skb)) {
-@@ -1437,6 +1607,7 @@
+@@ -1437,6 +1648,7 @@
  			}
  		}
  
@@ -254,7 +295,7 @@ Subject: [PATCH] net: rteth: in-place UDP forward without an skb, behind a modul
  		rx_info->page[slot] = new_page;
  		rx_info->offset[slot] = new_offset;
  		ctrl->rx_data[ring].frag[slot].dma = page_pool_get_dma_addr(new_page) +
-@@ -1447,6 +1618,9 @@
+@@ -1447,6 +1659,9 @@
  		rx_info->slot = (slot + 1) % RTETH_RX_RING_SIZE;
  	}
  
@@ -264,7 +305,7 @@ Subject: [PATCH] net: rteth: in-place UDP forward without an skb, behind a modul
  	spin_lock(&ctrl->rx_lock);
  	ctrl->cfg->update_counter(ctrl, ring, work_done);
  	dev->stats.rx_packets += rx_packets;
-@@ -1481,6 +1655,7 @@
+@@ -1481,6 +1696,7 @@
  
  	for (int r = 0; r < RTETH_RX_RINGS; r++)
  		seq_printf(m, "ring%d_frames %lu\n", r, READ_ONCE(ctrl->rx_info[r].pkts));

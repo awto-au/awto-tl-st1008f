@@ -109,7 +109,15 @@ OpenWrt 7.3, CPU 1350 / DDR 662 / LX 306 / SRAM 500, sw2 RAM boot. One UDP flow 
 - The 1400 B rate is not set by per-packet CPU cost: the NIC / CPU port moves 1.66 Gbit/s each way (RX + TX 3.3 Gbit/s total), so the CPU port is not a 1 Gbit/s cap.
 - TX length: the NIC takes frame + 4 bytes of FCS room (`frag->len` = RX length); trimming the 4 bytes sent truncated frames that the receiver dropped (found by comparing the stack's TX frame with ours: `zc_dbg`).
 - Source NAT of the flow (`zc_sip`, `zc_sport_add`; same run, plain UDP sender `scripts/tools/udpblast.c`, 4 flows, 1400 B): source 10.99.1.2:40000 -> 10.99.2.1:41000 on the wire, TTL 63, `[udp sum ok]` (tcpdump verifies the incrementally updated IP and UDP checksums), rate unchanged: 143.6 kpps (1661 Mbit/s). The stack path under the same flood: 9.2 kpps (15.6x). iperf3 cannot be the generator for NAT'd UDP (its server connects to the first source it sees).
-- Not done: TCP (both directions, ACK stream), flow table / more than one flow, SRAM buffers (#148), the other VPE, `zc_busy` (TX ring full, 1.4 % at 1400 B).
+- TCP, both directions, stateless static 1:1 NAT (client 10.99.1.2 <-> 10.99.2.1, port + 1000; forward rewrites the source, reverse rewrites the destination back, own MAC and VLAN; SYN, FIN, ACKs and iperf3's control connection all go through the in-place path; TCP and IP checksums incremental): iperf3 TCP P4, 10 s, one run each:
+
+| Direction | Stack path (route only, no NAT, no flowtable) | In place with NAT | Ratio |
+|---|---|---|---|
+| client -> server | 114.7 Mbit/s | **1339.6 Mbit/s** | 11.7x |
+| server -> client (`--reverse`) | 129.1 Mbit/s | **1309.8 Mbit/s** | 10.1x |
+
+- The stack saw 10-15 pps in the in-place runs (misses only). For reference the best stack path at the same clocks (NAT + flowtable + best knob combination) is 507 Mbit/s: in place is 2.6x that, 54 % of the 2.5 Gbit/s target.
+- Not done: conntrack (the NAT is one static rule pair: no timeouts, no new-flow handling, no ICMP errors, no fragments), flow table / more than one flow, SRAM buffers (#148), the other VPE, `zc_busy` (TX ring full, 1.4 % at 1400 B UDP).
 
 ## Memory path and the second VPE (2026-11-06, `scripts/mt_interference.py`)
 

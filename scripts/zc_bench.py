@@ -62,6 +62,19 @@ def run(label, secs, flows, ln):
     return kpps
 
 
+def run_tcp(label, secs, reverse):
+    """iperf3 TCP P4 through the switch (the bench's own run): goodput + the driver counters."""
+    za = zc()
+    cmd = ["./dev.py", "nat-bench", "run", "--secs", str(secs), "-P", "4", "--label", label] + (["--reverse"] if reverse else [])
+    r = subprocess.run(cmd, cwd=ROOT, capture_output=True, text=True, timeout=secs * 6 + 60)  # run + ramp + dumps, x6
+    zb = zc()
+    m = re.search(r"RESULT \S+: ([\d.]+) Mbit/s \{[^}]*\} \| eth0 rx ([\d.]+) Mbit/s (\d+) pps", r.stdout)
+    d = {k: zb[k] - za[k] for k in zb}
+    log(f"{label}{' (reverse)' if reverse else ''}: iperf3 TCP P4 {m.group(1) if m else '?'} Mbit/s | eth0 stack rx {m.group(3) if m else '?'} pps | "
+        f"zc_fwd {d['zc_fwd']} miss {d['zc_miss']} busy {d['zc_busy']} ring1 {d['ring1_frames']}")
+    return float(m.group(1)) if m else 0.0
+
+
 def verify_nat(dev_nic, secs=4):
     """Capture a few forwarded data frames on the host NIC and let tcpdump verify the checksums."""
     cap = subprocess.Popen(["sudo", "-n", "timeout", "12", "tcpdump", "-n", "-vv", "-i", dev_nic, "-c", "3", "-s", "1600",
@@ -80,11 +93,26 @@ def main():
     ap.add_argument("--secs", type=int, default=10)
     ap.add_argument("--flows", type=int, default=4)
     ap.add_argument("--len", type=int, default=1400)
+    ap.add_argument("--tcp", action="store_true", help="iperf3 TCP through both directions (needs --nat parameters; implies --nat)")
     ap.add_argument("--nat", action="store_true", help="source NAT the flow: 10.99.1.2 -> 10.99.2.1, port + 1000")
     a = ap.parse_args()
+    if a.tcp:
+        a.nat = True
     nb.sw(f"echo {NATWAN_MAC} > {P}/zc_dmac; echo 992 > {P}/zc_vid; echo 5201 > {P}/zc_dport; echo 1 > {P}/zc_ring; "
           "echo 'l3_net_route 1' > /sys/kernel/debug/rteth/rxq")
     nb.sw(f"echo 0 > {P}/zc")
+    if a.tcp:
+        nb.sw(f"echo 10,99,2,1 > {P}/zc_sip; echo 1000 > {P}/zc_sport_add; echo 2,153,0,0,9,145 > {P}/zc_rmac; "
+              f"echo 991 > {P}/zc_rvid; echo 10,99,1,2 > {P}/zc_rip")
+        res = {}
+        for rev in (False, True):
+            nb.sw(f"echo 0 > {P}/zc")
+            b0 = run_tcp("stack", a.secs, rev)
+            nb.sw(f"echo 1 > {P}/zc")
+            b1 = run_tcp("zc+nat", a.secs, rev)
+            log(f"TCP {'reverse' if rev else 'forward'}: zc / stack = {b1 / b0:.1f}x" if b0 else "no baseline")
+        nb.sw(f"echo 0 > {P}/zc; echo 0 > {P}/zc_sport_add")
+        return
     base = run("stack", a.secs, a.flows, a.len)
     if a.nat:
         nb.sw(f"echo 10,99,2,1 > {P}/zc_sip; echo 1000 > {P}/zc_sport_add")
