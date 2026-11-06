@@ -40,7 +40,7 @@ Facts only. Procedures and results over time: [NAT-PROGRESS.md](NAT-PROGRESS.md)
 
 ## Measured rate: 1.66 Gbit/s
 - 1400 B UDP + NAT, one direction, picks clocks: 143.7 kpps x 1446 B x 8 = 1.66 Gbit/s (1446 = 1400 + 8 UDP + 20 IP + 14 Ethernet + 4 FCS). Each frame crosses the CPU port twice (RX + TX): 3.3 Gbit/s total.
-- Size dependence: the same CPU (94-96 % busy) forwards 490.7 kpps at 64 B (2 us/packet) and 143 kpps at 1400 B (6.6-6.9 us/packet); a bare receive-and-drop (`rxdrop`, NAT.md) also tops out at 137 kpps at 1400 B. The extra ~4.6 us scales with frame size, so the ceiling is a byte-dependent path (NIC DMA, bus/DDR contention or the chip feeding the CPU queue), not forwarding work. Cause not yet isolated; next test: vary the LX bus clock at 1400 B.
+- Size dependence: the same CPU (94-96 % busy) forwards 490.7 kpps at 64 B (2 us/packet) and 143 kpps at 1400 B (6.6-6.9 us/packet); a bare receive-and-drop (`rxdrop`, NAT.md) also tops out at 137 kpps at 1400 B. The extra ~4.6 us scales with frame size, so the ceiling is a byte-dependent path (NIC DMA, bus/DDR contention or the chip feeding the CPU queue), not forwarding work. Clock sweep below.
 
 ## CPU queue 1 drop threshold (300-40, 2026-11-06, picks clocks, iperf3 TCP P4 through NAT, fast path, `--napi irq1`)
 - Queue 1 (fast-path ring) peaked at 82 pages / 17 packets under load against ON = 78: the chip drops there (egress-queue drops), not in our 128-entry ring.
@@ -54,3 +54,16 @@ Facts only. Procedures and results over time: [NAT-PROGRESS.md](NAT-PROGRESS.md)
 | 4095/4080 | 1507 / 1504 Mbit/s | 1.3k / 1.3k |
 
 - 4095 buffers up to 3634 pages in queue 1 for no goodput gain, so 1024 is the default; queue 0 (control plane) unchanged.
+
+## Clock sweep at 1400 B (2026-11-06, UDP + NAT, fast path, `--napi irq1`, one variable at a time, others at picks)
+
+| Changed | Value | kpps | vs 143 |
+|---|---|---|---|
+| none (CPU 1350, DDR 662, LX 306) | - | ~143 | - |
+| LX bus | 245 MHz (-20 %) | 138.4 | -3 % |
+| DDR | 500 MHz (-25 %) | 136.2 | -5 % |
+| CPU | 1000 MHz (-26 %) | 132.3 | -7.5 % |
+
+- Cutting any one clock by a quarter costs 3-8 %: the 1400 B ceiling is almost independent of CPU, DDR and LX clocks, so it sits in a fixed-rate path outside them (switch core to NIC / CPU-queue transfer). `rxdrop` (receive and drop) stops at the same 137 kpps.
+- LX 204 MHz: the 7.3 RX path panics in `gro_list_prepare` (2/2, #149); 245 and 306 are stable.
+- Valid `turbo` steps: LX 175 / 204 / 245 / 306; CPU 800 / 1000 / 1050 / 1100-1425 step 25; an invalid value rejects the whole profile ('nothing changed', board stays at stock clocks).
