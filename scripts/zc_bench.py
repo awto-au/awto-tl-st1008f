@@ -95,7 +95,13 @@ def main():
     ap.add_argument("--len", type=int, default=1400)
     ap.add_argument("--tcp", action="store_true", help="iperf3 TCP through both directions (needs --nat parameters; implies --nat)")
     ap.add_argument("--nat", action="store_true", help="source NAT the flow: 10.99.1.2 -> 10.99.2.1, port + 1000")
+    ap.add_argument("--napi", choices=["irq", "split"], default="irq",
+                    help="split = threaded NAPI, ring0 thread on VPE0, ring1 (fast path) thread on VPE1")
     a = ap.parse_args()
+    if a.napi == "split":
+        nb.sw("echo 1 > /sys/class/net/eth0/threaded; i=0; for t in $(ps | awk '/napi\\/eth0/{print $1}'); do "
+              "taskset -p $((1 << (i % 2))) $t >/dev/null; i=$((i+1)); done")
+        log("napi: threaded, kthreads split over VPE0/VPE1: " + nb.sw("ps | grep 'napi/eth0'").replace("\n", " "))
     if a.tcp:
         a.nat = True
     nb.sw(f"echo {NATWAN_MAC} > {P}/zc_dmac; echo 992 > {P}/zc_vid; echo 5201 > {P}/zc_dport; echo 1 > {P}/zc_ring; "
