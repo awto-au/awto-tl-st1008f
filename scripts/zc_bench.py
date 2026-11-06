@@ -5,7 +5,8 @@
 - Receiver truth = rx_packets of the natwan interface (iperf's loss figure is not used), per run:
   forwarded kpps, the driver's zc counters, CPU busy.
 - Traffic: tmp/udpblast (scripts/tools/udpblast.c, `gcc -O2 -o tmp/udpblast scripts/tools/udpblast.c`), no handshake (NAT-safe).
-- `zc_bench.py [--secs N] [--flows N] [--len B] [--nat]`. Log tmp/logs/zc_bench.log
+- `zc_bench.py [--secs N] [--flows N] [--len B] [--nat] [--perf]`. Log tmp/logs/zc_bench.log
+- `--perf`: perf record on VPE1 during the fast run (needs `perf_push.py` first) -> tmp/logs/perf_<len>.txt
 """
 import argparse
 import re
@@ -55,14 +56,37 @@ def busy(c0, c1):
     return "/".join(f"{100 - 100 * (c1[k][1] - c0[k][1]) / max(1, c1[k][0] - c0[k][0]):.0f}" for k in ("cpu0", "cpu1"))
 
 
+PERF = False
+SSHO = ["-o", "ConnectTimeout=8", "-o", "StrictHostKeyChecking=no", "-o", "UserKnownHostsFile=/dev/null"]
+
+
+def perf_start(secs):
+    # sample all CPUs at 2 kHz (-C 1 and -D record nothing with a workload on this perf; the report filters VPE1) until stdin closes: the workload `read` returns and perf exits cleanly
+    # (no --timeout in this perf; SIGINT is ignored and SIGTERM leaves an unfinished file)
+    cmd = f"LD_LIBRARY_PATH=/tmp /tmp/perf record -q -a -e cpu-clock -F 2000 -o /tmp/perf.data -- sh -c 'read x'"
+    return subprocess.Popen(["ssh", *SSHO, f"root@{nb.SW_IP}", cmd], stdin=subprocess.PIPE, stdout=subprocess.PIPE, stderr=subprocess.STDOUT, text=True)
+
+
+def perf_report(p, ln):
+    p.communicate(timeout=60)  # closes stdin: the workload ends, perf writes the file (~10k samples, under a second)
+    r = subprocess.run(["ssh", *SSHO, f"root@{nb.SW_IP}",
+                        "LD_LIBRARY_PATH=/tmp /tmp/perf report -i /tmp/perf.data --stdio --no-children --cpu 1 --sort sym 2>&1 | head -45"],
+                       capture_output=True, text=True, timeout=120)  # symbol resolution of a ~10k sample file
+    (ROOT / f"tmp/logs/perf_{ln}.txt").write_text(r.stdout)
+    log(f"perf report -> tmp/logs/perf_{ln}.txt")
+
+
 def run(label, secs, flows, ln):
     dev = f"{nb.HOST_NIC}.992"
     a, za, c0 = rx(dev), zc(), cpu_stat()
+    pp = perf_start(secs) if PERF and label.startswith("zc") else None
     t = time.time()
     r = subprocess.run(["sudo", "-n", "ip", "netns", "exec", "natlan", str(ROOT / "tmp/udpblast"), "10.99.1.2", "10.99.2.2",
                         "5201", str(ln), str(secs), str(flows)], capture_output=True, text=True,
                        timeout=secs * 3 + 30)  # the sender stops itself at `secs`; x3 for a slow start
     wall = time.time() - t
+    if pp:
+        perf_report(pp, ln)
     b, zb, c1 = rx(dev), zc(), cpu_stat()
     m = None
     sent = re.search(r"sent (\d+)", r.stdout)
@@ -110,7 +134,10 @@ def main():
     ap.add_argument("--nat", action="store_true", help="source NAT the flow: 10.99.1.2 -> 10.99.2.1, port + 1000")
     ap.add_argument("--napi", choices=["irq", "split", "irq1"], default="irq",
                     help="irq1 = no thread, NIC IRQ + softirq poll on VPE1 (no scheduler in the path); split = threaded NAPI, ring1 (fast path) thread on VPE1, other on VPE0")
+    ap.add_argument("--perf", action="store_true", help="perf record VPE1 during the fast run (perf_push.py first)")
     a = ap.parse_args()
+    global PERF
+    PERF = a.perf
     if a.napi == "irq1":
         nb.sw("echo 0 > /sys/class/net/eth0/threaded; echo 2 > /proc/irq/$(awk '/eth0/{print +$1}' /proc/interrupts)/smp_affinity")
         log("napi: softirq on VPE1, irq affinity " + nb.sw("cat /proc/irq/$(awk '/eth0/{print +$1}' /proc/interrupts)/smp_affinity"))

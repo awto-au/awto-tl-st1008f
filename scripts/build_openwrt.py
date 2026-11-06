@@ -171,7 +171,11 @@ CONFIG_PACKAGE_kmod-netconsole=y
 CONFIG_PACKAGE_ethtool-full=y
 CONFIG_PACKAGE_lldpd=y
 CONFIG_KERNEL_DYNAMIC_DEBUG=y
+CONFIG_KERNEL_PERF_EVENTS=y
+CONFIG_KERNEL_KALLSYMS=y
+CONFIG_KERNEL_PROFILING=y
 """  # dyndbg: pr_debug/dev_dbg switchable at runtime (#125); OpenWrt's KERNEL_* overrides the target config
+# perf + kallsyms in the kernel for PC sampling (#148); no perf apk (apk rejects the linux-next version string)
 # + nat-bench switch-side tools (docs/NAT-OPS.md): a RAM boot cannot apk-add matching kmods
 # st1008f-selftest (#108, every image): /dev/mem + devmem (register reads), unxz/xzcat (CPU test), taskset
 SELFTEST_CFG = """CONFIG_KERNEL_DEVMEM=y
