@@ -167,6 +167,7 @@ CONFIG_PACKAGE_tcpdump-mini=y
 CONFIG_PACKAGE_kmod-pktgen=y
 CONFIG_PACKAGE_iperf3=y
 CONFIG_PACKAGE_tc-full=y
+CONFIG_PACKAGE_kmod-netconsole=y
 CONFIG_PACKAGE_ethtool-full=y
 CONFIG_PACKAGE_lldpd=y
 CONFIG_KERNEL_DYNAMIC_DEBUG=y
@@ -471,7 +472,19 @@ for d in eth0 /sys/class/net/lan*; do ethtool -K "${d##*/}" rx-gro-list on 2>/de
 """
 
 
+NETCONSOLE_HOTPLUG = """#!/bin/sh
+# kernel log (oops, panic text) over UDP to the dev host, for units with no console (#144; scripts/stress_trace.py)
+[ "$ACTION" = ifup ] && [ "$INTERFACE" = lan ] || exit 0
+grep -q '^netconsole ' /proc/modules || insmod netconsole netconsole=@/switch.1,6666@192.168.25.30/ 2>/dev/null
+"""
+
+
 def nat_tuning_files(dst: Path) -> None:
+    nc = dst / "etc/hotplug.d/iface/60-st1008f-netconsole"
+    nc.parent.mkdir(parents=True, exist_ok=True)
+    nc.write_text(NETCONSOLE_HOTPLUG)
+    nc.chmod(0o755)
+    log("files/etc/hotplug.d/iface/60-st1008f-netconsole (netconsole to the dev host :6666)")
     hp = dst / "etc/hotplug.d/iface/50-st1008f-gro"
     hp.parent.mkdir(parents=True, exist_ok=True)
     hp.write_text(GRO_HOTPLUG)

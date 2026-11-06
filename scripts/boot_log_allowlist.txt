@@ -301,7 +301,7 @@ sit: IPv6, IPv4 and MPLS over IPv4 tunneling driver  # IPv6 core (#16)
 thermal_sys: Registered thermal governor 'step_wise'  # thermal core (#16)
 pktgen: Packet Generator for packet performance testing\. Version: 2\.75  # NET_PKTGEN for nat-bench pktgen (#65)
 Kernel command line: earlycon  # DTS bootargs
-Kernel command line: earlycon( st1008f\.mode=m[123] st1008f\.slot=[ab] st1008f\.boot=(good|trial|legacy))?  # DTS bootargs + our U-Boot bootsel args: slot a|b (#117) (DTB_EXTEND, #73)
+Kernel command line: earlycon( st1008f\.mode=m[123] st1008f\.slot=[ab] st1008f\.boot=(good|trial|legacy)( st1008f\.lastreset=[a-z]+)?)?  # DTS bootargs + our U-Boot bootsel args: slot a|b (#117) (DTB_EXTEND, #73)
 OF: reserved mem: 0x0e000000\.\.0x0e000fff \(4 KiB\) nomap non-reusable bootrec@e000000  # boot-attempt record (DTS reserved-memory, #73)
 \s+node   0: \[mem 0x0000000000000000-0x000000000dffffff\]  # RAM bank 0 below the boot-attempt record (#73)
 \s+node   0: \[mem 0x000000000e000000-0x000000000e000fff\]  # boot-attempt record page, nomap (#73)
@@ -487,7 +487,7 @@ Aquantia AQR113C smbus:sfp-p[1-8]:11: aqr_gen1_read_status failed: -145  # -ETIM
 
 # Local OpenWrt 6.18 backport image (openwrt-ours-6.18) on sw2, reviewed 2026-10-12
 [openwrt]
-Kernel command line: earlycon( watchdog\.open_timeout=\d+)?( st1008f\.mode=m[123] st1008f\.slot=[ab] st1008f\.boot=(good|trial|legacy))?  # DT bootargs + chain U-Boot bootsel args: slot a|b (#117), one copy (300-19, #122); open_timeout (#138): "timeout" is the param name, benign #138
+Kernel command line: earlycon( watchdog\.open_timeout=\d+)?( st1008f\.mode=m[123] st1008f\.slot=[ab] st1008f\.boot=(good|trial|legacy)( st1008f\.lastreset=[a-z]+)?)?  # DT bootargs + chain U-Boot bootsel args: slot a|b (#117), one copy (300-19, #122); open_timeout (#138): "timeout" is the param name, benign #138
 jffs2_scan_eraseblock\(\): End of filesystem marker found at 0x[0-9a-f]+  # first boot after sysupgrade: overlay formatted
 jffs2_build_filesystem\(\): unlocking the mtd device\.\.\.  # same
 done\.  # tail of the jffs2 unlock line
@@ -534,3 +534,5 @@ Disable port \(0,(8|16|20|24|25|26|27|0)\)  # ramload `rtk port disable` of the 
 Creating [0-9]+ MTD partitions on "spi0\.0":  # DT partition table
 rtl83xx-switch 1b000000\.switch: storm control bc/mc/uc \d+/\d+/\d+ pps per port, loop detect (on|off) \(recover \d+ s\) \(#111\)  # 300-26 probe
 kmodloader: no module folders for kernel version 7\.\d+-next-\d{8} found  # 7.3 image has everything built in, no /lib/modules (#73)
+Last:  (no valid black-box record \(power-up\)|(unclean|clean|panic|unknown), boot #\d+, up \d+ s, hb \d+, msg ".*")  # our U-Boot: why the last boot ended (#144)
+st1008f-blackbox: (previous boot #\d+ ended .* after \d+ s, msg ".*"|no valid previous record \(cold boot\))  # kernel black box (#144)

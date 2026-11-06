@@ -117,7 +117,7 @@ new file mode 100644
 index 000000000..131e3e101
 --- /dev/null
 +++ b/drivers/platform/mips/tplink-st1008f-mode.c
-@@ -0,0 +1,799 @@
+@@ -0,0 +1,940 @@
 +// SPDX-License-Identifier: GPL-2.0-only
 +/*
 + * TP-Link TL-ST1008F v2: 3-position mode switch, ported from the stock rtk.ko
@@ -125,19 +125,24 @@ index 000000000..131e3e101
 + * Vendor function map and deviations: awto-tl-st1008f issue #64.
 + */
 +
++#include <linux/crc32.h>
 +#include <linux/debugfs.h>
 +#include <linux/delay.h>
 +#include <linux/ethtool.h>
 +#include <linux/gpio/consumer.h>
++#include <linux/io.h>
 +#include <linux/i2c.h>
 +#include <linux/module.h>
 +#include <linux/mutex.h>
 +#include <linux/netdevice.h>
 +#include <linux/of.h>
++#include <linux/panic_notifier.h>
 +#include <linux/platform_device.h>
++#include <linux/reboot.h>
 +#include <linux/rtnetlink.h>
 +#include <linux/seq_file.h>
 +#include <linux/sfp.h>
++#include <linux/timekeeping.h>
 +#include <linux/workqueue.h>
 +#include <net/net_namespace.h>
 +#include <net/netdev_lock.h>
@@ -897,6 +902,142 @@ index 000000000..131e3e101
 +	rtnl_unlock();
 +	st_release(ms);
 +}
++
++#ifndef MODULE
++/* Black box (#144): why the last boot ended, kept across panic, watchdog reset and reboot.
++ * The 4 KiB page at phys 0x0e000000 is DT-reserved (no-map) and survives resets; U-Boot's boot counters
++ * use its first 16 bytes, this record sits at +0x100. state RUNNING found at the next boot = unclean end
++ * (hang -> SoC watchdog, power cut); CLEAN = reboot / halt; PANIC = msg holds the panic text.
++ * U-Boot reads it before the kernel starts (bootsel.c) and passes st1008f.lastreset=<kind>.
++ */
++#define BB_PHYS		0x0e000100
++#define BB_MAGIC	0x42424f58	/* "BBOX" */
++#define BB_RUNNING	1
++#define BB_CLEAN	2
++#define BB_PANIC	3
++#define BB_BEAT_MS	1000	/* heartbeat: a hang is located to within one second */
++
++struct st_bb {
++	u32 magic;
++	u32 boot_seq;
++	u32 state;
++	u32 up_s;
++	u32 hb;
++	u32 rsvd;
++	char msg[80];
++	u32 crc;
++};
++
++static struct st_bb __iomem *bb;
++static struct st_bb bb_prev, bb_cur;
++static bool bb_prev_ok;
++static struct delayed_work bb_work;
++
++static u32 bb_crc(const struct st_bb *b)
++{
++	return crc32_le(~0, (const u8 *)b, offsetof(struct st_bb, crc)) ^ ~0;
++}
++
++static void bb_write(u32 state, const char *msg)
++{
++	bb_cur.state = state;
++	bb_cur.up_s = ktime_get_boottime_seconds();
++	bb_cur.hb++;
++	if (msg)
++		strscpy(bb_cur.msg, msg, sizeof(bb_cur.msg));
++	bb_cur.crc = bb_crc(&bb_cur);
++	memcpy_toio(bb, &bb_cur, sizeof(bb_cur));
++}
++
++static void bb_beat(struct work_struct *w)
++{
++	if (bb_cur.state == BB_RUNNING)
++		bb_write(BB_RUNNING, NULL);
++	schedule_delayed_work(&bb_work, msecs_to_jiffies(BB_BEAT_MS));
++}
++
++static int bb_panic(struct notifier_block *nb, unsigned long ev, void *data)
++{
++	bb_write(BB_PANIC, data ? data : "panic");
++	return NOTIFY_DONE;
++}
++
++static int bb_reboot(struct notifier_block *nb, unsigned long ev, void *data)
++{
++	cancel_delayed_work(&bb_work);
++	bb_write(BB_CLEAN, ev == SYS_RESTART ? "restart" : ev == SYS_HALT ? "halt" : "power off");
++	return NOTIFY_DONE;
++}
++
++static struct notifier_block bb_panic_nb = { .notifier_call = bb_panic };
++static struct notifier_block bb_reboot_nb = { .notifier_call = bb_reboot };
++
++static const char *bb_state_name(u32 s)
++{
++	return s == BB_RUNNING ? "unclean (hang, watchdog or power cut)" : s == BB_CLEAN ? "clean" :
++	       s == BB_PANIC ? "panic" : "unknown";
++}
++
++static int bb_last_show(struct seq_file *m, void *unused)
++{
++	if (!bb_prev_ok)
++		seq_puts(m, "none (cold boot or no valid record)\n");
++	else
++		seq_printf(m, "boot=%u state=%s up_s=%u hb=%u msg=%.80s\n", bb_prev.boot_seq,
++			   bb_state_name(bb_prev.state), bb_prev.up_s, bb_prev.hb, bb_prev.msg);
++	return 0;
++}
++DEFINE_SHOW_ATTRIBUTE(bb_last);
++
++/* userspace stage / test name: appears in the next boot's record while the state is RUNNING */
++static ssize_t bb_note_write(struct file *f, const char __user *ubuf, size_t len, loff_t *off)
++{
++	char buf[sizeof(bb_cur.msg)];
++	ssize_t n = simple_write_to_buffer(buf, sizeof(buf) - 1, off, ubuf, len);
++
++	if (n < 0)
++		return n;
++	buf[n] = 0;
++	buf[strcspn(buf, "\r\n")] = 0;
++	if (bb_cur.state == BB_RUNNING)
++		bb_write(BB_RUNNING, buf);
++	return n;
++}
++
++static const struct file_operations bb_note_fops = {
++	.owner = THIS_MODULE, .write = bb_note_write, .llseek = noop_llseek,
++};
++
++static int __init st_bb_init(void)
++{
++	struct dentry *dir;
++
++	if (!of_machine_is_compatible("tplink,tl-st1008f-v2"))
++		return 0;
++	bb = ioremap(BB_PHYS, sizeof(*bb));
++	if (!bb)
++		return -ENOMEM;
++	memcpy_fromio(&bb_prev, bb, sizeof(bb_prev));
++	bb_prev_ok = bb_prev.magic == BB_MAGIC && bb_prev.crc == bb_crc(&bb_prev);
++	if (bb_prev_ok)
++		pr_info("st1008f-blackbox: previous boot #%u ended %s after %u s, msg \"%.80s\"\n", bb_prev.boot_seq,
++			bb_state_name(bb_prev.state), bb_prev.up_s, bb_prev.msg);
++	else
++		pr_info("st1008f-blackbox: no valid previous record (cold boot)\n");
++	bb_cur.magic = BB_MAGIC;
++	bb_cur.boot_seq = bb_prev_ok ? bb_prev.boot_seq + 1 : 1;
++	bb_write(BB_RUNNING, "boot");
++	INIT_DELAYED_WORK(&bb_work, bb_beat);
++	schedule_delayed_work(&bb_work, msecs_to_jiffies(BB_BEAT_MS));
++	atomic_notifier_chain_register(&panic_notifier_list, &bb_panic_nb);
++	register_reboot_notifier(&bb_reboot_nb);
++	dir = debugfs_create_dir("st1008f-blackbox", NULL);
++	debugfs_create_file("last", 0444, dir, NULL, &bb_last_fops);
++	debugfs_create_file("note", 0200, dir, NULL, &bb_note_fops);
++	return 0;
++}
++late_initcall(st_bb_init);
++#endif
 +
 +static const struct of_device_id st_of_match[] = {
 +	{ .compatible = "tplink,st1008f-mode-switch" },

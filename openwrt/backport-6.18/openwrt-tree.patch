@@ -66,8 +66,20 @@ index d11a6fd..dbad530 100644
  	memory@0 {
  		device_type = "memory";
  		reg = <0x00000000 0x10000000>, /* first 256 MiB */
-@@ -18,33 +26,51 @@
+@@ -18,33 +26,63 @@
  
++	/* 4 KiB that survive resets: U-Boot's boot-attempt record at +0, the kernel black box (reset reason) at +0x100 (#144) */
++	reserved-memory {
++		#address-cells = <1>;
++		#size-cells = <1>;
++		ranges;
++
++		bootrec@e000000 {
++			reg = <0x0e000000 0x1000>;
++			no-map;
++		};
++	};
++
  	chosen {
  		stdout-path = "serial0:115200n8";
 +		/* open_timeout: after it the kernel no longer feeds the SoC watchdog while userspace has it

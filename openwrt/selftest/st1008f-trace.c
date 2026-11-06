@@ -3,6 +3,7 @@
  * line:  T cpu=L seq=N up=S dt=MS temp=mC load=1m busy=B0/B1 memavail=kB stage=<last selftest log line>
  *   dt  = real ms since the previous tick of this process: a stall before a hang shows as dt >> INTERVAL
  *   busy = % non-idle per VPE over the last tick (/proc/stat), temp = cpu-thermal zone
+ *   wd = /sys/class/watchdog/watchdog0 state/timeleft (is userspace feeding it? timeleft falling to 0 = reset)
  * No sleep(1): clock_nanosleep to an absolute time keeps the cadence without drift.
  */
 #include <stdio.h>
@@ -73,7 +74,7 @@ int main(int argc, char **argv)
 	prev = next;
 	cpus(i0, t0);
 	for (;;) {
-		char up[64], temp[32], load[64], mem[128], st[100];
+		char up[64], temp[32], load[64], mem[128], st[100], ws[32], wl[32];
 		struct timespec now;
 		long dt;
 		int b[2];
@@ -114,8 +115,10 @@ int main(int argc, char **argv)
 				fclose(f);
 		}
 		stage(st, sizeof(st));
-		printf("T cpu=%s seq=%u up=%s dt=%ld temp=%s load=%s busy=%d/%d memavail=%s stage=%s\n",
-		       label, seq++, up, dt, temp, load, b[0], b[1], mem, st);
+		rd("/sys/class/watchdog/watchdog0/state", ws, sizeof(ws));
+		rd("/sys/class/watchdog/watchdog0/timeleft", wl, sizeof(wl));
+		printf("T cpu=%s seq=%u up=%s dt=%ld temp=%s load=%s busy=%d/%d memavail=%s wd=%s/%s stage=%s\n",
+		       label, seq++, up, dt, temp, load, b[0], b[1], mem, ws, wl, st);
 		fflush(stdout);
 	}
 }

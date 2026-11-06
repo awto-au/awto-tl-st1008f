@@ -51,7 +51,7 @@
 /* led boot-end before the clock switch; led fallback/error only run when a bootm returned (#9).
  * bootargs: Linux reads st1008f.mode (switch position), st1008f.slot (a|b: which slot it splits, 300-33)
  * and st1008f.boot (good | trial | legacy) (docs/DEFAULT-BOOT.md) */
-#define ARGS		"setenv bootargs st1008f.mode=m%d st1008f.slot=%c st1008f.boot=%s; "
+#define ARGS		"setenv bootargs st1008f.mode=m%d st1008f.slot=%c st1008f.boot=%s st1008f.lastreset=%s; "
 /* Failed-autoboot prompt: waits for a person to start typing, expected <= 240 s (owner OK 2026-10-13),
  * x1.25 = 300 s; expiry = reset (RESET_TO_RETRY) -> attempt count -> good slot (#105). Set by bootcmd
  * itself, so an ESC prompt never times out. */
@@ -342,6 +342,35 @@ static int decide(char *slot, char *other, char *why, int len, bool count)
 	return SEL_TRIAL;
 }
 
+
+/* Kernel black box (#144, tplink-st1008f-mode.c): why the last boot ended, in the reserved page at +0x100.
+ * word layout: magic, boot_seq, state (1 running, 2 clean, 3 panic), up_s, hb, rsvd, msg[80], crc32 of the 104 bytes.
+ * Kind: cold (no valid record: power-up), unclean (kernel was running: hang -> SoC watchdog, power cut),
+ * clean (reboot / halt), panic. Passed to Linux as st1008f.lastreset=; the record itself stays for the kernel. */
+#define BB		((u32 __iomem *)0xae000100)
+#define BB_MAGIC	0x42424f58
+#define BB_BYTES	104
+static const char *lastreset = "cold";
+
+static void bb_read(void)
+{
+	u32 w[BB_BYTES / 4 + 1];
+	char msg[81];
+	int i;
+
+	for (i = 0; i < BB_BYTES / 4 + 1; i++)
+		w[i] = __raw_readl(BB + i);
+	if (w[0] != BB_MAGIC || w[BB_BYTES / 4] != crc32(0, (const u8 *)w, BB_BYTES)) {
+		lastreset = "cold";
+		puts("Last:  no valid black-box record (power-up)\n");
+		return;
+	}
+	memcpy(msg, &w[6], 80);
+	msg[80] = 0;
+	lastreset = w[2] == 1 ? "unclean" : w[2] == 2 ? "clean" : w[2] == 3 ? "panic" : "unknown";
+	printf("Last:  %s, boot #%u, up %u s, hb %u, msg \"%s\"\n", lastreset, w[1], w[3], w[4], msg);
+}
+
 /* board_late_init, chained boot (mode 1-3, invalid passed as 1): set bootcmd, bootargs, bootdelay */
 int st1008f_bootsel(int mode)
 {
@@ -349,6 +378,7 @@ int st1008f_bootsel(int mode)
 	int s = decide(&slot, &other, why, sizeof(why), true), n;
 
 	printf("Boot:  %s (%s)\n", sel_name[s], why);
+	bb_read();
 	if (fb_auto)
 		rtk_led_fallback(fb_auto);
 	if (s == SEL_PROMPT)
@@ -357,10 +387,10 @@ int st1008f_bootsel(int mode)
 	if (s == SEL_LEGACY)
 		n += snprintf(cmd + n, sizeof(cmd) - n, "bootsel wdt off; ");
 	n += snprintf(cmd + n, sizeof(cmd) - n, ARGS "bootm 0x%08lx; ", mode, slot, sel_name[s],
-		      FLASH + slot_off(slot));
+		      lastreset, FLASH + slot_off(slot));
 	if (other != '-')	/* trial image did not start: the good slot, watchdog re-armed */
 		n += snprintf(cmd + n, sizeof(cmd) - n, "bootsel wdt on; rtk led fallback bootm-trial; "
-			      ARGS "bootm 0x%08lx; ", mode, other, "good", FLASH + slot_off(other));
+			      ARGS "bootm 0x%08lx; ", mode, other, "good", lastreset, FLASH + slot_off(other));
 	snprintf(cmd + n, sizeof(cmd) - n, BOOT_TAIL);
 	env_set("bootcmd", cmd);
 	/* owner #46: 2 s window, ESC only (CONFIG_AUTOBOOT_STOP_STR); no env key may replace it */

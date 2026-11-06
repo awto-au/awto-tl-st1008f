@@ -7,8 +7,9 @@
 - On loss (no ping reply for LOSS_S): last sample per VPE with its age before the loss, selftest stage,
   temperature, busy %; then waits for the unit to return and collects a post-mortem over SSH (uptime,
   cmdline, kernel log head, pstore, clocks).
-- `--inject panic|hang --inject-at S`: deliberately kills the unit (validates the recorder; `hang` =
-  panic with kernel.panic=0, only the SoC watchdog resets it).
+- `--inject panic|hang|bus --inject-at S`: deliberately kills the unit (validates the recorder). `hang` = panic
+  with kernel.panic=0 (recorded as a panic, SoC watchdog resets it); `bus` = a bus-locking read: a true hang,
+  no oops and no panic (the next boot must report `unclean`).
 - sw1 (house switch) needs `--sw1-ok` (owner request 2026-11-06, #144). Each failing run = about 100 s outage.
 - Output: tmp/logs/stress_trace-<ip>-<ts>.{trace,json}, log tmp/logs/stress_trace.log
 """
@@ -32,7 +33,9 @@ LOG = ROOT / "tmp/logs/stress_trace.log"
 SRC = ROOT / "openwrt/selftest/st1008f-trace.c"
 BIN = ROOT / "tmp/trace/st1008f-trace"
 SW1 = "192.168.25.48"
+NETCONSOLE_PORT = 6666  # kernel log over UDP from the unit (image: hotplug 60-st1008f-netconsole); panic text arrives even as it dies
 LOSS_S = 3.0        # ping every 0.2 s: 3 s of silence = 15 lost probes in a row; a busy unit still answers within ~1 s
+SHUTDOWN_CAP_S = 40  # OpenWrt shutdown up to ~26 s while the boot selftest runs (#139); x1.5
 RETURN_CAP_S = 300  # boot to SSH ~45 s (sw1 2026-11-06); x6 covers a failed turbo boot falling back to stock + retry
 SSH = ["ssh", "-o", "ConnectTimeout=5", "-o", "BatchMode=yes", "-o", "ServerAliveInterval=2", "-o", "ServerAliveCountMax=2",
        "-o", "StrictHostKeyChecking=no"]
@@ -86,12 +89,36 @@ class Recorder:
         return th
 
 
+def netconsole(rec: "Recorder", ip: str) -> subprocess.Popen | None:
+    """The unit's netconsole stream, captured on the wire (the host firewall drops UDP :6666 before a socket sees it).
+    Each datagram = kernel log text; recorded as `kmsg`."""
+    route = subprocess.run(["ip", "-o", "route", "get", ip], capture_output=True, text=True, timeout=5).stdout
+    m = re.search(r" dev (\S+)", route)
+    if not m:
+        log("netconsole: no route to the unit; kernel text not recorded")
+        return None
+    p = subprocess.Popen(["sudo", "-n", "tcpdump", "-l", "-n", "-i", m.group(1), "-s0", "-A", "-q", "udp", "and", "src", "host",
+                          ip, "and", "dst", "port", str(NETCONSOLE_PORT)], stdout=subprocess.PIPE, stderr=subprocess.DEVNULL,
+                         text=True, errors="replace")
+
+    def run() -> None:
+        for ln in p.stdout:  # type: ignore[union-attr]
+            if re.match(r"^\d\d:\d\d:\d\d\.\d+ IP ", ln) or not ln.strip():
+                continue  # tcpdump packet header / blank separator
+            rec.line("kmsg", ln.rstrip())
+    threading.Thread(target=run, daemon=True).start()
+    return p
+
+
 def post_mortem(ip: str) -> dict:
     cmds = {"uptime_s": "cut -d' ' -f1 /proc/uptime", "cmdline": "cat /proc/cmdline",
             "bogomips": "grep -i bogomips /proc/cpuinfo | head -1",
             "temp_mC": "cat /sys/class/thermal/thermal_zone0/temp",
             "pstore": "ls /sys/fs/pstore 2>/dev/null | tr '\\n' ' '",
             "kernel_head": "dmesg | head -3 | cut -c1-120",
+            "lastreset_cmdline": "tr ' ' '\\n' < /proc/cmdline | grep lastreset",
+            "blackbox_last": "cat /sys/kernel/debug/st1008f-blackbox/last 2>&1",
+            "blackbox_dmesg": "dmesg | grep -i blackbox | head -2 | cut -c1-200",
             "reset_hints": "dmesg | grep -i 'watchdog\\|reset\\|panic\\|oops\\|thermal' | head -5 | cut -c1-140"}
     out = {}
     for k, c in cmds.items():
@@ -106,7 +133,7 @@ def main() -> int:
     ap.add_argument("--cpu-secs", type=int, default=60)
     ap.add_argument("--mem-secs", type=int, default=30)
     ap.add_argument("--full", action="store_true", help="selftest --full (all memory patterns)")
-    ap.add_argument("--inject", choices=["panic", "hang"])
+    ap.add_argument("--inject", choices=["panic", "hang", "bus", "reboot"])
     ap.add_argument("--inject-at", type=int, default=30, help="seconds after the selftest starts")
     ap.add_argument("--sw1-ok", action="store_true", help="allow sw1, the in-service house switch (owner request, #144)")
     a = ap.parse_args()
@@ -115,6 +142,11 @@ def main() -> int:
     stamp = time.strftime("%Y%m%d-%H%M%S")
     base = ROOT / f"tmp/logs/stress_trace-{a.ip}-{stamp}"
     build_and_push(a.ip)
+    for _ in range(120):  # the unit's own boot selftest takes ~30 s after boot; a second run is refused (rc 2)
+        busy = subprocess.run(SSH + [f"root@{a.ip}", "pidof st1008f-selftest"], capture_output=True, text=True, timeout=15)
+        if not busy.stdout.strip():
+            break
+        time.sleep(1)  # poll once a second, bounded 120 s
     rec = Recorder(a.ip, Path(f"{base}.trace"))
     procs = []
     for cpu, mask in (("0", "1"), ("1", "2")):
@@ -122,6 +154,7 @@ def main() -> int:
                              stdout=subprocess.PIPE, stderr=subprocess.STDOUT, text=True)
         procs.append(p)
         rec.pump(f"trace{cpu}", p)
+    nsock = netconsole(rec, a.ip)
     ping = subprocess.Popen(["ping", "-i", "0.2", "-D", a.ip], stdout=subprocess.PIPE, stderr=subprocess.STDOUT, text=True)
     rec.pump("ping", ping)
     t0 = time.time()
@@ -136,8 +169,10 @@ def main() -> int:
         now = time.time()
         if a.inject and not injected and now - t0 >= a.inject_at:
             injected = True
-            cmd = "echo c > /proc/sysrq-trigger" if a.inject == "panic" else \
-                  "sysctl -w kernel.panic=0 >/dev/null; echo c > /proc/sysrq-trigger"
+            cmd = {"panic": "echo c > /proc/sysrq-trigger",
+                   "hang": "sysctl -w kernel.panic=0 >/dev/null; echo c > /proc/sysrq-trigger",
+                   "bus": "devmem 0xbb000010",
+                   "reboot": "reboot"}[a.inject]  # bus lock: no oops, no panic, only the SoC watchdog resets it
             log(f"injecting {a.inject} at +{now - t0:.1f} s")
             subprocess.Popen(SSH + [f"root@{a.ip}", cmd], stdout=subprocess.DEVNULL, stderr=subprocess.DEVNULL)
         if test.poll() is not None:
@@ -149,6 +184,13 @@ def main() -> int:
             log("FAIL: run exceeded its budget without loss or end")
             break
         time.sleep(0.2)  # poll cadence of the loss check: 5 Hz is finer than the 0.2 s ping, cheap on the host
+    if lost_at is None and test.returncode not in (0, None):  # SSH broke first (reboot, crash): does the ping stop too?
+        t2 = time.time()
+        while time.time() - t2 < SHUTDOWN_CAP_S:  # a clean shutdown keeps answering ping while services stop
+            if time.time() - rec.last_reply > LOSS_S:
+                lost_at = rec.last_reply
+                break
+            time.sleep(0.2)  # same 5 Hz cadence as the main loop
     report: dict = {"ip": a.ip, "started": stamp, "args": args, "inject": a.inject}
     if lost_at is None:
         report["result"] = "PASS" if test.returncode == 0 else f"selftest rc {test.returncode}"
@@ -160,19 +202,27 @@ def main() -> int:
         for cpu, (t, text) in sorted(rec.last.items()):
             per[f"cpu{cpu}"] = {"age_before_loss_s": round(lost_at - t, 2), "line": text}
         report["last_samples"] = per
+        kmsg = [ln for ln in Path(f"{base}.trace").read_text().splitlines() if " kmsg " in ln][-12:]
+        report["kernel_last_lines"] = kmsg
+        log(f"netconsole: {len(kmsg)} kernel lines recorded" + (" (last: " + kmsg[-1][:120] + ")" if kmsg else
+                                                                " (none: no netconsole in the image, or a hang with no oops)"))
         log(f"LOST {report['lost_after_s']} s after the selftest started")
         for k, v in per.items():
             log(f"  last {k}: {v['age_before_loss_s']} s before the loss: {v['line']}")
         log(f"waiting for the unit (cap {RETURN_CAP_S} s) ...")
         back = None
+        last_up = max((float(m.group(1)) for _, text in rec.last.values() if (m := re.search(r" up=([\d.]+)", text))),
+                      default=0.0)
         t1 = time.time()
         while time.time() - t1 < RETURN_CAP_S:
-            if rec.last_reply > lost_at + 1:
-                back = rec.last_reply
+            r = subprocess.run(SSH + [f"root@{a.ip}", "cut -d' ' -f1 /proc/uptime"], capture_output=True, text=True,
+                               timeout=15)
+            if r.returncode == 0 and r.stdout.strip() and float(r.stdout.strip()) < last_up - 1:  # a new boot
+                back = time.time()
                 break
-            time.sleep(0.5)  # ping answers 5 Hz; 0.5 s resolves the return time well enough
+            time.sleep(1)  # one SSH probe per second (a failed probe already waits up to its 5 s connect timeout)
         if back:
-            report["outage_s"] = round(back - lost_at, 1)
+            report["outage_s"] = round(back - lost_at, 1)  # up to ~10 s after the ping returns: SSH comes up later
             log(f"back after {report['outage_s']} s; collecting post-mortem")
             for _ in range(60):  # SSH comes up ~10 s after the first ping (firewall start)
                 try:
@@ -185,6 +235,8 @@ def main() -> int:
             report["outage_s"] = None
             log(f"FAIL: no ping reply within {RETURN_CAP_S} s: physical recovery needed")
     rec.stop = True
+    if nsock and nsock.poll() is None:
+        nsock.terminate()
     for p in procs + [ping, test]:
         if p.poll() is None:
             p.terminate()
