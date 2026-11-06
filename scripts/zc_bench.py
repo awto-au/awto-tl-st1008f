@@ -42,15 +42,28 @@ def zc():
     return {ln.split()[0]: int(ln.split()[1]) for ln in out.splitlines()}
 
 
+def cpu_stat():
+    out = nb.sw("grep -E '^cpu[01] ' /proc/stat")
+    r = {}
+    for ln in out.splitlines():
+        f = [int(x) for x in ln.split()[1:9]]
+        r[ln.split()[0]] = (sum(f), f[3] + f[4])
+    return r
+
+
+def busy(c0, c1):
+    return "/".join(f"{100 - 100 * (c1[k][1] - c0[k][1]) / max(1, c1[k][0] - c0[k][0]):.0f}" for k in ("cpu0", "cpu1"))
+
+
 def run(label, secs, flows, ln):
     dev = f"{nb.HOST_NIC}.992"
-    a, za = rx(dev), zc()
+    a, za, c0 = rx(dev), zc(), cpu_stat()
     t = time.time()
     r = subprocess.run(["sudo", "-n", "ip", "netns", "exec", "natlan", str(ROOT / "tmp/udpblast"), "10.99.1.2", "10.99.2.2",
                         "5201", str(ln), str(secs), str(flows)], capture_output=True, text=True,
                        timeout=secs * 3 + 30)  # the sender stops itself at `secs`; x3 for a slow start
     wall = time.time() - t
-    b, zb = rx(dev), zc()
+    b, zb, c1 = rx(dev), zc(), cpu_stat()
     m = None
     sent = re.search(r"sent (\d+)", r.stdout)
     # forwarded rate over the iperf window (secs + 2 s ramp); the dumps after it are idle
@@ -58,7 +71,7 @@ def run(label, secs, flows, ln):
     d = {k: zb[k] - za[k] for k in zb}
     log(f"{label}: natwan rx {b - a} pkts = {kpps:.1f} kpps ({kpps * 1000 * (ln + 46) * 8 / 1e6:.0f} Mbit/s on the wire) | "
         f"zc_fwd {d['zc_fwd']} miss {d['zc_miss']} busy {d['zc_busy']} ring0 {d['ring0_frames']} ring1 {d['ring1_frames']} | "
-        f"sent {sent.group(1) if sent else '?'} wall {wall:.0f}s")
+        f"busy VPE0/VPE1 {busy(c0, c1)}% (incl. ~2 s ramp/idle) | sent {sent.group(1) if sent else '?'} wall {wall:.0f}s")
     return kpps
 
 
@@ -96,11 +109,11 @@ def main():
     ap.add_argument("--tcp", action="store_true", help="iperf3 TCP through both directions (needs --nat parameters; implies --nat)")
     ap.add_argument("--nat", action="store_true", help="source NAT the flow: 10.99.1.2 -> 10.99.2.1, port + 1000")
     ap.add_argument("--napi", choices=["irq", "split"], default="irq",
-                    help="split = threaded NAPI, ring0 thread on VPE0, ring1 (fast path) thread on VPE1")
+                    help="split = threaded NAPI, ring1 (fast path) thread on VPE1, other on VPE0")
     a = ap.parse_args()
     if a.napi == "split":
         nb.sw("echo 1 > /sys/class/net/eth0/threaded; i=0; for t in $(ps | awk '/napi\\/eth0/{print $1}'); do "
-              "taskset -p $((1 << (i % 2))) $t >/dev/null; i=$((i+1)); done")
+              "taskset -p $((2 >> (i % 2))) $t >/dev/null; i=$((i+1)); done")
         log("napi: threaded, kthreads split over VPE0/VPE1: " + nb.sw("ps | grep 'napi/eth0'").replace("\n", " "))
     if a.tcp:
         a.nat = True
