@@ -46,6 +46,7 @@
 
 - [NAT.md](NAT.md) — NAT path, ceilings, measured results (#65). Ops: [NAT-OPS.md](NAT-OPS.md).
 - [NAT-PROGRESS.md](NAT-PROGRESS.md) — IPv4 NAT: current numbers, change-by-change ledger, what did not help, second-CPU analysis (#65, #60).
+- [RESET-REASON.md](RESET-REASON.md) — the black box: why the last boot ended (panic text, clean, hang), kept across resets; ops: [RESET-REASON-OPS.md](RESET-REASON-OPS.md) (#144).
 - [ROUTING-OFFLOAD.md](ROUTING-OFFLOAD.md) — HW L3 routing offload (#59). Ops: [ROUTING-OFFLOAD-OPS.md](ROUTING-OFFLOAD-OPS.md).
 - [UPSTREAM-L3.md](UPSTREAM-L3.md) — upstream path for L3 offload: survey of router/flowtable offload code, shared `fib_offload` helper proposal (#85).
 - [VENDOR-NIC-TUNING.md](VENDOR-NIC-TUNING.md) — vendor CPU-NIC tuning vs OpenWrt `rtl838x_eth` (#60).
