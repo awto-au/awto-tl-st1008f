@@ -32,6 +32,7 @@ BACKUP = ROOT / "private/sysupgrade-backup"
 FIRMWARE = (0x300000, 0x1D00000)  # upstream layout: 0x300000 to the end of the 32 MiB chip
 SSH = ["ssh", "-o", "ConnectTimeout=5", "-o", "BatchMode=yes", "-o", "StrictHostKeyChecking=accept-new"]
 CMD_S = 30     # one SSH command: sysupgrade -T / -b ~2-5 s on a 1 GHz MIPS; x6 for a loaded box
+HTTP_PORT = 8008  # as default_boot.fetch
 PUSH_S = 60    # 6 MB over 1G LAN, dropbear cipher on MIPS: wget of the same file took 4.7 s on sw2; x12
 # drop off: the unit stays reachable through the whole flash write, until the reboot
 # (docs/OPENWRT-BUILD-OPS.md sysupgrade timing); x1.25
@@ -70,6 +71,9 @@ def wait(ip: str, up: bool, cap: float, what: str) -> float:
 def main() -> int:
     ap = argparse.ArgumentParser(description=__doc__.splitlines()[0])
     ap.add_argument("--ip", required=True)
+    ap.add_argument("--pull", action="store_true",
+                    help="the unit fetches the image over host HTTP (:8008, this one file) instead of an SSH push: "
+                         "no ssh crypto load during the transfer (sw1, 2026-11-06: two SSH pushes stalled it)")
     ap.add_argument("--force", action="store_true",
                     help="sysupgrade -F: image compat change (1.0 single firmware -> 2.0 A/B, #117), config kept")
     a = ap.parse_args()
@@ -104,7 +108,27 @@ def main() -> int:
     out.write_bytes(r.stdout)
     log(f"  config backup {len(r.stdout)} B -> {out.relative_to(ROOT)}")
 
-    ssh(a.ip, "cat > /tmp/f.bin", PUSH_S, data=raw)
+    if a.pull:
+        import functools
+        import http.server
+        import shutil
+        import threading
+        serve = ROOT / "tmp/sysup-serve"
+        shutil.rmtree(serve, ignore_errors=True)
+        serve.mkdir(parents=True)
+        (serve / "f.bin").write_bytes(raw)  # a directory with only the image
+        route = subprocess.run(["ip", "-o", "route", "get", a.ip], capture_output=True, text=True, timeout=5).stdout
+        src = re.search(r" src (\S+)", route).group(1)  # our address on the unit's LAN
+        srv = http.server.ThreadingHTTPServer((src, HTTP_PORT), functools.partial(
+            http.server.SimpleHTTPRequestHandler, directory=str(serve)))
+        threading.Thread(target=srv.serve_forever, daemon=True).start()
+        try:
+            ssh(a.ip, f"wget -q -O /tmp/f.bin http://{src}:{HTTP_PORT}/f.bin", PUSH_S)
+        finally:
+            srv.shutdown()
+            shutil.rmtree(serve, ignore_errors=True)
+    else:
+        ssh(a.ip, "cat > /tmp/f.bin", PUSH_S, data=raw)
     got = ssh(a.ip, "md5sum /tmp/f.bin").split()[0]
     if got != md5:
         raise SystemExit(f"FAIL: md5 on the box {got} != {md5}")

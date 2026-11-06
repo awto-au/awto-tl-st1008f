@@ -66,6 +66,7 @@ class Recorder:
         self.last: dict[str, tuple[float, str]] = {}
         self.last_reply = time.time()
         self.stop = False
+        self.stats: dict[str, int] = {}
         self.lock = threading.Lock()
 
     def line(self, src: str, text: str) -> None:
@@ -74,6 +75,10 @@ class Recorder:
             self.fh.write(f"{t:.3f} {src} {text}\n")
             self.fh.flush()
         if src.startswith("trace"):
+            for key, field in (("temp", r" temp=(\d+)"), ("dt", r" dt=(\d+)")):
+                mm = re.search(field, text)
+                if mm:
+                    self.stats[key] = max(self.stats.get(key, 0), int(mm.group(1)))
             m = re.search(r"cpu=(\S+)", text)
             if m:
                 self.last[m.group(1)] = (t, text)
@@ -135,6 +140,10 @@ def main() -> int:
     ap.add_argument("--full", action="store_true", help="selftest --full (all memory patterns)")
     ap.add_argument("--inject", choices=["panic", "hang", "bus", "reboot"])
     ap.add_argument("--inject-at", type=int, default=30, help="seconds after the selftest starts")
+    ap.add_argument("--duration", type=int, default=0,
+                    help="seconds: repeat the selftest until then (full-load soak); default one run")
+    ap.add_argument("--net-load", action="store_true",
+                    help="also forward traffic through the CPU path the whole time (nat-bench NAT + flowtable, sw2 bench only)")
     ap.add_argument("--sw1-ok", action="store_true", help="allow sw1, the in-service house switch (owner request, #144)")
     a = ap.parse_args()
     if a.ip == SW1 and not a.sw1_ok:
@@ -157,12 +166,46 @@ def main() -> int:
     nsock = netconsole(rec, a.ip)
     ping = subprocess.Popen(["ping", "-i", "0.2", "-D", a.ip], stdout=subprocess.PIPE, stderr=subprocess.STDOUT, text=True)
     rec.pump("ping", ping)
+    boot_id0 = subprocess.run(SSH + [f"root@{a.ip}", "cat /proc/sys/kernel/random/boot_id"], capture_output=True, text=True,
+                              timeout=15).stdout.strip()
     t0 = time.time()
     args = f"--quiet --mem-secs {a.mem_secs} --cpu-secs {a.cpu_secs}" + (" --full" if a.full else "")
-    test = subprocess.Popen(SSH + [f"root@{a.ip}", f"st1008f-selftest {args}"], stdout=subprocess.PIPE,
-                            stderr=subprocess.STDOUT, text=True)
-    rec.pump("selftest", test)
-    log(f"started on {a.ip}: st1008f-selftest {args}; trace -> {base}.trace")
+    iters: list[dict] = []
+
+    def start_selftest() -> tuple[subprocess.Popen, list[str]]:
+        proc = subprocess.Popen(SSH + [f"root@{a.ip}", f"st1008f-selftest {args}"], stdout=subprocess.PIPE,
+                                stderr=subprocess.STDOUT, text=True)
+        out: list[str] = []
+
+        def run() -> None:
+            for ln in proc.stdout:  # type: ignore[union-attr]
+                out.append(ln.rstrip())
+                rec.line("selftest", ln.rstrip())
+        threading.Thread(target=run, daemon=True).start()
+        return proc, out
+
+    net = {"runs": 0, "bad": 0, "mbps": []}
+    if a.net_load:
+        for step in (["setup"], ["v6-setup"], ["dflt-setup"], ["mode", "nat-ft"]):  # v6 first: dflt-setup needs it
+            r = subprocess.run(["./dev.py", "nat-bench", *step], cwd=ROOT, capture_output=True, text=True, timeout=120)
+            if r.returncode:
+                log(f"WARN nat-bench {' '.join(step)} rc {r.returncode}")
+
+        def netload() -> None:
+            while not rec.stop and time.time() - t0 < (a.duration or a.cpu_secs + a.mem_secs + 60):
+                r = subprocess.run(["./dev.py", "nat-bench", "run", "--secs", "20", "-P", "4", "--dst", "198.51.100.5"],
+                                   cwd=ROOT, capture_output=True, text=True, timeout=120)  # 20 s run + dumps; x6 margin
+                net["runs"] += 1
+                m = re.search(r"RESULT \S+: ([\d.]+) Mbit/s", r.stdout)
+                if r.returncode or not m:
+                    net["bad"] += 1
+                else:
+                    net["mbps"].append(float(m.group(1)))
+        threading.Thread(target=netload, daemon=True).start()
+    test, test_out = start_selftest()
+    log(f"started on {a.ip}: st1008f-selftest {args}" + (f" for {a.duration} s" if a.duration else "") +
+        (" + forwarding load" if a.net_load else "") + f"; trace -> {base}.trace")
+    next_status = t0 + 300  # progress line every 5 minutes of a long run
     injected = False
     lost_at = None
     while True:
@@ -176,11 +219,21 @@ def main() -> int:
             log(f"injecting {a.inject} at +{now - t0:.1f} s")
             subprocess.Popen(SSH + [f"root@{a.ip}", cmd], stdout=subprocess.DEVNULL, stderr=subprocess.DEVNULL)
         if test.poll() is not None:
+            summary = next((ln for ln in reversed(test_out) if ln.startswith("st1008f-selftest:")), "")
+            iters.append({"rc": test.returncode, "summary": summary[:160]})
+            if a.duration and now - t0 < a.duration and test.returncode == 0 and " PASS " in summary + " ":
+                test, test_out = start_selftest()
+                continue
             break
+        if a.duration and now >= next_status:
+            next_status += 300
+            log(f"+{now - t0:.0f} s: {len(iters)} selftest runs ok, max temp {rec.stats.get('temp', 0) / 1000:.1f} C, "
+                f"max tick jitter {rec.stats.get('dt', 0)} ms" + (f", forwarding {net['runs']} runs ({net['bad']} bad)"
+                                                                   if a.net_load else ""))
         if now - rec.last_reply > LOSS_S:
             lost_at = rec.last_reply
             break
-        if now - t0 > a.cpu_secs + a.mem_secs + 120:  # selftest fast steps + both loads + margin: a stuck run
+        if now - t0 > (a.duration or a.cpu_secs + a.mem_secs) + 180:  # selftest fast steps + both loads + margin: a stuck run
             log("FAIL: run exceeded its budget without loss or end")
             break
         time.sleep(0.2)  # poll cadence of the loss check: 5 Hz is finer than the 0.2 s ping, cheap on the host
@@ -191,7 +244,18 @@ def main() -> int:
                 lost_at = rec.last_reply
                 break
             time.sleep(0.2)  # same 5 Hz cadence as the main loop
-    report: dict = {"ip": a.ip, "started": stamp, "args": args, "inject": a.inject}
+    if a.net_load:  # restore the bench: the test default route would cut the unit off from the internet
+        subprocess.run(["./dev.py", "nat-bench", "teardown"], cwd=ROOT, capture_output=True, text=True, timeout=120)
+    boot_id1 = ""
+    if lost_at is None:
+        r = subprocess.run(SSH + [f"root@{a.ip}", "cat /proc/sys/kernel/random/boot_id; cut -d' ' -f1 /proc/uptime"],
+                           capture_output=True, text=True, timeout=30)
+        boot_id1 = r.stdout.split("\n")[0].strip() if r.returncode == 0 else ""
+    report: dict = {"ip": a.ip, "started": stamp, "same_boot_at_end": bool(boot_id0) and boot_id0 == boot_id1, "args": args, "inject": a.inject, "duration": a.duration,
+                    "selftest_runs": iters, "max_temp_mC": rec.stats.get("temp"), "max_tick_jitter_ms": rec.stats.get("dt")}
+    if a.net_load:
+        report["forwarding"] = {"runs": net["runs"], "bad": net["bad"],
+                                "mbps_min": min(net["mbps"], default=None), "mbps_max": max(net["mbps"], default=None)}
     if lost_at is None:
         report["result"] = "PASS" if test.returncode == 0 else f"selftest rc {test.returncode}"
         log(f"{report['result']}: selftest ended after {time.time() - t0:.1f} s, no loss")
