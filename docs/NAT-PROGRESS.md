@@ -125,9 +125,9 @@ OpenWrt 7.3, CPU 1350 / DDR 662 / LX 306 / SRAM 500, sw2 RAM boot. One UDP flow 
 | server -> client (`--reverse`) | - | **1187 Mbit/s** (10720 retransmits) |
 
 - The stack saw 33-66 pps during the fast-path runs; `zc_flows` 10 per run (4 data + 1 control connection, 2 directions). 2.5x the best software-NAT result (507 Mbit/s with the best knob combination), 50 % of the 2.5 Gbit/s target.
-- Retransmits are about 1 % of the segments: drops under load (not analysed: ring, ASIC queue or the TCP stream pacing).
+- Retransmits (1.35 % of the segments in one 10 s run: 17.5k of 1.29 M, sender side) are ASIC egress-queue drops: `EGR_QUEUE` +20692 = `dot1dTpPortInDiscards` +20693 during the run, lan1 `ifOutDiscards` 0, `zc_busy` 0. The host sends at 10G line rate, the one-CPU fast path forwards about 100-140 kpps, so the queue toward the CPU overflows and TCP backs off: congestion at saturation (CPU0 92 %), not an error in the fast path.
 - `nf_flow_table_offload.c` builds the 16-bit Ethernet address pieces (`mask = ~0xffff0000`, `val = val16 [<< 16]`) from host-order constants: byte-correct on little-endian only. On this big-endian MIPS the 12 address bytes arrive rotated; the driver decodes the four Ethernet entries by numeric value for both byte orders. The IP and port entries use `htonl()` and are fine. Worth reporting upstream (#85 strategy).
-- Not done: SRAM buffers (#148), the other VPE, IPv6, ICMP errors and fragments (stay in the stack), more than 2048 flows, the retransmit rate, a soak, `zc_busy` (TX ring full).
+- Not done: SRAM buffers (#148), the other VPE, IPv6, ICMP errors and fragments (stay in the stack), more than 2048 flows, a soak.
 
 ## Memory path and the second VPE (2026-11-06, `scripts/mt_interference.py`)
 
