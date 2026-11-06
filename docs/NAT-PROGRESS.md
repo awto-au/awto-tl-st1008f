@@ -96,6 +96,20 @@ On the best combination (369), one more knob at a time: NAPI defer +3 %, UDP GRO
 - Not safe as an image default yet: with `tx_by_cpu` a ring is reclaimed only by its own CPU's NAPI, so skbs of local sockets sent from an idle CPU can wait. Fix first (reclaim at xmit).
 - Not tried in combination: SRAM packet buffers, `300-14` doorbell, picks clocks, `rx-gro-list` variants on `switch.*`, per-flow ring split (PIE ACL hit -> ring via `QM_FLAG2CPUQID`).
 
+## In-place forward prototype, no skb (2026-11-06, `300-39`, #148 #140)
+
+OpenWrt 7.3, CPU 1350 / DDR 662 / LX 306 / SRAM 500, sw2 RAM boot. One UDP flow natlan -> natwan routed through the switch CPU path (no NAT, no flowtable); `scripts/zc_bench.py`. Receiver truth = `rx_packets` of the natwan interface (equal to the driver's forward count, no loss between). `zc=1`: the frame is rewritten in its RX buffer (DMAC, SMAC, VLAN id, TTL-1 + incremental IP checksum) and sent from the same buffer; no skb, GRO, netfilter or qdisc; the page returns to the pool when the TX completes. DDR buffers, one hard-coded flow, UDP only.
+
+| Frame | Stack path | In place | Ratio | CPU0 |
+|---|---|---|---|---|
+| 1400 B payload (1446 B frame) | 21.8 kpps (252 Mbit/s) | 143.3 kpps (1658 Mbit/s on the wire) | 6.6x | 94 % both |
+| 64 B payload | 22.7 kpps | 490.7 kpps | 21.6x | 94-96 % |
+
+- Per packet: about 44 µs through the stack, 2 µs in place (64 B), 6.6 µs (1400 B).
+- The 1400 B rate is not set by per-packet CPU cost: the NIC / CPU port moves 1.66 Gbit/s each way (RX + TX 3.3 Gbit/s total), so the CPU port is not a 1 Gbit/s cap.
+- TX length: the NIC takes frame + 4 bytes of FCS room (`frag->len` = RX length); trimming the 4 bytes sent truncated frames that the receiver dropped (found by comparing the stack's TX frame with ours: `zc_dbg`).
+- Not done: NAT address/port rewrite, TCP (both directions), flow table, SRAM buffers (#148), more than one flow, the other VPE, `zc_busy` (TX ring full, 1.4 % at 1400 B).
+
 ## Memory path and the second VPE (2026-11-06, `scripts/mt_interference.py`)
 
 Question (owner): do the VPEs lose to each other through memory bandwidth, and can one VPE use a small private memory? Forwarding confined to VPE1 (344-347 Mbit/s: threaded NAPI pinned, one ring, `tx_by_cpu`, `noqueue`); a synthetic probe (`openwrt/selftest/st1008f-mtprobe.c`) on VPE0, 18 s, one run each, OpenWrt 7.3 b455c5b, stock clocks (CPU 800), sw2 RAM boot.

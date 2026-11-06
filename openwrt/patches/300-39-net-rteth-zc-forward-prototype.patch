@@ -1,0 +1,244 @@
+From: Dan <dan@awto.au>
+Subject: [PATCH] net: rteth: in-place UDP forward without an skb, behind a module parameter (#148 prototype)
+
+- zc=1: a UDP frame to zc_dport on RX ring zc_ring is rewritten in its RX buffer (DMAC zc_dmac, SMAC = our MAC,
+  VLAN id zc_vid, TTL-1 with incremental IP checksum) and sent from the same buffer on TX ring 0; the page
+  returns to the page pool on TX completion. No skb, no GRO, no netfilter, no qdisc.
+- Prototype to measure the ceiling of a stack-less forward (and later the same with SRAM buffers); one flow,
+  no NAT yet. Counters zc_fwd / zc_miss / zc_busy in debugfs rteth/rxq.
+---
+--- a/drivers/net/ethernet/realtek/rtl838x_eth.h
++++ b/drivers/net/ethernet/realtek/rtl838x_eth.h
+@@ -285,6 +285,8 @@
+ 	unsigned long		packets;     /* under the txq lock (xmit) */
+ 	unsigned long		bytes;
+ 	struct sk_buff		*skb[RTETH_TX_RING_SIZE];
++	struct page		*zc_page[RTETH_TX_RING_SIZE];     /* in-place forward (#148): RX page held until TX done */
++	struct page_pool	*zc_pool[RTETH_TX_RING_SIZE];
+ };
+ 
+ struct rteth_ctrl {
+--- a/drivers/net/ethernet/realtek/rtl838x_eth.c
++++ b/drivers/net/ethernet/realtek/rtl838x_eth.c
+@@ -5,6 +5,7 @@
+ 
+ #include <linux/cacheflush.h>
+ #include <linux/debugfs.h>
++#include <linux/ip.h>
+ #include <linux/dma-mapping.h>
+ #include <linux/etherdevice.h>
+ #include <linux/genalloc.h>
+@@ -27,6 +28,7 @@
+ #include <linux/regmap.h>
+ #include <linux/rtnetlink.h>
+ #include <linux/workqueue.h>
++#include <net/checksum.h>
+ #include <net/dsa.h>
+ #include <net/dst_metadata.h>
+ #include <net/page_pool/helpers.h>
+@@ -43,6 +45,31 @@
+ module_param(tx_by_cpu, uint, 0644);
+ MODULE_PARM_DESC(tx_by_cpu, "TX ring = CPU number (run time, for NAPI pinned per VPE, #65)");
+ 
++/* In-place forward without an skb (#148 prototype): a UDP frame to zc_dport that arrives on RX ring zc_ring is
++ * rewritten in its RX buffer (DMAC, SMAC = our MAC, VLAN id, TTL) and sent from the same buffer; the page returns
++ * to the pool when the TX completes. Steer the flow to the ring first: rteth/rxq `l3_net_route 1`.
++ */
++static uint zc;
++module_param(zc, uint, 0644);
++MODULE_PARM_DESC(zc, "1 = forward matching UDP frames in place, no skb (prototype, #148)");
++static uint zc_ring = 1;
++module_param(zc_ring, uint, 0644);
++MODULE_PARM_DESC(zc_ring, "RX ring that carries the flow (do not change under load)");
++static uint zc_dport = 5201;
++module_param(zc_dport, uint, 0644);
++static uint zc_vid;
++module_param(zc_vid, uint, 0644);
++MODULE_PARM_DESC(zc_vid, "VLAN id to write when the frame is tagged (0 = keep)");
++static unsigned char zc_dmac[ETH_ALEN];
++static unsigned int zc_dmac_n;
++module_param_array(zc_dmac, byte, &zc_dmac_n, 0644);
++MODULE_PARM_DESC(zc_dmac, "new destination MAC, 6 decimal bytes");
++static unsigned long zc_fwd, zc_miss, zc_busy;
++static uint zc_dbg;
++module_param(zc_dbg, uint, 0644);
++MODULE_PARM_DESC(zc_dbg, "log the next N TX frames of both paths (len, cpu tag, first bytes)");
++#define RTETH_ZC_MARK	((struct sk_buff *)1UL)
++
+ /* RTL930x NIC core shared with U-Boot (awto-tl-st1008f shared/rtl930x-nic, #83); ctx = regmap */
+ static inline u32 rtl930x_nic_rd(void *ctx, u32 off)
+ {
+@@ -611,6 +638,12 @@
+ 			if (!tx_info->skb[i])
+ 				continue;
+ 
++			if (tx_info->skb[i] == RTETH_ZC_MARK) {
++				page_pool_put_full_page(tx_info->zc_pool[i], tx_info->zc_page[i], false);
++				tx_info->skb[i] = NULL;
++				continue;
++			}
++
+ 			dma_unmap_single(&ctrl->pdev->dev, dma,
+ 					 tx_info->skb[i]->len, DMA_TO_DEVICE);
+ 			rteth_free_skb(&tx_info->skb[i]);
+@@ -640,6 +673,13 @@
+ 		if (ctrl->tx_data[r].ring[i] & RTETH_RING_OWN_HW)
+ 			break;
+ 
++		if (unlikely(tx_info->skb[i] == RTETH_ZC_MARK)) {
++			page_pool_put_full_page(tx_info->zc_pool[i], tx_info->zc_page[i], false);
++			tx_info->skb[i] = NULL;
++			tx_info->clean_count++;
++			continue;
++		}
++
+ 		dma_unmap_single(&ctrl->pdev->dev, ctrl->tx_data[r].frag[i].dma,
+ 				 tx_info->skb[i]->len, DMA_TO_DEVICE);
+ 		pkts++;
+@@ -1242,6 +1282,10 @@
+ 	if (port >= 0)
+ 		ctrl->cfg->create_tx_header(frag, port, ctrl->cfg->tx_queue_from_priority ?
+ 					    min_t(u32, skb->priority, 7) : 0);
++	if (zc_dbg && port >= 0 && len > 1000) {
++		zc_dbg--;
++		pr_info("tx stack: len %u skb %u port %d tag %*ph data %*ph\n", frag->len, skb->len, port, 20, frag->cpu_tag, 32, skb->data);
++	}
+ 
+ 	/* Hand frag over to switch */
+ 	dma_wmb();
+@@ -1359,6 +1403,98 @@
+ 	return 0;
+ }
+ 
++static bool rteth_zc_forward(struct rteth_ctrl *ctrl, int ring, int slot, struct rteth_frag *frag)
++{
++	struct rteth_rx_info *rxi = &ctrl->rx_info[ring];
++	struct netdev_queue *txq = netdev_get_tx_queue(ctrl->dev, 0);
++	struct rteth_tx_info *txi = &ctrl->tx_info[0];
++	struct page *page = rxi->page[slot];
++	unsigned int off = rxi->offset[slot] + ctrl->cfg->skb_headroom;
++	unsigned int len = frag->len, l2 = ETH_HLEN, txslot;
++	u8 *p = page_address(page) + off;
++	struct rteth_dsa_tag tag;
++	struct rteth_frag *tf;
++	struct iphdr *iph;
++	dma_addr_t dma, packet_dma;
++	__be16 old;
++
++	if (len < ETH_ZLEN + ETH_FCS_LEN || zc_dmac_n != ETH_ALEN)
++		goto miss;
++	if (p[12] == 0x81 && p[13] == 0x00)
++		l2 += VLAN_HLEN;
++	if (p[l2 - 2] != 0x08 || p[l2 - 1] != 0x00)
++		goto miss;
++	iph = (struct iphdr *)(p + l2);
++	if (iph->ihl != 5 || iph->protocol != IPPROTO_UDP || iph->ttl < 2 ||
++	    (iph->frag_off & htons(IP_MF | IP_OFFSET)) || ((__be16 *)(iph + 1))[1] != htons(zc_dport))
++		goto miss;
++
++	ctrl->cfg->decode_tag(frag, &tag);
++	memcpy(p, zc_dmac, ETH_ALEN);
++	memcpy(p + ETH_ALEN, ctrl->dev->dev_addr, ETH_ALEN);
++	if (l2 > ETH_HLEN && zc_vid) {
++		p[14] = (p[14] & 0xf0) | ((zc_vid >> 8) & 0x0f);
++		p[15] = zc_vid & 0xff;
++	}
++	old = *(__be16 *)&iph->ttl;
++	iph->ttl--;
++	csum_replace2(&iph->check, old, *(__be16 *)&iph->ttl);
++
++	dma = page_pool_get_dma_addr(page) + off;
++	dma_sync_single_for_device(&ctrl->pdev->dev, dma, 64, DMA_TO_DEVICE);	/* the rewritten header lines */
++
++	__netif_tx_lock(txq, smp_processor_id());
++	txslot = txi->send_count & (RTETH_TX_RING_SIZE - 1);
++	packet_dma = ctrl->tx_data[0].ring[txslot];
++	if (unlikely(packet_dma & RTETH_RING_OWN_HW)) {
++		__netif_tx_unlock(txq);
++		zc_busy++;
++		return false;
++	}
++	if (unlikely(txi->skb[txslot]))
++		rteth_reclaim_tx_ring(ctrl, 0, 1);
++	tf = &ctrl->tx_data[0].frag[txslot];
++	txi->skb[txslot] = RTETH_ZC_MARK;
++	txi->zc_page[txslot] = page;
++	txi->zc_pool[txslot] = rxi->pool;
++	tf->len = len;	/* RX len = frame + 4 FCS bytes; TX takes frame + 4 bytes of FCS room, as the skb path does */
++	tf->dma = dma;
++	ctrl->cfg->create_tx_header(tf, tag.port, 0);
++	if (zc_dbg && len > 1000) {
++		zc_dbg--;
++		pr_info("tx zc:    len %u rxlen %u port %d tag %*ph data %*ph\n", tf->len, len, tag.port, 20, tf->cpu_tag, 32, p);
++	}
++	dma_wmb();
++	ctrl->tx_data[0].ring[txslot] = packet_dma | RTETH_RING_OWN_HW;
++	txi->send_count++;
++	wmb();
++	if (txi->send_count - txi->kick_count >= RTETH_TX_KICK_BATCH) {
++		ctrl->cfg->tx_kick(ctrl, 0);
++		txi->kick_count = txi->send_count;
++	}
++	__netif_tx_unlock(txq);
++	zc_fwd++;
++	return true;
++
++miss:
++	if (zc_miss++ < 3)	/* first misses: the real frame layout (VLAN tag? ethertype?) */
++		print_hex_dump(KERN_INFO, "zc miss: ", DUMP_PREFIX_OFFSET, 16, 1, p, min(len, 48u), false);
++	return false;
++}
++
++static void rteth_zc_kick(struct rteth_ctrl *ctrl)
++{
++	struct netdev_queue *txq = netdev_get_tx_queue(ctrl->dev, 0);
++	struct rteth_tx_info *txi = &ctrl->tx_info[0];
++
++	if (txi->kick_count == txi->send_count)
++		return;
++	__netif_tx_lock(txq, smp_processor_id());
++	ctrl->cfg->tx_kick(ctrl, 0);
++	txi->kick_count = txi->send_count;
++	__netif_tx_unlock(txq);
++}
++
+ static int rteth_hw_receive(struct net_device *dev, int ring, int budget)
+ {
+ 	int slot, work_done = 0, rx_packets = 0, rx_bytes = 0, rx_dropped = 0, rx_errors = 0;
+@@ -1411,6 +1547,10 @@
+ 			goto recycle;
+ 		}
+ 
++		if (is_head && is_tail && READ_ONCE(zc) && ring == READ_ONCE(zc_ring) &&
++		    rteth_zc_forward(ctrl, ring, slot, frag))
++			goto zc_posted;
++
+ 		if (is_head) {
+ 			skb = rteth_create_skb(ctrl, ring, slot);
+ 			if (unlikely(!skb)) {
+@@ -1437,6 +1577,7 @@
+ 			}
+ 		}
+ 
++zc_posted:
+ 		rx_info->page[slot] = new_page;
+ 		rx_info->offset[slot] = new_offset;
+ 		ctrl->rx_data[ring].frag[slot].dma = page_pool_get_dma_addr(new_page) +
+@@ -1447,6 +1588,9 @@
+ 		rx_info->slot = (slot + 1) % RTETH_RX_RING_SIZE;
+ 	}
+ 
++	if (READ_ONCE(zc) && ring == READ_ONCE(zc_ring))
++		rteth_zc_kick(ctrl);
++
+ 	spin_lock(&ctrl->rx_lock);
+ 	ctrl->cfg->update_counter(ctrl, ring, work_done);
+ 	dev->stats.rx_packets += rx_packets;
+@@ -1481,6 +1625,7 @@
+ 
+ 	for (int r = 0; r < RTETH_RX_RINGS; r++)
+ 		seq_printf(m, "ring%d_frames %lu\n", r, READ_ONCE(ctrl->rx_info[r].pkts));
++	seq_printf(m, "zc_fwd %lu\nzc_miss %lu\nzc_busy %lu\n", zc_fwd, zc_miss, zc_busy);
+ 	for (int i = 0; i < ARRAY_SIZE(rteth_rxq_fields); i++) {
+ 		regmap_read(ctrl->map, rteth_rxq_fields[i].reg, &v);
+ 		seq_printf(m, "%s %u\n", rteth_rxq_fields[i].name, (v >> rteth_rxq_fields[i].shift) & 0x1f);

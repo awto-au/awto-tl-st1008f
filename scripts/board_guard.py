@@ -27,7 +27,8 @@ ROOT = Path(__file__).resolve().parent.parent
 CONSOLE_LOG = ROOT / "private/serial/st1008-console.log"
 LOG = ROOT / "tmp/logs/board_guard.log"
 TAIL = 4 << 20  # bytes of console log read; one boot is <1 MiB
-MAC_RE = re.compile(re.escape(SW1_MAC).replace(":", "[:-]?"), re.I)
+# the boot line only: sw2 logs sw1's bridge id too (STP "neighbor 7000.<mac> lost"), which is not the console
+MAC_RE = re.compile(r"Using MAC\s+" + re.escape(SW1_MAC).replace(":", "[:-]?"), re.I)
 REFUSED = 5
 
 
