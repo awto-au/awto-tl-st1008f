@@ -17,6 +17,7 @@ import re
 import subprocess
 import sys
 import time
+import tomllib
 from pathlib import Path
 
 sys.path.insert(0, str(Path(__file__).resolve().parent))
@@ -25,6 +26,7 @@ from boards import BENCH_IP, SW1_IP, bench_nic  # noqa: E402
 ROOT = Path(__file__).resolve().parent.parent
 LOG = ROOT / "tmp/logs/cabling_map.log"
 SNAP = ROOT / "tmp/cabling"
+REGISTRY = Path(os.environ.get("AWTO_IP_REGISTRY", "/mnt/2tb/git/awto-dan/docs/network/ip-registry.toml"))
 OMADA_PY = Path(os.environ.get("OMADA_PY", "/mnt/2tb/git/awto-omada/scripts/omada.py"))
 SSH = ["ssh", "-o", "ConnectTimeout=5", "-o", "StrictHostKeyChecking=no", "-o", "UserKnownHostsFile=/dev/null",
        "-o", "BatchMode=yes", "-o", "LogLevel=ERROR"]
@@ -71,6 +73,29 @@ def omada_clients():
     return out
 
 
+def registry_hosts():
+    """MAC (lower, colon) -> {ip, name, box, iface} from the house IP registry; {} if missing."""
+    if not REGISTRY.exists():
+        log(f"registry: {REGISTRY} not found, no box grouping")
+        return {}
+    out = {}
+    for h in tomllib.loads(REGISTRY.read_text()).get("host", []):
+        if h.get("mac"):
+            out[h["mac"].lower().replace("-", ":")] = {k: h.get(k, "") for k in ("ip", "name", "box", "iface", "speed")}
+    return out
+
+
+def classify_dup(ip, macs, reg):
+    """ARP flux (one box, several NICs on one subnet) vs a real duplicate IP."""
+    boxes = {reg[m]["box"] for m in macs if m in reg and reg[m]["box"]}
+    if len(boxes) == 1 and all(m in reg for m in macs):
+        b = next(iter(boxes))
+        regip = {reg[m]["ip"] + " " + reg[m]["iface"] for m in macs}
+        return (f"ARP FLUX {ip}: {len(macs)} NICs of one box '{b}' answer ({', '.join(sorted(regip))}); not a second device. "
+                f"Fix on that host: net.ipv4.conf.all.arp_ignore=1 and arp_announce=2")
+    return f"DUPLICATE IP {ip}: " + ", ".join(f"{m} ({reg[m]['name']})" if m in reg else m for m in sorted(macs))
+
+
 def read_switch(ip):
     try:
         r = subprocess.run(SSH + [f"root@{ip}", REMOTE], capture_output=True, text=True,
@@ -114,7 +139,7 @@ def read_switch(ip):
     return d
 
 
-def partner_of(name, port, v, d, omada, others):
+def partner_of(name, port, v, d, omada, others, reg):
     """One-line label for what is behind a port."""
     ll = v.get("lldp", {})
     parts = []
@@ -126,6 +151,9 @@ def partner_of(name, port, v, d, omada, others):
         sw = (f"{hit[0][0]} (switch)" if len({o for o, _ in hit}) == 1 and len(hit) > 1 else f"{hit[0][0]} {hit[0][1]}") if hit else None
         if not sw and mac.startswith("02:99:00:00:09:"):
             sw = "nat-bench netns on the host (VLAN 991/992)"
+        if not sw and mac in reg:
+            r = reg[mac]
+            sw = f"{r['name']} {r['iface']} {r['speed']} (registry {r['ip']})"
         parts.append(f"{mac} = {sw or ('; '.join(c['text'] for c in omada.get(mac, [])[:1]) or '?')}")
     if len(macs) > 3:
         parts.append(f"... {len(macs)} MACs (trunk)")
@@ -176,6 +204,7 @@ def main():
     ap.add_argument("--no-diff", action="store_true")
     a = ap.parse_args()
     omada = {} if a.no_omada else omada_clients()
+    reg = registry_hosts()
     data = {n: read_switch(SWITCHES[n]) for n in a.switches.split(",")}
     own = {n: d["own"] for n, d in data.items() if "own" in d}
     md = [f"# Cabling map {time.strftime('%Y-%m-%dT%H:%M:%S%z')}", ""]
@@ -190,7 +219,7 @@ def main():
             link = f"{'up' if v.get('carrier') == '1' else 'down' if v.get('carrier') == '0' else '-'} {v.get('speed') if v.get('speed') not in (None, '', '-1') else ''}".strip()
             mod = f"{v.get('pn', '')} {v.get('sn', '')}".strip() or (d["sfp"].get(p) or "(none seen)")
             pw = f"{v['tx_power'].split('/')[0].strip()} / {v['rx_power'].split('/')[0].strip()}" if v.get("tx_power") else "-"
-            md.append(f"| {p} | {link or '-'} | {mod} | {pw} | {partner_of(name, p, v, d, omada, others)} |")
+            md.append(f"| {p} | {link or '-'} | {mod} | {pw} | {partner_of(name, p, v, d, omada, others, reg)} |")
             if v.get("carrier") == "1" and len(d["fdb"].get(p, [])) <= 3:  # edge port (not the 20-MAC trunk)
                 for mac in d["fdb"].get(p, []):
                     for c in omada.get(mac, [])[:1]:
@@ -204,7 +233,7 @@ def main():
                 ips.setdefault(c["ip"], set()).add(mac)
     for ip, macs in sorted(ips.items()):
         if len(macs) > 1:
-            findings.append(f"DUPLICATE IP (Omada list) {ip}: " + ", ".join(sorted(macs)))
+            findings.append("(Omada list) " + classify_dup(ip, macs, reg))
     if not a.no_probe and ip_by_mac:
         nic = bench_nic()
         pr = probe(ip_by_mac, nic)
@@ -212,7 +241,7 @@ def main():
         for ip, cnt in pr.items():
             findings.append(f"  {ip}: " + (", ".join(f"{m}={n}/{PROBES}" for m, n in sorted(cnt.items())) or "no reply"))
             if len(cnt) > 1:
-                findings.append(f"  DUPLICATE IP (ARP) {ip}: answered by {len(cnt)} MACs")
+                findings.append("  (ARP) " + classify_dup(ip, set(cnt), reg))
     SNAP.mkdir(parents=True, exist_ok=True)
     ts = time.strftime("%Y%m%d-%H%M%S")
     for name, d in data.items():
