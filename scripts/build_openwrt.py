@@ -103,6 +103,7 @@ DEBUG73 = False  # --debug
 # --debug: allocator/list/net/VM checks; image goes to openwrt-ours-debug-initramfs*.bin (docs/OPENWRT-BUILD.md)
 # SLUB_DEBUG(_ON) and DEBUG_VM are OpenWrt-owned (config/Config-kernel.in): they must be set in the buildroot .config
 DEBUG_OWRT_CFG = "CONFIG_KERNEL_SLUB_DEBUG=y\nCONFIG_KERNEL_SLUB_DEBUG_ON=y\nCONFIG_KERNEL_DEBUG_VM=y\n"
+TAG = ""  # --tag: output name suffix
 DEBUG_CFG = """CONFIG_DEBUG_LIST=y
 CONFIG_DEBUG_NET=y
 CONFIG_PAGE_POOL_STATS=y
@@ -670,7 +671,10 @@ def outputs(kernel: str) -> int:
         return 1
     TFTP.mkdir(parents=True, exist_ok=True)
     # openwrt-ours = mainline (default-boot RAM test, docs/DEFAULT-BOOT.md); openwrt-ours-6.18 = step 1
-    name = "openwrt-ours" + (("-debug" if DEBUG73 else "") if kernel == "mainline" else "-6.18")
+    name = "openwrt-ours" + (("-debug" if DEBUG73 else "") if kernel == "mainline" else "-6.18") + TAG
+    for su in sorted((TREE / OUT_DIR).glob("*sysupgrade.bin")):  # A/B image, compat 2.0
+        shutil.copy2(su, TFTP.parent / f"{name}-sysupgrade.bin")
+        log(f"sysupgrade: tmp/{name}-sysupgrade.bin {su.stat().st_size} B")
     dst = TFTP / f"{name}-initramfs.bin"
     shutil.copy2(init, dst)
     rc = subprocess.run([sys.executable, str(ROOT / "scripts/uimage_std_magic.py"), str(dst),
@@ -700,6 +704,7 @@ def main() -> int:
     ap.add_argument("--debug", action="store_true",
                     help="mainline: kernel DEBUG_LIST, SLUB_DEBUG_ON, DEBUG_NET, PAGE_POOL_STATS, DEBUG_VM; "
                          "output openwrt-ours-debug-initramfs*.bin")
+    ap.add_argument("--tag", default="", help="suffix for the output names (keeps known-good tftp images)")
     ap.add_argument("--no-overlay", action="store_true", help="stock OpenWrt main (baseline / rebase base)")
     ap.add_argument("--no-comment", action="store_true", help="no #73 comment on a disk abort")
     ap.add_argument("--default-boot", action="store_true",
@@ -708,9 +713,10 @@ def main() -> int:
     if a.kernel == "7.3":
         a.kernel = "mainline"
     comment = not a.no_comment
-    global UP73, DEBUG73
+    global UP73, DEBUG73, TAG
     UP73 = a.up
     DEBUG73 = a.debug
+    TAG = a.tag
     t0 = time.time()
     if a.kernel == "mainline":
         set_base()

@@ -870,6 +870,7 @@ Not isolated:
 - IPv4 offload flags: `ip route` shows `rt_offload` on the default and `rt_trap` on the connected prefixes while offloaded. IPv6 routes show `rt_offload` / `rt_trap` too (`fd99:22::/64 via ...` `rt_offload`; the re-added `::/0` read `rt_trap` until offloaded).
 - Finding: after `l3_default_v4` goes 1 -> 0 the IPv4 default keeps `rt_offload` although the ASIC row is `trap` (dmesg `default route 0.0.0.0/0 traps to the CPU`); it was `rt_offload` again after the re-enable. Flag is not cleared on the teardown path.
 - Finding: after check f's source-specific `::/0` add/delete the plain `::/0` is not re-offloaded until the route is re-added (see f).
+- Fixed in `300-17` (2026-11-08, host-built only, not yet run on sw2): demoted v4 default clears `rt_offload` (`otto_l3_default_check`); last source-specific v6 route requests a FIB replay (`otto_l3_fib_del_v6_src`) so the plain `::/0` is offered again.
 - #149 (`gro_list_prepare`): not seen on this image at LX 175 over 48 iperf runs plus checks (one boot, ~12 min).
 
 ### Core 608 on the OpenWrt 7.4 image: unstable

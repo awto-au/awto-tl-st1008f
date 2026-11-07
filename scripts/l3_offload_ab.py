@@ -33,11 +33,11 @@ CSV_PATH = ROOT / f"tmp/logs/l3_offload_ab-{TS}.csv"
 TXT_PATH = ROOT / f"tmp/logs/l3_offload_ab-{TS}.txt"
 PARAMS = ("l3_onlink", "l3_default_v4", "l3_default_v6")
 POLL_S = nb.L3_POLL_S              # l3.c poll (DELAY_PROBE_TIME)
-SETTLE_S = nb.L3_SETTLE_S          # 1.25 x poll: a parameter change or neighbour event shows within this
+SETTLE_S = 2 * nb.L3_SETTLE_S      # 2 polls x 1.25: parameter applied at one poll, gateway refreshed at the next (check a: > 6.25 s, ok at 20 s)
 RUN_MEASURED_S = 14                # 10 s + 2 s omit + ~2 s snapshots (nat_bench.log 2026-11-06: 13-14 s)
-CHECK_CAP_S = 60                   # a check = up to 3 settle waits (6.25 s) + ssh + pings, <20 s measured; x3
+CHECK_CAP_S = 70                   # a check = up to 3 settle waits (12.5 s) + ssh + pings (~20 s); x1.25
 SETUP_CAP_S = 90                   # setup+mode+v6-setup+dflt-setup ~20 s observed; x3 + ssh mux start
-OFFLOAD_CAP_S = 30                 # settle 6.25 s + a few ssh (0.3 s idle, 20 s cap each)
+OFFLOAD_CAP_S = 40                 # settle 12.5 s + a few ssh (0.3 s idle, 20 s cap each)
 DRY = False
 T_START = time.monotonic()
 BACKSTOP_S = 2700                  # 48 runs x 14 s + params/checks ~ 900 s measured-estimate; x3
@@ -274,7 +274,7 @@ def chk_b():
         while not DRY and time.time() - t0 <= SETTLE_S and not seen:
             seen = new in sw(f"cat {nb.L3_DBG}/nexthops")
             if not seen:
-                time.sleep(1)  # poll nexthops 1 s apart inside the 6.25 s settle limit
+                time.sleep(1)  # poll nexthops 1 s apart inside the settle limit
         flows = ping_ns(nb.NS_LAN, nb.H_WAN)
     finally:
         host(["ip", "-n", nb.NS_WAN, "link", "set", nic, "address", old])
