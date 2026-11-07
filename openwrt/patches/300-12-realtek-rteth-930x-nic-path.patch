@@ -12,11 +12,13 @@ Measured: docs/NAT-HISTORY.md "NIC path" and #60/#65 (per step, 3 runs each).
   - doorbell at least every 16 frames of an xmit_more batch (fraglist GRO segments).
 - Generic parts (reclaim, ring size, kick batch) apply to all families; only RTL930x is tested.
 ---
+diff --git a/drivers/net/ethernet/realtek/rtl838x_eth.c b/drivers/net/ethernet/realtek/rtl838x_eth.c
+index ec07b4c807ba..aa63d53a83c8 100644
 --- a/drivers/net/ethernet/realtek/rtl838x_eth.c
 +++ b/drivers/net/ethernet/realtek/rtl838x_eth.c
-@@ -14,9 +14,11 @@
- #include <linux/sched.h>
+@@ -15,9 +15,11 @@
  #include <linux/slab.h>
+ #include <linux/soc/realtek/otto_common.h>
  #include <linux/of.h>
 +#include <linux/of_address.h>
  #include <linux/of_net.h>
@@ -26,7 +28,7 @@ Measured: docs/NAT-HISTORY.md "NIC path" and #60/#65 (per step, 3 runs each).
  #include <linux/phylink.h>
  #include <linux/pkt_sched.h>
  #include <linux/regmap.h>
-@@ -375,6 +377,14 @@
+@@ -383,6 +385,14 @@ static void rteth_hw_ring_setup(struct rteth_ctrl *ctrl)
  			     offsetof(struct rteth_tx_data, ring));
  }
  
@@ -41,7 +43,7 @@ Measured: docs/NAT-HISTORY.md "NIC path" and #60/#65 (per step, 3 runs each).
  /*
   * Three limits bound the frames exchanged with the CPU port, and each family spreads them
   * over registers of its own, whose length fields are named after the block holding them:
-@@ -411,6 +421,7 @@
+@@ -419,6 +429,7 @@ static void rteth_930x_set_max_packet_length(struct rteth_ctrl *ctrl, int len)
  			   GENMASK(27, 14) | GENMASK(13, 0),
  			   FIELD_PREP(GENMASK(27, 14), len) | FIELD_PREP(GENMASK(13, 0), len));
  	regmap_clear_bits(ctrl->map, ctrl->cfg->dma_if_ctrl, RTETH_RX_TRUNCATE_EN_93XX);
@@ -49,7 +51,7 @@ Measured: docs/NAT-HISTORY.md "NIC path" and #60/#65 (per step, 3 runs each).
  }
  
  static void rteth_931x_set_max_packet_length(struct rteth_ctrl *ctrl, int len)
-@@ -471,6 +482,7 @@
+@@ -485,6 +496,7 @@ static void rteth_930x_hw_en_rxtx(struct rteth_ctrl *ctrl)
  {
  	/* Enable DMA */
  	regmap_set_bits(ctrl->map, ctrl->cfg->dma_if_ctrl, ctrl->cfg->tx_rx_enable);
@@ -57,7 +59,7 @@ Measured: docs/NAT-HISTORY.md "NIC path" and #60/#65 (per step, 3 runs each).
  
  	/* Restart TX/RX to CPU port, enable CRC checking */
  	regmap_set_bits(ctrl->map, ctrl->cfg->mac_l2_port_ctrl, 0x3 | BIT(4));
-@@ -509,12 +521,16 @@
+@@ -530,12 +542,16 @@ static void rteth_free_tx_buffers(struct rteth_ctrl *ctrl)
  		}
  		tx_info->send_count = 0;
  		tx_info->clean_count = 0;
@@ -76,7 +78,7 @@ Measured: docs/NAT-HISTORY.md "NIC path" and #60/#65 (per step, 3 runs each).
  {
  	struct rteth_tx_info *tx_info = &ctrl->tx_info[r];
  	struct netdev_queue *txq = netdev_get_tx_queue(ctrl->dev, r);
-@@ -532,7 +548,7 @@
+@@ -553,7 +569,7 @@ static void rteth_reclaim_tx_ring(struct rteth_ctrl *ctrl, int r)
  				 tx_info->skb[i]->len, DMA_TO_DEVICE);
  		pkts++;
  		bytes += tx_info->skb[i]->len;
@@ -85,7 +87,7 @@ Measured: docs/NAT-HISTORY.md "NIC path" and #60/#65 (per step, 3 runs each).
  		tx_info->skb[i] = NULL;
  		tx_info->clean_count++;
  	}
-@@ -546,7 +562,7 @@
+@@ -567,7 +583,7 @@ static void rteth_reclaim_tx_ring(struct rteth_ctrl *ctrl, int r)
  /* True while a TX queue is stopped with frames still owned by the hardware: there is no
   * TX-done interrupt, so the RX NAPI poll keeps polling until they drain.
   */
@@ -94,7 +96,7 @@ Measured: docs/NAT-HISTORY.md "NIC path" and #60/#65 (per step, 3 runs each).
  {
  	bool pending = false;
  
-@@ -561,7 +577,7 @@
+@@ -582,7 +598,7 @@ static bool rteth_reclaim_tx_rings(struct rteth_ctrl *ctrl)
  		txq = netdev_get_tx_queue(ctrl->dev, r);
  
  		__netif_tx_lock(txq, smp_processor_id());
@@ -103,7 +105,7 @@ Measured: docs/NAT-HISTORY.md "NIC path" and #60/#65 (per step, 3 runs each).
  		pending |= netif_xmit_stopped(txq) &&
  			   ctrl->tx_info[r].send_count != ctrl->tx_info[r].clean_count;
  		__netif_tx_unlock(txq);
-@@ -647,6 +663,7 @@
+@@ -668,6 +684,7 @@ static int rteth_setup_ring_buffer(struct rteth_ctrl *ctrl)
  		ctrl->tx_data[r].ring[RTETH_TX_RING_SIZE - 1] |= RTETH_RING_WRAP;
  		ctrl->tx_info[r].send_count = 0;
  		ctrl->tx_info[r].clean_count = 0;
@@ -111,7 +113,7 @@ Measured: docs/NAT-HISTORY.md "NIC path" and #60/#65 (per step, 3 runs each).
  	}
  
  	if (highmem)
-@@ -999,14 +1016,42 @@
+@@ -1069,14 +1086,42 @@ static int rteth_get_dsa_port(struct sk_buff *skb, struct net_device *dev)
  	return -ENOENT;
  }
  
@@ -156,7 +158,7 @@ Measured: docs/NAT-HISTORY.md "NIC path" and #60/#65 (per step, 3 runs each).
  	struct rteth_frag *frag;
  	dma_addr_t packet_dma;
  
-@@ -1037,7 +1082,7 @@
+@@ -1107,7 +1152,7 @@ static int rteth_start_xmit(struct sk_buff *skb, struct net_device *dev)
  	}
  
  	if (unlikely(*packet_skb))
@@ -165,7 +167,7 @@ Measured: docs/NAT-HISTORY.md "NIC path" and #60/#65 (per step, 3 runs each).
  
  	*packet_skb = skb;
  	frag->len = len;
-@@ -1056,31 +1101,25 @@
+@@ -1127,31 +1172,25 @@ static int rteth_start_xmit(struct sk_buff *skb, struct net_device *dev)
  	tx_info->send_count++;
  	wmb();
  
@@ -190,28 +192,28 @@ Measured: docs/NAT-HISTORY.md "NIC path" and #60/#65 (per step, 3 runs each).
 -		if (regmap_read_poll_timeout(ctrl->map, ctrl->cfg->dma_if_ctrl,
 -					     val, val & ctrl->cfg->tx_rx_enable, 0, 5000))
 -			netdev_warn_once(dev, "DMA interface ctrl register read failed\n");
+-
+-		regmap_write(ctrl->map, ctrl->cfg->dma_if_ctrl, val | RTETH_TX_TRIGGER(ctrl, ring));
 +		ctrl->cfg->tx_kick(ctrl, ring);
 +		tx_info->kick_count = tx_info->send_count;
-+	}
+ 	}
  
--		regmap_write(ctrl->map, ctrl->cfg->dma_if_ctrl, val | RTETH_TX_TRIGGER(ctrl, ring));
+-	dev->stats.tx_packets++;
+-	dev->stats.tx_bytes += len - ETH_FCS_LEN;
 +	/* reclaim here, not only at the next poll: else TX gets one ring per RX poll (#60) */
 +	if (full) {
 +		rteth_reclaim_tx_ring(ctrl, ring, netpoll_tx_running(dev) ? 0 : 1);
 +		if (tx_info->send_count - tx_info->clean_count == RTETH_TX_RING_SIZE)
 +			netif_tx_stop_queue(txq);
- 	}
++	}
  
--	dev->stats.tx_packets++;
--	dev->stats.tx_bytes += len - ETH_FCS_LEN;
--
 -	spin_unlock(&ctrl->tx_lock);
 +	tx_info->packets++;
 +	tx_info->bytes += len - ETH_FCS_LEN;
  
  	/* no TX-done IRQ: let the RX NAPI poll reclaim and wake the stopped queue */
  	if (netif_xmit_stopped(txq))
-@@ -1257,7 +1296,7 @@
+@@ -1328,7 +1367,7 @@ static int rteth_poll_rx(struct napi_struct *napi, int budget)
  	int work_done, ring = rx_q->id;
  	bool tx_pending;
  
@@ -220,7 +222,7 @@ Measured: docs/NAT-HISTORY.md "NIC path" and #60/#65 (per step, 3 runs each).
  
  	work_done = rteth_hw_receive(ctrl->dev, ring, budget);
  	if (tx_pending)
-@@ -1464,7 +1503,19 @@
+@@ -1524,7 +1563,19 @@ static int rteth_setup_tc(struct net_device *dev, enum tc_setup_type type, void
  	return ds->ops->port_setup_tc(ds, dp->index, type, type_data);
  }
  
@@ -240,35 +242,39 @@ Measured: docs/NAT-HISTORY.md "NIC path" and #60/#65 (per step, 3 runs each).
  	.ndo_open		= rteth_open,
  	.ndo_stop		= rteth_stop,
  	.ndo_change_mtu		= rteth_change_mtu,
-@@ -1514,5 +1565,6 @@
+@@ -1573,6 +1624,7 @@ static const struct rteth_cfg rteth_838x_cfg = {
  	.set_hol		= rteth_83xx_set_hol,
  	.set_max_packet_length	= rteth_838x_set_max_packet_length,
  	.set_rx_mode		= rteth_838x_set_rx_mode,
 +	.tx_kick		= rteth_83xx_tx_kick,
  };
  
-@@ -1552,5 +1604,6 @@
+ static const struct rteth_cfg rteth_839x_cfg = {
+@@ -1610,6 +1662,7 @@ static const struct rteth_cfg rteth_839x_cfg = {
  	.set_hol		= rteth_83xx_set_hol,
  	.set_max_packet_length	= rteth_839x_set_max_packet_length,
  	.set_rx_mode		= rteth_839x_set_rx_mode,
 +	.tx_kick		= rteth_83xx_tx_kick,
  };
  
-@@ -1591,5 +1644,6 @@
+ static const struct rteth_cfg rteth_930x_cfg = {
+@@ -1649,6 +1702,7 @@ static const struct rteth_cfg rteth_930x_cfg = {
  	.set_hol		= rteth_93xx_set_hol,
  	.set_max_packet_length	= rteth_930x_set_max_packet_length,
  	.set_rx_mode		= rteth_930x_set_rx_mode,
 +	.tx_kick		= rteth_930x_tx_kick,
  };
  
-@@ -1630,5 +1684,6 @@
+ static const struct rteth_cfg rteth_931x_cfg = {
+@@ -1687,6 +1741,7 @@ static const struct rteth_cfg rteth_931x_cfg = {
  	.set_hol		= rteth_93xx_set_hol,
  	.set_max_packet_length	= rteth_931x_set_max_packet_length,
  	.set_rx_mode		= rteth_931x_set_rx_mode,
 +	.tx_kick		= rteth_83xx_tx_kick,
  };
  
-@@ -1679,6 +1734,11 @@
+ static const struct phylink_mac_ops rteth_mac_ops = {
+@@ -1735,6 +1790,11 @@ static void rteth_metadata_dst_free(struct rteth_ctrl *ctrl)
  	}
  }
  
@@ -280,7 +286,7 @@ Measured: docs/NAT-HISTORY.md "NIC path" and #60/#65 (per step, 3 runs each).
  static int rteth_probe(struct platform_device *pdev)
  {
  	struct page_pool_params pp_params = {
-@@ -1718,6 +1778,14 @@
+@@ -1774,6 +1834,14 @@ static int rteth_probe(struct platform_device *pdev)
  	if (IS_ERR(ctrl->map))
  		return PTR_ERR(ctrl->map);
  
@@ -295,9 +301,11 @@ Measured: docs/NAT-HISTORY.md "NIC path" and #60/#65 (per step, 3 runs each).
  	ctrl->rx_data = dmam_alloc_coherent(&pdev->dev, sizeof(struct rteth_rx_data) * RTETH_RX_RINGS,
  					    &ctrl->rx_dma, GFP_KERNEL);
  	if (!ctrl->rx_data)
+diff --git a/drivers/net/ethernet/realtek/rtl838x_eth.h b/drivers/net/ethernet/realtek/rtl838x_eth.h
+index 039a5c5577f2..a362704f1f5f 100644
 --- a/drivers/net/ethernet/realtek/rtl838x_eth.h
 +++ b/drivers/net/ethernet/realtek/rtl838x_eth.h
-@@ -191,10 +191,14 @@
+@@ -204,10 +204,14 @@
  
  #define RTETH_RX_RING_SIZE			128
  #define RTETH_RX_RINGS				2
@@ -315,7 +323,7 @@ Measured: docs/NAT-HISTORY.md "NIC path" and #60/#65 (per step, 3 runs each).
  #define RTETH_TX_RINGS				2
  #define RTETH_TX_TRIGGER(ctrl, ring)		((0x16 >> ring) & ctrl->cfg->tx_trigger_mask)
  
-@@ -265,6 +269,9 @@
+@@ -278,6 +282,9 @@ struct rteth_rx_info {
  struct rteth_tx_info {
  	unsigned int		send_count;  /* skbs handed to the hardware */
  	unsigned int		clean_count; /* skbs released after completion */
@@ -325,7 +333,7 @@ Measured: docs/NAT-HISTORY.md "NIC path" and #60/#65 (per step, 3 runs each).
  	struct sk_buff		*skb[RTETH_TX_RING_SIZE];
  };
  
-@@ -291,6 +298,10 @@
+@@ -304,6 +311,10 @@ struct rteth_ctrl {
  	struct rteth_tx_info	tx_info[RTETH_TX_RINGS];
  	struct rteth_tx_data	*tx_data;
  	struct work_struct	reset_work;
@@ -336,10 +344,11 @@ Measured: docs/NAT-HISTORY.md "NIC path" and #60/#65 (per step, 3 runs each).
  };
  
  struct rteth_cfg {
-@@ -330,5 +341,6 @@
+@@ -344,6 +355,7 @@ struct rteth_cfg {
  	void (*set_max_packet_length)(struct rteth_ctrl *ctrl, int len);
  	void (*update_counter)(struct rteth_ctrl *ctrl, int ring, int released);
  	void (*set_rx_mode)(struct net_device *dev);
 +	void (*tx_kick)(struct rteth_ctrl *ctrl, int ring);
  };
+ 
  

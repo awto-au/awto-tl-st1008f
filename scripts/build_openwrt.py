@@ -97,6 +97,15 @@ PENDING73 = ["700", "701", "344", "644", "645"]  # generic pending-6.18 nft flow
 # generic hack-6.18 patches OpenWrt packages need on mainline (all apply as-is; status of the rest: docs/OPENWRT-BUILD.md)
 HACK73 = ["910", "911", "940"]  # uevent + broadcast_uevent (gpio-button-hotplug); 940: non-empty modules.builtin (kmod packaging)
 UP73 = False  # --up
+DEBUG73 = False  # --debug
+# --debug: allocator/list/net/VM checks; image goes to openwrt-ours-debug-initramfs*.bin (docs/OPENWRT-BUILD.md)
+# SLUB_DEBUG(_ON) and DEBUG_VM are OpenWrt-owned (config/Config-kernel.in): they must be set in the buildroot .config
+DEBUG_OWRT_CFG = "CONFIG_KERNEL_SLUB_DEBUG=y\nCONFIG_KERNEL_SLUB_DEBUG_ON=y\nCONFIG_KERNEL_DEBUG_VM=y\n"
+DEBUG_CFG = """CONFIG_DEBUG_LIST=y
+CONFIG_DEBUG_NET=y
+CONFIG_PAGE_POOL_STATS=y
+CONFIG_PAGE_POISONING=y
+"""  # MIPS has no KASAN, KFENCE or DEBUG_PAGEALLOC (arch/mips/Kconfig)
 
 
 def config73() -> Path:
@@ -108,7 +117,7 @@ def set_base() -> None:
     kernel_base.checkout(BASE)
     PV, full = kernel_base.kernel_version(BASE)
     VER = full
-# Port symbols config-7.3 must keep (drivers the 7.3 port boots with; mainline/st1008f-v2.config)
+# Port symbols config-<PV> must keep (drivers the mainline port boots with; mainline/st1008f-v2.config)
 PORT73 = """CONFIG_HIGHMEM=y
 CONFIG_PREEMPT_VOLUNTARY=y
 # CONFIG_PREEMPT is not set
@@ -149,10 +158,11 @@ CONFIG_REALTEK_THERMAL=y
 CONFIG_MIPS_CMDLINE_DTB_EXTEND=y
 # CONFIG_MIPS_CMDLINE_FROM_DTB is not set
 CONFIG_MEMTEST=y
+CONFIG_SRAM=y
 CONFIG_ST1008F_SRAM_BENCH=y
 CONFIG_DMADEVICES=y
 CONFIG_RTL9300_GDMA=y
-"""  # DTB_EXTEND: U-Boot bootargs (st1008f.mode, #73) appended to DT bootargs; MEMTEST + SRAM_BENCH: selftest (#108); RTL9300_GDMA: 300-41, selects DMA_ENGINE (#62)
+"""  # DTB_EXTEND: U-Boot bootargs (st1008f.mode, #73) appended to DT bootargs; MEMTEST + SRAM + SRAM_BENCH (depends on SRAM): selftest (#108); RTL9300_GDMA: 300-41, selects DMA_ENGINE (#62)
 
 NF_BUILTIN = ["nfnetlink", "nf-conntrack", "nf-nat", "nf-flow", "nf-reject", "nf-reject6", "nf-log",
               "nft-core", "nft-nat", "nft-offload", "nft-fib",
@@ -177,7 +187,7 @@ CONFIG_KERNEL_PERF_EVENTS=y
 CONFIG_KERNEL_KALLSYMS=y
 CONFIG_KERNEL_PROFILING=y
 """  # dyndbg: pr_debug/dev_dbg switchable at runtime (#125); OpenWrt's KERNEL_* overrides the target config
-# perf + kallsyms in the kernel for PC sampling (#148); no perf apk (apk rejects the linux-next version string)
+# perf + kallsyms in the kernel for PC sampling (#148); no perf apk: apk rejects its raw 7.4-rc1 version and the unpacked image passes bootm's 32 MiB limit; scripts/build_perf.py
 # + nat-bench switch-side tools (docs/NAT-OPS.md): a RAM boot cannot apk-add matching kmods
 # st1008f-selftest (#108, every image): /dev/mem + devmem (register reads), unxz/xzcat (CPU test), taskset
 SELFTEST_CFG = """CONFIG_KERNEL_DEVMEM=y
@@ -231,9 +241,9 @@ def disk_check(phase: str, comment: bool) -> None:
 
 # Feeds in every image (#129): what sw1 carried as apk installs. Built in, the kmods match our kernel and
 # both A/B slots carry them (per-slot overlays would lose apk installs on the other slot, #117).
-FEEDS = {  # name -> (url, commit); pinned 2026-11-05 for OpenWrt main 6fc74db; move with OWRT_COMMIT
-    "packages": ("https://git.openwrt.org/feed/packages.git", "5a350e9adf2e5c411205597f9092a8069bd04580"),
-    "luci": ("https://git.openwrt.org/project/luci.git", "59b4e336d732f493f51e77563ae4f73251983b8f"),
+FEEDS = {  # name -> (url, commit); pinned 2026-11-07 for OpenWrt main 7e8bfcfe76; move with OWRT_COMMIT
+    "packages": ("https://git.openwrt.org/feed/packages.git", "1c248d7e25e66304ffe96faba031d14b845d8eaf"),
+    "luci": ("https://git.openwrt.org/project/luci.git", "9a62efcc5a063d43d7871c8e2c5bea2dad83eb47"),
 }
 FEED_PKGS = ["luci", "luci-app-statistics", "luci-app-snmpd", "luci-app-lldpd", "luci-app-package-manager",
              "collectd-mod-cpu", "collectd-mod-interface", "collectd-mod-load", "collectd-mod-memory",
@@ -257,8 +267,10 @@ def run(cmd: list, timeout: float, cwd: Path = TREE, comment: bool = True) -> in
     log("run: " + " ".join(cmd))
     t0 = time.time()
     tail = collections.deque(maxlen=60)
+    # kernel tools (perf) build host rust/mypy tests otherwise: not installed/needed here
     p = subprocess.Popen(cmd, cwd=cwd, stdout=subprocess.PIPE, stderr=subprocess.STDOUT, text=True,
-                         errors="replace", start_new_session=True)
+                         errors="replace", start_new_session=True,
+                         env={**os.environ, "NO_RUST": "1", "NO_MYPY": "1"})
     why = []
 
     def expire():
@@ -380,11 +392,6 @@ def overlay_73() -> None:
         sys.exit(f"tmp/openwrt is at {pin}; the mainline port's files/patches are against {OWRT_COMMIT}")
     (TREE / GEN / f"kernel-{PV}").write_text(
         f"LINUX_VERSION-{PV} = {VER[len(PV):]}\nLINUX_KERNEL_HASH-{VER} = skip\n")
-    # apk versions: "7.3-next-YYYYMMDD" is invalid; map "-next-" to "_p" where OpenWrt maps "-rc" to "_rc"
-    for f, a in (("include/kernel.mk", "$(LINUX_VERSION)"), ("package/kernel/linux/Makefile", "$(LINUX_VERSION)"),
-                 ("package/Makefile", "$(shell cat $(STAGING_DIR)/kernel.version)")):
-        t = (TREE / f).read_text()
-        (TREE / f).write_text(t.replace(f"$(subst -rc,_rc,{a})", f"$(subst -next-,_p,$(subst -rc,_rc,{a}))"))
     mk = TREE / RT / "Makefile"
     mk.write_text(mk.read_text().replace("KERNEL_PATCHVER:=6.18\n",
                                          f"KERNEL_PATCHVER:=6.18\nKERNEL_TESTING_PATCHVER:={PV}\n"))
@@ -409,12 +416,14 @@ def overlay_73() -> None:
     cfg73 = config73()
     if cfg73.exists():
         cfg = cfg73.read_text()
+        if DEBUG73:
+            cfg = override(cfg, DEBUG_CFG)
         if UP73:  # one VPE, as `./dev.py build-kernel --up`
             cfg = override(cfg, (ROOT / "mainline/st1008f-v2-up.config").read_text())
         (TREE / RT / f"rtl930x/config-{PV}").write_text(cfg)
         if missing := [ln for ln in PORT73.splitlines() if ln.startswith("CONFIG_") and ln not in cfg73.read_text().splitlines()]:
             log(f"WARN: config-{PV} lacks PORT73 lines {missing}: run with --regen-config")
-    # 7.3 dtc dropped the graph_child_address check: `-Wno-graph_child_address` is a FATAL ERROR there
+    # 7.x dtc dropped the graph_child_address check: `-Wno-graph_child_address` is a FATAL ERROR there
     im = TREE / "include/image.mk"
     im.write_text(im.read_text().replace("  -Wno-graph_child_address \\\n", ""))
     # mainline DTS: 1-cell interrupts + mainline rtl930x.dtsi (OpenWrt's dtsi in the same dir would shadow it)
@@ -458,17 +467,6 @@ def selftest_files(dst: Path) -> None:
         return
     shutil.copytree(out, dst, dirs_exist_ok=True)
     log(f"selftest: files/ += {out.relative_to(ROOT)}")
-
-
-def modules_link(dst: Path) -> None:
-    """kmods install under lib/modules/<PV> but the kernel reports <VER>: link so kmodloader finds them."""
-    if not VER or VER == PV:  # 6.18 build: no 7.3 release string
-        return
-    link = dst / "lib/modules" / VER
-    link.parent.mkdir(parents=True, exist_ok=True)
-    link.unlink(missing_ok=True)
-    link.symlink_to(PV)
-    log(f"files/lib/modules/{VER} -> {PV}")
 
 
 GRO_HOTPLUG = """#!/bin/sh
@@ -556,7 +554,6 @@ def default_boot_files(on: bool) -> str:
     rc_common_stamps(dst)
     init_after_network(dst)
     selftest_files(dst)
-    modules_link(dst)
     nat_tuning_files(dst)
     if not on:
         return ""
@@ -582,6 +579,8 @@ def config(kernel: str, dboot: str = "") -> int:
     extra = "CONFIG_TESTING_KERNEL=y\nCONFIG_KERNEL_PREEMPT_VOLUNTARY=y\n" if kernel == "mainline" else ""
     if kernel == "mainline":  # 7.3 image has no /lib/modules/<7.3 release>: firewall + NAT built in (=y), NAT bench
         extra += "".join(f"CONFIG_PACKAGE_kmod-{k}=y\n" for k in NF_BUILTIN)
+    if DEBUG73:
+        extra += DEBUG_OWRT_CFG
     extra += SELFTEST_CFG + dboot + "".join(f"CONFIG_PACKAGE_{p}=y\n" for p in FEED_PKGS) + shared_config()
     (TREE / ".config").write_text(SEED + extra)
     rc = run(["make", "defconfig"], T_DEFCONFIG)
@@ -669,7 +668,7 @@ def outputs(kernel: str) -> int:
         return 1
     TFTP.mkdir(parents=True, exist_ok=True)
     # openwrt-ours = mainline (default-boot RAM test, docs/DEFAULT-BOOT.md); openwrt-ours-6.18 = step 1
-    name = "openwrt-ours" + ("" if kernel == "mainline" else "-6.18")
+    name = "openwrt-ours" + (("-debug" if DEBUG73 else "") if kernel == "mainline" else "-6.18")
     dst = TFTP / f"{name}-initramfs.bin"
     shutil.copy2(init, dst)
     rc = subprocess.run([sys.executable, str(ROOT / "scripts/uimage_std_magic.py"), str(dst),
@@ -696,6 +695,9 @@ def main() -> int:
     ap.add_argument("--regen-config", action="store_true",
                     help="mainline: rebuild openwrt/kernel-<PV>/config-<PV>, then stop (buildroot left untouched)")
     ap.add_argument("--up", action="store_true", help="mainline: one VPE (merge mainline/st1008f-v2-up.config)")
+    ap.add_argument("--debug", action="store_true",
+                    help="mainline: kernel DEBUG_LIST, SLUB_DEBUG_ON, DEBUG_NET, PAGE_POOL_STATS, DEBUG_VM; "
+                         "output openwrt-ours-debug-initramfs*.bin")
     ap.add_argument("--no-overlay", action="store_true", help="stock OpenWrt main (baseline / rebase base)")
     ap.add_argument("--no-comment", action="store_true", help="no #73 comment on a disk abort")
     ap.add_argument("--default-boot", action="store_true",
@@ -704,8 +706,9 @@ def main() -> int:
     if a.kernel == "7.3":
         a.kernel = "mainline"
     comment = not a.no_comment
-    global UP73
+    global UP73, DEBUG73
     UP73 = a.up
+    DEBUG73 = a.debug
     t0 = time.time()
     if a.kernel == "mainline":
         set_base()

@@ -4,6 +4,7 @@ Index of owner decisions, newest first. One line each: date (AEDT), decision, li
 
 ## 2026-11-07
 
+- **OpenWrt pin moved** `b455c5b851` -> `7e8bfcfe76` (main 2026-11-07), feeds `packages` `1c248d7e25`, `luci` `9a62efcc5a`; upstream L3 rework (regmap, `resource_lock`, MTU profiles) and `CRC_CPU_RC_EN` taken on, our `300-17` rebased onto it. No `perf` apk in images. [OPENWRT-BUMP.md](OPENWRT-BUMP.md).
 - Owner: the flash layout is not fixed. Our U-Boot chain slot grows 512 KiB -> 960 KiB (0xF0000) inside `jffs2-log` (0x200000-0x2EFFFF); then `jffs2-cfg` (0x100000) if needed. Fixed: stock area 0x0-0xDFFFF, `bootstate` 0x2F0000, `firmware_a` 0x300000. Slot size = one parameter (`scripts/uboot_chain_layout.py`, default 0x80000 until the migration). #155, [DEFAULT-BOOT.md](DEFAULT-BOOT.md#growing-the-chain-slot-155).
 
 ## 2026-10-12

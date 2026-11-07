@@ -6,9 +6,11 @@ Subject: [PATCH] realtek: rtl83xx tc: accept the flower TCP-flags key (#66)
 - Flags go to the rule's `tcp_info` field (template TCP_INFO, field 19 on RTL930x) unshifted;
   bit placement is checked on hardware (docs/ROUTING-OFFLOAD.md).
 ---
+diff --git a/drivers/net/dsa/rtl83xx/tc.c b/drivers/net/dsa/rtl83xx/tc.c
+index cf63e307bc85..71891f5fc29e 100644
 --- a/drivers/net/dsa/rtl83xx/tc.c
 +++ b/drivers/net/dsa/rtl83xx/tc.c
-@@ -73,5 +73,6 @@
+@@ -73,7 +73,8 @@ static int otto_tc_parse_flow_rule(struct otto_dsa_priv *priv,
  			 BIT_ULL(FLOW_DISSECTOR_KEY_VLAN) |
  			 BIT_ULL(FLOW_DISSECTOR_KEY_IPV4_ADDRS) |
  			 BIT_ULL(FLOW_DISSECTOR_KEY_IPV6_ADDRS) |
@@ -16,10 +18,12 @@ Subject: [PATCH] realtek: rtl83xx tc: accept the flower TCP-flags key (#66)
 +			 BIT_ULL(FLOW_DISSECTOR_KEY_PORTS) |
 +			 BIT_ULL(FLOW_DISSECTOR_KEY_TCP);
  	if (dissector->used_keys & ~supported_keys) {
-@@ -196,6 +197,14 @@
+ 		dev_err(priv->dev, "unsupported TC keys: used_keys = 0x%llx\n",
+ 			dissector->used_keys & ~supported_keys);
+@@ -196,6 +197,14 @@ static int otto_tc_parse_flow_rule(struct otto_dsa_priv *priv,
  		flow->rule.sport_m = match.mask->src;
  	}
-
+ 
 +	if (flow_rule_match_key(rule, FLOW_DISSECTOR_KEY_TCP)) {
 +		struct flow_match_tcp match;
 +

@@ -134,3 +134,33 @@ Bench test list (RAM boot only, sw2 only, never sw1; `./dev.py ramload openwrt-o
 10. 6.18 step-1 image (`build-openwrt` without `--kernel`) boots on sw2 for comparison.
 
 Phase 2 can start immediately for steps 1-4 (edit pin, `--prepare-only` in a way that does not reset the live tree is NOT possible: `--update` resets `tmp/openwrt-build`). Steps involving `tmp/openwrt-build` wait for the GDMA build.
+
+## 6. Phase 2 results (2026-11-07, build only, no hardware)
+
+Pin `7e8bfcfe76` (store head, same as phase 1), kernel `v7.4-rc1`, feeds `packages` `1c248d7e25`, `luci` `9a62efcc5a`.
+
+| Item | Result |
+|---|---|
+| Series on new files-6.18 | all 41 patches apply; only 300-17 (4 hunks) and 300-20 (1 hunk) needed hand work; 300-10/12/25/37 had fuzz-2 hunks, regenerated with `patch_rebase.py` |
+| 300-17 (on-link neighbours, default routes) | rebased: includes, v6 host hash in `find_slot()` (regmap read), neighbour hook in the net-event worker, flush worker. Locking: `l3_neigh_update()` and the poll take RTNL then `resource_lock` (upstream order); fib event hooks already run under both. `alloc_egress_intf()` takes `ROUTE_MTU_ID`. Still not upstream |
+| 300-10 | regenerated, content unchanged |
+| 300-20 (shared NIC core) | `rteth_930x_hw_en_rxtx()` = `rtl930x_nic_enable()` + upstream `CRC_CPU_RC_EN=1` write kept (taken on; no competing write of ours existed; `uboot-port/` has no `MAC_L2_GLOBAL_CTRL0` write either, report only) |
+| 300-26 / 11 / 27 / 28 / 38..41 | apply without edits |
+| Plain kernel build with the series | `mainline_build_check.py`, 0 warnings, rc 0 |
+| `overlay_73` | `-next-` -> `_p` sed deleted; `modules_link` deleted (release string is `7.4-rc1`, kmods land in `lib/modules/7.4-rc1`); `NO_RUST/NO_MYPY` set in `run()` |
+| `perf` apk | NOT usable: perf Makefile uses raw `7.4-rc1` as apk version ("package version is invalid"); with a `_rc` fix the image unpacks to 34.0 MiB > 32 MiB `SYS_BOOTM_LEN`. Dropped from SEED; use `scripts/build_perf.py` |
+| `--regen-config` | passes; failure cause was `ST1008F_SRAM_BENCH` depending on `CONFIG_SRAM`, now in `PORT73`. `openwrt/kernel-7.3/config-7.3` -> `openwrt/kernel-7.4/config-7.4` |
+| Pending 344/644/645/700/701, hack 910/911/940 | apply as in phase 1; `include/image.mk` edit still applies |
+
+Process note: running `mainline_build_check.py` / `patch_rebase.py` rewrites the shared `tmp/linux-v7.4` tree and `tmp/patch_rebase.index`; an in-progress `300-42` snapshot of another session was clobbered (garbage copy: `tmp/300-42-clobbered-by-owrt-bump.patch`), regenerate it on the new base.
+
+Images (`build_openwrt.py --kernel mainline [--debug]`, rc 0 each):
+
+| Image | Size (B) | Unpacked |
+|---|---|---|
+| `openwrt-ours-initramfs.bin` / `-std` | 8,159,118 | 25.3 MiB |
+| `openwrt-ours-debug-initramfs.bin` / `-std` | 8,225,235 | 25.6 MiB |
+
+- Load: TFTP to `0x84f00000`, `bootm` decompresses to `0x80100000`; limit `SYS_BOOTM_LEN=0x2000000` (32 MiB unpacked). Same load address for both.
+- Debug kernel: `DEBUG_LIST`, `SLUB_DEBUG_ON` (OpenWrt symbol `KERNEL_SLUB_DEBUG_ON`), `DEBUG_NET`, `PAGE_POOL_STATS`, `DEBUG_VM` (`KERNEL_DEBUG_VM`), `PAGE_POISONING`. MIPS has no KASAN, KFENCE, DEBUG_PAGEALLOC.
+- Bench: `./dev.py ramload openwrt-ours`, `./dev.py ramload openwrt-ours-debug`, `./dev.py ramload openwrt-ours-7.3` (old A/B); test list in section 5.

@@ -7,6 +7,8 @@ RX/TX rings and frags (uncached, ~18 KiB) from that pool instead of
 coherent DDR: the ~11 uncached reads per forwarded frame become SRAM
 reads. Falls back to DDR when the pool is missing or full.
 
+diff --git a/drivers/net/ethernet/realtek/rtl838x_eth.c b/drivers/net/ethernet/realtek/rtl838x_eth.c
+index e5ec41d88358..fb0d9d813e8d 100644
 --- a/drivers/net/ethernet/realtek/rtl838x_eth.c
 +++ b/drivers/net/ethernet/realtek/rtl838x_eth.c
 @@ -6,6 +6,7 @@
@@ -29,9 +31,9 @@ reads. Falls back to DDR when the pool is missing or full.
  /* RTL930x NIC core shared with U-Boot (awto-tl-st1008f shared/rtl930x-nic, #83); ctx = regmap */
  static inline u32 rtl930x_nic_rd(void *ctx, u32 off)
  {
-@@ -1987,13 +1993,28 @@
- 		return -ENOMEM;
- 	}
+@@ -1911,13 +1917,28 @@ static int rteth_probe(struct platform_device *pdev)
+ 	if (err)
+ 		return err;
  
 -	ctrl->rx_data = dmam_alloc_coherent(&pdev->dev, sizeof(struct rteth_rx_data) * RTETH_RX_RINGS,
 -					    &ctrl->rx_dma, GFP_KERNEL);
