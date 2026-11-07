@@ -365,3 +365,23 @@ Options (kpps = zc+nat fwd 1400 B unless stated):
 | canary B on the 608 plain boot (`--no-ramload`) | pre PASS, vlanproto PASS, gdma PASS (94104 ns), dss PASS, consolescan PASS, zc WARN 167.8 kpps (baseline 143.3, 408 core), prep FAIL (natsetup, known), selftest FAIL [sfp], bootlog FAIL (same UNKNOWN lines) | `tmp/logs/sw2-canary3.out` |
 | canary baseline | not recorded | no all-PASS run; `--update-baseline` not run |
 | Final state | sw2 on the power-up chain, flash OpenWrt, stock U-Boot area untouched | `uboot-chain-env boot` PASS 17:58 |
+
+## OpenWrt image stability at core 508/575/608 (#160)
+
+2026-11-07T18:47-20:12+11:00, sw2, `tmp/tftp/openwrt-ours-initramfs.bin` (7.4-rc1), `ramload uboot-mainline --stock-clocks --no-linkcheck --then openwrt-ours` + `--pre turbo ...` + raw e220/e214 line (swc2 U-Boot for the `swcore=608` row). Driver `scripts/openwrt_core_stability.py`, rows `tmp/logs/openwrt_core_stability.jsonl`, logs `tmp/logs/ocs_*.out`.
+- Load per boot: boot-time selftest, `nat_bench` NAT mode, iperf3 TCP -P 4 120 s, selftest again, 30 s reverse (>= 180 s). Pass = no oops, ssh up, selftest cpu/mem PASS (sfp/asic 2 s timeouts ignored: they also hit the 408 control).
+- Core 408/508 LX 306/305, 575 LX 246, 608 LX 304 (from `base_baud`). SPI divide 6 (SFCR 0x5FC00244) every boot. Temperature 57-63 C. No kernel watchdog probe line in dmesg (only procd "watchdog" lines) in any boot.
+
+| core | CPU | LX | boots passed | first failure |
+|---|---|---|---|---|
+| 408 | 1350 | 306 | 3/3 | none (one extra boot had eth0 RX dead from boot, no oops: bring-up, not counted) |
+| 608 | 1000 (DDR 600, SRAM 250) | 304 | 5/5 | none |
+| 608 raw (turbo lx=306 then e220/e214) | 1350 | 304 | 0/1 | selftest `cpu`: 1 of 26 xz decodes wrong on CPU1, uptime ~53 s |
+| 608 `swcore=608` (swc2) | 1350 | 304 | 0/1 | `Oops` CPU1 migration/1 `update_curr` NULL+0x48, uptime 32 s |
+| 508 (VCO 3050) | 1350 | 305 | 5/5 | none |
+| 575 | 1350 | 246 | 0/1 | selftest `cpu`: 1 of 35 xz decodes wrong on CPU1, after the 120 s iperf (uptime ~200 s) |
+
+- Culprit: CPU 1350 at core >= 575 (corrupted computation / pointers). Core 608 with CPU 1000 and core 508 with CPU 1350 pass 5/5; LX 304 vs 306 is not it (508 and 608 differ in CPU only for the passing/failing pair).
+- Not seen: `gro_list_prepare` (#149), no panic in `ipv6_getorigdst`.
+- Swc2 boots 1-2 hung at the console re-code after `turbo ... swcore=608` (garbled console, no network); boot 3 booted and oopsed.
+- Core 575 and 608 were stopped after the first failure (branch rule); failure rate per boot not measured.
