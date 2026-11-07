@@ -188,6 +188,19 @@ def cmd_clocks_cycle(extra: list[str]) -> int:
     return _script("clocks_cycle.py", extra)
 
 
+@command("fastest stable setting per domain on sw2: midpoint bisection, one quick test per point (docs/FASTEST-SETTINGS.md)",
+         args="--list | [--domain switch-core|lx-arb|cpu|ddr|sram] [--dry-run] | --combine | --discover | --write-doc",
+         kind="hardware")
+def cmd_fastest_search(extra: list[str]) -> int:
+    return _script("fastest_search.py", extra)
+
+
+@command("short load test of one settings string + old-options re-test matrix on sw2 (docs/FASTEST-SETTINGS.md)",
+         args="--picks|--settings S [--no-boot] [--options all|retest|name,..] [--core MHz] | --list | --dry-run", kind="hardware")
+def cmd_load_test(extra: list[str]) -> int:
+    return _script("load_test.py", extra)
+
+
 @command("per-DQ read-tap retrain at a DDR bin from probe sweeps, then a real set + crc32 (#48)",
          args="--mhz M [--extra 'dll ...'] [--shifts -16,10]  (run `ramload uboot-mainline --stock-clocks` first)",
          kind="hardware")
