@@ -143,3 +143,23 @@
 - Panic rate: OpenWrt 7.3 at CPU 1350: 2/5 across LX 204/245/175 (1/3, 1/1, 0/1); plain 7.4-rc1 at LX 204: 0/3 (campaign above: 0/6 at stock and LX 306). n is small; LX 175 and 306 earlier passed OpenWrt too, so no monotonic LX dependence is visible.
 - Verdict: reproduces on the OpenWrt 7.3 image at CPU 1350 with LX 204 and 245 (traffic-triggered, perf not required: 1b was without perf); plain 7.4-rc1 does not (0/3 here, 0/6 earlier). Points at kernel build (7.3-next + OpenWrt config) or userland (snmpd, fw4, bridge/STP) rather than the clock alone. Not run: plain 7.4 at CPU 800 / LX 204 (skipped: plain did not panic).
 - Script notes: `ramload` returns rc=1 on LX 204/245/175 boots because `boot_log_check` flags the new clock lines (`clocks: lx now 204166 kHz`, `turbo ...`) as UNKNOWN; boots are fine. Plain `--mgmt` boot 2a: lan1 NO-CARRIER at `port-up`, dropbear absent; `panic_repro_trial.py` now starts it over the console if ssh is refused.
+
+## zc cache maintenance: header-only sync (2026-11-07)
+
+- Hypothesis: the 1400 B size-dependent cost is cache maintenance over the whole frame; the CPU touches only the headers, so payload-line ops are unnecessary.
+- Finding before the test: the zc TX path already wrote back only 128 B (V1 is the shipped behaviour). The remaining whole-buffer op is the 4096 B `DMA_FROM_DEVICE` invalidate in `page_pool_put_full_page` on TX done (last fragment of the page only).
+- Patch 300-42 (default unchanged): `zc_sync_bytes` (default 128; TX writeback length), `zc_rx_part` (default 0; on TX done invalidate `zc_sync_bytes`+4 B at the frame and put the page with a 1 B pool sync).
+  - Only for pages the stack never held: per-pfn bit set in `rteth_create_skb`/`rteth_append_skb`, cleared when the first fragment of a page is posted (a sibling fragment held by the stack keeps the full sync; page_pool syncs the whole page only on the last put).
+  - Not `page->private`: page_pool overlays it with `pp_ref_count`. The first build used it and panicked at 7.7 s uptime in `kfree_skb_list_reason` with every variant off (my bug, not baseline; fixed).
+- Setup: plain 7.4-rc1 bench kernel, picks 1350/306/662/500, cage 1, `zc_bench.py --nat --napi irq1 --zc-only --secs 12`, 3 rounds interleaved (`scripts/zc_sync_ab.py`, tag picks, `tmp/logs/zc_sync_ab.jsonl`). Series applied on OpenWrt 7e8bfcfe (isolated tree).
+
+| Variant | 1400 B kpps | 500 B kpps | 64 B kpps | Integrity |
+|---|---|---|---|---|
+| base (TX 128 B, full recycle sync) | 144.0 (+-0.1 %) | 330.5 (+-0.2 %) | 415.7 (+-0.7 %) | PASS x3 |
+| txfull (TX writeback of 1536 B, control) | 144.2 (+0.1 %) | 331.2 (+0.2 %) | 415.9 (0.0 %) | PASS x3 |
+| rxpart (V2 = V3: header-only recycle) | 144.0 (0.0 %) | 330.2 (-0.1 %) | 409.7 (-1.5 %) | PASS x3 |
+
+- Spread = (max-min)/mean over 3 runs. VPE1 99 % busy in all runs.
+- Integrity: `zc_bench.py --nat --integrity`: udpblast pattern payload (sequence + derived filler), checked per packet by `udpcheck` in natwan; 1400/500/64 B, ~290k/660k/830k frames per variant per round, 0 bad.
+- Verdict: falsified. Writing back the whole frame costs nothing measurable (+0.1 % at 1400 B); header-only recycle gives 0.0 % at 1400/500 B and -1.5 % at 64 B (outside spread, so slightly worse). The size-dependent cost is not cache maintenance; the remaining candidates are bus/DRAM traffic of the RX and TX DMA.
+- No default change. No panic with 300-42 as built (fixed version): 0 oops over the A/B and integrity runs.

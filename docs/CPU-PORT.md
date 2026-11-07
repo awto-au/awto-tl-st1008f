@@ -82,3 +82,5 @@ Facts only. Where we are: [NAT.md](NAT.md). Experiments and results over time: [
 - Cutting any one clock by a quarter costs 3-8 %: the 1400 B ceiling is almost independent of CPU, DDR and LX clocks, so it sits in a fixed-rate path outside them (switch core to NIC / CPU-queue transfer). `rxdrop` (receive and drop) stops at the same 137 kpps.
 - LX 204 MHz: the 7.3 RX path panics in `gro_list_prepare` (2/2, #149); 245 and 306 are stable.
 - Valid `turbo` steps: LX 175 / 204 / 245 / 306; CPU 800 / 1000 / 1050 / 1100-1425 step 25; an invalid value rejects the whole profile ('nothing changed', board stays at stock clocks).
+
+- zc cache maintenance (2026-11-07): TX writeback was already 128 B; header-only recycle invalidate (300-42, `zc_rx_part`) and full-frame TX writeback both change 1400/500 B by < 0.3 %, 64 B -1.5 % / 0 %. Cache ops are not the size-dependent cost: docs/CAMPAIGN-PLAIN-7.4.md.

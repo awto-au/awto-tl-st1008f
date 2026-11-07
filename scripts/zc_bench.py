@@ -125,6 +125,19 @@ def verify_nat(dev_nic, secs=4):
     log("  checksums: " + ("BAD" if "bad" in out else "ok") if out.strip() else "  no NAT'd frames seen on the wire")
 
 
+def verify_payload(ln, secs=2):
+    """Pattern payload (udpblast PATTERN=1) forwarded by zc, checked per packet at the receiver (udpcheck): a missed cache writeback/invalidate shows up as bad."""
+    chk = subprocess.Popen(["sudo", "-n", "ip", "netns", "exec", "natwan", str(ROOT / "tmp/udpcheck"), "5201", str(secs + 1), str(ln)],
+                           stdout=subprocess.PIPE, stderr=subprocess.PIPE, text=True)
+    chk.stdout.readline()  # "ready" after bind
+    subprocess.run(["sudo", "-n", "ip", "netns", "exec", "natlan", str(ROOT / "tmp/udpblast"), "10.99.1.2", "10.99.2.2", "5201",
+                    str(ln), str(secs), "4", "1"], capture_output=True, text=True, timeout=secs * 3 + 30)
+    out, err = chk.communicate(timeout=30)
+    log(f"integrity len {ln}: {out.strip()} {err.strip()[:120]}")
+    m = re.search(r"good (\d+) bad (\d+)", out)
+    return (int(m.group(1)), int(m.group(2))) if m else (0, -1)
+
+
 def main():
     ap = argparse.ArgumentParser()
     ap.add_argument("--secs", type=int, default=10)
@@ -134,6 +147,8 @@ def main():
     ap.add_argument("--nat", action="store_true", help="source NAT the flow: 10.99.1.2 -> 10.99.2.1, port + 1000")
     ap.add_argument("--napi", choices=["irq", "split", "irq1"], default="irq",
                     help="irq1 = no thread, NIC IRQ + softirq poll on VPE1 (no scheduler in the path); split = threaded NAPI, ring1 (fast path) thread on VPE1, other on VPE0")
+    ap.add_argument("--zc-only", action="store_true", help="skip the stack run and the wire check (A/B of zc variants)")
+    ap.add_argument("--integrity", action="store_true", help="only the payload pattern check (zc+nat on) for len 1400/500/64")
     ap.add_argument("--perf", action="store_true", help="perf record VPE1 during the fast run (perf_push.py first)")
     a = ap.parse_args()
     global PERF
@@ -162,12 +177,18 @@ def main():
             log(f"TCP {'reverse' if rev else 'forward'}: zc / stack = {b1 / b0:.1f}x" if b0 else "no baseline")
         nb.sw(f"echo 0 > {P}/zc; echo 0 > {P}/zc_sport_add")
         return
-    base = run("stack", a.secs, a.flows, a.len)
+    if a.integrity:
+        nb.sw(f"echo 10,99,2,1 > {P}/zc_sip; echo 1000 > {P}/zc_sport_add; echo 1 > {P}/zc")
+        res = [verify_payload(ln) for ln in (1400, 500, 64)]
+        nb.sw(f"echo 0 > {P}/zc; echo 0 > {P}/zc_sport_add")
+        log("INTEGRITY " + ("PASS" if all(g > 1000 and b == 0 for g, b in res) else "FAIL") + f" {res}")
+        return
+    base = 0 if a.zc_only else run("stack", a.secs, a.flows, a.len)
     if a.nat:
         nb.sw(f"echo 10,99,2,1 > {P}/zc_sip; echo 1000 > {P}/zc_sport_add")
     nb.sw(f"echo 1 > {P}/zc")
     fast = run("zc+nat" if a.nat else "zc", a.secs, a.flows, a.len)
-    if a.nat:
+    if a.nat and not a.zc_only:
         verify_nat(nb.HOST_NIC)
     nb.sw(f"echo 0 > {P}/zc; echo 0 > {P}/zc_sport_add")
     log(f"zc / stack = {fast / base:.1f}x" if base else "no baseline")

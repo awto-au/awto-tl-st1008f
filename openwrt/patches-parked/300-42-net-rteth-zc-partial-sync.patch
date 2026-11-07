@@ -1,0 +1,131 @@
+From: Dan <dan@awto.au>
+Subject: [PATCH] net: rteth: zc forward syncs only the header lines of a frame (zc_sync_bytes, zc_rx_part; experiment, default unchanged)
+
+- zc_sync_bytes (default 128 = the old fixed TX writeback): bytes from the frame start written back before TX.
+- zc_rx_part (default 0): on TX done invalidate only the header lines of the frame and put the page with a 1-byte pool sync, instead of the full 4096 B page_pool sync.
+  - Only for a page the stack never held: a per-pfn bit is set in rteth_create_skb/append_skb (page->private is pp_ref_count), cleared when the first fragment of a page is posted.
+- The CPU reads/writes only the first ~100 bytes of a zc frame, so no payload line is cached or dirty. Result: docs/CAMPAIGN-PLAIN-7.4.md.
+---
+--- a/drivers/net/ethernet/realtek/rtl838x_eth.c
++++ b/drivers/net/ethernet/realtek/rtl838x_eth.c
+@@ -36,6 +36,7 @@
+ #include <net/flow_offload.h>
+ #include <net/pkt_cls.h>
+ #include <net/dst_metadata.h>
++#include <linux/memblock.h>
+ #include <net/page_pool/helpers.h>
+ 
+ #include "rtl838x_eth.h"
+@@ -97,8 +98,42 @@
+ static uint zc_dbg;
+ module_param(zc_dbg, uint, 0644);
+ MODULE_PARM_DESC(zc_dbg, "log the next N TX frames of both paths (len, cpu tag, first bytes)");
++static uint zc_sync_bytes = 128;
++module_param(zc_sync_bytes, uint, 0644);
++MODULE_PARM_DESC(zc_sync_bytes, "zc: frame bytes written back before TX and (zc_rx_part) invalidated on TX done; 128 = the rewritten headers");
++static bool zc_rx_part;
++module_param(zc_rx_part, bool, 0644);
++MODULE_PARM_DESC(zc_rx_part, "zc: on TX done invalidate only zc_sync_bytes instead of the full page sync, for pages the stack never held");
+ #define RTETH_ZC_MARK	((struct sk_buff *)1UL)
+ 
++/* The CPU only reads and writes the first zc_sync_bytes of a zc frame, so only those lines can be cached or dirty.
++ * A page the stack held (bit set at skb creation) or a sibling fragment of one keeps the full sync.
++ * Not page->private: page_pool overlays it with pp_ref_count.
++ */
++static unsigned long *zc_stack_pg;
++
++static inline void rteth_zc_stack_mark(struct page *page, bool on)
++{
++	if (zc_stack_pg && on)
++		set_bit(page_to_pfn(page), zc_stack_pg);
++	else if (zc_stack_pg)
++		clear_bit(page_to_pfn(page), zc_stack_pg);
++}
++
++static void rteth_zc_put(struct rteth_ctrl *ctrl, int r, int i)
++{
++	struct rteth_tx_info *tx_info = &ctrl->tx_info[r];
++	struct page *page = tx_info->zc_page[i];
++
++	if (READ_ONCE(zc_rx_part) && zc_stack_pg && !test_bit(page_to_pfn(page), zc_stack_pg)) {
++		dma_sync_single_for_device(&ctrl->pdev->dev, ctrl->tx_data[r].frag[i].dma - VLAN_HLEN,
++					   READ_ONCE(zc_sync_bytes) + VLAN_HLEN, DMA_FROM_DEVICE);
++		page_pool_put_page(tx_info->zc_pool[i], page, 1, false);
++	} else {
++		page_pool_put_full_page(tx_info->zc_pool[i], page, false);
++	}
++}
++
+ /* RTL930x NIC core shared with U-Boot (awto-tl-st1008f shared/rtl930x-nic, #83); ctx = regmap */
+ static inline u32 rtl930x_nic_rd(void *ctx, u32 off)
+ {
+@@ -675,7 +710,7 @@
+ 				continue;
+ 
+ 			if (tx_info->skb[i] == RTETH_ZC_MARK) {
+-				page_pool_put_full_page(tx_info->zc_pool[i], tx_info->zc_page[i], false);
++				rteth_zc_put(ctrl, r, i);
+ 				tx_info->skb[i] = NULL;
+ 				continue;
+ 			}
+@@ -710,7 +745,7 @@
+ 			break;
+ 
+ 		if (unlikely(tx_info->skb[i] == RTETH_ZC_MARK)) {
+-			page_pool_put_full_page(tx_info->zc_pool[i], tx_info->zc_page[i], false);
++			rteth_zc_put(ctrl, r, i);
+ 			tx_info->skb[i] = NULL;
+ 			tx_info->clean_count++;
+ 			continue;
+@@ -806,6 +841,8 @@
+ 				return -ENOMEM;
+ 			}
+ 
++			if (!offset)
++				rteth_zc_stack_mark(page, false);
+ 			highmem |= PageHighMem(page);
+ 			paddr = max(paddr, page_to_phys(page));
+ 
+@@ -1400,6 +1437,7 @@
+ 	struct sk_buff *skb;
+ 
+ 	page_pool_dma_sync_for_cpu(pool, page, offset + ctrl->cfg->skb_headroom, len);
++	rteth_zc_stack_mark(page, true);	/* the stack may touch payload lines: no partial zc sync for this page */
+ 	skb = napi_build_skb(page_address(page) + offset, RTETH_PPOOL_FRAG_SIZE);
+ 	if (unlikely(!skb)) {
+ 		page_pool_put_full_page(pool, page, true);
+@@ -1441,6 +1479,7 @@
+ 	}
+ 
+ 	page_pool_dma_sync_for_cpu(pool, page, offset + ctrl->cfg->skb_headroom, len);
++	rteth_zc_stack_mark(page, true);
+ 	skb_add_rx_frag(skb, nr_frags, page, offset + ctrl->cfg->skb_headroom,
+ 			len, RTETH_PPOOL_FRAG_SIZE);
+ 
+@@ -1847,7 +1886,7 @@
+ 		z->lastused = jiffies;
+ 	}
+ 	rcu_read_unlock();
+-	dma_sync_single_for_device(&ctrl->pdev->dev, dma, 128, DMA_TO_DEVICE);	/* the rewritten header lines (TCP options included) */
++	dma_sync_single_for_device(&ctrl->pdev->dev, dma, min(READ_ONCE(zc_sync_bytes), max(len, 128u)), DMA_TO_DEVICE);
+ 
+ 	__netif_tx_lock(txq, smp_processor_id());
+ 	txslot = txi->send_count & (RTETH_TX_RING_SIZE - 1);
+@@ -1956,6 +1995,8 @@
+ 			goto recycle;
+ 		}
+ 
++		if (!new_offset)
++			rteth_zc_stack_mark(new_page, false);	/* first fragment of a page: nobody else holds it */
+ 		if (is_head && is_tail && READ_ONCE(zc) && ring == READ_ONCE(zc_ring) &&
+ 		    rteth_zc_forward(ctrl, ring, slot, frag))
+ 			goto zc_posted;
+@@ -2568,6 +2609,8 @@
+ 		(u32)pdev, (u32)(&pdev->dev));
+ 
+ 	cfg = device_get_match_data(&pdev->dev);
++	if (!zc_stack_pg)
++		zc_stack_pg = bitmap_zalloc(max_pfn, GFP_KERNEL);	/* NULL = zc_rx_part stays off */
+ 
+ 	dev = devm_alloc_etherdev_mqs(&pdev->dev, sizeof(struct rteth_ctrl), RTETH_TX_RINGS, RTETH_RX_RINGS);
+ 	if (!dev)
