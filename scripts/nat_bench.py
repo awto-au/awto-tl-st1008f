@@ -518,7 +518,7 @@ def v6_setup() -> int:
     return 0 if r.returncode == 0 else 1
 
 
-def v6_run(secs: int, streams: int, onlink: bool, dst: str | None = None) -> int:
+def v6_run(secs: int, streams: int, onlink: bool, dst: str | None = None, reverse: bool = False) -> int:
     src = V6[LAN_VID][1] if onlink else V6[LAN_VID][3]
     dst = dst or (V6[WAN_VID][1] if onlink else V6[WAN_VID][3])
     sw("echo 1 > /sys/kernel/debug/realtek_otto_l3/clear_route_hits; true")
@@ -528,12 +528,12 @@ def v6_run(secs: int, streams: int, onlink: bool, dst: str | None = None) -> int
     a = snap()
     tmo = int((secs + 2) * 1.25) + 5
     r = subprocess.run(["sudo", "-n", "nice", "-n", "19", "ip", "netns", "exec", NS_LAN, "iperf3", "-6", "-c", dst,
-                        "-B", src, "-t", str(secs), "-P", str(streams), "-J", "-O", "2"],
+                        "-B", src, "-t", str(secs), "-P", str(streams), "-J", "-O", "2"] + (["-R"] if reverse else []),
                        capture_output=True, text=True, timeout=tmo)
     b = snap()
     srv.kill()
     res = json.loads(r.stdout)
-    summarize(f"v6-{'onlink' if onlink else 'gw'}-{dst}-tcp-P{streams}-{secs}s", res, a, b, None)
+    summarize(f"v6-{'onlink' if onlink else 'gw'}-{dst}-tcp-P{streams}-{secs}s{'-R' if reverse else ''}", res, a, b, None)
     log(sw("grep fd99 /sys/kernel/debug/realtek_otto_l3/routes; true"))
     return 0
 
@@ -577,6 +577,7 @@ def main() -> int:
     v.add_argument("-P", type=int, default=4)
     v.add_argument("--onlink", action="store_true", help="host-to-host on-link (expect CPU trap)")
     v.add_argument("--dst", default=None, help="far v6 address on natwan (e.g. one behind 2000::/3)")
+    v.add_argument("--reverse", action="store_true")
     sub.add_parser("status")
     sub.add_parser("teardown")
     a = ap.parse_args()
@@ -596,7 +597,7 @@ def main() -> int:
     if a.cmd == "v6-setup":
         return v6_setup()
     if a.cmd == "v6-run":
-        return v6_run(a.secs, a.P, a.onlink, a.dst)
+        return v6_run(a.secs, a.P, a.onlink, a.dst, a.reverse)
     if a.cmd == "offload":
         return offload(a.onlink, a.default_v4, a.default_v6)
     if a.cmd == "dflt-setup":
