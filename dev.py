@@ -405,6 +405,13 @@ def cmd_boot_link_check(extra: list[str]) -> int:
     return _script("boot_link_check.py", extra)
 
 
+@command("read-only cabling map of sw1 and sw2: modules, link, DDM, LLDP, learned MACs named from the Omada client list, "
+         "two-way arping probe, duplicate IPs, diff against the previous snapshot (tmp/cabling/map-latest.md)",
+         args="[--switches sw1,sw2] [--no-omada] [--no-probe] [--no-diff]", kind="check")
+def cmd_cabling_map(extra: list[str]) -> int:
+    return _script("cabling_map.py", extra)
+
+
 @command("regression canary on sw2 only (docs/CANARY.md): flash image (boot-link x3, #138 hang-test, switch-check) then plain kernel "
          "(selftest, vlanproto, gdma, dss, zc under perf, boot log); PASS/WARN/FAIL/NOTRUN, exit 0/1",
          args="[--only a,b|ids] [--list] [--dry-run] [--update-baseline] [--no-ramload] [--selftest]", kind="hardware")
@@ -767,7 +774,7 @@ def _daemon_policy_pass() -> None:
 
 # no board contact, or read-only network checks that may target sw1 (#91)
 HOST_ONLY = {"storm-watch", "check-log", "flash-guard", "doc-check", "console-watch", "console-window",
-             "switch-check", "mode-watch", "switch-logs",
+             "switch-check", "mode-watch", "switch-logs", "cabling-map",
              "canary"}  # orchestrator: every board flow it spawns goes through dev.py/board_guard itself
 # Owner-approved management of a running switch over SSH (any unit, sw1 included): no power, console or flash.
 NET_MANAGE = {"openwrt-snmp", "openwrt-luci", "switch-net-clean", "switch-snmp", "switch-vlan",
