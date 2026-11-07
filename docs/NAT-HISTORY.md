@@ -953,3 +953,54 @@ Not isolated:
 - `nf_conntrack_max` and hashsize cannot be restored by `nat_knobs reset` (state `dflt` is a no-op); the later cells in the `nat` pass ran with max 4096 / hashsize 1024 in place. Boot afterwards.
 - Absolute rates here (248 / 341) are below the 413-422 stack rows in [NAT.md](NAT.md); the setup differs (`nat_bench run` to 10.99.2.2, IRQ on VPE0, no `irq1`), not investigated.
 - Open for #71: nothing in the stack path is conntrack-bound once the flowtable carries the flow; remaining acceptance is a decision (close with this table) or a UDP many-flow test of table size / hash (needs a flow generator).
+
+## OpenWrt image vs plain kernel NAT TCP (#161)
+
+- 2026-11-08, sw2, one session per image: core 508 raw regs (e220 0x30626, e214 0x3b8), CPU 1350, DDR 662, LX 306, SRAM 500, cage 1, one NAT interface (`nat-bench setup`), software reboot between images.
+- Plain = `mainline-7.4-rc1.bin`; image = `openwrt-ours-initramfs.bin`. Driver `scripts/nat161_compare.py` (rows `tmp/logs/nat161.jsonl`, settings dumps `tmp/logs/nat161_<img>_settings.txt`).
+- `nat_bench run --secs 15 -P 4` x3 per cell; values below are the mean of 3; cpu = busy % VPE0/VPE1 on fwd.
+
+| Image | Path (irq) | fwd / rev Mbit/s | VPE0 / VPE1 busy | rx pps fwd |
+|---|---|---|---|---|
+| plain | `nat` (irq VPE0) | 240 / 311 | 99 / 85 | 30.5k |
+| plain | `nat-ft` (irq VPE0) | 323 / 406 | 98 / 85 | 40.6k |
+| plain | `nat-ft` (irq1) | 324 / 405 | 84 / 100 | 40.7k |
+| OpenWrt | `nat` (irq VPE0) | 85.5 / 103.2 | 100 / 56 | 10.8k |
+| OpenWrt | `nat` (irq1) | 76.6 / 88.0 | 98 / 78 | 9.6k |
+| OpenWrt | `nat-ft` (irq VPE0) | 267.7 / 344.0 | 98 / 86 | 33.7k |
+| OpenWrt | `nat-ft` (irq1) | 233.5 / 272.1 | 97 / 98 | 29.1k |
+| plain | zc+nat (`zc_bench --tcp`, irq1) | 1565 / 1571 | - | - |
+| OpenWrt | zc+nat (`zc_bench --tcp`, irq1) | 1536 / 1555 | - | - |
+
+- `zc_bench --tcp` stack legs (nat-ft, irq1): plain 388-393 / 387-399, image 297-305 / 289-303 Mbit/s; zc legs 4.0x vs 5.0-5.3x.
+- The 83-104 Mbit/s in #161 is the image in `nat` mode (conntrack + masquerade on every packet, no flowtable); the 413-422 plain rows are `nat-ft`. Not the same path.
+- The image's fast path works: zc+nat 1536-1555 vs 1565-1571 plain (-2 %); zc counters equal (stack rx ~370 pps).
+
+### Settings that differ (image vs plain)
+
+- `rps_cpus` on `eth0` rx-0/rx-1: image `1` (VPE0), plain `0`. Reset by OpenWrt after `nat-bench setup` (netifd hotplug), so `--napi irq1` on the image still ends with the stack on VPE0 (VPE0 96 % softirq, VPE1 41 % at irq1).
+- `eth0` qdisc: image `fq_codel`, plain `pfifo_fast`. Not varied.
+- `nf_conntrack_checksum`: image 0, plain 1 (image setting is the cheaper one).
+- fw4 loaded on the image: 12 base chains (mangle/raw/dstnat/srcnat/input/forward/output) = more netfilter hooks per packet; `ct state vmap` in input/forward/output; plain has only the bench's `nattest` table. Not removed in this session.
+- Userland on the image: netifd, collectd, lldpd, snmpd, uhttpd, ntpd, procd; conntrack table 328 entries vs 5 on plain.
+- Identical: `rtl838x_eth` parameters, `ethtool -k eth0`, GRO state, irq affinity default (VPE0), `threaded` 0, no irqbalance.
+
+### Partial A/B on the image (nat, irq on VPE1, 1 x 15 s per point, same boot)
+
+| Change (cumulative) | fwd / rev Mbit/s | VPE0 / VPE1 busy |
+|---|---|---|
+| image as booted (irq1) | 76.6 / 88.0 | 98 / 78 |
+| `rps_cpus` = 0 | 106.6 / 108.1 | 45 / 98 |
+| + `nf_conntrack_checksum` = 1 | 108.5 / 109.3 | 45 / 97 |
+| plain, same path | 240.6 / 311 | 84 / 99 |
+
+- RPS off: +39 % fwd, +23 % rev; VPE0 softirq share drops 95 % to 0, the single RX VPE then limits at 13.6k pps vs plain 30.3k pps at the same 98-99 % busy: image costs 2.2x more per packet on `nat`.
+- A daemons-stopped run (collectd, lldpd, snmpd, uhttpd, ntpd) was taken with RPS back on (netifd re-applied it): 95 Mbit/s fwd vs 76.6, i.e. daemons are a minor share; not isolated with RPS off.
+
+### Conclusion
+
+- Not a regression of the zc path: image zc+nat is within 2 % of plain.
+- Image `nat-ft` stack is 17-28 % below plain; image `nat` stack is 2.2-2.8x below plain (85-104 vs 240-311).
+- Part of the gap is `rps_cpus` = 1 (OpenWrt packet steering), which defeats `--napi irq1` placement: the image never gets a stack path on VPE1. Removing it gives +23-39 % on `nat`.
+- Remaining ~2.2x per packet on `nat` is not explained: candidates are the fw4 hook chains (not removed), `fq_codel` on `eth0`, and kernel config differences in conntrack/nf (image build vs plain build). Next probe: on the image `nft delete table inet fw4` then `tc qdisc replace dev eth0 root noqueue`, and `perf` (`perf_push.py`, `nat_perf.py`) on both images for `nf_hook_slow` / `nf_conntrack_in` shares, with RPS 0 and the same irq placement.
+- Bench note: `nat_bench.py run` leaves a root `iperf3 -s -1` in the netns when the client cannot connect (failed run); the leftover blocks the next `setup` (`8021q: VLAN device already exists`) until it is killed.
