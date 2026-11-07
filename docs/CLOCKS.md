@@ -45,7 +45,7 @@ Source tags: **[SRC]** GPL file:line (`dms1250/` = `sources/rtk-dms1250/`, `xgs1
 | `e22c` PLL_125M_MISC | `e0d6873c` | DIV5_EN 1, DIV4_EN 1, CMU_EN 1 |
 | `e230` PLL_CML_CTRL | `000d0003` | CKREFBUF_CML_I 20:18 = 3, _R 17:16 = 1 |
 
-- SPEC: switch-core clock = SW VCO / (2 x (DIVN2_SWCORE + 2)) = 408 MHz by analogy with LX; not used by any code here.
+- Switch-core clock = SW VCO / (2 x (DIVN2_SWCORE + 2)) = 408 MHz at stock (code 1). Runtime change works from the U-Boot prompt: `mw.l 0xbb00e220 <v>` then e200 bit 30 relock (`mw.l 0xbb00e200 0x0001c0ff`, `0x4001c0ff`); no code uses it. Tried 3 (245), 2 (306), 1, 0 (612): all boot and link; the 1400 B CPU-port rate scales with it (86.6 / 108.1 / 143.5 / 182.3 kpps rx-only); 612 left lan1 silent after the rx runs (docs/CAMPAIGN-PLAIN-7.4.md 'Switch-core clock').
 
 ### SoC `0xb8000000` — [SRC] `dms1250/system/include/soc/socdef/rtl9300_soc_reg.h`
 

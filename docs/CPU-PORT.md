@@ -80,6 +80,9 @@ Facts only. Where we are: [NAT.md](NAT.md). Experiments and results over time: [
 | CPU | 1000 MHz (-26 %) | 132.3 | -7.5 % |
 
 - Cutting any one clock by a quarter costs 3-8 %: the 1400 B ceiling is almost independent of CPU, DDR and LX clocks, so it sits in a fixed-rate path outside them (switch core to NIC / CPU-queue transfer). `rxdrop` (receive and drop) stops at the same 137 kpps.
+- Switch-core clock (`0xbb00e220` DIVN2_SWCORE 8:5) is the 1400 B limit: 306 MHz (-25 %) gives 108 kpps rx-only / 110 forwarding, 245 MHz (-40 %) 87 kpps, 408 MHz (stock) 143.5 / 144.8, 612 MHz (+50 %) 182 kpps rx-only (+27 %). 64 B unaffected. Table: docs/CAMPAIGN-PLAIN-7.4.md 'Switch-core clock vs the 1400 B ceiling'.
+- 612 MHz not usable yet: lan1 went silent after the rx runs and in zc-only flows (cause open); forwarding/integrity not measured there.
+- Next: make 612 (or an intermediate, none exists between 408 and 612) stable before a turbo key; the 'almost independent of CPU, DDR and LX' line above stays true because those clocks are not the limit.
 - LX 204 MHz: the 7.3 RX path panics in `gro_list_prepare` (2/2, #149); 245 and 306 are stable.
 - Valid `turbo` steps: LX 175 / 204 / 245 / 306; CPU 800 / 1000 / 1050 / 1100-1425 step 25; an invalid value rejects the whole profile ('nothing changed', board stays at stock clocks).
 

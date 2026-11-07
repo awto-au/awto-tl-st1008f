@@ -225,3 +225,23 @@
 - Verdict (rule of #146): FAIL, "rate drops with both VPEs busy": 124-128 kpps with both VPEs busy vs 143.3 (rt0) / 136.7 (rt1) with one. The shared 34Kc pipeline, not one VPE, is the limit; splitting receive does not raise the ceiling. EGR_QUEUE drops fall (par 15 k vs rt1 51 k) but the rate does not.
 - Side result: with all traffic on ring 0 / VPE0 the rate is 143.3 kpps vs 136.7 on ring 1 / VPE1 (earlier 143 on VPE1 with `irq1` softirq instead of the NAPI thread).
 - Panics: none (#149 `gro_list_prepare` not seen; stack path is not used on the zc path).
+
+## Switch-core clock vs the 1400 B ceiling (2026-11-07, hypothesis from #147)
+
+- Setup: plain 7.4-rc1 bench kernel (`mainline-7.4-rc1.bin`), picks 1350/306/662/500, cage 1, `--napi irq1`, route mode. Logs `tmp/logs/swc_<mhz>_*.log`.
+- Change: after `turbo ...`, `--pre "mw.l 0xbb00e220 <v>"` (DIVN2_SWCORE bits 8:5 only), then relock `mw.l 0xbb00e200 0x0001c0ff` / `0x4001c0ff` (e200 bit 30 0 -> 1; reads back `0001c0ff`). No U-Boot code change.
+- Switch-core clock = SW VCO / (2 x (code + 2)), codes 0..3 tried; Realtek's SPL never writes this field (glb_pll.h default code 1).
+
+| Switch core | e220 | rx-only 1400 B kpps | forwarding zc+nat 1400 B kpps | rx-only 64 B kpps | integrity | notes |
+|---|---|---|---|---|---|---|
+| 245 MHz (code 3) | 0002c466 | 86.6 (0.8 %, n=3) | not obtained | 224.6 (n=1) | - | -39.6 % rate for -40 % clock |
+| 306 MHz (code 2) | 0002c446 | 108.1 (0.5 %, n=3) | 110.0 (n=1) | 231.8 (n=1) | PASS 1400/500/64 | -24.7 % for -25 % |
+| 408 MHz (code 1, stock) | 0002c426 | 143.5 (0.2 %, n=3) | 144.8 (n=1) | 220.9 (n=1) | PASS 1400/500/64 | baseline |
+| 612 MHz (code 0) | 0002c406 | 182.3 (177.2 / 182.8 / 187.0, n=3) | not obtained | 223.3 (n=1) | - | +27 % for +50 % clock; board unreachable after the rx runs |
+
+- Verdict: hypothesis confirmed. The 1400 B receive and forwarding ceiling scales 1:1 with the switch-core clock downward (rate ratio 0.753 / 0.603 vs clock ratio 0.75 / 0.60) and the VPE ns per packet follows it (6.9 us at 408, 9.1 us at 306, 5.4-5.6 us at 612). 64 B is not affected (220-232 kpps at every clock: VPE-bound).
+- Upward: +50 % clock gives +27 % (sub-proportional: a second limit enters, VPE1 still 98.9 % busy). Stable for the three rx runs; afterwards sw2 stopped answering on lan1 (ping, ssh dead; console alive, kernel up, NIC IRQ count not rising).
+- Not obtained: forwarding and integrity at 245 and 612. In the zc-only flows (`nat_bench setup` ~8 s after boot) lan1 went silent right after setup at both clocks (also at 612 in a clean boot, once with manual setup 15 s after boot). Unexplained; whether it is clock related or the harness is unknown. 408 and 306 ran the same flow without it.
+- Silent corruption: none at 408 and 306 (udpcheck good 221k-847k per length, bad 0, reorder 0). ASIC `EGR_QUEUE` drops in rx runs unchanged in kind (rx flood fills queue 1 at every clock).
+- Console grep after all boots: no oops/panic (no `gro_list_prepare`), #149 not seen.
+- Boot-check note: `ramload ... --pre mw.l/md.l` reports `rc 1` from `boot_log_check` UNKNOWN lines (`clocks: ... lx now`, `turbo ...`) when the console log is checked late; board boots fine.
