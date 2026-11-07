@@ -45,7 +45,7 @@ def target_worst_s(mem: int, cpu: int) -> int:
 
 def ssh(ip: str, cmd: str, cap: float) -> subprocess.CompletedProcess:
     return subprocess.run(["ssh", "-o", f"ConnectTimeout={SSH_S}", "-o", "BatchMode=yes",
-                           "-o", "StrictHostKeyChecking=accept-new", f"root@{ip}", cmd],
+                           "-o", "StrictHostKeyChecking=no", "-o", "UserKnownHostsFile=/dev/null", "-o", "LogLevel=ERROR", f"root@{ip}", cmd],
                           capture_output=True, text=True, timeout=cap)
 
 

@@ -33,7 +33,7 @@ SOAK_CSV = ROOT / "tmp/logs/dss_soak.csv"
 SSH = ["ssh", "-o", "ConnectTimeout=5", "-o", "StrictHostKeyChecking=no", "-o", "UserKnownHostsFile=/dev/null",
        "-o", "LogLevel=ERROR", "-o", "BatchMode=yes"]
 PY = sys.executable
-KO = [ROOT / "kmod/rtl9300_gdma/rtl9300_gdma.ko", ROOT / "kmod/gdma_bench/gdma_bench.ko"]
+KO = [ROOT / "kmod/gdma_bench/gdma_bench.ko"]  # driver is in-tree (patch 300-41)
 ALL = "pre perf natsetup zc gdma dss selftest link vlanproto checklog memstress".split()
 DEFAULT = [s for s in ALL if s != "memstress"]
 
@@ -71,9 +71,9 @@ def run_capped(name: str, argv: list[str], stall: int, total: int, watch: Path |
     """(rc, output, secs); rc 124 = killed on stall, 125 = killed on the total backstop."""
     t0 = time.monotonic()
     fh = stdin_path.open("rb") if stdin_path else None
-    p = subprocess.Popen(argv, stdin=fh, stdout=subprocess.PIPE, stderr=subprocess.STDOUT, text=True, bufsize=1)
+    p = subprocess.Popen(argv, stdin=fh or subprocess.DEVNULL, stdout=subprocess.PIPE, stderr=subprocess.STDOUT, text=True, bufsize=1)
     q: queue.Queue = queue.Queue()
-    threading.Thread(target=lambda: [q.put(ln) for ln in p.stdout] or q.put(None), daemon=True).start()
+    threading.Thread(target=lambda: ([q.put(ln) for ln in p.stdout], q.put(None)), daemon=True).start()  # sentinel after EOF
     out, last, wsize = [], t0, (watch.stat().st_size if watch and watch.exists() else 0)
     rc = None
     while rc is None:
@@ -180,15 +180,14 @@ class Campaign:
             self.do("gdma", ssh_cmd(self.ip, f"cat > /tmp/{k.name}"), capkey="gdma", stdin_path=k)
 
         def judge(rc, out):
-            reg = "registered 2 memcpy channels" in out
+            reg = len(re.findall(r"memcpy channel", out)) >= 2
             rows = re.findall(r"gdma_bench: len +(\d+) iters \d+: gdma (\d+) ns/xfer \((\d+) MB/s\) cpu memcpy (\d+) ns \((\d+) MB/s\) bad (\d+) fails (\d+)", out)
             bad = sum(int(r[5]) + int(r[6]) for r in rows)
             r4k = next((r for r in rows if r[0] == "4096"), None)
             ok = reg and len(rows) == 8 and bad == 0
             return ("PASS" if ok else "FAIL"), (f"reg {reg} rows {len(rows)} bad+fails {bad} "
                                                + (f"4k gdma {r4k[2]} MB/s cpu {r4k[4]} MB/s" if r4k else "") + ("" if ok else " " + out.strip()[-120:]))
-        self.do("gdma", ssh_cmd(self.ip, "dmesg -c >/dev/null; insmod /tmp/rtl9300_gdma.ko; "
-                                         "insmod /tmp/gdma_bench.ko iters=200 2>&1 | tail -n 1; dmesg | grep -E 'gdma'"), judge=judge)
+        self.do("gdma", ssh_cmd(self.ip, "ls /sys/class/dma; insmod /tmp/gdma_bench.ko iters=200 2>&1 | tail -n 1; dmesg | grep -i -E 'gdma|memcpy channel'"), judge=judge)
 
     def dss(self) -> None:
         def judge_probe(rc, out):

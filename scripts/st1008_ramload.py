@@ -60,8 +60,10 @@ IMAGES = {
     "openwrt-ours-6.18": ("openwrt-ours-6.18-initramfs.bin", 0x84f00000, "bootm",
                           OW_READY, 40),
     "mainline-kernel": ("mainline.bin", 0x84f00000, "bootm",
-                        r"st1008f-linux # ", 10),
+                        r"st1008f-initramfs: up|st1008f-linux # ", 10),  # prompt gets split by kernel messages
 }
+import kernel_base  # noqa: E402  build-kernel writes mainline-<base>.bin, never mainline.bin
+IMAGES["mainline-kernel"] = (f"mainline-{kernel_base.selected()[1:]}.bin",) + IMAGES["mainline-kernel"][1:]
 FAIL_MARKERS = r"U-Boot 2011\.12|Kernel panic - not syncing|Oops|Unhandled exception|\$ra  "
 
 
@@ -377,6 +379,8 @@ def set_mgmt_ip(con: Console, ip: str) -> None:
     con.run(f"uci set network.lan.ipaddr='{ip}/24'", OW_PROMPT, 1, "uci lan ipaddr", checked=True)
     con.run("uci commit network", OW_PROMPT, 2, "uci commit lan", checked=True)  # RAM overlay: ms
     con.run(f"ip addr replace {ip}/24 dev switch.1", OW_PROMPT, 1, f"mgmt {ip}", checked=True)
+    # dropbear from port-up can be gone (bench initramfs keygen race, 2 of 3 boots 2026-11-07): start again if absent
+    con.run("pidof dropbear >/dev/null || dropbear -R -B; pidof dropbear", PLAIN_PROMPT, 3, "dropbear up")
     (ROOT / "tmp/nat_bench.ssh").unlink(missing_ok=True)  # stale ssh mux from the previous boot hangs scripts 20 s
     # STP forwards ~4 s after it is on (forward_delay 2 s); unreachable replies return at once, so pace with -i 1:
     # 4 x 3 pings = 12 s = 3x that

@@ -289,6 +289,7 @@ This architecture does not have kernel memory protection\.  # MIPS has no strict
 Run /init as init process  # initramfs init start
 \s+(/init|with arguments:|with environment:|HOME=/|TERM=linux)  # init argv/env dump
 st1008f-initramfs: up \(Linux 7\.\d+\.\d+(-rc\d+)?(-next-\d{8})?(-dirty)?\)  # scripts/mainline_initramfs.py /init marker before the shell (#16)
+rtl9300-gdma 1[0-9a-f]{7}\.dma-controller: memcpy channel, burst \d  # in-tree GDMA dmaengine probe, 2 channels (#62)
 
 # ---- mainline 7.3 + OpenWrt realtek network drivers (#16), reviewed 2026-10-12 ----
 sfp sfp-p[1-8]: module .+ rev +\S* +sn \S+ +dc \d+  # SFP ID EEPROM read: vendor/PN/rev are free text (#16)
