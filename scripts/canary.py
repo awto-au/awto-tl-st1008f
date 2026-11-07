@@ -36,7 +36,9 @@ DEVPY = str(ROOT / "dev.py")
 CAMPAIGN = str(ROOT / "scripts/plain_campaign.py")
 # whole run: sum of the typical times is ~12 min; sum of all caps ~34 min; backstop = 30 min
 BACKSTOP_S = 1800
-PICKS = "turbo cpu=1350,ddr=662,lx=306,sram=500"
+# final plain profile (owner 2026-11-07): CPU 1325, DDR 662, SRAM 500, switch core 608 via raw regs (LX ~304); --plain-turbo/--plain-raw override
+PLAIN_TURBO = "turbo cpu=1325,ddr=662,lx=306,sram=500"
+PLAIN_RAW = ("mw.l 0xbb00e220 0x36826; mw.l 0xbb00e214 0x478; mw.l 0xbb00e200 0x0001c0ff; mw.l 0xbb00e200 0x4001c0ff")
 BAD_CONSOLE = re.compile(rb"Oops|\bBUG\b|Kernel panic|gro_list_prepare")
 FORBIDDEN = ["could not sync clock", "clock not ready, retry", "board silent", "board alive, console silent"]
 V_ORDER = {"PASS": 0, "WARN": 1, "NOTRUN": 2, "FAIL": 3}
@@ -175,6 +177,17 @@ def judge_campaign(out: str, rc: int, step: str) -> tuple[str, str]:
     return worst(vs), rows[-1][3]
 
 
+def ensure_ssh(ip: str) -> bool:
+    """Plain kernel has no dropbear at boot: start it via the console, up to 4 tries (ssh <= 8 s connect + console send 4 s each)."""
+    import subprocess
+    ssh = ["ssh", "-o", "ConnectTimeout=8", "-o", "BatchMode=yes", "-o", "StrictHostKeyChecking=no", "-o", "UserKnownHostsFile=/dev/null", f"root@{ip}", "true"]
+    for _ in range(4):
+        if subprocess.run(ssh, capture_output=True, timeout=12).returncode == 0:
+            return True
+        subprocess.run([PY, str(ROOT / "scripts/switch_console.py"), "send", "dropbear -R -B", "--secs", "4"], capture_output=True, timeout=20)
+    return False
+
+
 def row_cols() -> list[str]:
     return ["ts", "overall", *ORDER, "zc_kpps", "gdma_ns_4096", "hang_reset_s", "secs"]
 
@@ -195,7 +208,8 @@ def plan_cmds(a: argparse.Namespace, cid: str) -> list[list[str]]:
         "boot_link": [[PY, DEVPY, "boot-link-check", "--rounds", str(a.rounds)]],
         "hang_test": [[PY, DEVPY, "uboot-chain-env", "hang-test", "--slot", "b"]],
         "switch": [[PY, str(ROOT / "scripts/switch_check.py"), "--ip", a.ip, "--wait", "20"]],
-        "plain_boot": [[PY, DEVPY, "ramload", "uboot-mainline", "--then", "mainline-kernel", "--cage", "1", "--mgmt", "--pre", PICKS]],
+        "plain_boot": [[PY, DEVPY, "ramload", "uboot-mainline", *(["--stock-clocks"] if a.plain_raw else []), "--then", "mainline-kernel",
+                       "--cage", "1", "--mgmt", "--pre", a.plain_turbo, *(["--pre", a.plain_raw] if a.plain_raw else [])]],
         "pre": [c("pre")],
         "prep": [c("perf"), c("natsetup")],
         "selftest": [c("selftest")],
@@ -271,6 +285,8 @@ class Run:
         elif cid == "plain_boot":
             rc, out, s = self.exec(cid, cmds[0], CONSOLE)
             v, d, m = ("PASS" if rc == 0 else "FAIL"), (out.strip().splitlines() or [""])[-1][-160:], {}
+            if v == "PASS" and not ensure_ssh(a.ip):
+                v, d = "FAIL", "booted, but ssh did not come up after dropbear via console"
         elif cid == "dss":
             rc, out, s = self.exec(cid, cmds[0])
             v, d, m = judge_dss(rc, out, b["dss"])
@@ -444,6 +460,8 @@ def main() -> int:
     ap.add_argument("--dry-run", action="store_true", help="print every command and cap, touch nothing")
     ap.add_argument("--update-baseline", action="store_true", help="after a full all-PASS run: write new values, print the diff")
     ap.add_argument("--no-ramload", action="store_true", help="plain kernel already booted (picks): skip plain_boot")
+    ap.add_argument("--plain-turbo", default=PLAIN_TURBO, help="plain kernel: U-Boot turbo --pre line (default: final profile)")
+    ap.add_argument("--plain-raw", default=PLAIN_RAW, help="plain kernel: raw switch-core --pre line, '' = none (default: core 608)")
     ap.add_argument("--rounds", type=int, default=3, help="boot-link-check rounds")
     ap.add_argument("--zc-n", type=int, default=2, help="zc runs (each under perf, the #149 trigger)")
     ap.add_argument("--selftest", action="store_true", help="unit tests of the verdict logic")
