@@ -1,0 +1,453 @@
+From: Dan <dan@awto.au>
+Subject: [PATCH] net: rteth: two-ring split experiment: PIE CPU-queue rule, zc on both rings, queue 0 threshold, tag QID counters (#146)
+
+- Everything off by default (new module parameters default 0, debugfs only); zc_ring stays 1.
+- debugfs `rteth/rxq_pie` (RTL930x): `<sport|dport> <mask> <value> <ring> [udp|tcp|any]` installs one IPv4 PIE rule in an IACL block
+  (blocks 8-15) whose only action is the CPU queue id (ACT_MSK_CPUQID r[13] bit 7, QID_DATA r[17] bits 20-24); no forward action, the route trap stays.
+  `clear` removes the rules, read lists them. Needs the DSA driver built in; pie.c exports otto_pie_930x_cpuqid_*.
+- pie.c: `cpuqid_sel`/`cpuqid_data` in struct pie_rule; the drop-overwrite bit (r[14] bit 14) is skipped for a CPU-QID-only rule.
+- zc: `zc_ring` 2 = any RX ring; TX ring = `raw_smp_processor_id() & 1` (zc_ring 0/1: TX ring 0 as before). Doorbell writes only that ring's fetch bit (300-12).
+  Counters per RX ring (`ringN_zc_fwd/_miss/_busy/_flowtable_fwd` in rxq, totals keep their names); zc TX pages are reclaimed by the owning ring's NAPI with `tx_by_cpu=1`.
+- `cpuq0_drop_pages` (default 0 = keep): queue 0 threshold like 300-40's `cpuq_drop_pages`.
+- `rx_qid_stats=1`: frames per ring and CPU tag queue id, rxq lines `tagqid<Q>_ring<R>` (nonzero only); rxq also shows `napi_id_ringN` (thread `napi/eth0-<id>` = ring N).
+---
+--- a/drivers/net/ethernet/realtek/rtl838x_eth.c
++++ b/drivers/net/ethernet/realtek/rtl838x_eth.c
+@@ -52,6 +52,14 @@
+ 
+ #define RTETH_930X_FC_CPU_Q_EGR_DROP_THR	(0x7dc0)
+ 
++static uint cpuq0_drop_pages;
++module_param(cpuq0_drop_pages, uint, 0444);
++MODULE_PARM_DESC(cpuq0_drop_pages, "RTL930x CPU queue 0 drop threshold in pages, set at open (0 = keep boot value) (#146)");
++
++static uint rx_qid_stats;
++module_param(rx_qid_stats, uint, 0644);
++MODULE_PARM_DESC(rx_qid_stats, "1 = count RX frames per ring and CPU tag queue id (debugfs rxq tagqid*, #146)");
++
+ static uint cpuq_drop_pages = 1024;
+ module_param(cpuq_drop_pages, uint, 0444);
+ MODULE_PARM_DESC(cpuq_drop_pages, "RTL930x CPU queue 1 drop threshold in pages, set at open (boot value 78, 0 = keep) (#148)");
+@@ -65,7 +73,7 @@
+ MODULE_PARM_DESC(zc, "1 = forward matching UDP frames in place, no skb (prototype, #148)");
+ static uint zc_ring = 1;
+ module_param(zc_ring, uint, 0644);
+-MODULE_PARM_DESC(zc_ring, "RX ring that carries the flow (do not change under load)");
++MODULE_PARM_DESC(zc_ring, "RX ring that carries the flow; 2 = any ring, TX ring = CPU & 1 (do not change under load)");
+ static uint zc_dport = 5201;
+ module_param(zc_dport, uint, 0644);
+ static uint zc_vid;
+@@ -75,7 +83,6 @@
+ static unsigned int zc_dmac_n;
+ module_param_array(zc_dmac, byte, &zc_dmac_n, 0644);
+ MODULE_PARM_DESC(zc_dmac, "new destination MAC, 6 decimal bytes");
+-static unsigned long zc_fwd, zc_miss, zc_busy, zc_hw;
+ static unsigned char zc_sip[4];
+ static unsigned int zc_sip_n;
+ module_param_array(zc_sip, byte, &zc_sip_n, 0644);
+@@ -99,6 +106,19 @@
+ MODULE_PARM_DESC(zc_dbg, "log the next N TX frames of both paths (len, cpu tag, first bytes)");
+ #define RTETH_ZC_MARK	((struct sk_buff *)1UL)
+ 
++static inline bool rteth_zc_ring_match(int ring)
++{
++	uint z = READ_ONCE(zc_ring);
++
++	return z >= RTETH_RX_RINGS || ring == z;
++}
++
++/* any-ring mode: the forwarding CPU's own TX ring (doorbell writes only that ring's fetch bit, 300-12) */
++static inline int rteth_zc_tx_ring(void)
++{
++	return READ_ONCE(zc_ring) >= RTETH_RX_RINGS ? raw_smp_processor_id() & 1 : 0;
++}
++
+ /* RTL930x NIC core shared with U-Boot (awto-tl-st1008f shared/rtl930x-nic, #83); ctx = regmap */
+ static inline u32 rtl930x_nic_rd(void *ctx, u32 off)
+ {
+@@ -865,6 +885,16 @@
+ 	regmap_set_bits(ctrl->map, RTETH_839X_L2_CTRL_0, BIT(7));
+ }
+ 
++/* ON = pages, OFF = ON - 16 (12 bit fields); 0 keeps the chip value */
++static void rteth_930x_cpuq_drop_thr(struct rteth_ctrl *ctrl, int q, uint pages)
++{
++	u32 on = min(pages, 0xfffu);
++
++	if (pages)
++		regmap_write(ctrl->map, RTETH_930X_FC_CPU_Q_EGR_DROP_THR + 4 * q,
++			     FIELD_PREP(GENMASK(27, 16), on) | FIELD_PREP(GENMASK(11, 0), on - min(on, 16u)));
++}
++
+ static void rteth_930x_hw_init(struct rteth_ctrl *ctrl)
+ {
+ 	u64 q12 = 0;
+@@ -890,12 +920,8 @@
+ 	regmap_write(ctrl->map, RTETH_930X_QM_CPUQID2XGQID_CTRL + 4, upper_32_bits(q12));
+ 
+ 	/* boot value of 78 pages drops a forwarding burst on ring 1 long before the ring is full */
+-	if (cpuq_drop_pages) {
+-		u32 on = min(cpuq_drop_pages, 0xfffu);
+-
+-		regmap_write(ctrl->map, RTETH_930X_FC_CPU_Q_EGR_DROP_THR + 4,
+-			     FIELD_PREP(GENMASK(27, 16), on) | FIELD_PREP(GENMASK(11, 0), on - min(on, 16u)));
+-	}
++	rteth_930x_cpuq_drop_thr(ctrl, 1, cpuq_drop_pages);
++	rteth_930x_cpuq_drop_thr(ctrl, 0, cpuq0_drop_pages);
+ }
+ 
+ static void rteth_931x_hw_init(struct rteth_ctrl *ctrl)
+@@ -1702,8 +1728,9 @@
+ static bool rteth_zc_forward(struct rteth_ctrl *ctrl, int ring, int slot, struct rteth_frag *frag)
+ {
+ 	struct rteth_rx_info *rxi = &ctrl->rx_info[ring];
+-	struct netdev_queue *txq = netdev_get_tx_queue(ctrl->dev, 0);
+-	struct rteth_tx_info *txi = &ctrl->tx_info[0];
++	int tr = rteth_zc_tx_ring();
++	struct netdev_queue *txq = netdev_get_tx_queue(ctrl->dev, tr);
++	struct rteth_tx_info *txi = &ctrl->tx_info[tr];
+ 	struct page *page = rxi->page[slot];
+ 	unsigned int off = rxi->offset[slot] + ctrl->cfg->skb_headroom;
+ 	unsigned int len = frag->len, l2 = ETH_HLEN, txslot;
+@@ -1851,15 +1878,15 @@
+ 
+ 	__netif_tx_lock(txq, smp_processor_id());
+ 	txslot = txi->send_count & (RTETH_TX_RING_SIZE - 1);
+-	packet_dma = ctrl->tx_data[0].ring[txslot];
++	packet_dma = ctrl->tx_data[tr].ring[txslot];
+ 	if (unlikely(packet_dma & RTETH_RING_OWN_HW)) {
+ 		__netif_tx_unlock(txq);
+-		zc_busy++;
++		rxi->zc_busy++;
+ 		return false;
+ 	}
+ 	if (unlikely(txi->skb[txslot]))
+-		rteth_reclaim_tx_ring(ctrl, 0, 1);
+-	tf = &ctrl->tx_data[0].frag[txslot];
++		rteth_reclaim_tx_ring(ctrl, tr, 1);
++	tf = &ctrl->tx_data[tr].frag[txslot];
+ 	txi->skb[txslot] = RTETH_ZC_MARK;
+ 	txi->zc_page[txslot] = page;
+ 	txi->zc_pool[txslot] = rxi->pool;
+@@ -1872,34 +1899,35 @@
+ 			tf->cpu_tag, 32, p);
+ 	}
+ 	dma_wmb();
+-	ctrl->tx_data[0].ring[txslot] = packet_dma | RTETH_RING_OWN_HW;
++	ctrl->tx_data[tr].ring[txslot] = packet_dma | RTETH_RING_OWN_HW;
+ 	txi->send_count++;
+ 	wmb();
+ 	if (txi->send_count - txi->kick_count >= RTETH_TX_KICK_BATCH) {
+-		ctrl->cfg->tx_kick(ctrl, 0);
++		ctrl->cfg->tx_kick(ctrl, tr);
+ 		txi->kick_count = txi->send_count;
+ 	}
+ 	__netif_tx_unlock(txq);
+-	zc_fwd++;
++	rxi->zc_fwd++;
+ 	if (z)
+-		zc_hw++;
++		rxi->zc_hw++;
+ 	return true;
+ 
+ miss:
+-	if (zc_miss++ < 3)	/* first misses: the real frame layout (VLAN tag? ethertype?) */
++	if (rxi->zc_miss++ < 3)	/* first misses: the real frame layout (VLAN tag? ethertype?) */
+ 		print_hex_dump(KERN_INFO, "zc miss: ", DUMP_PREFIX_OFFSET, 16, 1, p, min(len, 48u), false);
+ 	return false;
+ }
+ 
+ static void rteth_zc_kick(struct rteth_ctrl *ctrl)
+ {
+-	struct netdev_queue *txq = netdev_get_tx_queue(ctrl->dev, 0);
+-	struct rteth_tx_info *txi = &ctrl->tx_info[0];
++	int tr = rteth_zc_tx_ring();
++	struct netdev_queue *txq = netdev_get_tx_queue(ctrl->dev, tr);
++	struct rteth_tx_info *txi = &ctrl->tx_info[tr];
+ 
+ 	if (txi->kick_count == txi->send_count)
+ 		return;
+ 	__netif_tx_lock(txq, smp_processor_id());
+-	ctrl->cfg->tx_kick(ctrl, 0);
++	ctrl->cfg->tx_kick(ctrl, tr);
+ 	txi->kick_count = txi->send_count;
+ 	__netif_tx_unlock(txq);
+ }
+@@ -1945,6 +1973,13 @@
+ 		if (unlikely(!skb && !is_head))
+ 			goto recycle;
+ 
++		if (is_head && READ_ONCE(rx_qid_stats)) {
++			struct rteth_dsa_tag qt;
++
++			ctrl->cfg->decode_tag(frag, &qt);
++			rx_info->qid[qt.queue & 31]++;
++		}
++
+ 		/*
+ 		 * Avoid complex error handling by allocating the new page before SKB consumption.
+ 		 * In case of failure drop the data and reuse the existing page.
+@@ -1956,7 +1991,7 @@
+ 			goto recycle;
+ 		}
+ 
+-		if (is_head && is_tail && READ_ONCE(zc) && ring == READ_ONCE(zc_ring) &&
++		if (is_head && is_tail && READ_ONCE(zc) && rteth_zc_ring_match(ring) &&
+ 		    rteth_zc_forward(ctrl, ring, slot, frag))
+ 			goto zc_posted;
+ 
+@@ -1997,7 +2032,7 @@
+ 		rx_info->slot = (slot + 1) % RTETH_RX_RING_SIZE;
+ 	}
+ 
+-	if (READ_ONCE(zc) && ring == READ_ONCE(zc_ring))
++	if (READ_ONCE(zc) && rteth_zc_ring_match(ring))
+ 		rteth_zc_kick(ctrl);
+ 
+ 	spin_lock(&ctrl->rx_lock);
+@@ -2034,7 +2069,26 @@
+ 
+ 	for (int r = 0; r < RTETH_RX_RINGS; r++)
+ 		seq_printf(m, "ring%d_frames %lu\n", r, READ_ONCE(ctrl->rx_info[r].pkts));
+-	seq_printf(m, "zc_fwd %lu\nzc_miss %lu\nzc_busy %lu\nzc_flowtable_fwd %lu\nzc_flows %u\n", zc_fwd, zc_miss, zc_busy, zc_hw, zc_nflows);
++	{
++		unsigned long t[4] = {};
++
++		for (int r = 0; r < RTETH_RX_RINGS; r++) {
++			struct rteth_rx_info *ri = &ctrl->rx_info[r];
++
++			seq_printf(m, "ring%d_zc_fwd %lu\nring%d_zc_miss %lu\nring%d_zc_busy %lu\nring%d_zc_flowtable_fwd %lu\n",
++				   r, READ_ONCE(ri->zc_fwd), r, READ_ONCE(ri->zc_miss), r, READ_ONCE(ri->zc_busy), r,
++				   READ_ONCE(ri->zc_hw));
++			t[0] += ri->zc_fwd, t[1] += ri->zc_miss, t[2] += ri->zc_busy, t[3] += ri->zc_hw;
++		}
++		seq_printf(m, "zc_fwd %lu\nzc_miss %lu\nzc_busy %lu\nzc_flowtable_fwd %lu\nzc_flows %u\n", t[0], t[1], t[2],
++			   t[3], zc_nflows);
++	}
++	for (int r = 0; r < RTETH_RX_RINGS; r++)
++		seq_printf(m, "napi_id_ring%d %u\n", r, ctrl->rx_info[r].napi.napi_id);
++	for (int r = 0; r < RTETH_RX_RINGS; r++)
++		for (int q = 0; q < 32; q++)
++			if (ctrl->rx_info[r].qid[q])
++				seq_printf(m, "tagqid%d_ring%d %lu\n", q, r, READ_ONCE(ctrl->rx_info[r].qid[q]));
+ 	for (int i = 0; i < ARRAY_SIZE(rteth_rxq_fields); i++) {
+ 		regmap_read(ctrl->map, rteth_rxq_fields[i].reg, &v);
+ 		seq_printf(m, "%s %u\n", rteth_rxq_fields[i].name, (v >> rteth_rxq_fields[i].shift) & 0x1f);
+@@ -2070,6 +2124,66 @@
+ 	return !strcmp(name, "all") ? len : -EINVAL;
+ }
+ 
++/* `rxq_pie <sport|dport> <mask> <value> <ring> [udp|tcp|any]` installs one IPv4 PIE rule (CPU queue action only),
++ * `rxq_pie clear` removes ours; values are numeric (0x ok). Install before traffic: a flow that changes ring reorders.
++ */
++static void *rteth_dsa_priv(struct rteth_ctrl *ctrl)
++{
++	struct dsa_port *cpu_dp = ctrl->dev->dsa_ptr;
++
++	return cpu_dp ? cpu_dp->ds->priv : NULL;
++}
++
++static int rteth_rxq_pie_show(struct seq_file *m, void *unused)
++{
++	if (IS_BUILTIN(CONFIG_NET_DSA_RTL83XX))
++		otto_pie_930x_cpuqid_show(m);
++	return 0;
++}
++
++static ssize_t rteth_rxq_pie_write(struct file *file, const char __user *buf, size_t len, loff_t *off)
++{
++	struct rteth_ctrl *ctrl = file_inode(file)->i_private;
++	char line[64], field[8], l4[8] = "udp";
++	unsigned int ring;
++	int mask, value;
++	void *priv;
++	int n, err;
++
++	if (!IS_BUILTIN(CONFIG_NET_DSA_RTL83XX) || ctrl->cfg->qm_rsn2cpuqid_ctrl != 0xa344)
++		return -EOPNOTSUPP;
++	if (len >= sizeof(line))
++		return -EINVAL;
++	if (copy_from_user(line, buf, len))
++		return -EFAULT;
++	line[len] = 0;
++	priv = rteth_dsa_priv(ctrl);
++	if (!priv)
++		return -ENODEV;
++	if (!strncmp(line, "clear", 5)) {
++		otto_pie_930x_cpuqid_clear(priv);
++		return len;
++	}
++	n = sscanf(line, "%7s %i %i %u %7s", field, &mask, &value, &ring, l4);
++	if (n < 4 || mask < 0 || mask > 0xffff || value < 0 || value > 0xffff || ring >= RTETH_RX_RINGS ||
++	    (strcmp(field, "sport") && strcmp(field, "dport")) ||
++	    (strcmp(l4, "udp") && strcmp(l4, "tcp") && strcmp(l4, "any")))
++		return -EINVAL;
++	err = otto_pie_930x_cpuqid_add(priv, !strcmp(field, "dport"), mask, value,
++				       !strcmp(l4, "udp") ? 1 : !strcmp(l4, "tcp") ? 2 : 0, ring);
++	return err ? err : len;
++}
++
++static int rteth_rxq_pie_open(struct inode *inode, struct file *file)
++{
++	return single_open(file, rteth_rxq_pie_show, inode->i_private);
++}
++
++static const struct file_operations rteth_rxq_pie_fops = {
++	.owner = THIS_MODULE, .open = rteth_rxq_pie_open, .read = seq_read, .write = rteth_rxq_pie_write,
++	.llseek = seq_lseek, .release = single_release,
++};
++
+ static int rteth_rxq_open(struct inode *inode, struct file *file)
+ {
+ 	return single_open(file, rteth_rxq_show, inode->i_private);
+@@ -2090,6 +2204,7 @@
+ 	struct dentry *dir = debugfs_create_dir("rteth", NULL);
+ 
+ 	debugfs_create_file("rxq", 0600, dir, ctrl, &rteth_rxq_fops);
++	debugfs_create_file("rxq_pie", 0600, dir, ctrl, &rteth_rxq_pie_fops);
+ 	devm_add_action_or_reset(ctrl->dev->dev.parent, rteth_debugfs_remove, dir);
+ }
+ 
+--- a/drivers/net/ethernet/realtek/rtl838x_eth.h
++++ b/drivers/net/ethernet/realtek/rtl838x_eth.h
+@@ -274,6 +274,8 @@
+ 	struct rteth_ctrl	*ctrl;
+ 	struct napi_struct	napi;
+ 	unsigned long		pkts; /* frames received on this ring (debugfs rxq) */
++	unsigned long		zc_fwd, zc_miss, zc_busy, zc_hw; /* in-place forward, written by this ring's NAPI only (#146) */
++	unsigned long		qid[32]; /* frames per CPU tag queue id, rx_qid_stats=1 (#146) */
+ 	struct page_pool	*pool;
+ 	struct sk_buff		*skb; /* unprocessed SKB from last receive loop */
+ 	struct page		*page[RTETH_RX_RING_SIZE];
+--- a/drivers/net/dsa/rtl83xx/pie.c
++++ b/drivers/net/dsa/rtl83xx/pie.c
+@@ -5,6 +5,7 @@
+ #include <linux/iopoll.h>
+ #include <linux/lockdep.h>
+ #include <linux/regmap.h>
++#include <linux/seq_file.h>
+ 
+ #include "pie.h"
+ #include "rtl-otto.h"
+@@ -2326,10 +2327,13 @@
+ 	} else {
+ 		r[14] |= pr->fwd_sel ? BIT(27) : 0;
+ 		r[14] |= pr->fwd_act << 18;
+-		r[14] |= BIT(14); /* We overwrite any drop */
++		if (!pr->cpuqid_sel || pr->fwd_sel)
++			r[14] |= BIT(14); /* We overwrite any drop */
+ 	}
+ 	if (pr->phase == PHASE_VACL)
+ 		r[14] |= pr->fwd_sa_lrn ? BIT(15) : 0;
++	r[13] |= pr->cpuqid_sel ? BIT(7) : 0;			/* ACT_MSK_CPUQID, lsp 167 */
++	r[17] |= ((u32)(pr->cpuqid_data) & 0x1f) << 20;		/* QID_DATA, lsp 52 */
+ 	r[13] |= pr->bypass_sel ? BIT(5) : 0;
+ 	r[13] |= pr->nopri_sel ? BIT(4) : 0;
+ 	r[13] |= pr->tagst_sel ? BIT(3) : 0;
+@@ -2616,6 +2620,70 @@
+ 		clear_bit(idx, priv->pie_use_bm);
+ }
+ 
++/* rteth debugfs rxq_pie (#146): CPU-QID-only IACL rules (blocks 8-15), ids kept for `clear` */
++#define OTTO_CPUQID_RULES 4
++static struct pie_rule otto_cpuqid_rule[OTTO_CPUQID_RULES];
++static int otto_cpuqid_n;
++static DEFINE_MUTEX(otto_cpuqid_lock);
++
++/* proto: 0 any, 1 UDP, 2 TCP; frames stay on the route trap, only the queue changes */
++int otto_pie_930x_cpuqid_add(struct otto_dsa_priv *priv, bool dport, u16 mask, u16 value, int proto, u8 ring)
++{
++	struct pie_rule *pr;
++	int err;
++
++	guard(mutex)(&otto_cpuqid_lock);
++	if (otto_cpuqid_n >= OTTO_CPUQID_RULES)
++		return -ENOSPC;
++	pr = &otto_cpuqid_rule[otto_cpuqid_n];
++	memset(pr, 0, sizeof(*pr));
++	pr->phase = PHASE_IACL;
++	pr->is_egress = true;
++	pr->packet_cntr = -1;
++	pr->frame_type = 2;
++	pr->frame_type_m = 3;
++	if (proto) {
++		pr->frame_type_l4 = proto == 2;
++		pr->frame_type_l4_m = 7;
++	}
++	if (dport) {
++		pr->dport = value;
++		pr->dport_m = mask;
++	} else {
++		pr->sport = value;
++		pr->sport_m = mask;
++	}
++	pr->cpuqid_sel = true;
++	pr->cpuqid_data = ring;
++	err = otto_pie_930x_rule_add(priv, pr);
++	if (!err)
++		otto_cpuqid_n++;
++	return err;
++}
++EXPORT_SYMBOL_GPL(otto_pie_930x_cpuqid_add);
++
++void otto_pie_930x_cpuqid_clear(struct otto_dsa_priv *priv)
++{
++	guard(mutex)(&otto_cpuqid_lock);
++	while (otto_cpuqid_n > 0)
++		otto_pie_930x_rule_rm(priv, &otto_cpuqid_rule[--otto_cpuqid_n]);
++}
++EXPORT_SYMBOL_GPL(otto_pie_930x_cpuqid_clear);
++
++void otto_pie_930x_cpuqid_show(struct seq_file *m)
++{
++	guard(mutex)(&otto_cpuqid_lock);
++	for (int i = 0; i < otto_cpuqid_n; i++) {
++		struct pie_rule *pr = &otto_cpuqid_rule[i];
++
++		seq_printf(m, "pie_rule%d idx %d %s mask 0x%x value 0x%x l4 %s ring %u\n", i, pr->id,
++			   pr->dport_m ? "dport" : "sport", pr->dport_m ? pr->dport_m : pr->sport_m,
++			   pr->dport_m ? pr->dport : pr->sport,
++			   pr->frame_type_l4_m ? (pr->frame_type_l4 ? "tcp" : "udp") : "any", pr->cpuqid_data);
++	}
++}
++EXPORT_SYMBOL_GPL(otto_pie_930x_cpuqid_show);
++
+ void otto_pie_930x_init(struct otto_dsa_priv *priv)
+ {
+ 	u32 template_selectors;
+--- a/drivers/net/dsa/rtl83xx/rtl-otto.h
++++ b/drivers/net/dsa/rtl83xx/rtl-otto.h
+@@ -259,6 +259,7 @@
+ 	bool bypass_sel;	/* Bypass actions */
+ 	bool fwd_sa_lrn;	/* Learn the source address when forwarding */
+ 	bool fwd_mod_to_cpu;	/* Forward the modified VLAN tag format to CPU-port */
++	bool cpuqid_sel;	/* RTL930x: choose the CPU queue (ACT_MSK_CPUQID), data in cpuqid_data */
+ 
+ 	/* Fields used in predefined templates 0-2 on RTL8380 / 90 / 9300 */
+ 	u64 spm;		/* Source Port Matrix */
+@@ -323,6 +324,7 @@
+ 	u16 otpid_data;
+ 	u16 itpid_data;
+ 	u16 shaper_data;
++	u8 cpuqid_data;		/* RTL930x: CPU queue id (QID_DATA, 5 bits) */
+ 
+ 	/* Bypass actions, ignored on RTL8380 */
+ 	bool bypass_all;	/* Not clear */
+--- a/include/linux/soc/realtek/otto_common.h
++++ b/include/linux/soc/realtek/otto_common.h
+@@ -3,6 +3,15 @@
+ #ifndef _OTTO_COMMON_H
+ #define _OTTO_COMMON_H
+ 
++#include <linux/types.h>
++
+ #define RTL839X_PIE_L3_FIRST	640
+ 
++/* RTL930x PIE rule whose only action is the CPU queue id (rteth debugfs rxq_pie, #146) */
++struct otto_dsa_priv;
++struct seq_file;
++int otto_pie_930x_cpuqid_add(struct otto_dsa_priv *priv, bool dport, u16 mask, u16 value, int proto, u8 ring);
++void otto_pie_930x_cpuqid_clear(struct otto_dsa_priv *priv);
++void otto_pie_930x_cpuqid_show(struct seq_file *m);
++
+ #endif /* _OTTO_COMMON_H */

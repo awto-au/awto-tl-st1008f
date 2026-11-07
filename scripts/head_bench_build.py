@@ -15,7 +15,7 @@ import time
 from pathlib import Path
 
 ROOT = Path(__file__).resolve().parent.parent
-WORK = ROOT / "tmp/headbuild"
+WORK = ROOT / "tmp/headbuild"  # --work overrides (parallel isolated builds)
 LOG = ROOT / "tmp/logs/head_bench_build.log"
 TAG = "v7.4-rc1"
 
@@ -38,7 +38,13 @@ def main():
     ap = argparse.ArgumentParser(description=__doc__.splitlines()[0])
     ap.add_argument("--jobs", default="8")
     ap.add_argument("--old", default="tmp/zcsync/openwrt-old", help="dir holding target/linux/realtek of the base commit")
+    ap.add_argument("--work", default=None, help="isolated work dir (default tmp/headbuild)")
+    ap.add_argument("--extra-patch", action="append", default=[], help="working-tree patch added on top of the HEAD series")
+    ap.add_argument("--image", default="mainline-7.4-rc1", help="tmp/tftp/<name>.bin (+ -std copy)")
+    ap.add_argument("--apply-only", action="store_true", help="export + apply the series, no build")
     a = ap.parse_args()
+    global WORK
+    WORK = ROOT / a.work if a.work else WORK
     repo, lin = WORK / "repo", WORK / "linux"
     shutil.rmtree(repo, ignore_errors=True)
     repo.mkdir(parents=True)
@@ -51,6 +57,8 @@ def main():
     (repo / "tmp/linux-store").symlink_to((ROOT / "tmp/linux-store").resolve())
     if not lin.exists():
         sh(["git", "-C", str(ROOT / "tmp/linux-store"), "worktree", "add", "--detach", str(lin), TAG])
+    for x in a.extra_patch:
+        shutil.copy2(ROOT / x, repo / "openwrt/patches" / Path(x).name)
     sh(["git", "-C", str(lin), "checkout", "-f", TAG])
     sh(["git", "-C", str(lin), "clean", "-fdq"])
     log(f"HEAD {subprocess.check_output(['git', 'rev-parse', '--short', 'HEAD'], cwd=ROOT, text=True).strip()}; "
@@ -60,17 +68,20 @@ def main():
         "m.owrt_commit = lambda: m.OWRT_COMMIT; m.main()"
     )
     out = WORK / "out"
-    r = subprocess.run([sys.executable, "-c", drv, "--tree", str(lin), "--out", str(out), "--bench", "--jobs", a.jobs],
+    r = subprocess.run([sys.executable, "-c", drv, "--tree", str(lin), "--out", str(out), "--bench", "--jobs", a.jobs]
+                       + (["--apply-only"] if a.apply_only else []),
                        cwd=repo)
     log(f"mainline_build_check exit {r.returncode}")
     if r.returncode:
         return r.returncode
-    dst = ROOT / "tmp/tftp/mainline-7.4-rc1.bin"
+    if a.apply_only:
+        return 0
+    dst = ROOT / f"tmp/tftp/{a.image}.bin"
     r = subprocess.run([sys.executable, str(ROOT / "scripts/mainline_uimage.py"), "--vmlinux", str(out / "vmlinux"), "--dtb",
                         str(out / "arch/mips/boot/dts/realtek/tplink-tl-st1008f-v2.dtb"), "--out", str(dst)])
     log(f"mainline_uimage exit {r.returncode} -> {dst.relative_to(ROOT)}")
     if r.returncode == 0:
-        shutil.copy2(dst, dst.with_name("mainline-7.4-rc1-std.bin"))
+        shutil.copy2(dst, dst.with_name(f"{a.image}-std.bin"))
     return r.returncode
 
 

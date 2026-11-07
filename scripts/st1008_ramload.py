@@ -494,7 +494,11 @@ def main() -> int:
                     help="mainline-kernel (direct or --then): port-up the --cage with BENCH_IP after boot (ssh for bench scripts)")
     ap.add_argument("--bootargs", metavar="ARGS",
                     help="with --then: U-Boot bootargs before bootm, e.g. 'st1008f.mode=m2 st1008f.boot=primary'")
+    ap.add_argument("--kernel", metavar="FILE",
+                    help="mainline-kernel: TFTP-root file name instead of mainline-<base>.bin (e.g. mainline-7.4-rc1-ring.bin)")
     a = ap.parse_args()
+    if a.kernel:
+        IMAGES["mainline-kernel"] = (a.kernel,) + IMAGES["mainline-kernel"][1:]
 
     log(f"=== ramload {a.image}, cage {a.cage}")
     console_view()
