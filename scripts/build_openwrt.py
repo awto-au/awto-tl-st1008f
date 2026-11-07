@@ -7,8 +7,8 @@
     (KERNEL_PATCHES: as-is from openwrt/patches/, or rebased copies from openwrt/backport-6.18/kernel/)
     + openwrt/backport-6.18/openwrt-tree.patch (DTS mode-switch + dirmap, kernel config) via `git apply`.
   - `--kernel mainline` (alias `7.3`, step 2): OpenWrt "testing kernel" = our mainline port on the
-    kernel_base.py base (linux-next PIN; KERNEL_BASE=v7.3-rc6 fallback). <PV> = the base Makefile's
-    VERSION.PATCHLEVEL (7.3 for next-20261009): generic/kernel-<PV> (tarball from the base tag via git
+    kernel_base.py base (Linus tag PIN). <PV> = the base Makefile's
+    VERSION.PATCHLEVEL (7.4 for v7.4-rc1): generic/kernel-<PV> (tarball from the base tag via git
     archive), realtek patches-<PV> + files-<PV> (the set scripts/mainline_build_check.py builds),
     generic/pending-<PV> (700/701), rtl930x/config-<PV> (openwrt/kernel-<PV>/), DTS = mainline/ DTS.
 - Phases: disk check -> clone -> overlay -> .config -> download -> make; outputs ->
@@ -92,8 +92,8 @@ from mainline_build_check import (OWRT as OWRT_PIN, OWRT_COMMIT, OWRT_FILES, OWR
 
 BASE = kernel_base.selected()
 PV = "7.3"  # VERSION.PATCHLEVEL of BASE, set in main() from the checked-out tree
-VER = ""    # OpenWrt LINUX_VERSION: PV + "-rc6" (v7.3-rc6) or PV + "-next-YYYYMMDD"
-PENDING73 = ["700", "701", "344", "644", "645"]  # generic pending-6.18 nft flowtable patches; apply on 7.3 and next (MAINLINE-PORT §8)
+VER = ""    # OpenWrt LINUX_VERSION: the base Makefile version, e.g. 7.4-rc1
+PENDING73 = ["700", "701", "344", "644", "645"]  # generic pending-6.18 nft flowtable patches; apply on the current base (MAINLINE-PORT §8)
 # generic hack-6.18 patches OpenWrt packages need on mainline (all apply as-is; status of the rest: docs/OPENWRT-BUILD.md)
 HACK73 = ["910", "911", "940"]  # uevent + broadcast_uevent (gpio-button-hotplug); 940: non-empty modules.builtin (kmod packaging)
 UP73 = False  # --up
@@ -107,7 +107,7 @@ def set_base() -> None:
     global PV, VER
     kernel_base.checkout(BASE)
     PV, full = kernel_base.kernel_version(BASE)
-    VER = f"{PV}-{BASE}" if kernel_base.is_next(BASE) else full
+    VER = full
 # Port symbols config-7.3 must keep (drivers the 7.3 port boots with; mainline/st1008f-v2.config)
 PORT73 = """CONFIG_HIGHMEM=y
 CONFIG_PREEMPT_VOLUNTARY=y
@@ -150,7 +150,9 @@ CONFIG_MIPS_CMDLINE_DTB_EXTEND=y
 # CONFIG_MIPS_CMDLINE_FROM_DTB is not set
 CONFIG_MEMTEST=y
 CONFIG_ST1008F_SRAM_BENCH=y
-"""  # DTB_EXTEND: U-Boot bootargs (st1008f.mode, #73) appended to DT bootargs; MEMTEST + SRAM_BENCH: selftest (#108)
+CONFIG_DMADEVICES=y
+CONFIG_RTL9300_GDMA=y
+"""  # DTB_EXTEND: U-Boot bootargs (st1008f.mode, #73) appended to DT bootargs; MEMTEST + SRAM_BENCH: selftest (#108); RTL9300_GDMA: 300-41, selects DMA_ENGINE (#62)
 
 NF_BUILTIN = ["nfnetlink", "nf-conntrack", "nf-nat", "nf-flow", "nf-reject", "nf-reject6", "nf-log",
               "nft-core", "nft-nat", "nft-offload", "nft-fib",
@@ -470,7 +472,7 @@ def modules_link(dst: Path) -> None:
 
 
 GRO_HOTPLUG = """#!/bin/sh
-# fraglist GRO on the CPU port and the user ports: +35 % IPv4 NAT with the flowtable (docs/NAT-PROGRESS.md)
+# fraglist GRO on the CPU port and the user ports: +35 % IPv4 NAT with the flowtable (docs/NAT-HISTORY.md)
 [ "$ACTION" = ifup ] || exit 0
 for d in eth0 /sys/class/net/lan*; do ethtool -K "${d##*/}" rx-gro-list on 2>/dev/null; done
 """

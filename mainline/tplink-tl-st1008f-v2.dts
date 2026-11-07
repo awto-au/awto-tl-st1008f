@@ -460,6 +460,19 @@
 	ranges = <0x0 0x18000000 0x20000>, <0x14000000 0x14000000 0x2000000>;
 };
 
+/* GDMA memcpy engines on LX1/LX2 (300-41, #62). LX0 (0x18000000) copies are corrupt: no node. */
+&soc {
+	gdma_lx1: dma-controller@a000 {
+		compatible = "realtek,rtl9300-gdma";
+		reg = <0xa000 0x100>;
+	};
+
+	gdma_lx2: dma-controller@18000 {
+		compatible = "realtek,rtl9300-gdma";
+		reg = <0x18000 0x100>;
+	};
+};
+
 &spi0 {
 	reg = <0x1200 0x100>, <0x14000000 0x2000000>;
 	reg-names = "regs", "dirmap";

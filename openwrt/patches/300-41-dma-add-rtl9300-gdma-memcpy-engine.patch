@@ -1,0 +1,347 @@
+From: Dan <dan@awto.au>
+Subject: [PATCH] dma: add the RTL9300 GDMA memcpy engine (#62, #151)
+
+- dmaengine provider for the GDMA blocks on LX1 (`0x1800a000`) and LX2 (`0x18018000`): one DMA_MEMCPY channel per DT node, polled completion with a bound derived from the worst measured rate.
+- `select DMA_ENGINE`: the option has no prompt, so a config line alone is dropped by olddefconfig.
+- LX0 (`0x18000000` domain) copies are corrupt: no node there.
+---
+diff --git a/drivers/dma/Kconfig b/drivers/dma/Kconfig
+--- a/drivers/dma/Kconfig
++++ b/drivers/dma/Kconfig
+@@ -558,6 +558,14 @@
+ 	  These are exposed via extra functions on the switch's
+ 	  upstream port. Each function exposes one DMA channel.
+ 
++config RTL9300_GDMA
++	tristate "Realtek RTL9300 GDMA memcpy engine"
++	depends on MACH_REALTEK_RTL || COMPILE_TEST
++	select DMA_ENGINE
++	help
++	  Memory-to-memory copy engine of the RTL9300 switch SoC family
++	  (one channel per GDMA block, polled completion).
++
+ config SOPHGO_CV1800B_DMAMUX
+ 	tristate "Sophgo CV1800/SG2000 series SoC DMA multiplexer support"
+ 	depends on MFD_SYSCON
+diff --git a/drivers/dma/Makefile b/drivers/dma/Makefile
+--- a/drivers/dma/Makefile
++++ b/drivers/dma/Makefile
+@@ -67,6 +67,7 @@
+ obj-$(CONFIG_PL330_DMA) += pl330.o
+ obj-$(CONFIG_PLX_DMA) += plx_dma.o
+ obj-$(CONFIG_PPC_BESTCOMM) += bestcomm/
++obj-$(CONFIG_RTL9300_GDMA) += rtl9300-gdma.o
+ obj-$(CONFIG_PXA_DMA) += pxa_dma.o
+ obj-$(CONFIG_RENESAS_DMA) += sh/
+ obj-$(CONFIG_SF_PDMA) += sf-pdma/
+diff --git a/drivers/dma/rtl9300-gdma.c b/drivers/dma/rtl9300-gdma.c
+new file mode 100644
+--- /dev/null
++++ b/drivers/dma/rtl9300-gdma.c
+@@ -0,0 +1,260 @@
++// SPDX-License-Identifier: GPL-2.0-only
++/*
++ * Realtek RTL9300 GDMA block as a dmaengine memcpy provider (one channel per block).
++ * Registers (old Otto layout): CTRL 0x00 (EN 31, POLL 30, func 27:24, burst 7:6), IS 0x08 (bit 31 done),
++ * SBP/SBL i at 0x20+8i / 0x24+8i, DBP/DBL i at 0x60+8i / 0x64+8i, length 12:0, bit 31 = last block.
++ * Up to 8 blocks of <= 8191 B per transfer, one transfer at a time, completion polled by a kthread.
++ */
++#include <linux/bitfield.h>
++#include <linux/dmaengine.h>
++#include <linux/dma-mapping.h>
++#include <linux/io.h>
++#include <linux/kthread.h>
++#include <linux/module.h>
++#include <linux/of.h>
++#include <linux/platform_device.h>
++#include <linux/slab.h>
++
++#include "dmaengine.h"
++
++#define GDMA_CTRL		0x00
++#define GDMA_IM			0x04
++#define GDMA_IS			0x08
++#define GDMA_SBP(i)		(0x20 + 8 * (i))
++#define GDMA_SBL(i)		(0x24 + 8 * (i))
++#define GDMA_DBP(i)		(0x60 + 8 * (i))
++#define GDMA_DBL(i)		(0x64 + 8 * (i))
++#define GDMA_EN			BIT(31)
++#define GDMA_POLL		BIT(30)
++#define GDMA_BURST		GENMASK(7, 6)
++#define GDMA_LAST		BIT(31)
++#define GDMA_IS_DONE		BIT(31)
++#define GDMA_IS_ERR		(BIT(26) | BIT(25) | BIT(24) | BIT(21) | BIT(20))
++#define GDMA_BLK_MAX		8191
++#define GDMA_NBLK		8
++
++struct rtl9300_gdma_desc {
++	struct dma_async_tx_descriptor tx;
++	struct list_head node;
++	dma_addr_t src, dst;
++	size_t len;
++};
++
++struct rtl9300_gdma {
++	struct dma_device dd;
++	struct dma_chan chan;
++	void __iomem *base;
++	spinlock_t lock;
++	struct list_head pending;
++	wait_queue_head_t wq;
++	struct task_struct *th;
++	u32 burst;
++};
++
++static struct rtl9300_gdma *to_gdma(struct dma_chan *ch)
++{
++	return container_of(ch, struct rtl9300_gdma, chan);
++}
++
++static dma_cookie_t rtl9300_gdma_submit(struct dma_async_tx_descriptor *tx)
++{
++	struct rtl9300_gdma *g = to_gdma(tx->chan);
++	struct rtl9300_gdma_desc *d = container_of(tx, struct rtl9300_gdma_desc, tx);
++	unsigned long fl;
++	dma_cookie_t cookie;
++
++	spin_lock_irqsave(&g->lock, fl);
++	cookie = dma_cookie_assign(tx);
++	list_add_tail(&d->node, &g->pending);
++	spin_unlock_irqrestore(&g->lock, fl);
++	return cookie;
++}
++
++static struct dma_async_tx_descriptor *
++rtl9300_gdma_prep_memcpy(struct dma_chan *ch, dma_addr_t dst, dma_addr_t src, size_t len, unsigned long flags)
++{
++	struct rtl9300_gdma_desc *d;
++
++	if (!len || len > (size_t)GDMA_BLK_MAX * GDMA_NBLK)
++		return NULL;
++	d = kzalloc(sizeof(*d), GFP_NOWAIT);
++	if (!d)
++		return NULL;
++	dma_async_tx_descriptor_init(&d->tx, ch);
++	d->tx.tx_submit = rtl9300_gdma_submit;
++	d->tx.flags = flags;
++	d->src = src;
++	d->dst = dst;
++	d->len = len;
++	return &d->tx;
++}
++
++static void rtl9300_gdma_issue_pending(struct dma_chan *ch)
++{
++	wake_up(&to_gdma(ch)->wq);
++}
++
++static int rtl9300_gdma_terminate_all(struct dma_chan *ch)
++{
++	struct rtl9300_gdma *g = to_gdma(ch);
++	struct rtl9300_gdma_desc *d, *n;
++	unsigned long fl;
++	LIST_HEAD(dead);
++
++	spin_lock_irqsave(&g->lock, fl);
++	list_splice_init(&g->pending, &dead);
++	spin_unlock_irqrestore(&g->lock, fl);
++	list_for_each_entry_safe(d, n, &dead, node)
++		kfree(d);
++	return 0;
++}
++
++/* Returns 0, -ETIMEDOUT or -EIO. */
++static int rtl9300_gdma_run(struct rtl9300_gdma *g, struct rtl9300_gdma_desc *d)
++{
++	void __iomem *r = g->base;
++	int i, n = DIV_ROUND_UP(d->len, GDMA_BLK_MAX);
++	size_t off = 0;
++	/* Worst measured 11.5 ns/B (burst 0) x1.25 = 15 ns/B, plus 100 us setup margin; expiry logs and fails. */
++	s64 limit_us = 100 + d->len * 15 / 1000;
++	ktime_t t0;
++	u32 is;
++
++	writel(0, r + GDMA_CTRL);
++	writel(GDMA_EN, r + GDMA_CTRL);
++	writel(0, r + GDMA_IM);
++	writel(0xffffffff, r + GDMA_IS);
++	for (i = 0; i < n; i++) {
++		size_t l = min_t(size_t, d->len - off, GDMA_BLK_MAX);
++		u32 last = i == n - 1 ? GDMA_LAST : 0;
++
++		writel(lower_32_bits(d->src + off), r + GDMA_SBP(i));
++		writel(l | last, r + GDMA_SBL(i));
++		writel(lower_32_bits(d->dst + off), r + GDMA_DBP(i));
++		writel(l | last, r + GDMA_DBL(i));
++		off += l;
++	}
++	wmb();
++	t0 = ktime_get();
++	writel(GDMA_EN | GDMA_POLL | FIELD_PREP(GDMA_BURST, g->burst), r + GDMA_CTRL);
++	do {
++		is = readl(r + GDMA_IS);
++	} while (!(is & GDMA_IS_DONE) && ktime_us_delta(ktime_get(), t0) < limit_us);
++	writel(0, r + GDMA_CTRL);
++
++	if (!(is & GDMA_IS_DONE)) {
++		dev_err(g->dd.dev, "memcpy %zu B: timeout, limit %lld us, elapsed %lld us, IS=%08x\n", d->len,
++			limit_us, ktime_us_delta(ktime_get(), t0), is);
++		return -ETIMEDOUT;
++	}
++	if (is & GDMA_IS_ERR) {
++		dev_err(g->dd.dev, "memcpy %zu B: error IS=%08x\n", d->len, is);
++		return -EIO;
++	}
++	return 0;
++}
++
++static int rtl9300_gdma_thread(void *arg)
++{
++	struct rtl9300_gdma *g = arg;
++
++	while (!kthread_should_stop()) {
++		struct rtl9300_gdma_desc *d = NULL;
++		unsigned long fl;
++
++		wait_event_interruptible(g->wq, kthread_should_stop() || !list_empty_careful(&g->pending));
++		spin_lock_irqsave(&g->lock, fl);
++		if (!list_empty(&g->pending)) {
++			d = list_first_entry(&g->pending, struct rtl9300_gdma_desc, node);
++			list_del(&d->node);
++		}
++		spin_unlock_irqrestore(&g->lock, fl);
++		if (!d)
++			continue;
++
++		rtl9300_gdma_run(g, d);
++		spin_lock_irqsave(&g->lock, fl);
++		dma_cookie_complete(&d->tx);
++		spin_unlock_irqrestore(&g->lock, fl);
++		dmaengine_desc_get_callback_invoke(&d->tx, NULL);
++		kfree(d);
++	}
++	return 0;
++}
++
++static void rtl9300_gdma_stop(void *data)
++{
++	kthread_stop(data);
++}
++
++static int rtl9300_gdma_probe(struct platform_device *pdev)
++{
++	struct device *dev = &pdev->dev;
++	struct rtl9300_gdma *g;
++	int ret;
++
++	g = devm_kzalloc(dev, sizeof(*g), GFP_KERNEL);
++	if (!g)
++		return -ENOMEM;
++	g->base = devm_platform_ioremap_resource(pdev, 0);
++	if (IS_ERR(g->base))
++		return PTR_ERR(g->base);
++	g->burst = 3;
++	device_property_read_u32(dev, "realtek,burst", &g->burst);
++	if (g->burst > 3)
++		return dev_err_probe(dev, -EINVAL, "realtek,burst %u out of range 0-3\n", g->burst);
++	ret = dma_set_mask_and_coherent(dev, DMA_BIT_MASK(32));
++	if (ret)
++		return ret;
++
++	spin_lock_init(&g->lock);
++	INIT_LIST_HEAD(&g->pending);
++	init_waitqueue_head(&g->wq);
++
++	g->dd.dev = dev;
++	dma_cap_set(DMA_MEMCPY, g->dd.cap_mask);
++	g->dd.device_prep_dma_memcpy = rtl9300_gdma_prep_memcpy;
++	g->dd.device_issue_pending = rtl9300_gdma_issue_pending;
++	g->dd.device_tx_status = dma_cookie_status;
++	g->dd.device_terminate_all = rtl9300_gdma_terminate_all;
++	g->dd.src_addr_widths = BIT(DMA_SLAVE_BUSWIDTH_1_BYTE);
++	g->dd.dst_addr_widths = BIT(DMA_SLAVE_BUSWIDTH_1_BYTE);
++	g->dd.directions = BIT(DMA_MEM_TO_MEM);
++	g->dd.residue_granularity = DMA_RESIDUE_GRANULARITY_DESCRIPTOR;
++	g->dd.copy_align = DMAENGINE_ALIGN_4_BYTES;
++	INIT_LIST_HEAD(&g->dd.channels);
++	g->chan.device = &g->dd;
++	dma_cookie_init(&g->chan);
++	list_add_tail(&g->chan.device_node, &g->dd.channels);
++
++	g->th = kthread_run(rtl9300_gdma_thread, g, "gdma-%s", dev_name(dev));
++	if (IS_ERR(g->th))
++		return PTR_ERR(g->th);
++	/* devm runs in reverse: the device unregisters first, then the thread stops */
++	ret = devm_add_action_or_reset(dev, rtl9300_gdma_stop, g->th);
++	if (ret)
++		return ret;
++	ret = dmaenginem_async_device_register(&g->dd);
++	if (ret)
++		return dev_err_probe(dev, ret, "dma device register failed\n");
++	dev_info(dev, "memcpy channel, burst %u\n", g->burst);
++	return 0;
++}
++
++static const struct of_device_id rtl9300_gdma_of_match[] = {
++	{ .compatible = "realtek,rtl9300-gdma" },
++	{ }
++};
++MODULE_DEVICE_TABLE(of, rtl9300_gdma_of_match);
++
++static struct platform_driver rtl9300_gdma_driver = {
++	.probe = rtl9300_gdma_probe,
++	.driver = {
++		.name = "rtl9300-gdma",
++		.of_match_table = rtl9300_gdma_of_match,
++	},
++};
++module_platform_driver(rtl9300_gdma_driver);
++
++MODULE_DESCRIPTION("Realtek RTL9300 GDMA memcpy engine");
++MODULE_LICENSE("GPL");
+diff --git a/Documentation/devicetree/bindings/dma/realtek,rtl9300-gdma.yaml b/Documentation/devicetree/bindings/dma/realtek,rtl9300-gdma.yaml
+new file mode 100644
+--- /dev/null
++++ b/Documentation/devicetree/bindings/dma/realtek,rtl9300-gdma.yaml
+@@ -0,0 +1,41 @@
++# SPDX-License-Identifier: (GPL-2.0-only OR BSD-2-Clause)
++%YAML 1.2
++---
++$id: http://devicetree.org/schemas/dma/realtek,rtl9300-gdma.yaml#
++$schema: http://devicetree.org/meta-schemas/core.yaml#
++
++title: Realtek RTL9300 GDMA memcpy engine
++
++maintainers:
++  - Dan <dan@awto.au>
++
++description:
++  One GDMA block per node, exposed as one DMA_MEMCPY channel. The block in
++  the LX0 bus domain corrupts copies and must not be enabled.
++
++properties:
++  compatible:
++    const: realtek,rtl9300-gdma
++
++  reg:
++    maxItems: 1
++
++  realtek,burst:
++    $ref: /schemas/types.yaml#/definitions/uint32
++    description: Burst size field, CTRL[7:6].
++    minimum: 0
++    maximum: 3
++    default: 3
++
++required:
++  - compatible
++  - reg
++
++additionalProperties: false
++
++examples:
++  - |
++    dma-controller@a000 {
++        compatible = "realtek,rtl9300-gdma";
++        reg = <0xa000 0x100>;
++    };
