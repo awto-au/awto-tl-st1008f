@@ -338,3 +338,30 @@ Options (kpps = zc+nat fwd 1400 B unless stated):
 - No variant raises 1400 B beyond noise (spread 0.1-0.4 %, band +-3 %); VPE1 stays at 99 %.
 - Base here is 165.7 kpps vs 169-171 on the plain image; the sync kernel differs from the earlier image, so compare variants within this table only.
 - Hangs / panics: none.
+
+## Final settings validation (core 608)
+
+2026-11-07T17:34-17:58+11:00, sw2. Owner decision 2026-11-07: CPU 1350, DDR 662, LX ~304, SRAM 500, switch core 608 (VCO 3650, code 1); no CPU > 1350, no DDR > 662 testing. U-Boot `uboot-mainline-swc2.bin` (build 20261107-155422, swcore key), RAM-loaded first, then installed in the chain slot (512 KiB, 5447 B slack). Logs `tmp/logs/sw2-swc2-*.out`, `tmp/logs/sw2-canary{1,2,3}.out`, `tmp/logs/canary.log`.
+
+| step | result | evidence |
+|---|---|---|
+| RAM-load swc2 U-Boot (`ramload uboot-mainline --stock-clocks`) | PASS | boot_log CLEAN; default ramload sets SPI 122.5 MHz and `turbo swcore=` then refuses ("NOR/SPI clock would exceed stock 25.5 MHz: nothing changed") |
+| `turbo cpu=1350,ddr=662,sram=500,swcore=608` | PASS | `clocks: swcore now 608333 kHz (code 1, vco 3650), e220 00036826 e214 00000478`; `turbo OK = cpu 1350, mem 662, lx 304, sram 500, swcore 608`; read back e220 0x00036826 / e214 0x00000478 |
+| Console after LX re-code | PASS, no garble | U-Boot console answered at 115200 and 921600 (memtest) |
+| SPI/NOR | PASS | `spi 23.397 MHz (nor 140.384 MHz, SFCR 6)`; under Linux SFCR 0x5FC00244 (divide 6) |
+| Refusal paths | PASS | `swcore=612`: needs swcore_xp=1; `swcore=575,lx=306` and `swcore=608,lx=245`: "LX of this point is not the requested lx"; all "nothing changed" |
+| U-Boot memtest 64 MiB at the final clocks | PASS | 0 errors, 24 units (`tmp/logs/memtest.log`; its RESULT line says `clocks=stock` because turbo was set by hand) |
+| Plain 7.4-rc1 at 608: zc+nat 1400 B | PASS | 170.3 kpps, VPE0/1 3/98 %, 50.6 C |
+| NAT TCP P4 zc+nat | PASS | fwd 1648.9 / rev 1624.4 Mbit/s (stack 422.5 / 413.9) |
+| Integrity | PASS | 1400/500/64 B bad 0, reorder 0 |
+| `load_test.py --settings` | FAIL at sanity (known) | `nat_bench setup` rc 1 and dropbear not running on the plain kernel; stages run by hand instead (above) |
+| chain-slot `test-bad` (pre-install) | PASS | corrupted RAM copy -> stock `boota` -> flash OpenWrt, STP on |
+| install swc2 slot (`uboot-chain-install --overwrite`, `uboot-chain-env apply`, `turbo set ... --all-modes`) | PASS | read-back md5 adbdd4e2...; slot CRC 693c2afe; slot check OK; backups `private/backup-pre-swc2-20261107/` (fw_printenv, jffs2-log.bin). Env before: pre-#105 `bootcmd`, profile `cpu=1350,ddr=662,sram=500`, `st1008f_turbo_all=1` |
+| Power-up chain with swcore=608 in the profile | FAIL (console) | chain ran, `bootsel: M1: turbo ... swcore 608`, flash OpenWrt up (ping, ssh, e220 0x36826) but console unreadable: DTB UART `base_baud` 10937500 (LX 175 assumed) vs LX 304 (#55); `uboot-chain-env boot` TIMEOUT, canary boot_link 0/3 (console silent), hang_test FAIL (garbled), switch FAIL |
+| Profile left on sw2 | `cpu=1350,ddr=662,sram=500` (no swcore), all-modes | set back 17:48 so the flash console works; 608 on the flash image needs a console fix first |
+| Power-up chain without swcore | PASS | boot_link 3/3 bounces 0 (183 s); chain boot PASS three times |
+| canary hang_test (run 1 of 1) | PASS | reset 93 s after `/bin/sh` (limit 130 s); #157 did not show |
+| canary A `switch` / B `plain_boot` | FAIL | switch: ping 20 s window right after the hang-test reset; plain_boot: `boot_log_check` exit 1, UNKNOWN lines `turbo ...` echo, `clocks: lx now 306250 kHz`, `base_baud = 19010375` (not in `boot_log_allowlist.txt`), board booted fine |
+| canary B on the 608 plain boot (`--no-ramload`) | pre PASS, vlanproto PASS, gdma PASS (94104 ns), dss PASS, consolescan PASS, zc WARN 167.8 kpps (baseline 143.3, 408 core), prep FAIL (natsetup, known), selftest FAIL [sfp], bootlog FAIL (same UNKNOWN lines) | `tmp/logs/sw2-canary3.out` |
+| canary baseline | not recorded | no all-PASS run; `--update-baseline` not run |
+| Final state | sw2 on the power-up chain, flash OpenWrt, stock U-Boot area untouched | `uboot-chain-env boot` PASS 17:58 |
