@@ -379,8 +379,8 @@ def set_mgmt_ip(con: Console, ip: str) -> None:
     con.run(f"uci set network.lan.ipaddr='{ip}/24'", OW_PROMPT, 1, "uci lan ipaddr", checked=True)
     con.run("uci commit network", OW_PROMPT, 2, "uci commit lan", checked=True)  # RAM overlay: ms
     con.run(f"ip addr replace {ip}/24 dev switch.1", OW_PROMPT, 1, f"mgmt {ip}", checked=True)
-    # dropbear from port-up can be gone (bench initramfs keygen race, 2 of 3 boots 2026-11-07): start again if absent
-    con.run("pidof dropbear >/dev/null || dropbear -R -B; pidof dropbear", PLAIN_PROMPT, 3, "dropbear up")
+    # OpenWrt's dropbear is bound to the old lan address (refuses on the bench IP): restart it open, blank root
+    con.run("killall dropbear; dropbear -R -B; pidof dropbear", OW_PROMPT, 3, "dropbear up")
     (ROOT / "tmp/nat_bench.ssh").unlink(missing_ok=True)  # stale ssh mux from the previous boot hangs scripts 20 s
     # STP forwards ~4 s after it is on (forward_delay 2 s); unreachable replies return at once, so pace with -i 1:
     # 4 x 3 pings = 12 s = 3x that
@@ -506,7 +506,8 @@ def main() -> int:
             raise SystemExit("--from-flash is for uboot-mainline only")
         # slot copy + stock CRC check (#105) at stock clocks < 0.2 s; cap 2 s
         from uboot_chain_image import stock_check_cmd  # late: keeps this module's imports light
-        _, out = con.run(f"cp.b 0x94200000 0x81000000 0x80000; {stock_check_cmd()}",
+        from uboot_chain_layout import ld_cmd  # slot size: one definition (#155)
+        _, out = con.run(f"{ld_cmd()}; {stock_check_cmd()}",
                          r"(Total of 1 word|word at 0x)[\s\S]*?RTL9300# ", 2, "jffs2-log slot check")
         if "Total of 1 word" not in out:
             raise SystemExit("FAIL: jffs2-log slot CRC mismatch (old raw image or corrupt): "
@@ -540,7 +541,7 @@ def main() -> int:
     if a.mgmt and a.image == "mainline-kernel":
         plain_mgmt(con, SWITCH_IP, a.cage)
     if a.image.startswith("openwrt"):
-        openwrt_stp(con)
+        openwrt_stp(con, mgmt_ip=SWITCH_IP)  # direct RAM boot needs the bench IP too, as the --then path
     r = subprocess.run([sys.executable, str(ROOT / "scripts/boot_log_check.py"), "--boot", "-1"],
                        capture_output=True, text=True, timeout=30)  # local file scan, <2 s
     sys.stdout.write(r.stdout)

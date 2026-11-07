@@ -39,8 +39,8 @@ static int __init bench_init(void)
 	for (s = 0; s < ARRAY_SIZE(sizes); s++) {
 		uint len = sizes[s], bad = 0, fails = 0;
 		u8 *src = kmalloc(len, GFP_KERNEL), *dst = kmalloc(len, GFP_KERNEL), *cpu = kmalloc(len, GFP_KERNEL);
-		ktime_t t0;
-		s64 dma_ns, cpu_ns;
+		ktime_t t0, t1;
+		s64 dma_ns, cpu_ns, xfer_ns = 0;
 
 		if (!src || !dst || !cpu)
 			break;
@@ -55,6 +55,7 @@ static int __init bench_init(void)
 			memset(dst, 0xaa, len);
 			sa = dma_map_single(dev, src, len, DMA_TO_DEVICE);
 			da = dma_map_single(dev, dst, len, DMA_FROM_DEVICE);
+			t1 = ktime_get();
 			tx = dmaengine_prep_dma_memcpy(ch, da, sa, len, 0);
 			if (!tx) {
 				fails++;
@@ -64,6 +65,7 @@ static int __init bench_init(void)
 				if (dma_sync_wait(ch, ck) != DMA_COMPLETE)
 					fails++;
 			}
+			xfer_ns += ktime_to_ns(ktime_sub(ktime_get(), t1));
 			dma_unmap_single(dev, da, len, DMA_FROM_DEVICE);
 			dma_unmap_single(dev, sa, len, DMA_TO_DEVICE);
 			if (memcmp(src, dst, len))
@@ -74,9 +76,9 @@ static int __init bench_init(void)
 		for (k = 0; k < iters; k++)
 			memcpy(cpu, src, len);
 		cpu_ns = ktime_to_ns(ktime_sub(ktime_get(), t0));
-		pr_info("gdma_bench: len %5u iters %u: gdma %lld ns/xfer (%lld MB/s) cpu memcpy %lld ns (%lld MB/s) bad %u fails %u\n",
+		pr_info("gdma_bench: len %5u iters %u: gdma %lld ns/xfer (%lld MB/s) cpu memcpy %lld ns (%lld MB/s) bad %u fails %u xfer %lld ns\n",
 			len, iters, div_s64(dma_ns, iters), div64_s64((s64)len * iters * 1000, max_t(s64, dma_ns, 1)),
-			div_s64(cpu_ns, iters), div64_s64((s64)len * iters * 1000, max_t(s64, cpu_ns, 1)), bad, fails);
+			div_s64(cpu_ns, iters), div64_s64((s64)len * iters * 1000, max_t(s64, cpu_ns, 1)), bad, fails, div_s64(xfer_ns, iters));
 		kfree(src);
 		kfree(dst);
 		kfree(cpu);

@@ -38,13 +38,15 @@ diff --git a/drivers/dma/rtl9300-gdma.c b/drivers/dma/rtl9300-gdma.c
 new file mode 100644
 --- /dev/null
 +++ b/drivers/dma/rtl9300-gdma.c
-@@ -0,0 +1,260 @@
+@@ -0,0 +1,324 @@
 +// SPDX-License-Identifier: GPL-2.0-only
 +/*
 + * Realtek RTL9300 GDMA block as a dmaengine memcpy provider (one channel per block).
 + * Registers (old Otto layout): CTRL 0x00 (EN 31, POLL 30, func 27:24, burst 7:6), IS 0x08 (bit 31 done),
 + * SBP/SBL i at 0x20+8i / 0x24+8i, DBP/DBL i at 0x60+8i / 0x64+8i, length 12:0, bit 31 = last block.
-+ * Up to 8 blocks of <= 8191 B per transfer, one transfer at a time, completion polled by a kthread.
++ * Up to 8 blocks of <= 8191 B per transfer, one transfer at a time, completion polled.
++ * Transfers <= GDMA_INLINE_MAX run inline in device_issue_pending() when the engine is idle; bigger ones run in a kthread.
++ * Callbacks always run from a tasklet.
 + */
 +#include <linux/bitfield.h>
 +#include <linux/dmaengine.h>
@@ -73,6 +75,7 @@ new file mode 100644
 +#define GDMA_IS_ERR		(BIT(26) | BIT(25) | BIT(24) | BIT(21) | BIT(20))
 +#define GDMA_BLK_MAX		8191
 +#define GDMA_NBLK		8
++#define GDMA_INLINE_MAX		16384	/* ~55 us at burst 3: bounded busy-wait in the caller */
 +
 +struct rtl9300_gdma_desc {
 +	struct dma_async_tx_descriptor tx;
@@ -87,6 +90,10 @@ new file mode 100644
 +	void __iomem *base;
 +	spinlock_t lock;
 +	struct list_head pending;
++	struct list_head done;
++	struct tasklet_struct tl;
++	bool busy;		/* engine claimed by a runner (lock) */
++	bool thread_req;	/* inline runner left a big transfer for the kthread (lock) */
 +	wait_queue_head_t wq;
 +	struct task_struct *th;
 +	u32 burst;
@@ -130,10 +137,6 @@ new file mode 100644
 +	return &d->tx;
 +}
 +
-+static void rtl9300_gdma_issue_pending(struct dma_chan *ch)
-+{
-+	wake_up(&to_gdma(ch)->wq);
-+}
 +
 +static int rtl9300_gdma_terminate_all(struct dma_chan *ch)
 +{
@@ -195,32 +198,88 @@ new file mode 100644
 +	return 0;
 +}
 +
++static void rtl9300_gdma_tasklet(struct tasklet_struct *t)
++{
++	struct rtl9300_gdma *g = from_tasklet(g, t, tl);
++	struct rtl9300_gdma_desc *d;
++	unsigned long fl;
++
++	spin_lock_irqsave(&g->lock, fl);
++	while ((d = list_first_entry_or_null(&g->done, struct rtl9300_gdma_desc, node))) {
++		list_del(&d->node);
++		spin_unlock_irqrestore(&g->lock, fl);
++		dmaengine_desc_get_callback_invoke(&d->tx, NULL);
++		kfree(d);
++		spin_lock_irqsave(&g->lock, fl);
++	}
++	spin_unlock_irqrestore(&g->lock, fl);
++}
++
++/* Run queued transfers while the engine is idle. inline_only: stop at a transfer too big to busy-wait for. */
++static void rtl9300_gdma_drain(struct rtl9300_gdma *g, bool inline_only)
++{
++	struct rtl9300_gdma_desc *d;
++	unsigned long fl;
++
++	spin_lock_irqsave(&g->lock, fl);
++	if (g->busy) {
++		spin_unlock_irqrestore(&g->lock, fl);
++		return;
++	}
++	g->busy = true;
++	for (;;) {
++		d = list_first_entry_or_null(&g->pending, struct rtl9300_gdma_desc, node);
++		if (!d) {
++			g->busy = false;
++			break;
++		}
++		if (inline_only && d->len > GDMA_INLINE_MAX) {
++			g->busy = false;
++			g->thread_req = true;
++			wake_up(&g->wq);
++			break;
++		}
++		list_del(&d->node);
++		spin_unlock_irqrestore(&g->lock, fl);
++
++		rtl9300_gdma_run(g, d);
++
++		spin_lock_irqsave(&g->lock, fl);
++		dma_cookie_complete(&d->tx);
++		if (d->tx.callback || d->tx.callback_result) {
++			list_add_tail(&d->node, &g->done);
++			tasklet_schedule(&g->tl);
++		} else {
++			kfree(d);
++		}
++	}
++	spin_unlock_irqrestore(&g->lock, fl);
++}
++
++static void rtl9300_gdma_issue_pending(struct dma_chan *ch)
++{
++	rtl9300_gdma_drain(to_gdma(ch), true);
++}
++
 +static int rtl9300_gdma_thread(void *arg)
 +{
 +	struct rtl9300_gdma *g = arg;
 +
 +	while (!kthread_should_stop()) {
-+		struct rtl9300_gdma_desc *d = NULL;
 +		unsigned long fl;
 +
-+		wait_event_interruptible(g->wq, kthread_should_stop() || !list_empty_careful(&g->pending));
++		wait_event_interruptible(g->wq, kthread_should_stop() || READ_ONCE(g->thread_req));
 +		spin_lock_irqsave(&g->lock, fl);
-+		if (!list_empty(&g->pending)) {
-+			d = list_first_entry(&g->pending, struct rtl9300_gdma_desc, node);
-+			list_del(&d->node);
-+		}
++		g->thread_req = false;
 +		spin_unlock_irqrestore(&g->lock, fl);
-+		if (!d)
-+			continue;
-+
-+		rtl9300_gdma_run(g, d);
-+		spin_lock_irqsave(&g->lock, fl);
-+		dma_cookie_complete(&d->tx);
-+		spin_unlock_irqrestore(&g->lock, fl);
-+		dmaengine_desc_get_callback_invoke(&d->tx, NULL);
-+		kfree(d);
++		rtl9300_gdma_drain(g, false);
 +	}
 +	return 0;
++}
++
++static void rtl9300_gdma_tl_kill(void *data)
++{
++	tasklet_kill(data);
 +}
 +
 +static void rtl9300_gdma_stop(void *data)
@@ -250,6 +309,8 @@ new file mode 100644
 +
 +	spin_lock_init(&g->lock);
 +	INIT_LIST_HEAD(&g->pending);
++	INIT_LIST_HEAD(&g->done);
++	tasklet_setup(&g->tl, rtl9300_gdma_tasklet);
 +	init_waitqueue_head(&g->wq);
 +
 +	g->dd.dev = dev;
@@ -268,6 +329,9 @@ new file mode 100644
 +	dma_cookie_init(&g->chan);
 +	list_add_tail(&g->chan.device_node, &g->dd.channels);
 +
++	ret = devm_add_action_or_reset(dev, rtl9300_gdma_tl_kill, &g->tl);
++	if (ret)
++		return ret;
 +	g->th = kthread_run(rtl9300_gdma_thread, g, "gdma-%s", dev_name(dev));
 +	if (IS_ERR(g->th))
 +		return PTR_ERR(g->th);

@@ -86,3 +86,37 @@
 - Bench kmod build needed `make modules` once in the build tree (no `Module.symvers` after `build-kernel`).
 - Boot log check: GDMA probe lines added to the allowlist (#62). `sfp ... Host maximum power 2.0W` lines get interleaved into other lines in the console log and show up as UNKNOWN (log interleave, not a new message).
 - `nat_bench.py setup` ends with `ping natlan -> 10.99.2.2: FAIL` the first time; the following `mode route` makes it work (zc ran fine).
+
+## GDMA completion latency (2026-11-07, #62)
+
+- Before: kthread did run + complete; `device_issue_pending()` only woke it. Bench loop (`dma_map` x2, prep, `dma_sync_wait`, unmap x2, memset, memcmp) 4096 B: 144.9 us stock / 97.8 us picks; 64 B 54.0 / 40.3 us.
+- After (`drivers/dma/rtl9300-gdma.c`, patch 300-41 refreshed): `issue_pending` runs the queue inline when the engine is idle and the head transfer is <= 16 KiB (`GDMA_INLINE_MAX`, ~55 us busy-wait at burst 3, bounded by the existing `limit_us`); bigger ones go to the kthread. Callbacks run from a tasklet. `busy` flag claims the engine under the spinlock (irqsave); runner re-checks the list before releasing it.
+- Why inline poll, not IRQ: a 4 KiB transfer is ~14 us on the bus; IRQ entry + tasklet/wakeup costs the same order (the kthread wake alone was ~40 us), and the GDMA IRQ line (shared with the bus traffic generator) is untested. IRQ stays an option for transfers > 16 KiB.
+- `kmod/gdma_bench` now also prints `xfer` = prep -> `dma_sync_wait` only (no map/unmap, memset, memcmp). 3 runs each, all 8 sizes bad 0 fails 0, spread < 3 %:
+
+| Len B | stock xfer | stock loop | picks xfer | picks loop |
+|---|---|---|---|---|
+| 64 | 2.8 us | 5.4 us | 1.7 us | 3.3 us |
+| 1400 | 9.3 us | 37 us | 6.0 us | 24.6 us |
+| 4096 | 23.5 us | 101 us | 15.0 us | 66 us |
+| 16000 | 85.7 us | 388 us | 57.8 us | 258 us |
+| 65000 | 408 us | 1773 us | 276 us | 1225 us |
+
+- Picks targets met (4096 B <= 20 us, 64 B <= 5 us). Loop time fell 44 us (stock) / 32 us (picks) at 4096 B = the removed fixed cost; the rest of the loop is cache maintenance in `dma_map_single`/`unmap` (non-coherent 34Kc), not the driver.
+- Remaining gap to the old polled module (13.8 us at 4096 B): prep (`kzalloc`) + cookie + 8-block setup; remaining engine time ~ bus rate (4096 B at 15 us = 273 MB/s picks).
+
+## #149 A/B on the OpenWrt 7.3 image (2026-11-07)
+
+- Image `tmp/tftp/openwrt-ours-initramfs.bin` (next-20261009 + OpenWrt userland), cage 1, `scripts/panic_ab_trial.py` (fresh ramload, `nat-bench setup`, perf push, `zc_bench.py --nat --napi irq1 --secs 12 --len 1400 --perf`).
+
+| Trial | Clocks | zc rate | Panic |
+|---|---|---|---|
+| picks 1 | 1350/306/662 | 114.5 kpps | no |
+| picks 2 | same | 141.1 kpps | no |
+| picks 3 | same | 139.6 kpps | no |
+| stock 1 | 800 | 118.7 kpps | no |
+| stock 2 | 800 | 108.9 kpps | no |
+| stock 3 | 800 | 106.3 kpps | no |
+
+- 0/6 panics; board alive after each (uptime 75-100 s at the end of the run, 54-60 C).
+- Fixed on the way: `set_mgmt_ip` waited for the plain prompt (wrong on OpenWrt) and OpenWrt dropbear stayed bound to the old lan address; direct `ramload openwrt-ours` did not set the bench IP.

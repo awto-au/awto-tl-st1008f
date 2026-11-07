@@ -183,6 +183,7 @@ Catalogue of RTL9303 hardware that the datasheet omits, the SDK leaves unused, o
   - 4096 B time vs CTRL burst field [7:6]: 0 -> 47.4 us (87 MB/s), 1 -> 27.8 us (147 MB/s), 2 -> 18.2 us (225 MB/s), 3 -> 13.8 us (298 MB/s); 1400 B at burst 1: 10.6 us; 64 B: 1.3 us
   - checksum (func 1): ICVL = 32-bit unfolded sum of big-endian 16-bit words, equals the software sum exactly (1400 B in 4.8 us); result must be read before CTRL is cleared
   - LX0 block (0x18144000): completes but 2960 of 4096 bytes differ: unexplained, do not use
+  - 2026-11-07 (plain 7.4-rc1 bench kernel, in-tree driver `drivers/dma/rtl9300-gdma.c`, `kmod/gdma_bench`, burst 3, iters 200, 3 runs, LX1 channel; method docs/CAMPAIGN-PLAIN-7.4.md): dmaengine prep + submit + issue + `dma_sync_wait` of one transfer (inline poll for <= 16 KiB): 64 B 1.7 us / 4096 B 15.0 us at picks (1350/306/662), 64 B 2.8 us / 4096 B 23.5 us at stock; 0 bad, 0 fails; `dma_map`/`unmap` cache maintenance adds ~50-80 us per 4 KiB on top (bench loop 66 / 101 us)
 - **Use:** memcpy/checksum helper (U-Boot, kernel dmaengine). Not for the NAT fast path: forwarded frames move switch core <-> NIC ring in place, the CPU copies nothing
 - **Risk:** DMA writes RAM; bad pointer hangs the LX bus; competes with the CPU under LX arbitration; 34Kc is non-coherent (flush/invalidate by range)
 
