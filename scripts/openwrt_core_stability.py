@@ -42,6 +42,18 @@ CONFIGS = {
 }
 
 
+def cfg(name):
+    """c608_cpuNNNN = core 608 raw regs, CPU NNNN, DDR 662, SRAM 500 (#160); c508_cpuNNNN likewise."""
+    m = re.fullmatch(r"c(608|508)_cpu(\d+)", name)
+    if not m:
+        return CONFIGS[name]
+    e = ("0x36826", "0x478") if m.group(1) == "608" else ("0x30626", "0x3b8")
+    return TURBO.format(cpu=int(m.group(2)), ddr=662, lx=306, sram=500), raw(*e)
+
+
+BENCH = False
+
+
 def log(msg):
     line = f"{time.strftime('%Y-%m-%dT%H:%M:%S%z')} {msg}"
     print(line, flush=True)
@@ -91,7 +103,7 @@ def first_bad(off):
 
 
 def one_boot(name, idx):
-    turbo, rawl = CONFIGS[name]
+    turbo, rawl = cfg(name)
     row = {"config": name, "boot": idx, "date": time.strftime("%Y-%m-%dT%H:%M:%S%z"), "result": "FAIL"}
     off = CON.stat().st_size
     pre = ["--pre", turbo]
@@ -168,6 +180,14 @@ def one_boot(name, idx):
         row["why"] = f"load only {row['load_s']} s"
         return finish(row, off)
     row["result"] = "PASS"
+    if BENCH and idx == 1:
+        for bname, c, tmo in [("tcp_fwd", [PY, "scripts/nat_bench.py", "run", "--secs", "15", "-P", "4"], 40),
+                              ("tcp_rev", [PY, "scripts/nat_bench.py", "run", "--secs", "15", "-P", "4", "--reverse"], 40),
+                              ("zc", [PY, "scripts/zc_bench.py", "--nat", "--secs", "10", "--len", "1400"], 120)]:
+            rc, o = run(c, tmo)
+            keep = [ln for ln in o.splitlines() if "RESULT" in ln or "zc+nat:" in ln or "zc / stack" in ln]
+            row[bname] = " | ".join(ln[24:230] for ln in keep[-3:])
+            log(f"[{name} #{idx}] bench {bname} rc {rc}: {row[bname]}")
     return finish(row, off)
 
 
@@ -182,10 +202,13 @@ def finish(row, off):
 
 def main():
     ap = argparse.ArgumentParser()
-    ap.add_argument("config", choices=sorted(CONFIGS))
+    ap.add_argument("config")
+    ap.add_argument("--bench", action="store_true", help="after a PASS: TCP fwd/rev 15 s + zc_bench --nat")
     ap.add_argument("--boots", type=int, default=3)
     ap.add_argument("--start", type=int, default=1)
     a = ap.parse_args()
+    global BENCH
+    BENCH = a.bench
     done = bring = 0
     i = a.start
     while done < a.boots:

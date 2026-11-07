@@ -385,3 +385,21 @@ Options (kpps = zc+nat fwd 1400 B unless stated):
 - Not seen: `gro_list_prepare` (#149), no panic in `ipv6_getorigdst`.
 - Swc2 boots 1-2 hung at the console re-code after `turbo ... swcore=608` (garbled console, no network); boot 3 booted and oopsed.
 - Core 575 and 608 were stopped after the first failure (branch rule); failure rate per boot not measured.
+
+## Highest stable CPU at core 608 on OpenWrt (#160)
+
+2026-11-07T20:30-21:48+11:00, sw2, same image and method as the section above (raw e220 0x36826 / e214 0x478 after `turbo cpu=N,ddr=662,lx=306,sram=500`; plain `uboot-mainline.bin`). LX 304.2 (core 608) / 305.0 (core 508), 59-62 C, SPI divide 6. Rows `tmp/logs/openwrt_core_stability.jsonl`, logs `tmp/logs/ocs_hc_*.out`. Driver gained `c608_cpuNNNN` / `c508_cpuNNNN` names and `--bench`.
+- Sweep: CPU 1000 (reference, DDR 662 SRAM 500) pass, 1200 pass, 1275 pass, 1325 pass (5/5); 1350 fails at core 608 (prior section, 0/1 raw and 0/1 swc2).
+- TCP = `nat_bench` NAT mode, iperf3 -P 4, 15 s, boot 1 of each point; zc = `zc_bench --nat` 1400 B UDP (works on the OpenWrt image). 1000-row zc/TCP figures from `tmp/logs/nat_bench.log` / `zc_bench.log` (83.3 / 85.6 Mbit/s, 161.7 kpps).
+- No oops, no wrong decodes, no hangs in any boot; first failure none for all rows.
+
+| core | CPU | boots passed | TCP fwd/rev Mbit/s | zc kpps | first failure |
+|---|---|---|---|---|---|
+| 608 | 1000 | 3/3 | 83.3 / 85.6 | 161.7 | none |
+| 608 | 1200 | 3/3 | 87.9 / 96.7 | 160.4 | none |
+| 608 | 1275 | 3/3 | 90.7 / 99.6 | 160.2 | none |
+| 608 | 1325 | 5/5 | 88.9 / 103.0 | 170.4 | none |
+| 608 | 1350 | 0/2 | n/a | n/a | xz decode wrong / Oops, 32-53 s |
+| 508 | 1350 | 1/1 here (5/5 earlier) | 84.5 / 103.8 | 154.9 | none |
+
+- Conclusion: best stable combination is core 608 + CPU 1325 (5/5): zc +10% (170.4 vs 154.9 kpps) over core 508 + CPU 1350, TCP within run noise (88.9/103.0 vs 84.5/103.8); CPU 1350 at core 608 is the only failing step.
