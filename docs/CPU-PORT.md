@@ -90,3 +90,6 @@ Facts only. Where we are: [NAT.md](NAT.md). Experiments and results over time: [
 
 - Two-ring split (2026-11-07, #146, 300-43): PIE CPU-queue rule steers by source-port parity, ring share 50 / 50, tag QID verified; 124-128 kpps with both VPEs busy vs 143.3 on one: FAIL, shared 34Kc pipeline.
 - Details and table: docs/CAMPAIGN-PLAIN-7.4.md "Two-ring receive split".
+- Old options re-tested at the 608 MHz core (2026-11-07): ring split par 123.8 vs rt0 163.6 kpps, NAPI split / threaded -3 to -11 %, tx_by_cpu / noqueue / queue thresholds tie at 169 kpps; no option makes VPE1-free forwarding faster.
+- Second CPU still not useful: forwarding 97-99 % busy on VPE1, every variant that loads VPE0 is slower; best 608 numbers zc+nat 169-171 kpps, NAT TCP P4 1634 / 1631 Mbit/s.
+- Details and the table: docs/CAMPAIGN-PLAIN-7.4.md "Old options re-tested at 608 MHz".

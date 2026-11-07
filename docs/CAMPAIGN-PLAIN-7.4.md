@@ -280,3 +280,46 @@
 - Panics: none in the step runs (no `gro_list_prepare`, #149 not seen). The one `kfree_skb_list_reason` panic in the console log is from 12:46, before this work.
 - Link at boot: lan1 comes up ~4 s after `port-up` (one ramload check ran before it, `BOOT FAIL` in the harness only); the SW PLL relock drops the cage 1 link for ~1 s (sw1 lan4 Link Down/Up 0.9 s apart), not SerDes related: the link is up and clean before and after at every setting.
 - Harness notes: dropbear is not started when `port-up` finds no carrier (`dropbear -R -B` from the console); `ssh` host-key warnings go to stderr; a raw `mw.l 0xbb00e214` garbles the console until e220 re-codes LX, so e220 + e214 + relock go in one line.
+
+## Old options re-tested at 608 MHz (2026-11-07, owner rule: re-test after a core-clock move)
+
+- Setup: sw2, plain 7.4-rc1 bench kernel (ring image for the split), picks 1350/662/500, core 608 = SW VCO 3650 / code 1 (e214 `0x478`, e220 `0x36826`, LX 304); 408 = stock. One NAT interface (`nat-bench setup`, route mode), cage 1, `--napi irq1` unless stated. Driver `scripts/retest_options.py` (rows `tmp/logs/retest_options.jsonl`), ring split `scripts/ring_split_ab.py`.
+- Method: one 6 s run per option point against baselines of the same boot; repeats only within 5 % of baseline. Verdict: wins >= 1.03 x, loses <= 0.97 x, else ties; metric = zc+nat forwarding 1400 B (rx-only 1400 B varies +-6 % with the host flood: 177.2 / 180.6 / 160.8 on the same boot, forwarding 169.2-170.7).
+- SPI safety check (608, read live): e220 `0x36826` NOR code 11 -> NOR clock 3650 / 26 = 140.4 MHz, SFCR `0x5fc00244` divide 6 -> SCK 23.4 MHz (stock 25.5): below stock, no fix needed. 408 reads code 6 / divide 6 = 25.5 MHz.
+
+Baselines (same boot per column):
+
+| metric | 408 | 608 |
+|---|---|---|
+| rx-only 1400 B kpps (VPE0/VPE1 busy %) | 142.1 (3/98) | 177.2 / 180.6 / 160.8 (2/99) |
+| rx-only 64 B kpps | 219.1 (3/98) | 220.4 (6/98) |
+| zc+nat fwd 1400 B kpps | 144.8 (0/98) | 169.2 / 169.4 / 169.2 / 170.7 / 170.2 (1/98) |
+| zc+nat fwd 64 B kpps | 421.9 (0/98) | 424.5 (3/97) |
+| stack path fwd 1400 B kpps | - | 60.2 (1/98) |
+| NAT TCP P4 zc+nat fwd / rev Mbit/s | 1458 / 1463 | 1634 / 1631 |
+| NAT TCP P4 stack fwd / rev Mbit/s | 413 / 409 | 422 / 413 |
+
+Options (kpps = zc+nat fwd 1400 B unless stated):
+
+| option | 408 baseline | 608 | verdict | VPE0/VPE1 busy |
+|---|---|---|---|---|
+| two-ring split par (ring image, rt0 = 163.6 mean of 5) | par 124.0 vs rt0 143.3 | par 123.8, par_acl1 110.9, rt1 145.8 | loses (-24 %) | par 122/71 |
+| NAPI split (ring thread per VPE) | - | 165.3, 151.0, 166.2 vs 169.3 | loses | 2/97, 3/68, 2/99 |
+| NAPI threaded, unpinned | - | 162.6, 157.5, 164.6 | loses (-3 to -7 %) | 11/81, 45/39, 83/14 |
+| tx_by_cpu=1 | - | 168.5 | ties | 6/96 |
+| noqueue | - | 169.2 | ties | 3/99 |
+| tx_by_cpu=1 + noqueue | - | 170.2 | ties | 1/99 |
+| CPU queue 1 threshold 78 / 512 / 4095 pages | - | 169.1 / 169.5 / 169.4 | ties | 1-2/99 |
+| CPU queue 0 threshold 78 / 4095 (ring image, rt0) | - | 161.5 / 164.2 vs 163.6 | ties | 100/6-43 |
+| zc fast path vs stack | 144.8 vs 44.4-62.1 | 169.3 vs 60.2 | zc wins 2.8x | 1/98 |
+| GRO fraglist off, NAT TCP P4 stack | - | 275 / 271 vs 422 / 413 Mbit/s | loses (-35 %) | not read |
+| GRO fraglist off, NAT TCP P4 zc+nat | - | 1630 / 1642 vs 1634 / 1631 | ties | not read |
+| rings in SRAM (`sram_rings=3`) | no traffic | no traffic (eth0 up, no ping), as at 408 | dead | - |
+| cache variants (300-42 `zc_sync_bytes`, `zc_rx_part`) | < 0.3 % at 1400 B | not run: the plain image lacks the parked params; needs a kernel build with 300-42 | open | - |
+| SRAM-resident packet buffers | - | no driver parameter exists | not testable | - |
+
+- Second CPU: no option makes it useful. Forwarding is 97-99 % busy on VPE1 (the NIC IRQ + softirq CPU) at 608 and 408; every arrangement that loads VPE0 as well (par, split, threaded) is slower. Ring 0 / VPE0 alone does 163.6 vs 169.3 on VPE1.
+- Best at 608: zc+nat forwarding 1400 B 169-171 kpps (+17 % on 408), NAT TCP P4 zc+nat 1634 / 1631 Mbit/s (+12 %), 64 B forwarding 424.5 kpps (unchanged: VPE-bound).
+- Ring image reorder: rt0 / rt1 rounds in the first run showed reorder 5272 / 3273 (udpcheck, 64 flows, bad 0); later rt0 runs 0. Not diagnosed.
+- Hangs / recoveries: none. Panics: none (no `gro_list_prepare`, #149 not seen; console scan clean for all rows). Temperature 49.3-53.2 C.
+- `nat_bench setup` returns rc 1 (`ping natlan -> natwan: FAIL`) in every boot here, benches ran fine afterwards.
