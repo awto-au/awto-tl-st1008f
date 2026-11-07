@@ -37,7 +37,7 @@ PY = sys.executable
 DEVPY = str(ROOT / "dev.py")
 BAD_CONSOLE = re.compile(rb"Oops|\bBUG\b|Kernel panic|gro_list_prepare")
 TEMP_MAX_MC = 85000          # owner abort limit
-BASE_KPPS_1400 = 143.3       # picks, rx-only 1400 B (CAMPAIGN-PLAIN-7.4.md, #147); a scan point must beat it by GAIN
+BASE = {"kpps_1400": 143.3}  # --base overrides (core 608 baseline); picks, rx-only 1400 B (CAMPAIGN-PLAIN-7.4.md, #147); a scan point must beat it by GAIN
 GAIN = 1.03                  # 6x the 0.5 % spread measured at 408/306 MHz
 PICKS = {"cpu": 1350, "ddr": 662, "lx": 306, "sram": 500}
 CORE = {"sw": None}          # --core: fixed switch-core point added to every settings dict
@@ -162,11 +162,14 @@ def ramload_cmd(pres: list[str], kernel: str | None = KERNEL, bootargs: str | No
 
 
 def wait_up(dry: bool) -> bool:
-    """Ping up to 15 x 2 s (lan1 10G up ~4 s after port-up), dropbear via console if ssh is missing, then uptime >= 25 s (nat-bench setup earlier lost lan1)."""
+    """Ping for up to 60 s, dropbear via console if ssh is missing, then uptime >= 25 s (nat-bench setup earlier lost lan1)."""
     if dry:
         return True
-    if not any(subprocess.run(["ping", "-c", "1", "-W", "2", BENCH_IP], capture_output=True).returncode == 0 for _ in range(15)):
-        return False
+    t_up = time.time() + 60   # kernel at ramload end is 8-30 s old, lan1 10G link up ~4 s after port-up; a fixed 15 ping loop gave up at 25 s (false HANG at cpu 1100)
+    while subprocess.run(["ping", "-c", "1", "-W", "2", BENCH_IP], capture_output=True).returncode != 0:
+        if time.time() > t_up:
+            log("wait_up: no ping reply within 60 s")
+            return False
     if ssh("echo root") is None:
         run([PY, str(ROOT / "scripts/switch_console.py"), "send", "dropbear -R -B", "--secs", "4"], 30, 40)
     t_end = time.time() + 90   # boot to 25 s uptime ~50 s, x1.8
@@ -189,6 +192,11 @@ def quick(st: dict, tag: str, dry: bool, kernel: str | None = None) -> dict:
         return res
     if rc not in (0, 1):
         return {**res, "result": "HANG" if rc == 124 else "FAIL", "detail": [f"ramload rc {rc}", *out.strip().splitlines()[-2:]]}
+    with CONSOLE.open("rb") as fh:   # a rejected turbo leaves stock clocks and every test would pass: require the applied values
+        fh.seek(mark)
+        ok_t = re.findall(rb"clocks: turbo OK = cpu (\d+) MHz, mem (\d+) MHz", fh.read())
+    if not ok_t or (int(ok_t[-1][0]), int(ok_t[-1][1])) != (st["cpu"], st["ddr"]):
+        return {**res, "result": "FAIL", "detail": [f"turbo not applied as asked (cpu {st['cpu']} ddr {st['ddr']}): {ok_t[-1:]}"]}
     t0 = ssh("cat /sys/class/thermal/thermal_zone0/temp") if wait_up(dry) else None
     if t0 is None:
         return {**res, "result": "HANG", "detail": ["no ssh after ramload"]}
@@ -289,7 +297,7 @@ def search(domain: str, a) -> int:
         res = quick(settings_for(domain, pts[i]), f"fs-{domain}-{pts[i]}", False, a.kernel)
         gain = ""
         if d["mode"] == "scan":
-            gain = "yes" if res["result"] == "PASS" and res.get("kpps_1400", 0) >= BASE_KPPS_1400 * GAIN else "no"
+            gain = "yes" if res["result"] == "PASS" and res.get("kpps_1400", 0) >= BASE["kpps_1400"] * GAIN else "no"
         record(domain, str(pts[i]), res, gain)
         done[key] = {"result": res["result"]}
         if res.get("temp_after_mC", 0) > TEMP_MAX_MC:
@@ -412,6 +420,7 @@ def main() -> int:
     ap.add_argument("--core", choices=list(SWC), help="fixed switch-core point for every test (608 = recommended max)")
     ap.add_argument("--pick", help="override the other-domain values, e.g. cpu=1400,ddr=700,lx=306,sram=500")
     ap.add_argument("--once", action="store_true", help="one quick test at --core / --pick / --arb / --br, then exit")
+    ap.add_argument("--base", type=float, help="scan gain baseline: rx-only 1400 B kpps of the unmodified picks at this core (default 143.3 = core 408)")
     ap.add_argument("--arb", default="stock")
     ap.add_argument("--br", default="stock")
     a = ap.parse_args()
@@ -420,6 +429,8 @@ def main() -> int:
         return 2
     global CSV_PATH
     CORE["sw"] = a.core
+    if a.base:
+        BASE["kpps_1400"] = a.base
     if a.core:
         CSV_PATH = ROOT / f"tmp/logs/fastest_search_core{a.core}.csv"   # rows are only comparable at the same core
     for kv in (a.pick.split(",") if a.pick else []):
