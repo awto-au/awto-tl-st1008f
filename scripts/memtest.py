@@ -91,6 +91,10 @@ def main() -> int:
         log(t)
         if "turbo OK" not in t:
             return 1
+    _, out = con.run("clocks", PROMPT, 2, "clocks read")  # label from the live clocks (manual turbo too, #159)
+    live = {k: m[1] for k in ("cpu", "lx", "mem") if (m := re.search(rf"(?m)^{k} ([\d.]+) MHz", out))}
+    label = ("stock" if live == {"cpu": "800", "lx": "175", "mem": "600"}
+             else ",".join(f"{k}={v}" for k, v in live.items()) or a.clocks or "stock")
     cmd = f"memtest log={a.log}" + (f" mib={a.mib}" if a.mib else "") + (f" {a.args}" if a.args else "")
     fast = a.console_rate != 115200
     if fast:
@@ -123,10 +127,10 @@ def main() -> int:
     for e in re.findall(r"memtest: E [^\r\n]*", text)[:40]:
         log("  " + e[9:])
     total = sum(u["errs"] for u in units)
-    log(f"RESULT clocks={a.clocks or 'stock'} errors {total} in {time.monotonic() - t0:.0f} s "
+    log(f"RESULT clocks={label} errors {total} in {time.monotonic() - t0:.0f} s "
         f"({len(units)} units)")
     with JSONL.open("a") as fh:
-        fh.write(json.dumps({"ts": time.strftime("%Y-%m-%dT%H:%M:%S%z"), "clocks": a.clocks or "stock",
+        fh.write(json.dumps({"ts": time.strftime("%Y-%m-%dT%H:%M:%S%z"), "clocks": label,
                              "mib": a.mib, "units": units,
                              "errors": re.findall(r"memtest: E ([^\r\n]*)", text)}) + "\n")
     return 1 if total else 0

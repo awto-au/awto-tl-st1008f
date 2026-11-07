@@ -60,6 +60,7 @@ KERNEL_PATCHES = {
     "300-04-realtek-rtl930x-enable-dram-prefetch.patch": OURS,
     "300-05-realtek-rtl930x-hpt-freq-from-pll.patch": OURS,
     "300-06-realtek-rtl930x-tplink-mode-switch.patch": OURS,
+    "300-23-realtek-rtl930x-lx-clock-from-pll.patch": OURS,  # #159: UART/timer clock from the PLL (swcore 608: LX 304); needs 300-05, apply untested on 6.18
     "300-07-realtek-spi-dirmap-read.patch": BACKPORT / "kernel",
     "300-11-realtek-rteth-tx-ring32-bql-xmit-more.patch": OURS,  # 300-12 builds on it
     "300-12-realtek-rteth-930x-nic-path.patch": OURS,

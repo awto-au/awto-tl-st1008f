@@ -147,7 +147,11 @@ def setup() -> int:
         host(["ip", "-n", ns, "link", "set", sub, "address", f"02:99:00:00:{vid // 100:02d}:{vid % 100:02d}"])
         host(["ip", "-n", ns, "link", "set", sub, "mtu", "1500", "up"])
     host(["ip", "-n", NS_LAN, "route", "add", "default", "via", SW_LAN])
-    return status()
+    status()  # natwan has no return route until `mode`: the end-to-end ping cannot pass here (#159)
+    r = subprocess.run(["sudo", "-n", "ip", "netns", "exec", NS_LAN, "ping", "-c", "2", "-W", "1", SW_LAN],
+                       capture_output=True, text=True, timeout=10)  # 2 pings x 1 s wait + margin
+    log(f"ping {NS_LAN} -> {SW_LAN} (switch SVI): {'OK' if r.returncode == 0 else 'FAIL'}")
+    return 0 if r.returncode == 0 else 1
 
 
 def set_mode(mode: str) -> int:

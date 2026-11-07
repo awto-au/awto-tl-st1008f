@@ -279,7 +279,7 @@ fuse: init \(API version 7\.\d+\)  # FUSE init
 9pnet: Installing 9P2000 support  # 9P init
 io scheduler (mq-deadline|kyber|bfq) registered  # block IO schedulers
 Serial: 8250/16550 driver, 4 ports, IRQ sharing disabled  # serial driver
-18002000\.serial: ttyS0 MMIO:0x18002000 \(irq = 30, base_baud = (10937500|19140625)\) is a 16550A  # console UART: LX 175 or 306 MHz / 16 (300-23, #103)
+18002000\.serial: ttyS0 MMIO:0x18002000 \(irq = 30, base_baud = (10937500|19140625|19010375)\) is a 16550A  # console UART: LX 175, 306 or 304 (swcore 608) MHz / 16 (300-23, #103, #159)
 printk: console \[ttyS0\] enabled  # console hand-over
 loop: module loaded  # loop driver
 input: keys as /devices/platform/keys/input/input0  # gpio-keys input device registered
@@ -421,6 +421,8 @@ clocks: write 0x[0-9a-f]+.*  # turbo register writes, verbose trace (#46)
 MSPXDC  # stock SPL token on every chained boot (#105)
 clocks: turbo OK = cpu \d+ MHz, mem \d+ MHz, lx \d+ MHz, sram \d+ MHz(, swcore \d+ MHz)?, MCR [0-9a-f]{8}, spi unchanged  # M3 turbo result (#46); `reverted` is not allowlisted
 clocks: swcore now \d+ kHz \(code [0-3], vco \d+\), e220 [0-9a-f]{8} e214 [0-9a-f]{8}  # turbo swcore= change, read back (#148)
+clocks: lx now \d+ kHz, uart clock updated  # manual `turbo lx=` / `clocks set lx` / swcore change; console follows (#159)
+turbo (cpu|ddr|lx|sram|swcore|swcore_xp)=\d+(,(cpu|ddr|lx|sram|swcore|swcore_xp)=\d+)*  # echo of a manual `turbo` command by the flows (#159)
 clocks: mem now \d+ kHz, DTR0 [0-9a-f]{8} DTR1 [0-9a-f]{8} DTR2 [0-9a-f]{8}, canary 0 bad  # turbo/clocks DDR change, zero canary errors ("0 bad" is not a DENY match)
 
 [mainline]

@@ -38,6 +38,7 @@ Overlay (re-applied each run on a `git checkout`/`git clean` of `target/linux`):
 | 300-04 DRAM prefetch | as-is | `board-realtek.c` 300-01..03 identical at `53ec2d0` and main |
 | 300-05 CP0 timer from PLL | as-is | |
 | 300-06 mode switch driver | as-is | DT node via the tree patch above |
+| 300-23 LX/CPU clocks from PLL | added, apply untested (#159) | flash console at LX != 175 (swcore 608); U-Boot `ft_board_setup` cannot do it: uImage has an appended DTB, `bootm` passes none |
 | 300-07 SPI dirmap | rebased → `openwrt/backport-6.18/kernel/` | context: OpenWrt `040-v7.4` (second CS); 6.18 `spi_mem_dirmap_info.op_tmpl` is a struct (7.3: pointer) → `&desc->info.op_tmpl`; dirmap refused for CS != 0 (window + `rtspi_cs()` are CS0 only). Self-check fails on 7.3 (#61): watch the dirmap line |
 | 300-11 rteth TX ring/BQL/xmit_more | as-is (offsets −93..−123) | added: 300-12 builds on it |
 | 300-12 rteth 930x NIC path | rebased → `openwrt/backport-6.18/kernel/` | main dropped the L2 notification buffer (`membase`/`dmam_alloc_coherent`); doorbell `of_iomap` moved after the regmap lookup |

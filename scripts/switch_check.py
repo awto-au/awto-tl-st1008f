@@ -60,7 +60,8 @@ def main() -> int:
             return 1
     log(f"ping {a.ip} OK after {time.monotonic() - t0:.0f} s")
     r = subprocess.run(["ssh", "-o", f"ConnectTimeout={SSH_S}", "-o", "BatchMode=yes",
-                        "-o", "StrictHostKeyChecking=accept-new", f"root@{a.ip}", REMOTE],
+                        "-o", "StrictHostKeyChecking=no",
+                        "-o", "UserKnownHostsFile=/dev/null", "-o", "LogLevel=ERROR", f"root@{a.ip}", REMOTE],
                        capture_output=True, text=True, timeout=SSH_S * 3)  # connect + ~1 s of commands
     if r.returncode:
         log(f"FAIL ssh root@{a.ip}: rc {r.returncode} {r.stderr.strip()}")
