@@ -245,3 +245,38 @@
 - Silent corruption: none at 408 and 306 (udpcheck good 221k-847k per length, bad 0, reorder 0). ASIC `EGR_QUEUE` drops in rx runs unchanged in kind (rx flood fills queue 1 at every clock).
 - Console grep after all boots: no oops/panic (no `gro_list_prepare`), #149 not seen.
 - Boot-check note: `ramload ... --pre mw.l/md.l` reports `rc 1` from `boot_log_check` UNKNOWN lines (`clocks: ... lx now`, `turbo ...`) when the console log is checked late; board boots fine.
+
+## Switch-core clock: why 612 fails, stable range (2026-11-07, #148)
+
+- Setup: plain 7.4-rc1 bench kernel, `turbo cpu=1350,ddr=662,lx=306 (245 for the 575/658 rows),sram=500`, cage 1, route mode, `--napi irq1`. Driver `scripts/swcore_step.py` (ramload + clock change + rx / forwarding / integrity per boot), logs `tmp/logs/swcore_step_*.log`, state dumps `scripts/swcore_diag.py`.
+- Clock change: SW VCO = 50 MHz x (e214 NCODE + 2) (e214 `0x2f8` = 47 -> 2450 MHz); switch core = VCO / (2 x (code + 2)). e214 acts at once (no relock needed) and changes LX/NOR as well: write e220 (new LX/NOR codes) and e214 in one U-Boot line, then relock (e200 bit 30).
+
+### The 612 failure
+
+- Wedge: CPU queue 1 stays full (1030 pages / 206+ packets), ring-1 DMA stops. Evidence at the wedge (3 of 3 times):
+  - ring 1 has 128 free descriptors (all owned by the ASIC), `RX_RING_CNTR` 0, `DMA_INTR_RX_DONE_STS`/`RUNOUT_STS` 0, masks open (3), `DMA_IF_CTRL` unchanged, NIC IRQ count frozen.
+  - Not a link fault: lan1 / sw1 lan4 stay `Link detected: yes`, 10G; sw1 lan4 logged one Down/Up in the relock second at boot, none later.
+  - Not a register wipe: `MAC_FORCE_MODE_CTRL(28)` 0x217, `MAC_L2_CPU_PORT_CTRL` 0, `THR[1]` 0x040003F0, `QM_CPUQID2QID`, `QM_CPUQID2XGQID`, DMA base registers read identical right after the relock and at the wedge.
+  - Recovery: `ip link set eth0 down; up` (NIC queue reset); slowing the clock live to 408, toggling `DMA_IF_CTRL` RX/TX enable, and writing `RX_RING_CNTR` do not recover.
+- Trigger: forwarding (RX+TX together), not rx-only. rx-only 1400 B n=3 twice plus 64 B ran clean at 612 (one 64 B run in a row read 6 pps for 8 s, then recovered). Forwarding wedged in the stack-baseline / zc run or the first integrity run: 4 of 4 tries at 612 (fresh boot x2, live from 408 x2); never at 408, 508, 575, 608, 658 (15 boots).
+- Order: clock change before `turbo` wedges the same as after (`--swc-first`). So the order is not the cause.
+- Cause narrowed to the divider code, not the frequency: code 0 (VCO / 4, VCO 2450) wedges; code 1 at VCO 3650 = 608 MHz (same speed) passes 3 of 3 boots with the best forwarding. Code 0 is never used by Realtek's SPL (glb_pll.h default 1); candidate: the /4 output of the divider (duty / edge) feeding the queue-manager-to-DMA handshake.
+
+### Steps (1400 B, picks, rx-only n=3 per boot; zc+nat forwarding 12 s; integrity 1400/500/64)
+
+| Switch core | SW VCO / code / LX | rx-only kpps | zc+nat fwd kpps | integrity | boots |
+|---|---|---|---|---|---|
+| 408 (stock) | 2450 / 1 / 306 | 143.5 | 144.8 | PASS | 1 |
+| 508 | 3050 / 1 / 305 | 164.0, 171.8, 167.6 | 159.4, 159.2, 158.9 | PASS x3 | 3 |
+| 575 | 3450 / 1 / 246 | 173.5, 145.4 (one 81 run), 168.9 | 153.2, 153.7, 153.4 | PASS x3 | 3 |
+| 608 | 3650 / 1 / 304 | 173.0, 174.6, 175.9 | 170.4, 170.0, 170.3 | PASS x3 | 3 |
+| 658 | 3950 / 1 / 247 | 182.4, 175.7, 155.3 (spread 30 %) | 153.5, 153.3, 153.2 | PASS x3 | 3 |
+| 612 | 2450 / 0 / 306 | 173-182 | wedge | not reached | 4 wedges |
+
+- Conditions: 2026-11-07, sw2, cage 1 to sw1 lan4, host NIC 10G, kernel `7.4.0-rc1-dirty`; rx numbers vary +-5 % with the host flood (sent 430-830 kpps); one 575 rx run (80.9 kpps) coincided with a low host send rate.
+- Forwarding depends on LX as well: 575 and 658 (LX 246) forward 153 kpps, 608 and 508 (LX 305) 159-170, rx-only does not. LX is part of the rate; compare rows with equal LX only.
+- Gain stops near 170-182 kpps rx (VPE1 98-99 % busy, 5.4-5.7 us per packet): the CPU-port ceiling stops being the clock above ~500 MHz.
+- Temperature: sensor `thermal_zone0` reads 49.3 -> 53.2 C over all steps (never above 53.2 C); abort limit 85 C.
+- Panics: none in the step runs (no `gro_list_prepare`, #149 not seen). The one `kfree_skb_list_reason` panic in the console log is from 12:46, before this work.
+- Link at boot: lan1 comes up ~4 s after `port-up` (one ramload check ran before it, `BOOT FAIL` in the harness only); the SW PLL relock drops the cage 1 link for ~1 s (sw1 lan4 Link Down/Up 0.9 s apart), not SerDes related: the link is up and clean before and after at every setting.
+- Harness notes: dropbear is not started when `port-up` finds no carrier (`dropbear -R -B` from the console); `ssh` host-key warnings go to stderr; a raw `mw.l 0xbb00e214` garbles the console until e220 re-codes LX, so e220 + e214 + relock go in one line.

@@ -45,7 +45,8 @@ Source tags: **[SRC]** GPL file:line (`dms1250/` = `sources/rtk-dms1250/`, `xgs1
 | `e22c` PLL_125M_MISC | `e0d6873c` | DIV5_EN 1, DIV4_EN 1, CMU_EN 1 |
 | `e230` PLL_CML_CTRL | `000d0003` | CKREFBUF_CML_I 20:18 = 3, _R 17:16 = 1 |
 
-- Switch-core clock = SW VCO / (2 x (DIVN2_SWCORE + 2)) = 408 MHz at stock (code 1). Runtime change works from the U-Boot prompt: `mw.l 0xbb00e220 <v>` then e200 bit 30 relock (`mw.l 0xbb00e200 0x0001c0ff`, `0x4001c0ff`); no code uses it. Tried 3 (245), 2 (306), 1, 0 (612): all boot and link; the 1400 B CPU-port rate scales with it (86.6 / 108.1 / 143.5 / 182.3 kpps rx-only); 612 left lan1 silent after the rx runs (docs/CAMPAIGN-PLAIN-7.4.md 'Switch-core clock').
+- Switch-core clock = SW VCO / (2 x (DIVN2_SWCORE + 2)) = 408 MHz at stock (code 1). Runtime change works from the U-Boot prompt: `mw.l 0xbb00e220 <v>` then e200 bit 30 relock (`mw.l 0xbb00e200 0x0001c0ff`, `0x4001c0ff`); `clocks set swcore` / turbo `swcore=` (#148) use it. Tried 3 (245), 2 (306), 1, 0 (612): all boot and link; the 1400 B CPU-port rate scales with it (86.6 / 108.1 / 143.5 / 182.3 kpps rx-only); 612 left lan1 silent after the rx runs (docs/CAMPAIGN-PLAIN-7.4.md 'Switch-core clock').
+- Switch-core stable range (2026-11-07, #148; docs/CAMPAIGN-PLAIN-7.4.md 'why 612 fails'): SW VCO = 50 MHz x (e214 NCODE + 2); e214 acts at once, so write e220 (LX/NOR re-coded for the new VCO) and e214 in one U-Boot line, then relock. Passing with code 1 (/6) on 3 boots each: 508 (VCO 3050, e214 `0x3b8`, e220 `0x30626`), 575 (3450, `0x438`, `0x34a26`, LX 246), 608 (3650, `0x478`, `0x36826`, best forwarding), 658 (3950, `0x4d8`, `0x38c26`, LX 247). Code 0 (612 at VCO 2450) wedges the CPU-port DMA under forwarding. Recommended maximum 608 MHz (code 1, VCO 3650); LX stays within 1 % of 306 only for VCO 3050 and 3650.
 
 ### SoC `0xb8000000` — [SRC] `dms1250/system/include/soc/socdef/rtl9300_soc_reg.h`
 
