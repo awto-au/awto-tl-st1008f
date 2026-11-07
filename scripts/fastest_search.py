@@ -40,6 +40,8 @@ TEMP_MAX_MC = 85000          # owner abort limit
 BASE_KPPS_1400 = 143.3       # picks, rx-only 1400 B (CAMPAIGN-PLAIN-7.4.md, #147); a scan point must beat it by GAIN
 GAIN = 1.03                  # 6x the 0.5 % spread measured at 408/306 MHz
 PICKS = {"cpu": 1350, "ddr": 662, "lx": 306, "sram": 500}
+CORE = {"sw": None}          # --core: fixed switch-core point added to every settings dict
+KERNEL = "mainline-7.4-rc1.bin"   # plain bench kernel (not the 7.3 image: #149)
 STOCK = {"cpu": 800, "ddr": 600, "lx": 175, "sram": 250}
 ORDER = ["switch-core", "lx-arb", "cpu", "ddr", "sram"]   # expected value, high first; combine back-off drops from the end
 SSH = ["ssh", "-o", "ConnectTimeout=6", "-o", "StrictHostKeyChecking=no", "-o", "UserKnownHostsFile=/dev/null", "-o", "BatchMode=yes"]
@@ -103,16 +105,13 @@ def ssh(cmd: str, dry: bool = False) -> str | None:
 
 
 # ---- settings -> U-Boot commands -------------------------------------------------------------
-def sw_line(mhz: int, n: int, code: int) -> str:
-    """e220/e214/relock in one line (swcore_step: e214 garbles the UART until e220 re-codes LX). LX/NOR kept <= 306.25 / 153.125 MHz."""
-    vco = 50 * (n + 2)
-    lx = next(c for c in range(16) if vco / (2 * (c + 2)) <= 306.26)
-    nor = next(c for c in range(16) if vco / (2 * (c + 2)) <= 153.13)
-    e220 = (1 << 17) | (nor << 13) | (lx << 9) | (code << 5) | (3 << 1)
-    return f"mw.l 0xbb00e220 0x{e220:x}; mw.l 0xbb00e214 0x{(n << 4) | 8:x}; mw.l 0xbb00e200 0x0001c0ff; mw.l 0xbb00e200 0x4001c0ff"
+def sw_line(e214: int, e220: int) -> str:
+    """e220, e214, relock in one line (swcore_step: e214 garbles the UART until e220 re-codes LX). Words: docs/CLOCKS.md."""
+    return f"mw.l 0xbb00e220 0x{e220:x}; mw.l 0xbb00e214 0x{e214:x}; mw.l 0xbb00e200 0x0001c0ff; mw.l 0xbb00e200 0x4001c0ff"
 
 
-SWC = {"408": (408, 47, 1), "450": (450, 52, 1), "500": (500, 58, 1), "550": (550, 64, 1), "600": (600, 46, 0), "612": (612, 47, 0)}
+# MHz -> (e214, e220), all code 1 (/6), passed 3/3 boots (#148). 612 (code 0) wedges forwarding: not offered.
+SWC = {"508": (0x3b8, 0x30626), "575": (0x438, 0x34a26), "608": (0x478, 0x36826), "658": (0x4d8, 0x38c26)}
 ARB = {"stock": None, "swap": 0x01010101, "m1": 0x11111111, "m0": 0x00000000}   # slot owners; master IDs unknown (DATASHEET-AUDIT.md:185)
 
 
@@ -151,7 +150,7 @@ def settings_string(st: dict, dry: bool = False) -> str:
     return " | ".join(pre_list(st, dry))
 
 
-def ramload_cmd(pres: list[str], kernel: str | None = None, bootargs: str | None = None) -> list[str]:
+def ramload_cmd(pres: list[str], kernel: str | None = KERNEL, bootargs: str | None = None) -> list[str]:
     c = [PY, DEVPY, "ramload", "uboot-mainline", "--then", "mainline-kernel", "--cage", "1", "--mgmt"]
     if kernel:
         c += ["--kernel", kernel]
@@ -160,6 +159,22 @@ def ramload_cmd(pres: list[str], kernel: str | None = None, bootargs: str | None
     for p in pres:
         c += ["--pre", p]
     return c
+
+
+def wait_up(dry: bool) -> bool:
+    """Ping up to 15 x 2 s (lan1 10G up ~4 s after port-up), dropbear via console if ssh is missing, then uptime >= 25 s (nat-bench setup earlier lost lan1)."""
+    if dry:
+        return True
+    if not any(subprocess.run(["ping", "-c", "1", "-W", "2", BENCH_IP], capture_output=True).returncode == 0 for _ in range(15)):
+        return False
+    if ssh("echo root") is None:
+        run([PY, str(ROOT / "scripts/switch_console.py"), "send", "dropbear -R -B", "--secs", "4"], 30, 40)
+    t_end = time.time() + 90   # boot to 25 s uptime ~50 s, x1.8
+    while time.time() < t_end:
+        up = (ssh("cut -d. -f1 /proc/uptime") or "").split()
+        if up and up[-1].isdigit() and int(up[-1]) >= 25:
+            return True
+    return False
 
 
 # ---- the quick test ---------------------------------------------------------------------------
@@ -174,7 +189,7 @@ def quick(st: dict, tag: str, dry: bool, kernel: str | None = None) -> dict:
         return res
     if rc not in (0, 1):
         return {**res, "result": "HANG" if rc == 124 else "FAIL", "detail": [f"ramload rc {rc}", *out.strip().splitlines()[-2:]]}
-    t0 = ssh("cat /sys/class/thermal/thermal_zone0/temp")
+    t0 = ssh("cat /sys/class/thermal/thermal_zone0/temp") if wait_up(dry) else None
     if t0 is None:
         return {**res, "result": "HANG", "detail": ["no ssh after ramload"]}
     res["temp_before_mC"] = int(t0.strip() or 0)
@@ -228,8 +243,8 @@ def known() -> dict:
 
 # ---- domains ----------------------------------------------------------------------------------
 DOMAINS = {
-    "switch-core": {"mode": "bisect", "key": "sw", "knob": "SW VCO e214 NCODE + DIVN2_SWCORE e220[8:5], relock e200 b30", "stock": "408",
-                    "points": ["408", "450", "500", "550", "600", "612"], "unit": "MHz"},
+    "switch-core": {"mode": "bisect", "key": "sw", "knob": "SW VCO e214 NCODE (code 1) + e220 LX/NOR, relock e200 b30", "stock": "408",
+                    "points": ["408", "508", "575", "608", "658"], "unit": "MHz"},
     "lx-arb": {"mode": "scan", "key": "arb", "knob": "LX0..2_ARB_CFG0-3 0xB8000010-3C (reset 0x10101010)", "stock": "stock",
                "points": ["stock", "swap", "m1", "m0"], "unit": ""},
     "cpu": {"mode": "bisect", "key": "cpu", "knob": "turbo cpu=", "stock": 800, "points": [800, 1000, 1050] + list(range(1100, 1426, 25)), "unit": "MHz"},
@@ -243,6 +258,8 @@ EST_POINT_S = 150   # boot ~45 s + setup 8 s + rx 2 x ~12 s + integrity ~25 s + 
 def settings_for(domain: str, value) -> dict:
     d = DOMAINS[domain]
     st = dict(PICKS)
+    if CORE["sw"] and d["key"] != "sw":
+        st["sw"] = CORE["sw"]
     st[d["key"]] = value if d["key"] in PICKS else str(value)
     return st
 
@@ -330,6 +347,8 @@ def combine(a) -> int:
             chosen[drop] = DOMAINS[drop]["stock"] if DOMAINS[drop]["key"] not in PICKS else PICKS[DOMAINS[drop]["key"]]
             log(f"COMBINE back-off: {drop} -> pick/stock")
         st = dict(PICKS)
+        if CORE["sw"]:
+            st["sw"] = CORE["sw"]
         for dm, v in chosen.items():
             st[DOMAINS[dm]["key"]] = v if DOMAINS[dm]["key"] in PICKS else str(v)
         res = quick(st, "fs-combo", a.dry_run, a.kernel)
@@ -389,11 +408,28 @@ def main() -> int:
     ap.add_argument("--combine", action="store_true")
     ap.add_argument("--discover", action="store_true")
     ap.add_argument("--fresh", action="store_true", help="ignore the csv (no resume)")
-    ap.add_argument("--kernel", help="TFTP-root kernel file (default: ramload's)")
+    ap.add_argument("--kernel", default=KERNEL, help="TFTP-root kernel file")
+    ap.add_argument("--core", choices=list(SWC), help="fixed switch-core point for every test (608 = recommended max)")
+    ap.add_argument("--pick", help="override the other-domain values, e.g. cpu=1400,ddr=700,lx=306,sram=500")
+    ap.add_argument("--once", action="store_true", help="one quick test at --core / --pick / --arb / --br, then exit")
+    ap.add_argument("--arb", default="stock")
+    ap.add_argument("--br", default="stock")
     a = ap.parse_args()
     if a.ip == SW1_IP or a.ip != BENCH_IP:
         print(f"refused: {a.ip} is not the bench unit sw2 ({BENCH_IP})", file=sys.stderr)
         return 2
+    global CSV_PATH
+    CORE["sw"] = a.core
+    if a.core:
+        CSV_PATH = ROOT / f"tmp/logs/fastest_search_core{a.core}.csv"   # rows are only comparable at the same core
+    for kv in (a.pick.split(",") if a.pick else []):
+        PICKS[kv.split("=")[0]] = int(kv.split("=")[1])
+    if a.once:
+        st = {**PICKS, "arb": a.arb, "br": a.br, **({"sw": a.core} if a.core else {})}
+        res = quick(st, "fs-once", a.dry_run, a.kernel)
+        if not a.dry_run:
+            record("once", json.dumps(st), res)
+        return 0 if res["result"] == "PASS" else 1
     if a.list:
         for dm in ORDER:
             d = DOMAINS[dm]

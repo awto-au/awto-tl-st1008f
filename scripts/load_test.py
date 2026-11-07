@@ -23,6 +23,7 @@ from pathlib import Path
 
 sys.path.insert(0, str(Path(__file__).resolve().parent))
 import fastest_search as fs  # noqa: E402
+from retest_options import parse_zc  # noqa: E402  (one zc_bench parser; the manual boot/meas flow lives there)
 from boards import BENCH_IP, SW1_IP  # noqa: E402
 
 ROOT = fs.ROOT
@@ -73,11 +74,6 @@ def vs_base(v: float | None, base: float | None) -> str:
     if base is None:
         return "PASS"
     return "FAIL" if v < 0.9 * base else "WARN" if v < 0.97 * base else "PASS"
-
-
-def parse_zc(out: str) -> tuple[float | None, float | None, float | None]:
-    m = re.findall(r"= ([\d.]+) kpps .*?busy VPE0/VPE1 (\d+)/(\d+)%", out)
-    return (float(m[-1][0]), float(m[-1][1]), float(m[-1][2])) if m else (None, None, None)
 
 
 def saturated(v0, v1) -> str:
@@ -191,8 +187,10 @@ OPTIONS = {
     "sram_rings": {"kind": "boot", "args": "rtl838x_eth.sram_rings=3", "bench": "zc", "variants": ["sram_rings=3"], "what": "NIC rings in SRAM (300-25)"},
     "zc_sync": {"kind": "runtime", "bench": "sync", "variants": ["base", "txfull", "rxpart"], "needs": f"{P}/zc_sync_bytes",
                 "build": "parked 300-42 (zc_sync_bytes, zc_rx_part): rebuild with scripts/head_bench_build.py + 300-42", "what": "cache variants"},
-    "cpuq": {"kind": "boot", "bench": "zc", "variants": ["rtl838x_eth.cpuq_drop_pages=0", "rtl838x_eth.cpuq_drop_pages=512", "rtl838x_eth.cpuq0_drop_pages=1024"],
+    "cpuq": {"kind": "boot", "bench": "zc", "variants": ["rtl838x_eth.cpuq_drop_pages=0", "rtl838x_eth.cpuq_drop_pages=512"],
              "what": "CPU queue drop thresholds (300-40; read at open)"},
+    "cpuq0": {"kind": "image", "kernel": RING, "bench": "zc", "variants": ["rtl838x_eth.cpuq0_drop_pages=1024"],
+              "what": "queue-0 drop threshold; param exists only in the ring image (300-43)"},
     "zc_vs_stack": {"kind": "runtime", "bench": "zcstack", "variants": ["zc/stack"], "what": "zc fast path vs stack path"},
     "gro_list": {"kind": "runtime", "bench": "tcp", "variants": [("off", "for d in eth0 lan1; do ethtool -K $d rx-gro-list off; done")],
                  "default": "for d in eth0 lan1; do ethtool -K $d rx-gro-list on; done", "what": "GRO fraglist off (stack TCP path)"},
@@ -225,7 +223,7 @@ def options(a, st: str) -> int:
             csv_add(OPT_CSV, OPT_COLS, dict(when=time.strftime("%Y-%m-%dT%H:%M:%S%z"), option=n, core=a.core, verdict="n/a", detail=o["what"]))
             log(f"option {n}: n/a - {o['what']}")
             continue
-        if o.get("needs") and fs.ssh(f"[ -e {o['needs']} ] && echo y") is None:
+        if o.get("needs") and "y" not in (fs.ssh(f"[ -e {o['needs']} ] && echo y; true") or ""):
             log(f"option {n}: SKIPPED, image lacks {o['needs']}; build needed: {o['build']}")
             csv_add(OPT_CSV, OPT_COLS, dict(when=time.strftime("%Y-%m-%dT%H:%M:%S%z"), option=n, core=a.core, verdict="needs build", detail=o["build"]))
             continue
@@ -243,12 +241,12 @@ def options(a, st: str) -> int:
                 fs.ssh(arg)
             if o["bench"] == "ring":
                 rc, out = fs.run([PY, str(ROOT / "scripts/ring_split_ab.py"), "--tag", f"lt-{a.core}", "--n", "1", "--variants", label], 90, 180)
-                m = re.findall(r"([\d.]+) kpps", out)
+                m = re.findall(rf"^\S*\s*{re.escape(label)}\s+mean\s+([\d.]+) kpps", out, re.M)   # SUMMARY line of ring_split_ab
                 k, v0, v1 = (float(m[-1]) if m else None), None, None
                 unit = "kpps (ring_split_ab, VPE busy in its log)"
             elif o["bench"] == "sync":
                 rc, out = fs.run([PY, str(ROOT / "scripts/zc_sync_ab.py"), "--tag", f"lt-{a.core}", "--n", "1", "--variants", label, "--lens", "1400"], 90, 180)
-                m = re.findall(r"([\d.]+) kpps", out)
+                m = re.findall(rf"{re.escape(label)}\s+1400 B: mean\s+([\d.]+) kpps", out)   # SUMMARY line of zc_sync_ab
                 k, v0, v1 = (float(m[-1]) if m else None), None, None
             else:
                 k, v0, v1, unit = bench(o["bench"], arg)

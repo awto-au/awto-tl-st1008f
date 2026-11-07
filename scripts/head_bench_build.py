@@ -41,6 +41,7 @@ def main():
     ap.add_argument("--work", default=None, help="isolated work dir (default tmp/headbuild)")
     ap.add_argument("--extra-patch", action="append", default=[], help="working-tree patch added on top of the HEAD series")
     ap.add_argument("--image", default="mainline-7.4-rc1", help="tmp/tftp/<name>.bin (+ -std copy)")
+    ap.add_argument("--skip", action="append", default=[], metavar="PREFIX", help="leave out series patches by name prefix (e.g. 300-43)")
     ap.add_argument("--apply-only", action="store_true", help="export + apply the series, no build")
     a = ap.parse_args()
     global WORK
@@ -69,7 +70,7 @@ def main():
     )
     out = WORK / "out"
     r = subprocess.run([sys.executable, "-c", drv, "--tree", str(lin), "--out", str(out), "--bench", "--jobs", a.jobs]
-                       + (["--apply-only"] if a.apply_only else []),
+                       + (["--apply-only"] if a.apply_only else []) + [x for p in a.skip for x in ("--skip", p)],
                        cwd=repo)
     log(f"mainline_build_check exit {r.returncode}")
     if r.returncode:
