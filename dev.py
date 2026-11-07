@@ -251,6 +251,12 @@ def cmd_memtest(extra: list[str]) -> int:
     return _script("memtest.py", extra)
 
 
+@command("CPU PLL lock vs limit at our prompt: `clocks set cpu` ladder, lock us, e200 bit 15, memtest per point (FASTEST-SETTINGS.md)",
+         args="--tag T [--core 408|608] --cpu 1350,1375,1400 [--reads 20] [--mib 32] [--no-boot]", kind="hardware")
+def cmd_lock_probe(extra: list[str]) -> int:
+    return _script("lock_probe.py", extra)
+
+
 @command("clock profile now at our prompt, any mode (#46): power-cycle with the saved chain, ESC, `turbo [PROFILE]`",
          args="[PROFILE e.g. cpu=1400,ddr=662,lx=306,sram=500] [--no-cycle] | show", kind="hardware")
 def cmd_turbo(extra: list[str]) -> int:

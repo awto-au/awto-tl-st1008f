@@ -183,3 +183,26 @@ Earlier options lost while the 408 MHz switch-core "door" was the limit. With a 
 
 - Result: the picks are the fastest viable at core 608 in every domain; the combination equals the baseline (differences <= 1 %).
 - CPU raise is blocked by the 1375 fault, DDR by data errors at 675, the other domains do not move the NAT rate.
+
+## CPU 1375+ and DDR 675+: lock or limit (2026-11-07)
+
+- Method: U-Boot only (`./dev.py lock-probe`, `ddr-retrain`, plain `turbo ddr=`), then `fastest-search --once` on fresh boots. Core 408 = stock, 608 = recommended max. Picks ddr 662 / lx 306 / sram 500 for the CPU rows.
+- Lock = `clocks: locked after N us` (TC5 timer), `0xbb00e200` bit 15 re-read 20x after each set, e208/e210 read back = written.
+
+| point | lock N us | memtest (32 MiB low, cached+uncached) | Linux integrity | verdict |
+|---|---|---|---|---|
+| CPU 1350, core 408 / 608 | 0 / 0 | 0 errs / 0 errs | pass (reference) | ok |
+| CPU 1375, core 408 | 0 | 0 errs, stepped and direct from 800 | PASS 143.7 kpps 1400 B, 49.3 C | ok at 408 |
+| CPU 1375, core 608 | 0 | 0 errs, stepped and direct | 2/2 no boot: `XZ-compressed data is corrupt` panic, then no ssh | real limit, depends on core clock |
+| CPU 1400, core 608 | 0 | cached 310 / 236 / 482 errs in 3 boots, uncached 0 | no boot: `lzma: uncompress error 1` | real limit |
+| CPU 1400, core 408 | 0 | 0 errs | not run | passes U-Boot only |
+| CPU 1425, core 408 | 0 | exception (epc in memtest), prompt lost | not run | real limit |
+| CPU 1425, core 608 | exception in the set routine | - | not run | real limit |
+| DDR 675 plain | n/a (no ready bit) | canary 495-501 bad, bit 1 (DQ1) in the first bad words, write test 0 bad | - | untrained read taps |
+| DDR 700 plain | n/a | canary 1024-1062 bad, DQ1 + DQ6, write test 0 bad | - | untrained read taps |
+| DDR 675 `ddr-retrain --write` | n/a | write test + 16 MiB crc32 clean | - | passes after retrain |
+| DDR 700 `ddr-retrain --write` x2 | n/a | write test + 16 MiB crc32 clean both | - | passes after retrain |
+
+- CPU: PLL locks at once at every point (0 us, bit 15 = 1 in 20/20 re-reads, no step/direct difference). The failures are CPU logic errors: wrong data in cached code/data, decompress errors, exceptions. 1375 passes at core 408 and fails at core 608, so the limit moves with the core clock (shared supply / noise); not a lock problem.
+- DDR: plain 675/700 fail on the same low data lanes in every run with writes clean; retrained read taps pass at 675 and 700 (700 twice, trained taps differ 1-2 steps per boot). The MEM PLL has no ready bit (fixed 405 us settle), so a longer-settle retry was not possible without a code change. `turbo ddr=` does not retrain: fastest-search needs `ddr-retrain` before it can call 675/700 a fail.
+- Open: DDR 675/700 under Linux with retrained taps and the 608 core not tested (retrain taps are not carried into `turbo`).
