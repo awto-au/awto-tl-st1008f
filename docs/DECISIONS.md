@@ -95,3 +95,4 @@ Index of owner decisions, newest first. One line each: date (AEDT), decision, li
 - Cheap agent for the Linux 7.3 port groundwork. #16.
 - The UNVR is not the NAT box (one port). US-48 NAT question answered (no NAT) and its issue draft dropped. [HISTORY.md](HISTORY.md).
 - 2026-10-14 (owner): A/B firmware slots, sized from the 29 MiB as two 14.5 MiB slots (= stock runtime1/2) with per-slot overlay; replaces the 22 MiB primary + 7 MiB recovery plan. #117, [DEFAULT-BOOT.md](DEFAULT-BOOT.md#ab-slots).
+- 2026-11-07 (owner): the TP-Link-authored `dt_*` DRAM tests from the SDK U-Boot may be ported into our U-Boot; their missing GPL header is not a blocker. Source: the TP-Link GPL drop under `private/`. #154.

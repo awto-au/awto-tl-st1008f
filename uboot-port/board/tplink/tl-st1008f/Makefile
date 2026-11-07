@@ -16,5 +16,6 @@ obj-y += rtk_storm.o
 obj-y += highmem.o memtest.o
 obj-y += clocks.o clocks_sram.o ddr_sram.o
 obj-y += bench.o
+obj-$(CONFIG_CMD_ST1008F_DT) += cmd_dt.o
 obj-y += rtk_crypto.o
 obj-$(CONFIG_NETDEVICES) += rtl930x_eth.o rtk_linkcheck.o

@@ -79,7 +79,7 @@ Registered with `U_BOOT_CMD` (or the `rtk`/`sys` dispatchers) in the SDK loader;
 | C36 `md5sum` `sha1sum` | DMS common/cmd_md5sum.c:49, cmd_sha1sum.c:49 | N | N | low |
 | C37 `sntp` `dns` `nfs` `rarp` | XGS net/sntp.c, dns.c, nfs.c, rarp.c | N | N | none |
 | C38 `usb` (EHCI RTL9300) | TPL drivers/usb/host/ehci-rtl9300.c; rtl9300.h:182-189 | N | N | none |
-| C39 TP-Link `dt_*` DRAM tests | TPL common/dt_bus.c:595,852; dt_stable.c:114,288,396; dt_verify.c:245,498; dt_mtest.c:433; Makefile:187 | dead | N | medium |
+| C39 TP-Link `dt_*` DRAM tests | TPL common/dt_bus.c:595,852; dt_stable.c:114,288,396; dt_verify.c:245,498; dt_mtest.c:433; Makefile:187 | dead | **ported: `dt` (cmd_dt.c, untested on hardware)** | medium |
 | C40 `rtk` stock verbs (40 forms) | RTK-D uboot_cmd.c:151-866 | Y | Y (62/62) | covered |
 | C41 generic shell: `base cmp cp crc32 go help iminfo loop md mm mw nm run sleep version printenv setenv bootm bootp ping tftpboot sf` | common/, net/ | Y | Y | covered |
 
@@ -93,9 +93,9 @@ Notes:
 - C26: `boota` failure on both slots calls `rtk_network_on()` + `NetLoopHttpd()` (cmd_bootm.c:1736-1745, 1796-1806); uIP server in `XGS httpd/`; upload then "Upgrading..." (net.c:2220-2228). Kconfig `CONFIG_CMD_HTTPD` XGS config.in:83.
 - C32: ours defconfig `# CONFIG_CMD_LOADB is not set`, `# CONFIG_CMD_LOADS is not set`; stock HELP lists `loadb`, `loads`, `loady`.
 - C36: neither command is in HELP; ours has the MD5/SHA1 libs (`CONFIG_MD5=y`, `CONFIG_SHA1=y`) but no command.
-- C39: TP-Link addition (copyright header "TP-LINK Co., Ltd R&D SMB", dt_mtest.c:1-6), objects linked unconditionally but no `U_BOOT_CMD` in any `dt_*.c`; STR has no `xtalk`/bus-test strings. Functions: data-bus walk, address-bus walk, pattern, stable, fade (retention), read-write-mix, crosstalk helpers. License of the TP-Link-authored files: unverified (GPL tree, no SPDX).
+- C39: TP-Link addition (copyright header "TP-LINK Co., Ltd R&D SMB", dt_mtest.c:1-6), objects linked unconditionally but no `U_BOOT_CMD` in any `dt_*.c`; STR has no `xtalk`/bus-test strings. Functions: data-bus walk, address-bus walk, pattern, stable, fade (retention), read-write-mix, crosstalk helpers. Ported 2026-11-07 (owner decision, DECISIONS.md) as `uboot-port/board/tplink/tl-st1008f/cmd_dt.c` + `dt_patterns.h` (original copyright text kept, SPDX GPL-2.0+ added): databus, addrbus, fade, xtalk, mtest; not ported: stable/all drivers, read/write/rmw, patfil (see [DRAM.md](DRAM.md#dt-tests)).
 - C40/C41: parity and command list in the linked docs; HELP shows `reset_all`, `printsys`, `savesys`, `setsys`, `upgrade`, `flerase`, `flshow`, `boota`, `rtk`.
-- Ours-only commands (not SDK): `memtest bench busscan highmem clocks bootsel turbo ethstat`, `rtk laser sfp mode temp spg storm loopdetect sdsdump sds led crypto linkcheck`, plus mainline `dhcp wget tftpput fastboot netconsole i2c gpio button`.
+- Ours-only commands (not SDK): `memtest dt bench busscan highmem clocks bootsel turbo ethstat`, `rtk laser sfp mode temp spg storm loopdetect sdsdump sds led crypto linkcheck`, plus mainline `dhcp wget tftpput fastboot netconsole i2c gpio button`.
 
 ## 3. Config options
 

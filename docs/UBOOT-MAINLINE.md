@@ -27,7 +27,7 @@ Runs on the board: first boot 2026-10-10 (18 s from power-off to prompt via `ram
 | UART byte lane | `reg-offset = <0xfffffffd>` | data is in bits 31:24 = byte 0; U-Boot's BE ns16550 accesses byte `(1<<shift)-1` = 3; -3 cancels it. `CONFIG_NS16550_DYNAMIC` would be cleaner but does not compile on mips (`inb(u8 *)`) |
 | Timer | CP0 Count, board `get_tbclk()` = CPU PLL / 2, read each call | follows a runtime CPU change; `uboot-test timer` checks it against the host clock |
 | Env | `CONFIG_ENV_IS_NOWHERE`, `BOOTDELAY=-1` (stay at prompt) | no flash |
-| Commands | md mw cp cmp go bootm printenv setenv version echo itest sleep fdt dm help run; net: dhcp ping tftpboot wget fastboot (udp) | `saveenv`, `ELF`, flash writes disabled |
+| Commands | md mw cp cmp go bootm printenv setenv version echo itest sleep fdt dm help run; `dt databus\|addrbus\|fade\|xtalk\|mtest\|all` (`CMD_ST1008F_DT`, [DRAM.md](DRAM.md#dt-tests)); net: dhcp ping tftpboot wget fastboot (udp) | `saveenv`, `ELF`, flash writes disabled |
 | `reset` | writes 1 to the switch-core `RST_GLB_CTRL` (`0xbb00000c`), waits 100 ms, prints `reset: chip still running` if it returns | `uboot-port/arch/mips/mach-otto/cpu.c:36-52`; GPIO21 low = board reset (stock `rtk.ko`), deliberately not driven |
 | Kernel decompress | `CONFIG_LZMA`, `SYS_BOOTM_LEN=0x1000000` | OpenWrt uImages are LZMA |
 | DTB | `OF_SEPARATE`, appended to `u-boot.bin` | one flat file for `go` |
@@ -294,6 +294,6 @@ Owner 2026-10-12: U-Boot drivers reuse Linux/OpenWrt code where possible (one OS
   - Clock decode `mach-otto/clock.c`, `clocks.c`: Linux has no Otto clk driver (U-Boot patches rates into the DTB, #41).
   - SerDes/MAC construct (`rtk_net.c`, `rtk_sds_tables.h`): replays the stock loader; OpenWrt PCS uses another mode-set; converging needs an on-board A/B.
   - SFP interface pick `rtk_sfpmode.c`: Linux code is bound to linkmode bitmaps/phylink. Re-sync the quirk list on Linux changes.
-  - `highmem.c` (U-Boot needs a wired TLB entry; only register values common), `rtk_sdstest.c`, crypto, DDR/clock SRAM code (no Linux counterpart), `bootsel.c`, `board.c`, `cmd_rtk.c`, `rtk_stock.c`, `rtk_ours.c`, `bench.c`, `cmd_busscan.c` (U-Boot commands / boot policy).
+  - `highmem.c` (U-Boot needs a wired TLB entry; only register values common), `rtk_sdstest.c`, crypto, DDR/clock SRAM code (no Linux counterpart), `bootsel.c`, `board.c`, `cmd_rtk.c`, `rtk_stock.c`, `rtk_ours.c`, `bench.c`, `cmd_busscan.c`, `cmd_dt.c` (U-Boot commands / boot policy).
 - **Upstream:** `arch/mips/lib/udivdi3.c` fix ([64-bit divide](#64-bit-divide-__udivdi3-33)).
 - Shared-source rule (with that merge): edit only `shared/`; build scripts copy it into U-Boot, the 7.3 tree and OpenWrt `files-7.3`; Linux `static_assert`s catch drift.

@@ -57,6 +57,26 @@ Facts only. How to run the measurements: [CLOCKS-OPS.md](CLOCKS-OPS.md). Registe
 | Unexplained MCR bits: `ocp0_frq_slower` 9 = 1, `ocp0/1_rbf_f_dis` 5/6 = 1, `sync_ocp0_dram` 0 = 0 | possibly the 65-80 ns bus/controller overhead | unknown semantics (#52) |
 | DDR above 650 MHz | ≤ a few % (600 → 650 moved every test ≤ 4 %) | 675-800 implemented (CL 11 / CWL 8 via MRS); 675/700 pass CRC + highmem only after a read-tap shift and hang in `bench` writes, 725 hangs (2026-10-11); 650 stays (CLOCKS.md procedure (b), #48, #49) |
 
+## dt tests
+
+`dt <test> [START [LEN]] [n=N] [ms=N] [max=MS]` in our U-Boot (`cmd_dt.c`, Kconfig `CMD_ST1008F_DT`, default y; +8 KB). Ported from the TP-Link SDK U-Boot `dt_bus/dt_verify/dt_xtalk/dt_mtest.c` (C39, [SDK-UBOOT-FEATURES.md](SDK-UBOOT-FEATURES.md)). Not run on hardware yet.
+
+- All access is uncached (KSEG1), so every word reaches the DRAM. START/LEN hex; START = DRAM offset or KSEG address.
+- Return non-zero on any error, refusal, timeout or Ctrl-C. Output like `memtest`: `dt: E` per error (16 max), `dt: S` per phase, `dt: done <test> N errors, T ms`.
+- Default scratch `08000000` (0x88000000). Refused: below `02000000`, the ramload window `04f00000..06f00000`, the bootsel page `0e000000`, above U-Boot's own stack/heap/image, the high bank.
+- Runtime: `(base + per-MiB x size) x n` ms, `max=MS` overrides. Expiry prints `dt: TIMEOUT <test> waiting for <phase>, limit L ms, elapsed E ms` and fails. Limits are 1.25x an estimate from the bench rates above, not measured with `dt` yet.
+
+| Test | Default range | Detects | Default limit |
+|---|---|---|---|
+| `databus` | 1 MiB | DQ stuck/shorted: 8 fixed words, then rotating 1/2/3-bit walks (alternating word + complement, first 256 KiB) | 1.0 s |
+| `addrbus` | 64 MiB (touches ~25 words) | address bit stuck high/low/shorted, 20 patterns | 0.5 s |
+| `fade` | 1 MiB, `ms=1000` | retention/refresh: fill ones, idle, read; then zeros | 2.5 s |
+| `xtalk` | 256 KiB | victim DQ held while the others toggle (32 bits x 2 levels); victim address bit pairs, 64 alternating writes | 1.8 s |
+| `mtest` | 1 MiB, n=2 | 20 incrementing/decrementing sequences + data-line, address-line, integrity | 2.0 s |
+
+- `dt all` runs the five with the defaults. `ms` cap 60000 (fade waits twice per round).
+- Changes vs the SDK: uncached access (SDK used cached KSEG0), data crosstalk alternates victim/aggressor words (SDK truncated its 64-bit pattern to 32 bits), no map-position probe or `reloc`, bounded runtime.
+
 ## Above 650 MHz: what init does per speed and `clocks set mem` skips (#48, #49, #56)
 
 Code reading, 2026-10-13. Sources: `SDK` = GPL SDK 4.0.2 `loader/u-boot-2011.12/arch/otto40/plr/src/` ([SDK-SOURCES.md](SDK-SOURCES.md)); `BIS` = `github.com/jameywine/bismarck-preloader` @ `2f127fb4` (Realtek RTL9603C-vd / Apollo Pro / Phoebus preloaders, same DDR controller + PHY register map); `[BIN]` = stock SPL disassembly.

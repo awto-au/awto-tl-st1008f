@@ -8,6 +8,8 @@
 - Toolchain: CROSS_COMPILE=mips64-linux-gnu- (GCC, MIPS32 BE via -march=mips32r2 -mabi=32).
 - Log: tmp/logs/build_uboot_mainline.log. Build timeout: BUILD_TIMEOUT_S (see constant).
 
+Side build (default files untouched): UBOOT_TREE=tmp/u-boot-dt UBOOT_BUILDDIR=tmp/build-uboot-dt UBOOT_OUT_SUFFIX=-dt
+
 Usage: build_uboot_mainline.py [--clean] [--tree DIR] [--cross PREFIX]
 """
 
@@ -24,7 +26,9 @@ from pathlib import Path
 ROOT = Path(__file__).resolve().parent.parent
 SCAFFOLD = ROOT / "uboot-port"
 TREE = Path(os.environ.get("UBOOT_TREE", ROOT / "tmp/u-boot-v2026.07"))
-BUILDDIR = ROOT / "tmp/uboot-mainline-build"
+BUILDDIR = Path(os.environ.get("UBOOT_BUILDDIR", ROOT / "tmp/uboot-mainline-build"))
+# $UBOOT_OUT_SUFFIX=-dt writes tmp/tftp/uboot-mainline-dt.{bin,elf} + -dt-chain.bin (default: no suffix)
+SUFFIX = os.environ.get("UBOOT_OUT_SUFFIX", "")
 TFTP = ROOT / "tmp/tftp"
 LOG = ROOT / "tmp/logs/build_uboot_mainline.log"
 TAG = "v2026.07"
@@ -225,13 +229,13 @@ def build(cross: str) -> int:
         return 1
     log(f"size: {size} bytes, {CHAIN_COPY_MAX - size} below the {CHAIN_COPY_MAX:#x} chain slot limit")
     TFTP.mkdir(parents=True, exist_ok=True)
-    shutil.copy2(binp, TFTP / "uboot-mainline.bin")
-    shutil.copy2(BUILDDIR / "u-boot", TFTP / "uboot-mainline.elf")
+    shutil.copy2(binp, TFTP / f"uboot-mainline{SUFFIX}.bin")
+    shutil.copy2(BUILDDIR / "u-boot", TFTP / f"uboot-mainline{SUFFIX}.elf")
     slot = uboot_chain_image.make(binp.read_bytes(), "u-boot " + time.strftime("%Y%m%d-%H%M%S"))
-    (TFTP / "uboot-mainline-chain.bin").write_bytes(slot)
-    log(f"chain slot: uboot-mainline-chain.bin, {uboot_chain_image.check(slot)[1]}")
-    log(f"BUILD OK: uboot-mainline.bin = {binp.stat().st_size} bytes -> {TFTP}")
-    log("load: tftpboot 0x81000000 uboot-mainline.bin ; go 0x81000000")
+    (TFTP / f"uboot-mainline{SUFFIX}-chain.bin").write_bytes(slot)
+    log(f"chain slot: uboot-mainline{SUFFIX}-chain.bin, {uboot_chain_image.check(slot)[1]}")
+    log(f"BUILD OK: uboot-mainline{SUFFIX}.bin = {binp.stat().st_size} bytes -> {TFTP}")
+    log(f"load: tftpboot 0x81000000 uboot-mainline{SUFFIX}.bin ; go 0x81000000")
     return 0
 
 

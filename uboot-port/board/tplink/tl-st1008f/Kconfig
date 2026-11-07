@@ -12,4 +12,8 @@ config SYS_CONFIG_NAME
 config TEXT_BASE
 	default 0x81000000
 
+config CMD_ST1008F_DT
+	bool "dt: DRAM bus/fade/crosstalk/pattern tests (SDK dt_*)"
+	default y
+
 endif
