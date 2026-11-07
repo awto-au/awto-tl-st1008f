@@ -112,6 +112,7 @@ int rtk_loopdetect(int argc, char *const argv[]);
 
 /* rtk_spg.c: Smart Packet Generator (#70, docs/SPG.md) */
 int rtk_spg(int argc, char *const argv[]);
+int rtk_cage_lit(int cage, char *why, int n);	/* 1 = lit or unknown (fail-safe), 0 = dark */
 void rtk_cage_up(int cage);	/* rtk_net.c: SerDes on with the module's media (linkcheck) */
 
 /* rtk_sfppower.c: declared module power vs board budget (#30); warn only */
@@ -139,6 +140,12 @@ void rtk_led_fallback(const char *why);
 void rtk_led_snapshot(void);
 void rtk_led_boot_start(int bootdelay_s);
 void rtk_led_config(void);
+/* rtk_send.c: `rtk send` (hidden stock verb) + rtl930x_eth.c helper */
+int rtk_send(int argc, char *const argv[]);
+int rtl930x_eth_send_frames(int cage, u8 *frame, int len, unsigned int count, unsigned int max_ms,
+			    unsigned int rx_ms, u32 *sent, u32 *rx);
+/* rtk_dss.c: die speed sensor table (CONFIG_CMD_ST1008F_DSS) */
+int rtk_dss(int argc, char *const argv[]);
 /* rtk_crypto.c: SoC crypto engine probe / KAT / bench (#62) */
 int rtk_crypto(int argc, char *const argv[]);
 

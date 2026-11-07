@@ -622,7 +622,7 @@ static int do_rtk(struct cmd_tbl *cmdtp, int flag, int argc, char *const argv[])
 		return rtk_usage();
 	}
 	if (is(argv, 1, "send"))
-		return rtk_not_yet("send");
+		return rtk_send(argc, argv);
 	/* ---- not on the stock loader ---- */
 	if (is(argv, 1, "laser"))
 		return do_rtk_laser(argc - 1, argv + 1);
@@ -646,6 +646,10 @@ static int do_rtk(struct cmd_tbl *cmdtp, int flag, int argc, char *const argv[])
 		return rtk_led(argc, argv);
 	if (is(argv, 1, "crypto"))
 		return rtk_crypto(argc, argv);
+#ifdef CONFIG_CMD_ST1008F_DSS
+	if (is(argv, 1, "dss"))
+		return rtk_dss(argc, argv);
+#endif
 	if (is(argv, 1, "linkcheck"))
 		return rtk_linkcheck(argc - 1, argv + 1);
 	if (is(argv, 1, "help-ours"))
@@ -742,9 +746,13 @@ U_BOOT_CMD(rtk, 16, 0, do_rtk, "rtk     - Realtek commands\n",
 	   "        - storm control per port (pps; network on = defaults, env rtk_storm) (#111)\n"
 	   "rtk loopdetect\n"
 	   "        - loop guard: cage-to-cage forwarding, loop-probe trap, MAC tx/rx (#111)\n"
+	   "rtk dss\n"
+	   "        - die speed sensor: ring-oscillator counts, 2 wires x 5 oscillators (#154)\n"
+	   "rtk send [cage] [count] [allow-lit]\n"
+	   "        - CPU-sent 74 B test frame(s), lit-cage refusal, count cap (#154)\n"
 	   "rtk help-ours\n"
 	   "        - one-line list of the above\n"
 	   "hidden stock verbs (work here, absent from stock help): port enable|disable <port>,\n"
 	   "  comboport copper|fiber, phyreg dump-top|setbymask, port-isolation on|off;\n"
-	   "  init, rtcore-init, send = not yet (need the Ethernet stage)\n"
+	   "  init, rtcore-init = not yet (need the Ethernet stage); send = ours (rtk_send.c)\n"
 	   "see also: highmem (RAM above 256 MiB), sf (read-only flash)\n");

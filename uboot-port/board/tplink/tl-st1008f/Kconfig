@@ -16,4 +16,12 @@ config CMD_ST1008F_DT
 	bool "dt: DRAM bus/fade/crosstalk/pattern tests (SDK dt_*)"
 	default y
 
+config CMD_ST1008F_DSS
+	bool "rtk dss: die speed sensor ring-oscillator counts"
+	default y
+
+config CMD_ST1008F_FLSHOW
+	bool "flshow: stock flash partition table (static, read-only)"
+	default y
+
 endif

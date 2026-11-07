@@ -27,7 +27,7 @@ Runs on the board: first boot 2026-10-10 (18 s from power-off to prompt via `ram
 | UART byte lane | `reg-offset = <0xfffffffd>` | data is in bits 31:24 = byte 0; U-Boot's BE ns16550 accesses byte `(1<<shift)-1` = 3; -3 cancels it. `CONFIG_NS16550_DYNAMIC` would be cleaner but does not compile on mips (`inb(u8 *)`) |
 | Timer | CP0 Count, board `get_tbclk()` = CPU PLL / 2, read each call | follows a runtime CPU change; `uboot-test timer` checks it against the host clock |
 | Env | `CONFIG_ENV_IS_NOWHERE`, `BOOTDELAY=-1` (stay at prompt) | no flash |
-| Commands | md mw cp cmp go bootm printenv setenv version echo itest sleep fdt dm help run; `dt databus\|addrbus\|fade\|xtalk\|mtest\|all` (`CMD_ST1008F_DT`, [DRAM.md](DRAM.md#dt-tests)); net: dhcp ping tftpboot wget fastboot (udp) | `saveenv`, `ELF`, flash writes disabled |
+| Commands | md mw cp cmp go bootm printenv setenv version echo itest sleep fdt dm help run; `dt databus\|addrbus\|fade\|xtalk\|mtest\|all` (`CMD_ST1008F_DT`, [DRAM.md](DRAM.md#dt-tests)); serial load `loadb loadx loady loads`; `hash md5sum sha1sum` (+ `-v`), `mtest`; `flshow`; net: dhcp ping tftpboot wget fastboot (udp) | `saveenv`, `ELF`, flash writes disabled |
 | `reset` | writes 1 to the switch-core `RST_GLB_CTRL` (`0xbb00000c`), waits 100 ms, prints `reset: chip still running` if it returns | `uboot-port/arch/mips/mach-otto/cpu.c:36-52`; GPIO21 low = board reset (stock `rtk.ko`), deliberately not driven |
 | Kernel decompress | `CONFIG_LZMA`, `SYS_BOOTM_LEN=0x1000000` | OpenWrt uImages are LZMA |
 | DTB | `OF_SEPARATE`, appended to `u-boot.bin` | one flat file for `go` |
@@ -115,6 +115,29 @@ st1008f-mainline #
 - Silence after `go`: suspect cache coherency (stale I-cache vs dirty D-cache), then the UART byte lane. Use `md.l 0xb8002014 1` (`UART_LSR`, byte 0 = top byte of the word) from stock to compare.
 - Garbled text: divisor. U-Boot computes 175e6/(16*115200) = 95 (Linux gets the same).
 - Banner timing is the first thing to compare after load: `sleep 10` then wall clock checks the CP0 rate assumption.
+
+## Batch 2 commands (#154, built 2026-11-07, not yet run on the board)
+
+| Command | Symbol | Notes |
+|---|---|---|
+| `loadb`/`loadx`/`loady` [addr] | `CMD_LOADB` | default `loadaddr` 0x84f00000; `loads` = `CMD_LOADS` |
+| `hash`, `md5sum`, `sha1sum` | `CMD_HASH` `CMD_MD5SUM` `CMD_SHA1SUM` (+ `*_VERIFY`) | algos: md5 sha1 crc32; sha256 off (+~11 KiB, no room) |
+| `mtest [start end]` | `CMD_MEMTEST` | default 0x80200000-0x80400000 (`SYS_MEMTEST_*`); destructive on the range |
+| `flshow` | `CMD_ST1008F_FLSHOW` | static stock table, no flash access |
+| `rtk dss` | `CMD_ST1008F_DSS` | die-speed-sensor counts, `rtk_dss.c` |
+| `rtk send [cage] [count] [allow-lit]` | always | CPU-sent 74 B frames, `rtk_send.c` |
+
+- Serial load limits (`loadb`/`loady`):
+  - Writes straight to the address (`memcpy`, no range check): default `loadaddr` only; never over U-Boot (0x81000000+) or the `dt`/ramload windows.
+  - No UART flow control (CLAUDE.md): ymodem acks per 1 KiB block, so the sender cannot overrun the board; the 16-byte RX FIFO must still be drained by per-char polling. Untested above 115200; ladder up from 115200 (10.94 MBd = 0.9 us/byte).
+  - The `baud` argument is ignored (`SYS_LOADS_BAUD_CHANGE` off): set the rate with `setenv baudrate` first (table in [Console speed](#console-speed)), host side re-opens at that rate.
+  - `scripts/switch_console_daemon.py` owns the tty: a host `sz`/`sb` cannot open it while the daemon runs; the transfer needs a daemon passthrough (not built).
+  - `loady` start timeout 90 s (`CMD_LOADXY_TIMEOUT`); Ctrl-C x2 aborts.
+- `rtk send`: stock sends one fixed 74 B `pkt_content` and polls RX 80 times; its bytes and arguments are unknown, so ours is a minimal equivalent:
+  - needs `rtk network on`; frame: unicast DA 02:53:45:4e:44:00, SA = NIC MAC, type 0x88b5, 4-byte sequence at byte 14, ramp payload.
+  - guards as `rtk spg`: lit cage (`rtk_cage_lit`) refused unless `allow-lit` (count <= 100); dark cage count <= 1000; 1 s runtime cap; Ctrl-C stops; RX polled 10 ms after the burst, count printed.
+  - starting the NIC lights the target cage's laser only (others off), as `rtk linkcheck`; a dark cage with nothing attached sends into no link.
+- `rtk dss`: 10 rows (wire 0-1 x ro 1-5), both CTRL words written back to 0; counts only, no MHz formula (unverified, [SDK-UBOOT-FEATURES.md](SDK-UBOOT-FEATURES.md) Q3).
 
 ## Implemented / not
 

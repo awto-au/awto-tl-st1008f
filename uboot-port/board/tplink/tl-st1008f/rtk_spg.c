@@ -157,6 +157,12 @@ static int cage_lit(int cage, char *why, int n)
 			sd.rx_power[MCURR] % 10000), 0;
 }
 
+/* `rtk send` shares the lit-cage test */
+int rtk_cage_lit(int cage, char *why, int n)
+{
+	return cage_lit(cage, why, n);
+}
+
 static void spg_enable(void)
 {
 	int i, p;

@@ -19,3 +19,6 @@ obj-y += bench.o
 obj-$(CONFIG_CMD_ST1008F_DT) += cmd_dt.o
 obj-y += rtk_crypto.o
 obj-$(CONFIG_NETDEVICES) += rtl930x_eth.o rtk_linkcheck.o
+obj-y += rtk_send.o
+obj-$(CONFIG_CMD_ST1008F_DSS) += rtk_dss.o
+obj-$(CONFIG_CMD_ST1008F_FLSHOW) += cmd_misc.o

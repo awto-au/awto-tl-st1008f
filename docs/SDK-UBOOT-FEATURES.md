@@ -20,13 +20,13 @@ Every feature in the SDK loader sources for the RTL930x, whether the stock TP-Li
 
 | Section | Rows | In stock | In ours (Y / part) | Value high or medium |
 |---|---|---|---|---|
-| 2 Commands (C) | 41 | 14 | 3 / 3 | 6 |
+| 2 Commands (C) | 41 | 14 | 8 / 3 | 6 |
 | 3 Config options (O) | 54 | 37 | 28 / 2 | 0 |
-| 4 Preloader init functions (P) | 15 | 6 | 1 / 1 | 0 |
-| 5 Drivers / hardware blocks (D) | 33 | 21 | 13 / 6 | 4 |
-| Total | 143 | 78 | 45 / 12 | 10 |
+| 4 Preloader init functions (P) | 15 | 6 | 2 / 1 | 0 |
+| 5 Drivers / hardware blocks (D) | 33 | 21 | 14 / 6 | 4 |
+| Total | 143 | 78 | 52 / 12 | 10 |
 
-- N = 143 features (each row once). M = 78 present in the stock build. K = 57 in ours (45 full, 12 partial).
+- N = 143 features (each row once). M = 78 present in the stock build. K = 64 in ours (52 full, 12 partial).
 - Counting rule: stock = Y, stubs, or a concrete stock value; ours = Y, part, or a concrete value of its own. Option rows are fuzzy (a stock default that merely differs counts as present). `?` and `n/a` count as neither.
 - 65 rows are not in stock (N, dead, `?`, n/a). Of the 10 high or medium rows, 9 are not in stock (D06, DDR calibration, is) - section 8.
 
@@ -54,7 +54,7 @@ Registered with `U_BOOT_CMD` (or the `rtk`/`sys` dispatchers) in the SDK loader;
 | C11 `reset_all` | DMS board_cmd.c:503 | Y | part (`reset`, cpu.c:36) | low |
 | C12 `do_mem_mtest_dtr` (8 h retention) | DMS board_cmd.c:10 | dead | N | low |
 | C13 `rtk eee on/off` | RTK-D uboot_cmd.c:369 (`CONFIG_EEE`) | N | N | none |
-| C14 `rtk send` | RTK-D uboot_cmd.c:866 | Y (hidden) | N (stub) | low |
+| C14 `rtk send` | RTK-D uboot_cmd.c:866 | Y (hidden) | **Y (minimal, untested on hardware)** | low |
 | C15 `rtk sfp-speed` `sys-esd` `parameter version` | RTK-D uboot_cmd.c:319-351 (8390 only) | N | N | none |
 | C16 `rtk l2-testmode` | RTK-D uboot_cmd.c:784 (8380 only) | N | N | none |
 | C17 `rtk mib` `looptest` `looptest_cfg` | RTK-D uboot_cmd.c:879-1450 (9310 only) | N | N | none |
@@ -69,14 +69,14 @@ Registered with `U_BOOT_CMD` (or the `rtk`/`sys` dispatchers) in the SDK loader;
 | C26 `httpd` web failsafe | XGS common/cmd_net.c:35-43; net/net.c:2111-2457 | N | N | low |
 | C27 `bootldr` `spibootldr` `ldrinfo` | XGS common/cmd_bootldr.c:165, cmd_spibootldr.c:33, cmd_ldrinfo.c:188 | N | N | none |
 | C28 `upgrade loader\|runtime1\|runtime2\|rom` | RTK-D cmd_upgrade.c:740 | Y | N (by design) | none |
-| C29 `flshow` | RTK-D cmd_partition.c:169 | Y | N | low |
+| C29 `flshow` | RTK-D cmd_partition.c:169 | Y | **Y (static table)** | low |
 | C30 `flerase` | RTK-D cmd_partition.c:137 | Y | N (banned) | none |
 | C31 `printsys` `setsys` `savesys` | RTK-D cmd_sysinfo.c:422,430,439 | Y | N (bootsel record) | none |
-| C32 `loadb` `loads` `loady` | XGS common/cmd_load.c:1029-1082 | Y | N | medium |
-| C33 `mtest` | common/cmd_mem.c (`CONFIG_CMD_MEMORY`) | Y | N (no `CMD_MEMTEST`) | low |
+| C32 `loadb` `loads` `loady` | XGS common/cmd_load.c:1029-1082 | Y | **Y (untested on hardware)** | medium |
+| C33 `mtest` | common/cmd_mem.c (`CONFIG_CMD_MEMORY`) | Y | **Y (`CMD_MEMTEST`)** | low |
 | C34 `erase` `protect` `flinfo` | common/cmd_flash.c | Y (no-op stubs) | N | none |
 | C35 `saveenv` / `env` in SPI flash | common/cmd_nvedit.c; env_sf.c | Y | N (`ENV_IS_NOWHERE`) | low |
-| C36 `md5sum` `sha1sum` | DMS common/cmd_md5sum.c:49, cmd_sha1sum.c:49 | N | N | low |
+| C36 `md5sum` `sha1sum` | DMS common/cmd_md5sum.c:49, cmd_sha1sum.c:49 | N | **Y (+ `hash`; sha256 off)** | low |
 | C37 `sntp` `dns` `nfs` `rarp` | XGS net/sntp.c, dns.c, nfs.c, rarp.c | N | N | none |
 | C38 `usb` (EHCI RTL9300) | TPL drivers/usb/host/ehci-rtl9300.c; rtl9300.h:182-189 | N | N | none |
 | C39 TP-Link `dt_*` DRAM tests | TPL common/dt_bus.c:595,852; dt_stable.c:114,288,396; dt_verify.c:245,498; dt_mtest.c:433; Makefile:187 | dead | **ported: `dt` (cmd_dt.c, untested on hardware)** | medium |
@@ -178,7 +178,7 @@ Pre-table steps: `CPU_INIT`, `CACHE_INIT`, `SRAM_CTRL_INIT` (platform/9300/arch.
 | P04 20 | `norsf_detect` soc/nor_spi_gen3/nor_spif_core.c:17 | Y | NOR SPI-F probe via vendor tables (winbond/mxic/gd/micron/spansion) | part (mainline spi-nor) |
 | P05 30 | `dram_setup` template/9300_nor/ab_memcntlr_setup.c:53 | Y | `memctlc_init_dram` (boot0412/memctl.c:1847): PHY preset, DTR/MRS, ZQ, DLL reset, `DDR_Calibration` (memctl_cali_dram.c:851), size detect | N (retune only, DRAM.md) |
 | P06 32 | `exit_preloader` template/9300_nor/ab_uboot.c:71 | Y | copy U-Boot to `uboot_vmabase`, `osc_init`, `chsp_jump` to `board_init_f` | n/a |
-| P07 22 | `dss_test` platform/9300/misc/dss.c:87 | N (file not `ab_*`; STR no `ro_sel`) | die speed sensor, 2 wire x 5 ring-osc counts | N |
+| P07 22 | `dss_test` platform/9300/misc/dss.c:87 | N (file not `ab_*`; STR no `ro_sel`) | die speed sensor, 2 wire x 5 ring-osc counts | Y (`rtk dss`) |
 | P08 2 | `spi_nand_func_symbol_retrive` soc/nand_spi_gen1/nand_spi_symb_func.c:56 | N (NAND template) | NAND symbol table | n/a |
 | P09 3 | `init_spi_nand` template/9300_nand/ab_init.c:50 | N | SPI-NAND init | n/a |
 | P10 5 | `init_ecc_sw_patch` soc/ecc_gen1/ecc_sw_patch.c:88 | N | software BCH patch | n/a |
@@ -206,7 +206,7 @@ Notes:
 | D07 DRAM test library (word/half/byte, walking 0/1, addr-rot, memcpy, unaligned, cache-flush toggle, prefetch modes) | PLR soc/rtk_mem_test/memctl_dram.c:119-1265, mt_ram_test.c:28-648 | N | part | low |
 | D08 Bus traffic generator (BTG) | PLR soc/rtk_mem_test/bus_traffic_generator.c:100-367 | N | N | medium |
 | D09 GDMA (memcpy, checksum, memset, XOR, memcmp, byte swap, pattern) | old-gen `rtk_soc/test/gdma/`; no 9300 driver | N | N (kmod/gdma_test) | low |
-| D10 Die speed sensor (DSS) | PLR platform/9300/misc/dss.c:41-87 | N | N | medium |
+| D10 Die speed sensor (DSS) | PLR platform/9300/misc/dss.c:41-87 | N | **Y (`rtk dss`)** | medium |
 | D11 64 KiB SRAM mapping | PLR platform/9300/arch.h:16; startup.S | Y | Y | covered |
 | D12 OCP/LX bus-timeout monitors (off at boot) | PLR ab_util.c (`RMOD_OBTCR` ...) | Y (off) | N | low |
 | D13 UART (`otto_uart.c`), baud table | DMS arch/otto40/lib/otto_uart.c | Y | Y (ns16550) | covered |
@@ -298,6 +298,44 @@ Details:
 - 5: reachable only by writing a `U_BOOT_CMD` wrapper; no hardware dependency; license check first (Q5).
 - 6: not an SDK feature (SDK keeps WDT off in U-Boot); listed because it closes the hang window between `bootm` and the Linux watchdog probe that the A/B trial counter (`bootsel`) cannot cover.
 - 7: HTP uses `rtk_port_*` APIs; re-implement on our register code (`rtk_linkcheck.c`, `rtl930x_eth.c`).
+
+## 8b. Batch 2 status (#154, 2026-11-07; built, no hardware run)
+
+Build: `UBOOT_TREE=tmp/u-boot-b2 UBOOT_BUILDDIR=tmp/build-uboot-b2 UBOOT_OUT_SUFFIX=-b2`, rc 0, 0 warnings. Image 515769 B (dt-only baseline 498617 B, +17152), 8455 B below the 0x7ffc0 chain-slot limit.
+
+Implemented:
+
+| Row | What | Where |
+|---|---|---|
+| C32 | `loadb` `loadx` `loady` `loads` | defconfig `CMD_LOADB` `CMD_LOADS` |
+| C36 | `hash`, `md5sum`, `sha1sum`, `-v` verify | defconfig |
+| C33 | `mtest` (range 0x80200000-0x80400000) | defconfig `CMD_MEMTEST` |
+| C29 | `flshow` | `cmd_misc.c`, `CMD_ST1008F_FLSHOW` |
+| C14 | `rtk send` | `rtk_send.c`, `rtl930x_eth_send_frames` |
+| D10 P07 | `rtk dss` | `rtk_dss.c`, `CMD_ST1008F_DSS` |
+
+Skipped (medium/low, not in ours):
+
+| Row | Reason |
+|---|---|
+| C01 `mdram_test` | covered by `memtest`, `dt`, `mtest` |
+| C02 `mflash_test` | destructive flash writes |
+| C03 `mconcur_test`, D08 BTG, D09 GDMA, C04 | concurrent/GDMA stress: later batch |
+| C08 write/read hammer | infinite by design; `loop` + `mw` do it |
+| C11 `reset_all` | `reset` exists |
+| C12 8 h retention | `dt fade` covers it |
+| C19 burn-in, C20 errlog, C21/C22 loopbacks | HTP: flash log at 0xb4ff0000 (Q6), looptest later batch |
+| C26 `httpd` | later batch |
+| C35, D20 env in flash | flash writes |
+| D02 `xread` SPI modes | changes flash read mode (#50) |
+| D07 DRAM test library | covered by `dt`/`memtest` |
+| D12 bus-timeout monitors | changes bus-fault behaviour |
+| D15 watchdog | reset behaviour: later batch |
+| D33 switch-core defaults | register values unread |
+| sha256 (part of C36) | +~11 KiB (`sha256_process` 10 KiB), would exceed the chain slot by 2.9 KiB |
+| O-rows | unrated; `PRE_CONSOLE_BUFFER` at 0x80000000 collides with the exception vectors |
+
+Bench tests (sw2): see [UBOOT-MAINLINE.md](UBOOT-MAINLINE.md#batch-2-commands-154-built-2026-11-07-not-yet-run-on-the-board).
 
 ## 9. Open questions
 

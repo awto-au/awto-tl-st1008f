@@ -6,6 +6,7 @@
  */
 
 #include <command.h>
+#include <console.h>
 #include <cpu_func.h>
 #include <dm.h>
 #include <env.h>
@@ -478,6 +479,60 @@ int rtl930x_eth_loop_probe(int cage, const u8 *magic, int mlen, unsigned int wai
 		if (len >= 14 + mlen && pkt[12] == 0x88 && pkt[13] == 0xb5 && !memcmp(pkt + 14, magic, mlen))
 			*hits |= BIT(p->last.port);
 		rtl930x_eth_free_pkt(dev, pkt, len);
+	}
+	p->rx_any = any;
+	return ret;
+}
+
+/* `rtk send`: `count` copies of `frame` out `cage` (laser: that cage only), bytes 14-17 = sequence.
+ * Stops at `max_ms` or Ctrl-C; then counts RX frames for `rx_ms` (stock polls RX 80 times). */
+int rtl930x_eth_send_frames(int cage, u8 *frame, int len, unsigned int count, unsigned int max_ms,
+			    unsigned int rx_ms, u32 *sent, u32 *rx)
+{
+	struct udevice *dev;
+	struct rtl930x_eth_priv *p;
+	uchar *pkt;
+	char old[8] = "";
+	bool any;
+	ulong t0;
+	int n, ret;
+
+	*sent = *rx = 0;
+	if (uclass_first_device_err(UCLASS_ETH, &dev))
+		return -ENODEV;
+	p = dev_get_priv(dev);
+	if (env_get("ethport"))
+		strlcpy(old, env_get("ethport"), sizeof(old));
+	env_set_ulong("ethport", cage);
+	ret = rtl930x_eth_start(dev);
+	env_set("ethport", old[0] ? old : NULL);
+	if (ret)
+		return ret;
+	memcpy(frame + 6, ((struct eth_pdata *)dev_get_plat(dev))->enetaddr, 6);
+	any = p->rx_any;
+	p->rx_any = true;
+	while ((n = rtl930x_eth_recv(dev, 0, &pkt)) > 0)
+		rtl930x_eth_free_pkt(dev, pkt, n);
+	t0 = get_timer(0);
+	while (*sent < count && get_timer(t0) < max_ms) {
+		frame[14] = *sent >> 24;
+		frame[15] = *sent >> 16;
+		frame[16] = *sent >> 8;
+		frame[17] = *sent;
+		ret = rtl930x_eth_send(dev, frame, len);
+		if (ret)
+			break;
+		(*sent)++;
+		if (!(*sent & 0x3f) && ctrlc())
+			break;
+	}
+	t0 = get_timer(0);
+	while (get_timer(t0) < rx_ms) {
+		n = rtl930x_eth_recv(dev, 0, &pkt);
+		if (n <= 0)
+			continue;
+		(*rx)++;
+		rtl930x_eth_free_pkt(dev, pkt, n);
 	}
 	p->rx_any = any;
 	return ret;

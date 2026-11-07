@@ -172,6 +172,8 @@ int rtk_ours_help(void)
 	       "  rtk linkcheck [noprobe]                    live links + cage loops before bridging (#97)\n"
 	       "  rtk spg status|load|start|stop [off]       packet generator, capped bursts (#70)\n"
 	       "  rtk storm [show|clear|on|off|<bc> <mc> <uc>] storm control per port, pps (#111)\n"
+	       "  rtk dss                                    die speed sensor ring-oscillator counts (#154)\n"
+	       "  rtk send [cage] [count] [allow-lit]        CPU-sent test frames, capped (#154)\n"
 	       "  rtk loopdetect                             loop guard state (#111)\n");
 	return 0;
 }
