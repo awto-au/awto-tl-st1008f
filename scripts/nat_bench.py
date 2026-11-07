@@ -40,6 +40,7 @@ ROOT = Path(__file__).resolve().parent.parent
 LOG = ROOT / "tmp/logs/nat_bench.log"
 JSONL = ROOT / "tmp/logs/nat_bench.jsonl"
 
+sys.path.insert(0, str(Path(__file__).resolve().parent))  # `python -I ... _flood` drops the script dir from sys.path
 from boards import BENCH_IP, bench_nic  # noqa: E402
 HOST_NIC = bench_nic()         # host 10G (mlx4), found by MAC; also house mgmt, untouched
 SW_IP = BENCH_IP               # sw2 bench unit (scripts/boards.py)

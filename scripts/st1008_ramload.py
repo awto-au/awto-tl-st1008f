@@ -59,6 +59,9 @@ IMAGES = {
     "openwrt-ours": ("openwrt-ours-initramfs.bin", 0x84f00000, "bootm", OW_READY, 40),
     "openwrt-ours-6.18": ("openwrt-ours-6.18-initramfs.bin", 0x84f00000, "bootm",
                           OW_READY, 40),
+    # DEBUG kernel (build_openwrt.py --debug) and the preserved 7.3 + GDMA image for A/B (docs/OPENWRT-BUMP.md)
+    "openwrt-ours-debug": ("openwrt-ours-debug-initramfs.bin", 0x84f00000, "bootm", OW_READY, 40),
+    "openwrt-ours-7.3": ("openwrt-ours-7.3-gdma-initramfs.bin", 0x84f00000, "bootm", OW_READY, 40),
     "mainline-kernel": ("mainline.bin", 0x84f00000, "bootm",
                         r"st1008f-initramfs: up|st1008f-linux # ", 10),  # prompt gets split by kernel messages
 }

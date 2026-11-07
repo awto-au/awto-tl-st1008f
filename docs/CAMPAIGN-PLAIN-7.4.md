@@ -163,3 +163,46 @@
 - Integrity: `zc_bench.py --nat --integrity`: udpblast pattern payload (sequence + derived filler), checked per packet by `udpcheck` in natwan; 1400/500/64 B, ~290k/660k/830k frames per variant per round, 0 bad.
 - Verdict: falsified. Writing back the whole frame costs nothing measurable (+0.1 % at 1400 B); header-only recycle gives 0.0 % at 1400/500 B and -1.5 % at 64 B (outside spread, so slightly worse). The size-dependent cost is not cache maintenance; the remaining candidates are bus/DRAM traffic of the RX and TX DMA.
 - No default change. No panic with 300-42 as built (fixed version): 0 oops over the A/B and integrity runs.
+
+## CPU-port ceiling by direction: rx-only vs tx-only (2026-11-07, #147)
+
+- Setup: plain 7.4-rc1 bench kernel built from committed HEAD cdbc252 without 300-42 (`scripts/head_bench_build.py`, isolated tree/out dir), picks 1350/306/662/500, cage 1, `--napi irq1` (NIC IRQ + softirq on VPE1), `scripts/ceiling_rxtx.py`, 6 s per run, logs `tmp/logs/ceiling_rxtx.jsonl`.
+- rx-only = `nat_bench rxdrop` (host UDP flood 430-1700 kpps offered, dropped at lan1 netdev ingress). `rxx` = same with generic XDP drop (`--xdp skb`; native `drv` attach: "Not supported").
+- tx-only = in-kernel pktgen on lan1 -> VLAN 992 -> host (far end counted on the host NIC, 100 % delivered); `tx2` = pktgen on both VPEs. Sizes are UDP payload bytes (pktgen frame = size + 42).
+- Forwarding column = in-place path, `docs/CPU-PORT.md` frame-size sweep.
+
+| UDP payload | rx-only kpps | tx-only kpps (1 / 2 threads) | forwarding kpps | ASIC drops per run |
+|---|---|---|---|---|
+| 64 | 228.3 (4.3 %, n=8) | 76.3 / 114.2 | 490.7 | EGR_QUEUE ~33k |
+| 200 | 216.2 (1.8 %, n=3) | 94.3 / 119.7 | 409.6 | EGR_QUEUE ~27k |
+| 500 | 193.9 (4.5 %, n=7) | 81.5 / 106.0 | 313.6 | EGR_QUEUE ~35k |
+| 800 | 175.6 (8.2 %, n=3) | 80.8 / 94.9 | 225.6 | EGR_QUEUE ~33k |
+| 1100 | 174.2 (8.3 %, n=3) | 79.2 / 86.0 | 173.0 | EGR_QUEUE ~30k |
+| 1400 | 143.3 (0.3 %, n=2; 4 first runs 143.0-143.5) | 68.0 / 79.6 | 142.5 | EGR_QUEUE ~50k |
+
+- Spread = (max-min)/mean over the valid runs. tx spread 8-52 % (pktgen is generator-bound, see below). ASIC drops = mean of the `EGR_QUEUE` count per rx run (clear-on-read); no other reason except `PORT_ISOLATION` 1-8; tx runs: 0 drops.
+- rxx (generic XDP drop): 64 B 255.6 kpps, 200 B 236.7, 500 B 196.9, 800 B 172.5, 1100 B 151.6 (spread 0.1-2.3 %, n=3 each); 1400 B one valid run 132.7.
+- CPU queue 1 peak (FC_CPU_Q_EGR_PAGE_CNT / PKT_CNT, clear-on-read, per run): 1025-1028 pages at every rx size, packets 1026 (64 B) / 513 (500 B) / 206 (1400 B). Threshold (300-40) at start: queue 1 ON 1024 / OFF 1008 pages, queues 0/2/3 78/68. Peak sits at the ON threshold in every valid rx run: the queue is full and the chip drops there; at 1400 B it holds 206 packets, at 64 B 1026.
+- VPE1 busy 98.5 % at every rx size; VPE0 < 1 %. rx cost per packet 4.3 us (64 B) -> 6.9 us (1400 B) = ~1.9 ns/B on the skb path; XDP skb 3.9 -> 7.5 us.
+- tx (pktgen): VPE0 88-92 % busy with VPE1 1-3 % at 1 thread = 12-14 us per packet; 2 threads saturate both VPEs (73-95 %) at only 1.1-1.6x the rate. Generator-bound: the TX-only rate of the driver is not reached; per-byte part 12.1 -> 13.5 us per packet (~1 ns/B), includes pktgen's own fill.
+- Verdict (RX stage):
+  - rx-only alone reproduces the forwarding ceiling at 1400 B (143.3 vs 142.5 kpps) and at 1100 B (174.2 vs 173.0): the ceiling does not need both directions; below 1100 B rx-drop is slower than forwarding (4.3 us vs 2.0 us at 64 B: skb alloc + GRO + stack against the in-place path).
+  - Forwarding sends the same 143 kpps out through the CPU-port TX path (far end counted by the bench), so TX carries at least that rate at 1400 B; the tx column is a generator limit, not a TX ceiling.
+  - Ceiling = ASIC -> CPU queue 1 -> NIC DMA -> VPE1 softirq (queue full at its threshold, chip drops `EGR_QUEUE`, VPE1 98 % busy). Per-byte RX cost ~1.9-2.7 ns/B of the ~4 ns/B forwarding total; the rest (~1-1.5 ns/B) is TX-side.
+  - Not resolved: how much of the RX per-byte time is DMA/bus wait vs cache maintenance (falsified earlier, #147).
+- Problem (new): rx flood runs go dead after the first 1-3 runs of a series: no frame reaches the CPU queue (queue peak 2 pages, `EGR_QUEUE` 0), lan1 `dot1dTpPortInDiscards` +845k in a 3 s flood while the MAC counts all 1.17 M frames, host sends normally, no oops, no `rx_MacDiscards`. Ping and ssh still work; a state with 0.0 kpps for 5 runs in a row recovered after pause/other traffic, then ran at 143 kpps again. Valid-run counts above are n valid of n runs in `tmp/logs/ceiling_rxtx.jsonl` (stalled runs: kpps < 5 or VPE1 < 90 %; 43 of 69 rx runs, 23 of 38 rxx). The XDP tool leaves ~3 zombie `st1008f-xdp` processes per run on sw2 (initramfs init does not reap).
+
+## Flash image: boot-link-check x10 and #138 hang-test (2026-11-07)
+
+- Image: flash OpenWrt 6.18.60 (built 2026-11-04 21:34+11:00), sw2 slot b, picks off (`bootsel fast` default clocks), chain installed. Console log byte range 27277549 .. end, grepped with `grep -a`-equivalent on the bytes.
+- `./dev.py boot-link-check --rounds 10` (13:07-13:17+11:00): 10/10 rounds `up ['lan1']; missing none; linkwatch bounces 0`; 10 `Run /sbin/init`.
+
+| String (per round, rounds 1-10) | Count |
+|---|---|
+| `could not sync clock` | 0 in every round |
+| `clock not ready, retry` | 0 in every round |
+| `board silent` | 0 in every round |
+| `board alive, console silent` | 0 in every round |
+
+- #138: 0 silent boards in 10 (previous run 2026-10-15: console silent ~30 s after `Run /sbin/init` until the relay). #137: 0 `could not sync clock` in 10 boots (earlier logs: SerDes 6/9 at ~21 s uptime).
+- `./dev.py uboot-chain-env hang-test` (slot b, `init=/bin/sh`, `bootsel wdt on` 13 s): FAIL. Kernel cmdline had `watchdog.open_timeout=92`; `Run /bin/sh as init` at 1.95 s; no SoC reset within the 165 s limit (uptime 167 s), shell still alive at 216 s (`/sys/class/watchdog/`: watchdog0 = `18003260.watchdog`, watchdog1 = a virtual `watchdog` device). Recovered with `reboot -f` over the console. DEFAULT-BOOT.md records the same test passing on 2026-10-15 (reset 6 s after `/bin/sh`, #138 image); this image is newer (OpenWrt bump 2026-11-04) -> the open_timeout stop-feeding path does not reset the board here. Not diagnosed; file against #138.
