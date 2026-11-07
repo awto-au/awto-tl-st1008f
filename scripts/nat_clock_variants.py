@@ -56,7 +56,8 @@ def boot_variant(name: str) -> None:
     con = Console()
     to_stock_uboot(con)
     # 512 KiB copy from the cached flash window at stock SPI ~0.1 s; our banner < 1 s
-    con.run("cp.b 0x94200000 0x81000000 0x80000; go 0x81000000", P, 3, "ours from flash (no network)")
+    from uboot_chain_layout import ld_cmd  # slot size: one definition (#155)
+    con.run(f"{ld_cmd()}; go 0x81000000", P, 3, "ours from flash (no network)")
     con.note("interactive-begin")
     # cpu + mem (SRAM routines) + tREFI + prefetch: < 0.1 s measured; 3 s names a hang
     con.run("clocks fast", r"clocks: fast = [^\n]*\n[^#]*" + P, 3, "clocks fast")

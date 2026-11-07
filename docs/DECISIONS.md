@@ -2,6 +2,10 @@
 
 Index of owner decisions, newest first. One line each: date (AEDT), decision, link. Superseded entries stay, marked **superseded by** the newer one. Facts and measurements live in the linked docs and issues.
 
+## 2026-11-07
+
+- Owner: the flash layout is not fixed. Our U-Boot chain slot grows 512 KiB -> 960 KiB (0xF0000) inside `jffs2-log` (0x200000-0x2EFFFF); then `jffs2-cfg` (0x100000) if needed. Fixed: stock area 0x0-0xDFFFF, `bootstate` 0x2F0000, `firmware_a` 0x300000. Slot size = one parameter (`scripts/uboot_chain_layout.py`, default 0x80000 until the migration). #155, [DEFAULT-BOOT.md](DEFAULT-BOOT.md#growing-the-chain-slot-155).
+
 ## 2026-10-12
 
 - **Kernel base: Linus's latest tag, one base, one series** (owner 2026-11-07; supersedes the 2026-10-12 linux-next decision). `PIN` in `scripts/kernel_base.py` (now `v7.4-rc1`, tree `tmp/linux-v7.4`), `./dev.py kernel-base update` = newest tag from the Linus remote. One series `openwrt/patches/`, refreshed in place per tag; image `tmp/tftp/mainline-<ver>.bin`. linux-next and v7.3-rc6 retired: [HISTORY.md](HISTORY.md#kernel-baselines-73-rc6-linux-next). [MAINLINE-PORT.md](MAINLINE-PORT.md#baselines), #16.

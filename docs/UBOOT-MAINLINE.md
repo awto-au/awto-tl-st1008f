@@ -218,7 +218,7 @@ Implementation: [RTK-COMMANDS.md](RTK-COMMANDS.md#stage-4-network-on-10g-macsds-
   - Platform shim: the includer defines `rtl930x_nic_rd/wr(ctx, off)` (U-Boot `sw_r/sw_w`, Linux regmap), `rtl930x_nic_msleep`, `rtl930x_nic_udelay`.
   - Sync rule: edit only `shared/`; `build_uboot_mainline.py` (`SHARED`), `mainline_build_check.py` and `build_openwrt.py` (`SHARED_FILES`) copy it. Linux `static_assert`s tie `RTETH_930X_*`, ring bits and `rteth_frag` to the core.
 - Stack: legacy U-Boot net (`NET_LEGACY`): `dhcp`, `ping`, `tftpboot`, `wget` (HTTP only; HTTPS needs lwIP + mbedTLS), netconsole (`nc`), `fastboot udp` (RAM download only: `FASTBOOT_FLASH` off, buffer `0x84f00000` 32 MiB).
-- Size: `u-boot.bin` 456593 B (375 KiB before net); build fails above the 512 KiB chain copy (`CHAIN_COPY_MAX`).
+- Size: `u-boot.bin` 456593 B (375 KiB before net); build fails above the chain copy (`CHAIN_COPY_MAX` = slot - 0x40; 512 KiB default, [growing](DEFAULT-BOOT.md#growing-the-chain-slot-155)).
 - Env defaults: `ethport=1` (mgmt cage), `ipaddr=192.168.25.48` (st1008f-1-mgmt), `serverip=192.168.25.30`, `gatewayip=192.168.25.254`, `netmask=255.255.255.0`, `autoload=no`. MAC: stock flash env `ethaddr` (same as Linux nvmem); random MAC + warning if absent.
 - Debug: `ethstat` (ring index, TX re-kicks, frames per RX ring, last RX tag, switch drops: CPU queue 0 egress + port 0 ingress, RX runout status, NIC registers); `setenv ethrxany 1` accepts frames from every cage.
 

@@ -4,7 +4,7 @@
 - Scaffold (tracked): uboot-port/. Tree: tmp/u-boot-v2026.07 (override: $UBOOT_TREE), tag v2026.07.
 - Stages files, patches Kconfig/Makefile hooks idempotently, builds out-of-tree (O=tmp/uboot-mainline-build).
 - Outputs copied to tmp/tftp/: uboot-mainline.bin (raw, linked 0x81000000), uboot-mainline.elf,
-  uboot-mainline-chain.bin (512 KiB self-checking jffs2-log slot, scripts/uboot_chain_image.py, #105).
+  uboot-mainline-chain.bin (self-checking jffs2-log slot, 512 KiB default / UBOOT_CHAIN_SLOT, scripts/uboot_chain_layout.py, #105, #155).
 - Toolchain: CROSS_COMPILE=mips64-linux-gnu- (GCC, MIPS32 BE via -march=mips32r2 -mabi=32).
 - Log: tmp/logs/build_uboot_mainline.log. Build timeout: BUILD_TIMEOUT_S (see constant).
 
@@ -43,7 +43,7 @@ BUILD_TIMEOUT_S = 8
 TAIL_LINES = 40
 sys.path.insert(0, str(ROOT / "scripts"))
 import uboot_chain_image  # noqa: E402
-# stock bootcmd copies the 512 KiB slot from flash 0x200000; the image ends before its trailer (#105)
+# stock bootcmd copies the slot (uboot_chain_layout.SLOT) from flash 0x200000; the image ends before its trailer (#105)
 CHAIN_COPY_MAX = uboot_chain_image.TRAILER
 
 # scaffold rel-path -> tree rel-path
@@ -227,7 +227,7 @@ def build(cross: str) -> int:
     if size > CHAIN_COPY_MAX:
         log(f"BUILD FAILED: u-boot.bin {size} bytes > chain copy {CHAIN_COPY_MAX:#x}")
         return 1
-    log(f"size: {size} bytes, {CHAIN_COPY_MAX - size} below the {CHAIN_COPY_MAX:#x} chain slot limit")
+    log(f"size: {size} bytes, {CHAIN_COPY_MAX - size} below the {CHAIN_COPY_MAX:#x} chain slot limit (slot {uboot_chain_image.SLOT:#x}, UBOOT_CHAIN_SLOT)")
     TFTP.mkdir(parents=True, exist_ok=True)
     shutil.copy2(binp, TFTP / f"uboot-mainline{SUFFIX}.bin")
     shutil.copy2(BUILDDIR / "u-boot", TFTP / f"uboot-mainline{SUFFIX}.elf")

@@ -2,7 +2,7 @@
 """uboot_chain_install — put our U-Boot into flash `jffs2-log` from the running flash OpenWrt (#47 A).
 
 - Checks: `jffs2-log` exists in /proc/mtd, is not mounted, and is all 0xff (unused) unless --overwrite.
-- Image: the 512 KiB self-checking slot `uboot-mainline-chain.bin` (scripts/uboot_chain_image.py, #105);
+- Image: the self-checking slot (512 KiB default; 960 KiB with UBOOT_CHAIN_SLOT / --chain-slot, #155) `uboot-mainline-chain.bin` (scripts/uboot_chain_image.py, #105);
   its CRCs are checked on the host before anything is sent.
 - Transfer: host HTTP (this script, one file, bound to SERVER_IP) -> switch `wget`; md5 on both ends.
 - `mtd write <file> jffs2-log`, then read back the slot: md5 compare (console); SSH also pulls the
@@ -27,6 +27,7 @@ from pathlib import Path
 sys.path.insert(0, str(Path(__file__).resolve().parent))
 import flash_guard  # noqa: E402
 import uboot_chain_image  # noqa: E402
+import uboot_chain_layout as layout  # noqa: E402
 from st1008_ramload import OW_PROMPT, SERVER_IP, SWITCH_IP, TFTP_ROOT, Console  # noqa: E402
 
 ROOT = Path(__file__).resolve().parent.parent
@@ -34,6 +35,9 @@ LOG = ROOT / "tmp/logs/uboot_chain_install.log"
 IMAGE = TFTP_ROOT / "uboot-mainline-chain.bin"
 PART, PART_SIZE = "jffs2-log", 0x100000
 PORT = 8008
+# mtd write = erase N x 64 KiB blocks (W25Q256 max 2 s each) + program ~2 s; x1.25 (512 KiB: 18 s -> 23 s)
+BLOCKS = layout.SLOT // layout.ERASE
+WRITE_S = int(-(-(BLOCKS * 2 + 2) * 1.25 // 1))
 
 
 def log(msg: str) -> None:
@@ -70,13 +74,13 @@ def install_ssh(ip: str, data: bytes, md5: str) -> int:
     if ssh(ip, f"head -c 600000 /dev/mtdblock{n} | grep -c -a 'U-Boot 20'; true", SSH_S * 2).strip() in ("", "0"):
         log(f"FAIL: {PART} (mtd{n}) on {ip} does not hold our U-Boot; refusing")
         return 1
-    ssh(ip, "cat > /tmp/u.bin", SSH_S * 3, stdin=data)  # 512 KiB over the LAN: < 1 s
+    ssh(ip, "cat > /tmp/u.bin", SSH_S * 3, stdin=data)  # slot over the LAN: < 1 s
     got = ssh(ip, "md5sum /tmp/u.bin", SSH_S * 2).split()[0]
     if got != md5:
         log(f"FAIL: transfer md5 {got} != {md5}")
         return 1
-    # mtd write = erase up to 8 x 64 KiB blocks (W25Q256 max 2 s each) + ~460 KB program: ~18 s worst, x1.25
-    ssh(ip, f"mtd write /tmp/u.bin {PART}", 25)
+    # WRITE_S + connect; erases only the blocks the file covers (bootstate at 0x2F0000 is outside)
+    ssh(ip, f"mtd write /tmp/u.bin {PART}", WRITE_S + 2)
     r = subprocess.run(["ssh", "-o", f"ConnectTimeout={SSH_S}", "-o", "BatchMode=yes", f"root@{ip}",
                         f"head -c {len(data)} /dev/mtdblock{n}"], capture_output=True, timeout=SSH_S * 2)
     rb = r.stdout
@@ -95,21 +99,23 @@ STOCK_NOTE = ("NOTE: this slot boots at stock clocks (CPU 800, DDR 600, LX 175, 
 def main() -> int:
     ap = argparse.ArgumentParser(description=__doc__.splitlines()[0])
     ap.add_argument("--overwrite", action="store_true", help="partition may hold an older copy of ours")
+    ap.add_argument("--chain-slot", help="slot size, default 0x80000 (env UBOOT_CHAIN_SLOT), 0xF0000 = 960 KiB (#155)")
     ap.add_argument("--ssh", metavar="IP", help="install over SSH on a running OpenWrt (no console; "
                     "replaces an older copy of ours only)")
     a = ap.parse_args()
     data = IMAGE.read_bytes()
     md5 = hashlib.md5(data).hexdigest()
-    ok, detail = uboot_chain_image.check(data)
-    log(f"image {IMAGE.name}: {len(data)} B md5 {md5}, {detail}")
-    if not ok or len(data) != uboot_chain_image.SLOT:
-        log("FAIL: not a chain slot image; rebuild (./dev.py build-uboot)")
+    ok, detail = uboot_chain_image.check(data, layout.SLOT)
+    log(f"image {IMAGE.name}: {len(data)} B md5 {md5}, slot {layout.SLOT:#x}, {detail}")
+    if not ok or len(data) != layout.SLOT:
+        log(f"FAIL: not a chain slot image of {layout.SLOT:#x} B (UBOOT_CHAIN_SLOT / --chain-slot must match "
+            "the build); rebuild (./dev.py build-uboot)")
         return 1
     if len(data) > PART_SIZE:
         log(f"FAIL: image larger than {PART} ({PART_SIZE:#x})")
         return 1
     flash_guard.check_mtd(PART, "uboot-chain-install")  # #81, before any console command
-    flash_guard.check_range(0x200000, len(data), "uboot-chain-install")
+    flash_guard.check_chain_slot(len(data), "uboot-chain-install")  # 0x200000-0x2EFFFF, 64 KiB aligned (#155)
     log(STOCK_NOTE)
     if a.ssh:
         return install_ssh(a.ssh, data, md5)
@@ -128,7 +134,7 @@ def main() -> int:
         (SERVER_IP, PORT), functools.partial(http.server.SimpleHTTPRequestHandler, directory=str(TFTP_ROOT)))
     threading.Thread(target=srv.serve_forever, daemon=True).start()
     try:
-        # 512 KiB over the LAN: well under 1 s; cap 5 s names a routing/firewall problem
+        # slot over the LAN: well under 1 s; cap 5 s names a routing/firewall problem
         sh(con, f"U=http://{SERVER_IP}:{PORT}")
         # right after boot STP holds the ports: listen + learn = 2 x 15 s forward delay; x1.25 = 8 x 5 s
         for _ in range(8):
@@ -141,8 +147,7 @@ def main() -> int:
     if not got or got.group(1) != md5:
         log(f"FAIL: transfer md5 {got and got.group(1)} != {md5}")
         return 1
-    # mtd write = erase 8 x 64 KiB blocks (W25Q256 max 2 s each) + 512 KiB program; ~18 s worst, x1.25
-    sh(con, f"mtd write /tmp/u.bin {PART} && echo MTD_OK", r"\nMTD_OK", cap=23)
+    sh(con, f"mtd write /tmp/u.bin {PART} && echo MTD_OK", r"\nMTD_OK", cap=WRITE_S)  # WRITE_S: see top
     rb = sh(con, f"head -c {len(data)} /dev/mtdblock{n} | md5sum", r"[0-9a-f]{32}")
     rb_md5 = re.search(r"\n([0-9a-f]{32})\s", rb).group(1)
     ok = rb_md5 == md5

@@ -19,7 +19,11 @@
   administered unicast; refuses the Realtek placeholder and sw1's MAC.
 - boot:   power cycle with the daemon policy `run bootcmd` (= the saved autoboot) and follow it to
           flash OpenWrt; daemon back to `hold` after.
-- Chain (#105): ub_ld copies the 512 KiB slot from flash 0x200000 (cached window 0x94200000) to
+- Slot size (#155): 512 KiB default; `UBOOT_CHAIN_SLOT=0xF0000` or `--chain-slot 0xF0000` = 960 KiB
+  (scripts/uboot_chain_layout.py). test/test-bad/apply first require the host image
+  (tmp/tftp/uboot-mainline-chain.bin) to verify at that length: a 512 KiB env + 960 KiB image mismatch
+  fails on the host, before any board contact. apply --allow-fallback is refused for a non-default slot.
+- Chain (#105): ub_ld copies the slot (SLOT bytes) from flash 0x200000 (cached window 0x94200000) to
   0x81000000; ub_ck = slot CRC32 check (scripts/uboot_chain_image.py); ub_go = marker 0xa5a51008 @
   0xa0f80000 (ours autoboots on it) + go. bootcmd = `run ub_ld ub_ck ub_go; run bootcmd_stock`:
   stock (no hush) `run` stops at the first failing var, `;` goes on to boota.
@@ -39,12 +43,13 @@ import flash_guard  # noqa: E402
 from boards import SW1_MAC  # noqa: E402
 from st1008_ramload import OW_READY, ROOT, SOCK, Console, openwrt_stp, power, restart_board, restart_daemon  # noqa: E402
 JFFS2_FORMAT = r"jffs2_build_filesystem\(\): unlocking"  # overlay format: first boot after sysupgrade
+import uboot_chain_layout as layout  # noqa: E402
 from uboot_chain_image import LOAD, SLOT, check as slot_ok, stock_check_cmd  # noqa: E402
 
 LOG = ROOT / "tmp/logs/uboot_chain_env.log"
 VARS = {  # saved in this order; bootcmd last
     "bootcmd_stock": "boota",
-    "ub_ld": f"cp.b 0x94200000 0x{LOAD:08x} 0x{SLOT:x}",
+    "ub_ld": layout.ld_cmd(SLOT),
     "ub_ck": stock_check_cmd(),
     "ub_go": f"mw.l 0xa0f80000 0xa5a51008; go 0x{LOAD:08x}",
     "bootcmd": "run ub_ld ub_ck ub_go; run bootcmd_stock",
@@ -89,6 +94,23 @@ def set_policy(policy: str) -> None:
     s.close()
 
 
+def host_precheck(mode: str) -> None:
+    """Host-only, before any board contact (#155): the host slot image must verify at SLOT length,
+    so env and image can never disagree. A missing image is tolerated only for the default size."""
+    from uboot_chain_install import IMAGE
+    if not IMAGE.exists():
+        if not layout.IS_DEFAULT:
+            raise SystemExit(f"FAIL {mode}: slot {SLOT:#x} needs {IMAGE} built and installed first (nothing sent)")
+        return
+    data = IMAGE.read_bytes()
+    layout.check_pair(SLOT, len(data))
+    ok, detail = slot_ok(data, SLOT)
+    if not ok:
+        raise SystemExit(f"FAIL {mode}: host image {IMAGE.name} does not verify at slot {SLOT:#x}: {detail} (nothing sent)")
+    flash_guard.check_chain_slot(SLOT)
+    log(f"host pre-check {mode}: {IMAGE.name} verifies at slot {SLOT:#x}, {detail}")
+
+
 def set_vars(con) -> None:
     """Chain vars into the stock RAM env (not saved). <= 14 words each (stock MAXARGS 16)."""
     for k, v in VARS.items():
@@ -98,6 +120,7 @@ def set_vars(con) -> None:
 def slot_check(con) -> bool:
     """Copy + CRC-check the jffs2-log slot with the stock commands, as the saved bootcmd does."""
     # 512 KiB copy from the cached flash window + crc32 at stock clocks: well under 0.2 s; cap 2 s
+    # (960 KiB = 1.9x the work, still < 0.4 s; boot cost to be measured on the first install, #155)
     _, out = con.run("run ub_ld ub_ck", rf"({CHECK_OK}|{CHECK_BAD})[\s\S]*?{STOCK}", 2, "slot check")
     ok = re.search(CHECK_OK, out) is not None
     log(f"slot check (stock crc32 + cmp.l): {'OK' if ok else 'MISMATCH'}")
@@ -268,7 +291,10 @@ def env_ssh(ip: str, mode: str, profile: str | None, allow_fallback: bool, all_m
         log(f"FAIL {mode} --ssh: fw_printenv shows no ethaddr (env CRC bad?); nothing written")
         return 1
     if mode == "apply":
-        part = re.search(r'mtd(\d+): 00(?:100000|0f0000) 00010000 "jffs2-log"', mtd)
+        part = re.search(r'mtd(\d+): 00(100000|0f0000) 00010000 "jffs2-log"', mtd)
+        if part and int(part.group(2), 16) < SLOT:
+            log(f"FAIL apply --ssh: jffs2-log is {part.group(2)} B, smaller than slot {SLOT:#x}; nothing written")
+            return 1
         slot = ssh(ip, f"head -c {SLOT} /dev/mtdblock{part.group(1)}", SSH_S * 2) if part else b""
         ok, detail = slot_ok(slot)
         log(f"jffs2-log slot on {ip}: {'OK' if ok else 'BAD'}, {detail}")
@@ -308,7 +334,12 @@ def main() -> int:
     ap.add_argument("--ip", help="with --ssh: switch mgmt IP")
     ap.add_argument("--all-modes", action="store_true",
                     help="turbo set: also apply the profile in M1 (M2 stays stock); default M3 only")
+    ap.add_argument("--chain-slot", help="chain slot size, default 0x80000 (env UBOOT_CHAIN_SLOT), 0xF0000 = 960 KiB (#155)")
     a = ap.parse_args()
+    if a.mode in ("test", "test-bad", "apply") or (a.ssh and a.mode == "apply"):
+        if a.allow_fallback and not layout.IS_DEFAULT:
+            ap.error("--allow-fallback is refused for a non-default chain slot (#155)")
+        host_precheck(a.mode)
     a.mac = a.args[0] if a.mode == "set-mac" and a.args else None
     profile = None
     if a.mode == "turbo":

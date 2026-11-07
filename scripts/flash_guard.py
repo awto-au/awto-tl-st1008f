@@ -56,6 +56,20 @@ def check_range(offset: int, size: int, what: str = "flash write") -> None:
                               f"{LOADER[0]:#x}-{LOADER[1] - 1:#x}")
 
 
+CHAIN_START, CHAIN_END = 0x200000, 0x2F0000  # our U-Boot slot inside jffs2-log; bootstate (0x2F0000) never (#155)
+ERASE = 0x10000
+
+
+def check_chain_slot(size: int, what: str = "chain slot write", offset: int = CHAIN_START) -> None:
+    """Chain-slot write: inside 0x200000-0x2EFFFF, 64 KiB aligned, then the LOADER range check."""
+    if offset % ERASE or size % ERASE:
+        raise FlashGuardError(f"REFUSED (#155): {what}: {offset:#x}+{size:#x} not {ERASE:#x}-aligned")
+    if offset < CHAIN_START or offset + size > CHAIN_END:
+        raise FlashGuardError(f"REFUSED (#155): {what}: {offset:#x}-{offset + size - 1:#x} outside the chain region "
+                              f"{CHAIN_START:#x}-{CHAIN_END - 1:#x} (bootstate is never touched)")
+    check_range(offset, size, what)
+
+
 def check_mtd(name: str, what: str = "mtd write") -> None:
     n = re.sub(r"^/dev/", "", name.strip()).lower()
     n = re.sub(r"^mtdblock(\d+)$", r"mtd\1", n)
@@ -193,6 +207,8 @@ def selftest() -> int:
         "setenv bootcmd 'mw.l 0xa0f80000 0xa5a51008; cp.b 0x94200000 0x81000000 0x80000; go 0x81000000'",
         "setenv ub_ld cp.b 0x94200000 0x81000000 0x80000",
         "setenv ub_ck 'crc32 0x81000000 0x7fffc 0x80ffff00; cmp.l 0x80ffff00 0x8107fffc 1'",
+        "setenv ub_ld cp.b 0x94200000 0x81000000 0xf0000",  # 960 KiB slot (#155)
+        "setenv ub_ck 'crc32 0x81000000 0xefffc 0x80ffff00; cmp.l 0x80ffff00 0x810efffc 1'",
         "setenv ub_go 'mw.l 0xa0f80000 0xa5a51008; go 0x81000000'",
         "setenv bootcmd 'run ub_ld ub_ck ub_go; run bootcmd_stock'",
         "sf write 0x86100000 0x1ff0000 0x100",
@@ -258,7 +274,19 @@ def selftest() -> int:
         if (got is None) != (want is None) or (want and want not in got):
             fails += 1
             log(f"FAIL dtb_problem({ro or 'writable'}) = {got!r}")
-    n = len(ok_cmds) + len(bad_cmds) + len(ranges) + 2
+    chain = [((0xF0000,), True), ((0x80000,), True), ((0x100000,), False), ((0xF1000,), False),
+             ((0x80000, "w", 0x1F0000), False), ((0x80000, "w", 0x2F0000), False), ((0x10000, "w", 0x2F0000), False),
+             ((0x80000, "w", 0x280000), False), ((0, ), False)]
+    for args, want in chain:
+        try:
+            check_chain_slot(*args)
+            got = True
+        except FlashGuardError:
+            got = False
+        if got != want:
+            fails += 1
+            log(f"FAIL check_chain_slot{args} ok={got}, want {want}")
+    n = len(ok_cmds) + len(bad_cmds) + len(ranges) + len(chain) + 2
     log(f"{'PASS' if not fails else 'FAIL'} flash_guard selftest: {n - fails}/{n}")
     return 1 if fails else 0
 
