@@ -27,7 +27,7 @@ ROOT = Path(__file__).resolve().parent.parent
 LOG = ROOT / "tmp/logs/nat_knobs.log"
 ROWS = ROOT / "tmp/logs/nat_knobs.jsonl"
 BENCH_ROWS = ROOT / "tmp/logs/nat_bench.jsonl"
-DST = "198.51.100.5"  # reached by the default route only: CPU path, NAT applies
+DST = os.environ.get("NAT_KNOBS_DST", "198.51.100.5")  # default route only: CPU path, NAT applies; plain kernel: 10.99.2.2 (masquerade on the SVI)
 SSH_CAP_S = 20  # nat_bench.sw cap; every knob command is a sysctl / ethtool / tc write, < 1 s
 
 
@@ -73,6 +73,27 @@ KNOBS: dict[str, dict] = {
     "ct_acct": {"states": ["1", "0"], "what": "conntrack byte/packet accounting",
                 "set": {v: f"echo {v} > /proc/sys/net/netfilter/nf_conntrack_acct" for v in ("0", "1")},
                 "read": "cat /proc/sys/net/netfilter/nf_conntrack_acct"},
+    # conntrack tunables (#71); "dflt" = leave the kernel default untouched
+    "ct_liberal": {"states": ["0", "1"], "what": "nf_conntrack_tcp_be_liberal (accept out-of-window TCP)",
+                   "set": {v: f"echo {v} > /proc/sys/net/netfilter/nf_conntrack_tcp_be_liberal" for v in ("0", "1")},
+                   "read": "cat /proc/sys/net/netfilter/nf_conntrack_tcp_be_liberal"},
+    "ct_loose": {"states": ["1", "0"], "what": "nf_conntrack_tcp_loose (pick up mid-stream flows)",
+                 "set": {v: f"echo {v} > /proc/sys/net/netfilter/nf_conntrack_tcp_loose" for v in ("0", "1")},
+                 "read": "cat /proc/sys/net/netfilter/nf_conntrack_tcp_loose"},
+    "ct_checksum": {"states": ["1", "0"], "what": "nf_conntrack_checksum (verify L4 checksums in conntrack)",
+                    "set": {v: f"echo {v} > /proc/sys/net/netfilter/nf_conntrack_checksum" for v in ("0", "1")},
+                    "read": "cat /proc/sys/net/netfilter/nf_conntrack_checksum"},
+    "ct_max": {"states": ["dflt", "4096", "65536"], "what": "nf_conntrack_max (table limit)",
+               "set": {"dflt": "", "4096": "echo 4096 > /proc/sys/net/netfilter/nf_conntrack_max",
+                       "65536": "echo 65536 > /proc/sys/net/netfilter/nf_conntrack_max"},
+               "read": "cat /proc/sys/net/netfilter/nf_conntrack_max"},
+    "ct_hash": {"states": ["dflt", "1024", "16384"], "what": "nf_conntrack hashsize (buckets)",
+                "set": {"dflt": "", "1024": "echo 1024 > /sys/module/nf_conntrack/parameters/hashsize",
+                        "16384": "echo 16384 > /sys/module/nf_conntrack/parameters/hashsize"},
+                "read": "cat /sys/module/nf_conntrack/parameters/hashsize"},
+    "ft_timeout": {"states": ["30", "120"], "what": "nf_flowtable_tcp_timeout (s)",
+                   "set": {v: f"echo {v} > /proc/sys/net/netfilter/nf_flowtable_tcp_timeout" for v in ("30", "120")},
+                   "read": "cat /proc/sys/net/netfilter/nf_flowtable_tcp_timeout"},
     "napi_defer": {"states": ["off", "on"], "what": "IRQ coalescing emulation: napi_defer_hard_irqs 2, gro_flush_timeout 100 us",
                    "set": {"off": "echo 0 > /sys/class/net/eth0/napi_defer_hard_irqs; echo 0 > /sys/class/net/eth0/gro_flush_timeout",
                            "on": "echo 2 > /sys/class/net/eth0/napi_defer_hard_irqs; echo 100000 > /sys/class/net/eth0/gro_flush_timeout"},

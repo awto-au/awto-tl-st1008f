@@ -834,3 +834,121 @@ Not isolated:
 | #22 all-port wire-speed routed test | open | run |
 | #151 parked state of #148 | GDMA memcpy works; sensors read 0 | in #148 order |
 | #63, #58, #68 | closed: no ASIC rewrite, hybrid not started | - |
+
+## L3 offload on the 7.4 base (2026-11-07, #59)
+
+- Image: `tmp/tftp/openwrt-ours-initramfs.bin` (OpenWrt main 7e8bfcfe76 on kernel 7.4-rc1, `300-17` rebased on the reworked `l3.c`), sw2, cage 1, `./scripts/l3_offload_ab.py -n 3` (TCP `-P 4`, 10 s, median [min..max] Mbit/s, one boot).
+- Clocks: `ramload --stock-clocks` + `turbo cpu=1350,ddr=662,sram=500`, no switch-core change (LX stays 175). Core 608 + CPU 1350 + LX 306 panicked 2 of 2 boots on this image (below).
+- Raw rows: `tmp/logs/l3_offload_ab-20261107-181238.csv` / `.txt`.
+
+| Path | Dir | Offload off | Offload on | CPU0 busy off/on % | eth0 pps off/on |
+|---|---|---|---|---|---|
+| v4 on-link | fwd | 86 [84..92] | 9206 [9206..9212] | 98.5 / 36.2 | 21664 / 330 |
+| v4 on-link | rev | 86 [85..86] | 9206 [9184..9216] | 98.7 / 63.6 | 21437 / 333 |
+| v4 default | fwd | 86 [86..89] | 9227 [9212..9235] | 96.3 / 50.7 | 21737 / 340 |
+| v4 default | rev | 88 [86..92] | 9231 [9199..9234] | 97.8 / 66.6 | 22004 / 335 |
+| v6 on-link | fwd | 82 [82..83] | 9130 [9119..9139] | 99.7 / 56.5 | 21663 / 338 |
+| v6 on-link | rev | 82 [81..90] | 9125 [9098..9137] | 99.9 / 55.0 | 21573 / 342 |
+| v6 default | fwd | 165 [164..168] | 9129 [9114..9187] | 99.7 / 59.7 | 29223 / 339 |
+| v6 default | rev | 2284 [2119..2766] | 9140 [9051..9148] | 99.3 / 45.9 | 17670 / 344 |
+
+- Wire speed holds: 9.1-9.2 Gbit/s with the CPU port nearly idle (eth0 ~340 pps). CPU0 busy of 36-75 % with offload on is unexplained at that packet rate (not investigated).
+- v6 default base: forward 165, reverse 2284 Mbit/s (not investigated).
+- ASIC rows after each offload run: `fwd` with `chk,dec` flags on the host `/32` and `/128` rows and the default rows of the case under test.
+
+| Check | Result |
+|---|---|
+| a `ip neigh del` | FAIL at the 6.25 s settle (default row still `trap`: the precondition `dflt4` row also needed > 6.25 s after `ALL_ON`); PASS in the 20 s re-run |
+| b neighbour MAC change | PASS (new MAC in `nexthops`, ping ok) |
+| c `ip route add 10.99.2.0/25` | PASS |
+| d `ip addr add 10.99.2.2/32` | PASS (local `/32` `trap`) |
+| e `ip rule add` | PASS (`suspended` log 2 -> 3) |
+| f source-specific `::/0` | FAIL: `::/0` goes to `trap` as expected, but stays `trap` after the route is deleted and `l3_default_v6` toggled 0 -> 1 (neighbour REACHABLE, 20 s). A `ip -6 route del default` + `add` brings it back `fwd` NH 23 |
+| i all parameters 0 | PASS |
+| g, h | not run (g needs `--with-g`, 120 s; h needs raw frames) |
+
+- IPv4 offload flags: `ip route` shows `rt_offload` on the default and `rt_trap` on the connected prefixes while offloaded. IPv6 routes show `rt_offload` / `rt_trap` too (`fd99:22::/64 via ...` `rt_offload`; the re-added `::/0` read `rt_trap` until offloaded).
+- Finding: after `l3_default_v4` goes 1 -> 0 the IPv4 default keeps `rt_offload` although the ASIC row is `trap` (dmesg `default route 0.0.0.0/0 traps to the CPU`); it was `rt_offload` again after the re-enable. Flag is not cleared on the teardown path.
+- Finding: after check f's source-specific `::/0` add/delete the plain `::/0` is not re-offloaded until the route is re-added (see f).
+- #149 (`gro_list_prepare`): not seen on this image at LX 175 over 48 iperf runs plus checks (one boot, ~12 min).
+
+### Core 608 on the OpenWrt 7.4 image: unstable
+
+- Boot 1: `turbo cpu=1350,ddr=662,lx=306,sram=500` + core 608 raw (e220 `0x36826`). `Unhandled kernel unaligned access` in `__d_lookup_rcu` (sh, uptime 31 s), reboot. Boot 2 same settings: selftest `cpu` FAIL, ssh `incorrect signature`, `Kernel panic - Fatal exception in interrupt` in `ipv6_getorigdst` (nf_conntrack, taint `B` BAD_PAGE, 179 s, in ksoftirqd under iperf).
+- Both are corrupted pointers / code (no `gro_list_prepare`): memory or cache instability, not the #149 trace. The plain 7.4 bench kernel at the same core 608 / CPU 1350 / DDR 662 / LX 306 booted and ran the #71 runs below (~15 min) without a fault.
+- The L3 runs used CPU 1350 / DDR 662 / SRAM 500 without the core change (selftest PASS all 11 items).
+
+### `l3_offload_ab.py` bugs fixed
+
+- `setup` pinged the switch SVI; fw4 input rejects it on OpenWrt (the SVI ping needs `mode`). Setup failure is no longer fatal and readiness is a natlan -> natwan ping through the switch, polled 8 x 1 s.
+- Results cells printed `[---]` for an empty min/max; now `..`.
+- `--settle SECS` override added; `wait ok` logged with the time.
+- Not fixed in `nat_bench.setup`: `ip netns del` then immediate `ip link add ... vlan` fails ("VLAN device already exists") while the old namespace is still being torn down after a killed iperf3 (about 1 min). Kill stray `iperf3 -c` first.
+- `l3_offload_ab.py` checks need an IPv6 ping before the v6 rows return: the gateway neighbour drops to STALE/DELAY within ~10 s without traffic.
+
+## Linux NAT path cost: ftrace/conntrack A/B (2026-11-07, #71)
+
+- Kernel: plain 7.4-rc1 bench kernel (`mainline-7.4-rc1.bin`), sw2 at core 608 / CPU 1350 / DDR 662 / LX 306 / SRAM 500 (`retest_options.py boot --core 608`), cage 1, `nat-bench mode nat-ft` (flowtable) or `nat` (conntrack on every packet). Stack path, `zc=0`, IRQ on VPE0.
+- Tool limits: `perf record -a -e cpu-clock` gave ~20K samples via `nat_perf.py` but only 12-40 samples under `zc_bench.py --perf` once the NIC IRQ sat on VPE1; the zc profile below is from one earlier good run (31K samples, 2026-11-07 18:32, not saved).
+
+### perf, stack path, TCP `-P 4` (`nat_perf.py --callgraph`, all CPUs, inclusive % of samples)
+
+| Function | `nat-ft` (342 Mbit/s, 290 under perf) | `nat` (conntrack every packet) |
+|---|---|---|
+| `net_rx_action` (all softirq) | 49.1 | 49.2 |
+| `gro_receive_skb` | 37.2 | 38.1 |
+| `nf_hook_slow` | 28.1 | 9.7 |
+| `nf_flow_offload_ip_hook` | 27.2 | - |
+| `nf_flow_queue_xmit` | 20.5 | - |
+| `nf_flow_offload_lookup` | 3.2 | - |
+| `ip_output` | - | 19.9 |
+| `nf_conntrack_in` | < 0.7 | 6.7 |
+| `nf_conntrack_tcp_packet` | - | 2.8 |
+| `hash_conntrack_raw` | - | 1.9 |
+| `nf_nat_manip_pkt` | - | 1.4 |
+| `nf_nat_ipv4_pre_routing` | - | 1.2 |
+| `ip_forward` | - | 0.7 |
+
+- With the flowtable, established flows skip conntrack and nf_nat: the hook is lookup 3.2 % + rewrite + queue xmit, no conntrack function above 0.7 %.
+- Without it conntrack + nf_nat are ~9.7 % of all samples (~20 % of softirq time); GRO (37-38 %) and the DSA/TX path are larger.
+- Files: `tmp/logs/nat_perf-n71-stack-cg.txt`, `nat_perf-n71-natct-cg.txt`, `nat_perf-n71-stack-flat.txt`.
+
+### perf, zc+nat 1400 B (all CPUs, one run, 168 kpps)
+
+- `default_idle_call` 50.8 %, `_raw_spin_unlock_irqrestore` 18.7 %, `rteth_poll_rx` 17.8 %, `r4k_dma_cache_inv` 3.1 %, `rteth_reclaim_tx_ring` 2.6 %, `__raw_copy_to_user` 1.2 % (perf's own file write). No netfilter symbol.
+- Stack vs zc+nat, same boot, UDP 1400 B: 52.7-56.6 kpps vs 162.8-168.9 kpps (3.0-3.1x).
+
+### ftrace `function_graph` (`rteth_ftrace.py --depth 3`, nat mode, TCP `-P 4`, tracer-inflated; load fell to 56 Mbit/s)
+
+| Function | calls | avg us | us per rx packet |
+|---|---|---|---|
+| `ip_forward` (incl. output) | 14609 | 78.5 | 29.1 |
+| `nf_conntrack_in` | 15138 | 48.0 | 18.4 |
+| `nf_conntrack_tcp_packet` | 15080 | 22.2 | 8.5 |
+| `hash_conntrack_raw` (siphash 1.3) | 15119 | 7.0 | 2.7 |
+| `nf_nat_ipv4_pre_routing` | 14832 | 10.1 | 3.8 |
+| `nf_nat_inet_fn` | 15112 | 6.5 | 2.5 |
+| `__nf_conntrack_find_get` | 15121 | 2.4 | 0.9 |
+| `nf_nat_manip_pkt` | 8478 | 6.9 | 1.5 |
+| `__nf_ct_refresh_acct` | 15109 | 2.1 | 0.8 |
+| `nf_checksum` | 14828 | 2.0 | 0.8 |
+
+- Ring-buffer overrun (394K events lost): relative split only. Raw trace `tmp/rteth_ftrace/20261107-183755-d3.txt`. `nf_conntrack_in` is 63 % of `ip_forward`'s hook cost; TCP state tracking is the largest part (46 %).
+
+### conntrack / flowtable sysctl A/B (`nat_knobs.py matrix`, TCP `-P 4`, 10 s, one run per point)
+
+| Knob (default -> test) | `nat` Mbit/s | vs default | `nat-ft` Mbit/s | vs default |
+|---|---|---|---|---|
+| default | 248.0 | - | 341.1 | - |
+| `nf_conntrack_acct` 1 -> 0 | 247.6 | -0.2 % | 342.9 | +0.5 % |
+| `nf_conntrack_tcp_be_liberal` 0 -> 1 | 247.5 | -0.2 % | 343.1 | +0.6 % |
+| `nf_conntrack_tcp_loose` 1 -> 0 | 247.3 | -0.3 % | 339.3 | -0.5 % |
+| `nf_conntrack_checksum` 1 -> 0 | 251.8 | +1.5 % | 336.6 | -1.3 % |
+| `nf_conntrack_max` -> 4096 / 65536 | 249.3 / 247.7 | +0.5 / -0.1 % | - | - |
+| hashsize -> 1024 / 16384 | 251.1 / 249.5 | +1.3 / +0.6 % | - | - |
+| `nf_flowtable_tcp_timeout` 30 -> 120 | 248.0 | 0 % | 336.3 | -1.4 % |
+
+- All within 2 % (run-to-run spread is ~5 %): no tunable moves the NAT rate; no repeats run. 4 flows never stress the table size or hash.
+- `nf_conntrack_max` and hashsize cannot be restored by `nat_knobs reset` (state `dflt` is a no-op); the later cells in the `nat` pass ran with max 4096 / hashsize 1024 in place. Boot afterwards.
+- Absolute rates here (248 / 341) are below the 413-422 stack rows in [NAT.md](NAT.md); the setup differs (`nat_bench run` to 10.99.2.2, IRQ on VPE0, no `irq1`), not investigated.
+- Open for #71: nothing in the stack path is conntrack-bound once the flowtable carries the flow; remaining acceptance is a decision (close with this table) or a UDP many-flow test of table size / hash (needs a flow generator).

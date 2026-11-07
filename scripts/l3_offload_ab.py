@@ -112,6 +112,14 @@ def alive() -> bool:
     return subprocess.run(["ping", "-c1", "-W1", BENCH_IP], capture_output=True).returncode == 0
 
 
+def link_ready() -> bool:
+    """Setup pings right after the VLAN add; the bridge port forwards ~4 s later (STP, fd 2 s). Poll 1 ping/s, 8 s."""
+    for _ in range(8):  # STP forward ~4 s measured (CLAUDE.md), x2
+        if ping_ns(nb.NS_LAN, nb.H_WAN):  # via the switch; fw4 input rejects pings to the SVI itself
+            return True
+    return False
+
+
 # ---- ASIC table ---------------------------------------------------------------
 def get_routes() -> str:
     return sw(f"grep -E 'TABLE|10\\.99|198\\.51|fd99|2001:db8|/0 ' {nb.L3_DBG}/routes; true")
@@ -155,6 +163,7 @@ def wait_state(targets: list, want_fwd: bool, what: str) -> bool:
         st = [row_state(rows, t) for t in targets]
         ok = all(s == "fwd" for s in st) if want_fwd else all(s != "fwd" for s in st)
         if ok:
+            log(f"wait ok {what}: {time.time() - t0:.1f} s")
             return True
         if time.time() - t0 > SETTLE_S:
             log(f"WAIT EXPIRED {what}: states {st} after {time.time() - t0:.1f} s (limit {SETTLE_S} s)")
@@ -454,7 +463,7 @@ def results_block(results: list, checks: list, ctx: dict, n: int, secs: int, str
             for st in ("base", "offload"):
                 rs = [r for r in results if r["case"] == c[0] and r["state"] == st and r["dir"] == d and "mbps" in r]
                 m = [r["mbps"] for r in rs]
-                cell[st] = (f"{fmt(med(m))} [{fmt(min(m)) if m else '-'}-{fmt(max(m)) if m else '-'}]",
+                cell[st] = (f"{fmt(med(m))} [{fmt(min(m)) if m else '-'}..{fmt(max(m)) if m else '-'}]",
                             fmt(med([r["cpu0_busy"] for r in rs]), 1), fmt(med([r["cpu1_busy"] for r in rs]), 1),
                             fmt(med([r["eth0_rx_pps"] + r["eth0_tx_pps"] for r in rs])))
             b, o = cell["base"], cell["offload"]
@@ -488,6 +497,7 @@ def write_csv(results: list) -> None:
 def main() -> int:
     global DRY
     ap = argparse.ArgumentParser(description=__doc__.splitlines()[0])
+    ap.add_argument("--settle", type=float, default=0, help="override the settle limit (s); default 1.25 x l3.c poll")
     ap.add_argument("--ip", default=BENCH_IP, help="must be the bench unit sw2")
     ap.add_argument("--dry-run", action="store_true", help="print every step and cap, touch nothing")
     ap.add_argument("--secs", type=int, default=10)
@@ -502,6 +512,9 @@ def main() -> int:
     ap.add_argument("--image", default=str(ROOT / "tmp/tftp/openwrt-ours-initramfs.bin"))
     a = ap.parse_args()
     DRY = a.dry_run
+    if a.settle:
+        global SETTLE_S
+        SETTLE_S = a.settle
     if a.ip == SW1_IP or a.ip != BENCH_IP or nb.SW_IP != BENCH_IP:
         print(f"refused: {a.ip} is not the bench unit sw2 ({BENCH_IP}); sw1 {SW1_IP} is the house switch", file=sys.stderr)
         return 2
@@ -531,8 +544,10 @@ def main() -> int:
                 for name, fn in steps:
                     if DRY:
                         log(f"./dev.py nat-bench {name}")
-                    elif fn():
+                    elif fn() and name != "setup":  # setup's SVI ping needs the fw4 accept that `mode` adds
                         raise SystemExit(f"setup step failed: {name}")
+                    if name == "mode route" and not DRY and not link_ready():
+                        raise SystemExit("natlan cannot reach natwan through the switch after mode route")
         for c in cases:
             run_case(c, a.n, a.secs, a.P, results)
         if not a.no_checks:

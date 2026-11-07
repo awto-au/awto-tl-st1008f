@@ -67,26 +67,29 @@ def perf_start(secs):
     return subprocess.Popen(["ssh", *SSHO, f"root@{nb.SW_IP}", cmd], stdin=subprocess.PIPE, stdout=subprocess.PIPE, stderr=subprocess.STDOUT, text=True)
 
 
-def perf_report(p, ln):
-    p.communicate(timeout=60)  # closes stdin: the workload ends, perf writes the file (~10k samples, under a second)
+def perf_report(p, ln, label="zc"):
+    pout = p.communicate(timeout=60)[0]  # closes stdin: the workload ends, perf writes the file (~10k samples, under a second)
     r = subprocess.run(["ssh", *SSHO, f"root@{nb.SW_IP}",
-                        "LD_LIBRARY_PATH=/tmp /tmp/perf report -i /tmp/perf.data --stdio --no-children --cpu 1 --sort sym 2>&1 | head -45"],
+                        f"LD_LIBRARY_PATH=/tmp /tmp/perf report -i /tmp/perf.data --stdio --no-children --percent-limit 0.4 --sort sym 2>&1 | head -80"],
                        capture_output=True, text=True, timeout=120)  # symbol resolution of a ~10k sample file
-    (ROOT / f"tmp/logs/perf_{ln}.txt").write_text(r.stdout)
-    log(f"perf report -> tmp/logs/perf_{ln}.txt")
+    dst = ROOT / f"tmp/logs/perf_{ln}{'' if label.startswith('zc') else '_stack'}.txt"
+    dst.write_text(r.stdout)
+    if "Samples" not in r.stdout or pout.strip():
+        log(f"perf record output: {pout.strip()[-300:]}")
+    log(f"perf report -> {dst.relative_to(ROOT)}")
 
 
 def run(label, secs, flows, ln):
     dev = f"{nb.HOST_NIC}.992"
     a, za, c0 = rx(dev), zc(), cpu_stat()
-    pp = perf_start(secs) if PERF and label.startswith("zc") else None
+    pp = perf_start(secs) if PERF else None
     t = time.time()
     r = subprocess.run(["sudo", "-n", "ip", "netns", "exec", "natlan", str(ROOT / "tmp/udpblast"), "10.99.1.2", "10.99.2.2",
                         "5201", str(ln), str(secs), str(flows)], capture_output=True, text=True,
                        timeout=secs * 3 + 30)  # the sender stops itself at `secs`; x3 for a slow start
     wall = time.time() - t
     if pp:
-        perf_report(pp, ln)
+        perf_report(pp, ln, label)
     b, zb, c1 = rx(dev), zc(), cpu_stat()
     m = None
     sent = re.search(r"sent (\d+)", r.stdout)
@@ -149,7 +152,7 @@ def main():
                     help="irq1 = no thread, NIC IRQ + softirq poll on VPE1 (no scheduler in the path); split = threaded NAPI, ring1 (fast path) thread on VPE1, other on VPE0")
     ap.add_argument("--zc-only", action="store_true", help="skip the stack run and the wire check (A/B of zc variants)")
     ap.add_argument("--integrity", action="store_true", help="only the payload pattern check (zc+nat on) for len 1400/500/64")
-    ap.add_argument("--perf", action="store_true", help="perf record VPE1 during the fast run (perf_push.py first)")
+    ap.add_argument("--perf", action="store_true", help="perf record -a during each run (perf_push.py first); report = all CPUs")
     a = ap.parse_args()
     global PERF
     PERF = a.perf

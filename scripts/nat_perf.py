@@ -58,6 +58,7 @@ def main() -> int:
     ap.add_argument("--no-push", action="store_true")
     ap.add_argument("--callgraph", action="store_true",
                     help="record -g; report inclusive (children) %% per symbol: cost per stage (RX, GRO, flowtable, TX)")
+    ap.add_argument("--limit", type=float, default=0, help="perf report --percent-limit (default 2 with --callgraph, else 0.5)")
     ap.add_argument("--cpu", default="0", help="report only this CPU (VPE0 carries the NAT path); '' = all")
     a = ap.parse_args()
     if not PERF.exists():
@@ -78,7 +79,7 @@ def main() -> int:
     log(f"[{a.tag}] record: {' | '.join(rec.strip().splitlines()[-3:])}")
     if "sample" in rec and "Error" not in rec:
         cpu = f"--cpu {a.cpu} " if a.cpu else ""
-        mode = "--children -g none --percent-limit 2" if a.callgraph else "--no-children --percent-limit 0.5"
+        mode = f"--children -g none --percent-limit {a.limit or 2}" if a.callgraph else f"--no-children --percent-limit {a.limit or 0.5}"
         rep = nat_bench.sw(f"/tmp/perf report -i /tmp/perf.data --stdio --sort sym {cpu}{mode} "
                            "2>&1 | grep -v '^$'", check=False, tmo=REPORT_S)
     else:
@@ -86,7 +87,7 @@ def main() -> int:
         rep = nat_bench.sw(f"/tmp/perf stat -a -- sleep {a.secs} 2>&1", check=False, tmo=a.secs + 15)
     dst = ROOT / f"tmp/logs/nat_perf-{a.tag}.txt"
     dst.write_text(f"# {a.tag} {a.test} {res[0] if res else ''}\n{rec}\n{rep}")
-    top = [ln.strip() for ln in rep.splitlines() if "%" in ln and not ln.startswith("#")][:30 if a.callgraph else 15]
+    top = [ln.strip() for ln in rep.splitlines() if "%" in ln and not ln.startswith("#")][:60 if a.callgraph else 15]
     for ln in top:
         log(f"[{a.tag}]   {ln}")
     log(f"[{a.tag}] report -> {dst.relative_to(ROOT)}")
