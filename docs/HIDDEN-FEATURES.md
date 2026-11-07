@@ -177,8 +177,13 @@ Catalogue of RTL9303 hardware that the datasheet omits, the SDK leaves unused, o
   - Functions (old layout): 0 memcpy, 1 checksum (Internet 16-bit sum into 32-bit ICVL, CPU folds), 2 TCAM, 3 memset, 9 XOR, 0xA memcmp, 0xB byte swap, 0xC pattern; no CRC; 8 src + 8 dst blocks, <= 8191 B each
   - SDK has no 9300 driver (`gdma_driver.o` named in the Makefile, file in no tree; `mgdma_test` compiled out); only sequence: memset, polled on `IS` bit 31, full D-cache flush first
   - No Linux/OpenWrt/dmaengine driver, no public throughput figure (web search 2026-11-07)
-- **Measured:** `IP_EN_CTRL` = `0x40000f88`: GDMA0/1 enabled at reset, GDMA2-6 off (`NEW_IP_EN_CTRL` 0); controller regs not read yet (clock-gated reads may hang) [LIVE]
-- **Use:** memcpy/memset offload; DDR stress (#48). Not for the NAT fast path: forwarded frames move switch core <-> NIC ring in place, the CPU copies nothing
+- **Measured:** `IP_EN_CTRL` = `0x40000f88`: GDMA0/1 enabled at reset, GDMA2-6 off (`NEW_IP_EN_CTRL` 0) [LIVE]
+  - 2026-11-07 (sw2 7.3 image, picks clocks, `scripts/gdma_probe.py`, `scripts/gdma_test.py`, `kmod/gdma_test`): all three blocks read without a bus hang; LX1/LX2 have the old Otto registers: CTRL, IM full flops, SBP0-7 (+0x20, +0x28..) and DBP0-7 (+0x60, +0x68..) 32-bit, SBL/DBL (+0x24.., +0x64..) bit 31 (last block) + 13-bit length; ICVL/IS not plain flops; BTG blocks +0x100.., +0x200.. read/write
+  - memcpy one block, polled on IS bit 31, `dma_map_single` for cache handling: 0 bytes differ on LX1 and LX2 at 64 / 1400 / 4096 / 8000 B; IS = `0x88800000` (comp, rd_pkt, wr_pkt)
+  - 4096 B time vs CTRL burst field [7:6]: 0 -> 47.4 us (87 MB/s), 1 -> 27.8 us (147 MB/s), 2 -> 18.2 us (225 MB/s), 3 -> 13.8 us (298 MB/s); 1400 B at burst 1: 10.6 us; 64 B: 1.3 us
+  - checksum (func 1): ICVL = 32-bit unfolded sum of big-endian 16-bit words, equals the software sum exactly (1400 B in 4.8 us); result must be read before CTRL is cleared
+  - LX0 block (0x18144000): completes but 2960 of 4096 bytes differ: unexplained, do not use
+- **Use:** memcpy/checksum helper (U-Boot, kernel dmaengine). Not for the NAT fast path: forwarded frames move switch core <-> NIC ring in place, the CPU copies nothing
 - **Risk:** DMA writes RAM; bad pointer hangs the LX bus; competes with the CPU under LX arbitration; 34Kc is non-coherent (flush/invalidate by range)
 
 ### Speed sensors (ring osc) (#62)

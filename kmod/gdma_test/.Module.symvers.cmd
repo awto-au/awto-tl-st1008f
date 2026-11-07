@@ -1,0 +1,1 @@
+savedcmd_Module.symvers :=  /mnt/2tb/git/awto-tl-st1008f/tmp/openwrt-build/build_dir/target-mips_24kc_musl/linux-realtek_rtl930x/linux-7.3-next-20261009/scripts/mod/modpost -M          -o Module.symvers -n -T modules.order -i /mnt/2tb/git/awto-tl-st1008f/tmp/openwrt-build/build_dir/target-mips_24kc_musl/linux-realtek_rtl930x/linux-7.3-next-20261009/Module.symvers -e 
