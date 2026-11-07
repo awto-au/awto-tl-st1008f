@@ -186,7 +186,26 @@ def boot() -> int:
 HANG_RESET_S = 165  # init=/bin/sh: kernel feeds the wdt until open_timeout 92 s, then <= 30 s HW timeout + ~10 s boot; x1.25
 
 
-def hang_test(slot: str) -> int:
+WDT_PROBE = ("mount -t proc p /proc 2>&1; dmesg | grep -E 'otto|wdt|atchdog' | cut -c1-120; "
+             "ls -l /proc/[0-9]*/fd | grep -c atchdog; echo WDT-$((1+1))")
+
+
+def wdt_probe_at(con, secs: list[int], t0: float, mark: int) -> None:
+    """#138: at each `secs` after /bin/sh, read SoC wdt CTRL over the shell (bit 31 = enabled) into the log."""
+    for s in secs:
+        while time.monotonic() - t0 < s:
+            time.sleep(0.2)  # polling for the probe instant; the reset check is the expect below
+        m = con.size()
+        con.send(WDT_PROBE)
+        try:
+            _, out = con.expect(r"\nWDT-2\r?\n", 5, m, f"wdt probe t={s}s")  # 5 s: ~20 lines at 115200
+            log(f"  probe t={s}s: " + out.replace("\r", "").replace("\n", " | ")[-700:])
+        except SystemExit as e:
+            log(f"  probe t={s}s: no answer ({str(e)[:80]})")
+            return
+
+
+def hang_test(slot: str, probe: list[int] | None = None) -> int:
     """#138: boot `slot` with init=/bin/sh (nothing opens /dev/watchdog): the kernel must stop feeding the
     SoC watchdog after watchdog.open_timeout and the board must reset by itself, then boot normally."""
     prompt()
@@ -195,11 +214,19 @@ def hang_test(slot: str) -> int:
     con.run(f"setenv bootargs st1008f.slot={slot} init=/bin/sh", OURS_PROMPT, 1, "bootargs init=/bin/sh")
     # the ESC prompt disarms the SoC watchdog; an unattended boot always has it armed (bootsel fast)
     con.run("bootsel wdt on", OURS_PROMPT, 1, "SoC watchdog armed as for autoboot")
+    _, out = con.run("md.l 0xb8003260 3", OURS_PROMPT, 1, "wdt CNTR/INTR/CTRL before bootm")
+    log("  wdt regs: " + out.replace("\r", "").replace("\n", " | ")[:200])
     mark = con.size()
     con.send(f"bootm {addr}")
     con.expect(r"Run /bin/sh as init process", 30, mark, "kernel reached init=/bin/sh", boot_ok=True)
     t0 = time.monotonic()
-    con.expect(r"U-Boot 2011\.12", HANG_RESET_S, mark, "SoC watchdog reset with no userspace watchdog", boot_ok=True)
+    if probe:
+        wdt_probe_at(con, probe, t0, mark)
+    try:
+        con.expect(r"U-Boot 2011\.12", HANG_RESET_S, mark, "SoC watchdog reset with no userspace watchdog", boot_ok=True)
+    except SystemExit:
+        wdt_probe_at(con, [0], t0, mark)  # #138: no reset: log wdt-related dmesg + who holds a watchdog fd
+        raise
     log(f"  reset {time.monotonic() - t0:.0f} s after /bin/sh started (kernel stops feeding at open_timeout)")
     con.expect(OW_READY, 60, mark, "normal boot after the reset", boot_ok=True)
     log("PASS hang-test: a hang before procd resets the board, next boot normal")
@@ -328,6 +355,7 @@ def main() -> int:
     ap.add_argument("--slot", choices=["a", "b"], default="b", help="hang-test: slot to boot with init=/bin/sh")
     ap.add_argument("args", nargs="*", help="set-mac: [MAC] (default random, locally administered); "
                     "turbo: show | set PROFILE")
+    ap.add_argument("--probe", help="hang-test: comma list of seconds after /bin/sh to read the SoC wdt (#138)")
     ap.add_argument("--allow-fallback", action="store_true",
                     help="apply: save even if the slot does not verify (boots stock boota until reinstalled)")
     ap.add_argument("--ssh", action="store_true", help="apply/revert/turbo from a running OpenWrt (fw_setenv)")
@@ -362,7 +390,7 @@ def main() -> int:
     if a.mode == "prompt":
         return prompt()
     if a.mode == "hang-test":
-        return hang_test(a.slot)
+        return hang_test(a.slot, [int(x) for x in a.probe.split(',')] if a.probe else None)
     if a.mode == "set-mac":
         mac = pick_mac(a.mac)
         flash_guard.check_range(0xE0000, 0x20000, "uboot-chain-env set-mac")
