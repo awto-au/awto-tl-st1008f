@@ -1,1 +1,0 @@
-./gdma_bench.o

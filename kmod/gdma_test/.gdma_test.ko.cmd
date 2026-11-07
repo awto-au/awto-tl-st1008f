@@ -1,1 +1,0 @@
-savedcmd_gdma_test.ko := mips-openwrt-linux-musl-ld -r -m elf32btsmip --fatal-warnings -z noexecstack --no-warn-rwx-segments --build-id=sha1 --force-group-allocation  -T /mnt/2tb/git/awto-tl-st1008f/tmp/openwrt-build/build_dir/target-mips_24kc_musl/linux-realtek_rtl930x/linux-7.3-next-20261009/scripts/module.lds -o gdma_test.ko gdma_test.o gdma_test.mod.o .module-common.o
