@@ -4,6 +4,9 @@ Index of owner decisions, newest first. One line each: date (AEDT), decision, li
 
 ## 2026-11-07
 
+- **Final settings, go with what works** (owner 2026-11-07): switch core 608 MHz (VCO 3650, code 1; 612 / code 0 forbidden), CPU 1350, DDR 662, LX ~304, SRAM 500. All DDR and CPU limit testing stops. Accepted results: 1400 B zc+nat 169-171 kpps, NAT TCP P4 ~1630 Mbit/s; 2.5 Gbit/s is not reachable by clocks. [NAT.md](NAT.md), [FASTEST-SETTINGS.md](FASTEST-SETTINGS.md#final-settings), #148, #103, #65.
+- **Retest rule satisfied for 608** (owner 2026-11-07): second CPU, NAPI variants, SRAM rings, queue thresholds, cache variants and GRO re-tested at the 608 core; no gain. Re-test again only if the switch-core clock moves. [CAMPAIGN-PLAIN-7.4.md](CAMPAIGN-PLAIN-7.4.md), #146, #147.
+- **One NAT interface only** (owner 2026-11-07): no multi-WAN / multi-interface design or tests. [NAT.md](NAT.md).
 - **OpenWrt pin moved** `b455c5b851` -> `7e8bfcfe76` (main 2026-11-07), feeds `packages` `1c248d7e25`, `luci` `9a62efcc5a`; upstream L3 rework (regmap, `resource_lock`, MTU profiles) and `CRC_CPU_RC_EN` taken on, our `300-17` rebased onto it. No `perf` apk in images. [OPENWRT-BUMP.md](OPENWRT-BUMP.md).
 - Owner: the flash layout is not fixed. Our U-Boot chain slot grows 512 KiB -> 960 KiB (0xF0000) inside `jffs2-log` (0x200000-0x2EFFFF); then `jffs2-cfg` (0x100000) if needed. Fixed: stock area 0x0-0xDFFFF, `bootstate` 0x2F0000, `firmware_a` 0x300000. Slot size = one parameter (`scripts/uboot_chain_layout.py`, default 0x80000 until the migration). #155, [DEFAULT-BOOT.md](DEFAULT-BOOT.md#growing-the-chain-slot-155).
 

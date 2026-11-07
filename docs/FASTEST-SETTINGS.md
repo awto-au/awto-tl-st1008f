@@ -3,6 +3,20 @@
 Goal: fastest stable setting in every limiting domain, then load-test the best combination.
 Tools: `./dev.py fastest-search` (scripts/fastest_search.py), `./dev.py load-test` (scripts/load_test.py). sw2 only; sw1 never.
 
+## Final settings
+Owner decision 2026-11-07: go with what works; DDR and CPU limit testing stopped. Evidence: sections "Results 2026-11-07 (core 608)" and "CPU 1375+ and DDR 675+: lock or limit" below. Format: rated max | board | we run | why the gap.
+
+| Domain | Stock | Final | Why the gap |
+|---|---|---|---|
+| Switch core | 408 MHz | 608 | 612 (code 0) wedges CPU-port DMA; 608 is the best-forwarding step (575 / 658 re-code LX); 1400 B rate scales with the core up to 608 |
+| CPU | 800 | 1350 | 1375 panics at core 608 (passes at 408): real CPU limit, PLL locks at once |
+| DDR | 600 | 662 | 675 / 700 pass only with `ddr-retrain --write` and give no gain beyond noise |
+| LX | 175 | ~304 | follows the SW VCO; 204 panics on the 7.3 image (#149); codes above 306 need a clocks.c change |
+| SRAM | 250 | 500 | already the maximum; no measurable effect on the NAT rate |
+| SPI (Linux) | 25.5 MHz | 23.4 (follows core 608) | fast SPI corrupts reads under Linux (#50) |
+
+- Result: 1400 B zc+nat 169-171 kpps, NAT TCP P4 ~1630 Mbit/s ([NAT.md](NAT.md)).
+
 ## Scope and rules
 - ONE NAT interface only (the `nat-bench setup` pair: one WAN side, one LAN side). No multi-WAN, no multi-interface case, in any bench or load test.
 - Range = stock (known good) .. fastest programmable. Binary search from the midpoint; pass -> higher, fail/hang -> lower. Fastest viable = passes ONE quick test. No repeats during the sweep.

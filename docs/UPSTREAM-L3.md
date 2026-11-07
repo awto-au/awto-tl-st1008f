@@ -110,7 +110,7 @@ Line counts are approximate; function names are the anchors.
 
 **5. HW flag reporting.**
 - mlxsw ~200, prestera ~120: `fib_alias_hw_flags_set` / `fib6_info_hw_flags_set` with offload, trap and offload_failed.
-- l3.c ~60: v6 only. v4 pokes `RTNH_F_OFFLOAD` directly, like rocker's legacy code.
+- l3.c ~60: v4 (`otto_l3_fib4_flags_set`) and v6, via the hw-flags helpers (OpenWrt pin `7e8bfcfe76`).
 
 **6. Trap fallback.** Route cannot be honoured → trap row plus `offload_failed`.
 - mlxsw ~80: `mlxsw_sp_fib_entry_op_trap`.
@@ -229,7 +229,7 @@ What the core does:
   - Matches today's `otto_l3_fib_check_v4/v6` and `otto_l3_rules_*`.
 - Neighbours: resolves gateways and holds them; calls `nh_update` on `NETEVENT_NEIGH_UPDATE`; traps routes whose next hop is unresolved.
 - Refresh: polls `route_active()` at `DELAY_PROBE_TIME`; HIT plus `NUD_STALE` → `neigh_event_send()`. Replaces mlxsw RAUHTD, prestera `k_arb_hw_evt` and our `otto_l3_poll`.
-- Failure: `route_add` error → re-add as `FO_TRAP` and set `offload_failed`. Reports `offload` / `trap` via `fib_alias_hw_flags_set` / `fib6_info_hw_flags_set` for **both** families (fixes the l3.c v4 gap).
+- Failure: `route_add` error → re-add as `FO_TRAP` and set `offload_failed`. Reports `offload` / `trap` via `fib_alias_hw_flags_set` / `fib6_info_hw_flags_set` for **both** families (l3.c does this for both too; the helper would share it).
 - Netfilter awareness (not planned, reference only; needs netfilter maintainers):
   - If `net->nf.hooks_ipv4/6[NF_INET_FORWARD]` is non-empty, or a NAT hook is registered at POST_ROUTING, demote every FWD route to TRAP and report `trap`.
   - A hook-change notifier from netfilter would make this event-driven.

@@ -684,7 +684,7 @@ Idea (owner research chat 2026-10-09..11): PIE matches the flow, the CPU rewrite
 - Not pursued: RPS onto VPE1 (measured worse on 6.18); hybrid re-injection as a route to 2.5G.
 - 2 Gbit/s IPv4 today: NAT on another box (house router or an x86/ARM router with 2.5G/10G) with this switch routing in the ASIC and IPv6 native; or accept ~350 Mbit/s IPv4 NAT here.
 - Open owner inputs: native IPv6 + DHCPv6-PD from the RSP; IPv4 by IPoE or PPPoE; where IPv4 NAT lives.
-- Kernel NAT path (conntrack, nf_nat, flowtable, GRO) review, trace and tunables: not done yet (#71).
+- Kernel NAT path review (#71): knob matrix, clocks x SRAM matrix, perf profile and rteth call graph done; open: per-function conntrack / nf_nat / flowtable cost (ftrace `function_graph`) and conntrack sysctl A/B.
 
 ## IPv6 fast path (how most traffic avoids NAT)
 
@@ -767,3 +767,70 @@ Metric: TCP `-P 4`, NAT or route + nftables software flowtable, one-armed over l
 | Descriptor rings in SRAM | NIC DMA does not work from SRAM | 2026-10-13 |
 | GRO or fraglist GRO off | -30 to -40 % | 2026-10-11, 13 |
 
+
+## NAT.md before the 2026-11-07 finalisation (switch core 408 MHz era)
+
+Verdict, best numbers, ceilings and open-issue table as NAT.md held them before the final settings (core 608 MHz) were adopted. Numbers here were taken at core 408; the final numbers are in NAT.md.
+
+### Verdict
+- IPv6 is routed by the ASIC: **9.08 Gbit/s at 0 % CPU** (needs the `2000::/3 via <gw>` workaround, #59).
+- IPv4 NAT on the skb stack (nftables software flowtable): best **544 Mbit/s** TCP (initramfs, picks clocks), 507 on OpenWrt 7.3; 22 % of target.
+- IPv4 NAT on the in-place fast path (`300-39`, prototype): **1.25 Gbit/s** TCP with kernel-fed flows, 1.66 Gbit/s UDP 1400 B; 50-66 % of target. The 1400 B ceiling is not yet explained.
+- The ASIC rewrites MACs and TTL only, no IP or L4 port (#58, #68). Every NAT packet crosses the CPU port twice.
+
+
+### Best numbers (sw2 unless noted)
+Metric: iperf3 TCP `-P 4` through NAT + software flowtable, one-armed over lan1. Picks = CPU 1350 / DDR 662 / LX 306 / SRAM 500; base = CPU 1000 / DDR 650 / LX 175; stock = CPU 800 / DDR 600.
+
+| Path, image, clocks, date | TCP Mbit/s | UDP 1400 B | UDP 64 B kpps |
+|---|---|---|---|
+| Flash OpenWrt 6.18.55, base, 2026-10-11 | 243-248 | 38.1-39.7 kpps | 41.9-44.9 |
+| Initramfs 7.3 + series to `300-35`, picks, 2026-10-15 | 528 (544 with `noqueue`) | 76.5 kpps @900 offered, 0.1 % loss | 110.8 (113.1) |
+| OpenWrt 7.3, picks, best knob combination, 2026-11-06 | 507 | - | 88 |
+| OpenWrt 7.3, picks, image defaults | 388 | - | 76 |
+| OpenWrt 7.3, stock, best knob combination | 369-377 | - | 59 |
+| OpenWrt 7.3, stock, image defaults | 283-294 | - | 53 |
+| Fast path, kernel-fed flows, picks, 2026-11-06 | 1250 / 1187 (fwd / rev) | - | - |
+| Fast path, stateless 1:1 NAT, picks, 2026-11-06 | 1339.6 / 1309.8 | - | - |
+| Fast path, UDP + NAT, picks, 2026-11-06/07 | - | 143.7 kpps (1.66 Gbit/s) | 490.7 |
+| Fast path + queue-1 1024/1008 (`300-40`), picks, 2026-11-06 | 1517 / 1519 | - | - |
+| IPv6 routed in the ASIC (`2000::/3` via gw), base, 2026-10-11 | 9079 (0 % CPU) | - | - |
+
+- Flash image: 6.18 numbers only. 7.3 numbers are RAM boots (`ramload`); no 7.3-from-flash run is recorded.
+- Fast-path TCP rows lose frames at the ASIC CPU queue (retransmits, ~1 % in one run, 1.9k per 10 s with `300-40`), not in the fast path itself.
+- IPv4 / IPv6 NAT on the CPU, OpenWrt 7.3, old image (fraglist GRO off), stock, 2026-11-06, one run each: masquerade 77.7 / 76.8 (fwd / rev) v4, 72.7 v6; + flowtable 203.2 / 203.6 v4, 205.3 v6. Source rewrite verified in conntrack.
+- Per packet: ~30 us OpenWrt TCP (stock); 13 us UDP 64 B (base) and 10 us (picks) on the stack; 2 us (64 B) and 6.6-7.0 us (1400 B) in place.
+- No OpenWrt-vs-initramfs gap: 283-294 at 800 MHz vs 350 at 1000 MHz is the clock ratio. The firewall ruleset costs nothing with the flowtable on (376 vs 377).
+
+### Ceilings and what limits them
+Measured:
+- Stack path: compute-bound on one VPE (VPE0 94-97 %). CPU clock moves pps 1:1; DDR, prefetch and LX move it <= 9 %. Call graph: no single hotspot (driver RX 26 %, GRO second pass 69 % inclusive).
+- Second VPE: shares one 34Kc pipeline and one L1; the memory miss queue is the shared bottleneck (a streaming neighbour removes 75 %). Pinned per-ring NAPI + `tx_by_cpu` + `noqueue` is the only multi-VPE combination that won (+31 %, VPE0/VPE1 94/95 %).
+- 2.5 Gbit/s of 1500 B frames is ~312 kpps through the CPU port (data + ACKs): 3.2 us per packet at 1 GHz. The stack path is 10-30 us.
+- Fast path at 1400 B: 143 kpps = 1.66 Gbit/s each way (3.3 Gbit/s through the port); VPE busy 97-99 % at every size; cost ~1.5-2 us fixed + ~4 ns per byte (~2 Gbit/s asymptote). Cutting CPU, DDR or LX by ~25 % costs 3-8 %. `rxdrop` (receive and drop) also stops at 137 kpps at 1400 B.
+- CPU-port speed field (`SPD_SEL`): writes of 10G / 2.5G / 5G alone leave sw2 unreachable; no rate measured at any other setting ([CPU-PORT.md](CPU-PORT.md)).
+
+Not isolated:
+- The cause of the 1400 B ceiling. It is byte-dependent and nearly clock-independent: candidates are NIC DMA, bus/DDR contention, or the chip feeding the CPU queue. #149 (RX panic that depends on LX clock) hints that the bus clock touches the DMA path; unconfirmed.
+- Whether PIE CPU-QID steering applies to frames trapped by an L3 route, and the real gain of a per-flow ring split (#146).
+- Stack-path ceiling on this CPU: estimate only (1-1.7 Gbit/s at 1500 B, not measured).
+- GDMA engines work as memcpy/checksum (`kmod/gdma_test`) but the fast path copies nothing; speed sensors read 0 (#151, [HIDDEN-FEATURES.md](HIDDEN-FEATURES.md)).
+
+### Open issues
+| Issue | State | Next step |
+|---|---|---|
+| #65 Fast NAT 2.5 Gbit/s | best 544 stack, 1.25-1.66 Gbit/s fast path | find the 1400 B ceiling cause (#148) |
+| #148 CPU-port ceiling, SRAM/cache-locked data | parked P0 (#151); sweeps in [CPU-PORT.md](CPU-PORT.md) | stock-clock perf control, real-length RX/TX cache sync, GDMA probe |
+| #149 RX panic in `gro_list_prepare` | open, 4 panics | same load + perf at stock clocks (0/3 vs 3/3) |
+| #140 in-place / XDP NAT fast path | prototype works (`300-39`) | SRAM buffers, second VPE, IPv6, fragments, soak |
+| #145 best knob combination as image default | +31 % measured | fix `tx_by_cpu` reclaim first |
+| #146 balance VPEs by flow | not tried | PIE ACL hit -> RX ring 1, NAPI ring 1 on VPE1 |
+| #147 fewer DDR misses per packet | not tried | prefetch next descriptor and headers; sync only used bytes |
+| #103 other clock domains, SRAM for hot data | picks adopted; rings in SRAM fail | SRAM packet buffers |
+| #60 NIC driver | `300-11/12/13/27/28/40` shipped | per-flow second CPU (#146) |
+| #59 L3 offload gaps | `300-17` written, not measured | measure `l3_default_*`, `l3_onlink` |
+| #66 ASIC-routed bypasses nftables | SYN drop via `300-37` works | UDP policy, ICMPv6 allow, PIE capacity |
+| #71 NAT path review (conntrack, nf_nat, flowtable) | not done | trace and tunables |
+| #22 all-port wire-speed routed test | open | run |
+| #151 parked state of #148 | GDMA memcpy works; sensors read 0 | in #148 order |
+| #63, #58, #68 | closed: no ASIC rewrite, hybrid not started | - |

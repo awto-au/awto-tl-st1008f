@@ -6,6 +6,7 @@ Source tags: **[SRC]** GPL file:line (`dms1250/` = `sources/rtk-dms1250/`, `xgs1
 
 - Clock registers are written only by `clocks set cpu|lx|mem` (`board/tplink/tl-st1008f/clocks.c`); CPU and MEM changes run from SRAM.
 - Power-on state is always the stock SPL's: CPU 800 / LX 175 / DDR 600 / SPI 25.5 MHz.
+- Final settings (owner 2026-11-07): switch core 608 (VCO 3650, code 1), CPU 1350, DDR 662, LX ~304, SRAM 500; CPU 1375+ and DDR 675+ not pursued. [FASTEST-SETTINGS.md](FASTEST-SETTINGS.md#final-settings), [NAT.md](NAT.md).
 
 ## Summary
 

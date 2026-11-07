@@ -119,7 +119,7 @@ What still sees them, or how upstream restores visibility:
 - Filtering: rules must be offloaded too (`tc flower` → PIE); otherwise the route stays `trap` (#66).
 
 Gaps in ours (OpenWrt `l3.c` + `300-17`; how a shared helper would close them: [UPSTREAM-L3.md](UPSTREAM-L3.md#proposal-fib_offload-helper)):
-- IPv6 routes report offload flags; IPv4 routes do not (no `fib_alias_hw_flags_set` in `l3.c`), so `ip route` cannot show which v4 routes are in hardware.
+- IPv4 and IPv6 routes both report offload / trap / offload_failed (`otto_l3_fib4_flags_set` -> `fib_alias_hw_flags_set`, `fib6_info_hw_flags_set`; OpenWrt pin `7e8bfcfe76`). On-link neighbour host rows have no flag path.
 - `300-17` takes RTNL in a 5 s poll (neighbour refresh, parameter apply); upstream expects notifier-driven updates.
 - No check that nftables forward rules exist before offloading: `l3_default_v4`/`l3_onlink` on a box with a forward firewall or NAT silently bypasses it (params default off for this reason). Not planned: no in-tree driver checks this either (owner 2026-10-12); the parameters stay operator opt-in.
 - No sampling to the CPU (`psample`) and no mirror-to-CPU wiring for `tcpdump` of offloaded flows.
