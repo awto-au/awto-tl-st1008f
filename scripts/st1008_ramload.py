@@ -387,6 +387,21 @@ def set_mgmt_ip(con: Console, ip: str) -> None:
     log(f"  WARN mgmt {ip} did not answer ping in 12 s (cage 1 uplink? STP still blocking?)")
 
 
+PLAIN_PROMPT = r"st1008f-linux # "
+
+
+def plain_mgmt(con: Console, ip: str, cage: int) -> None:
+    """Plain mainline kernel: port-up the ONE cage with BENCH_IP (starts dropbear, blank root), wait for ping."""
+    con.run("dmesg -n 1", PLAIN_PROMPT, 2, "console loglevel 1")
+    con.run(f"port-up {cage} {ip}/24", PLAIN_PROMPT, 8, f"port-up lan{cage} {ip}")  # ip link + 2 ethtool: ~1 s; x8 for SerDes
+    (ROOT / "tmp/nat_bench.ssh").unlink(missing_ok=True)  # stale ssh mux from the previous boot
+    for _ in range(4):  # 4 x 3 pings = 12 s, as set_mgmt_ip
+        if subprocess.run(["ping", "-c3", "-i1", "-W1", ip], capture_output=True).returncode == 0:
+            log(f"  mgmt {ip} answers ping (plain kernel, lan{cage})")
+            return
+    log(f"  WARN mgmt {ip} did not answer ping in 12 s (cage {cage} uplink?)")
+
+
 FAST_CPU_E208 = "0x3a8"  # 1000 MHz with DIVN2 /3: uboot-test 40/40 + 15 min Linux load (#38)
 SFCR, SFCR_D_FAST = 0xB8001200, 0  # SPI = NOR clock / 2
 E220, NOR_CODE_FAST = 0xBB00E220, 3  # NOR 245 MHz -> SPI 122.5 MHz (rated 133); 153 MHz corrupts (#32)
@@ -468,6 +483,8 @@ def main() -> int:
                     help="with --then: our U-Boot command(s) run before bootm, in order (e.g. clock picks, #103)")
     ap.add_argument("--no-linkcheck", action="store_true",
                     help="skip the pre-OpenWrt live-link/loop check (`rtk linkcheck`, #97)")
+    ap.add_argument("--mgmt", action="store_true",
+                    help="mainline-kernel (direct or --then): port-up the --cage with BENCH_IP after boot (ssh for bench scripts)")
     ap.add_argument("--bootargs", metavar="ARGS",
                     help="with --then: U-Boot bootargs before bootm, e.g. 'st1008f.mode=m2 st1008f.boot=primary'")
     a = ap.parse_args()
@@ -516,6 +533,8 @@ def main() -> int:
         openwrt_stp(con)
         return 0
     con.run(f"{start} 0x{addr:08x}", done, cap, f"{a.image} running")
+    if a.mgmt and a.image == "mainline-kernel":
+        plain_mgmt(con, SWITCH_IP, a.cage)
     if a.image.startswith("openwrt"):
         openwrt_stp(con)
     r = subprocess.run([sys.executable, str(ROOT / "scripts/boot_log_check.py"), "--boot", "-1"],
@@ -550,6 +569,8 @@ def main() -> int:
         con.run(f"bootm 0x{ow[1]:08x}", ow[3], cap, f"{a.then} via mainline bootm")
         if a.then.startswith("openwrt"):
             openwrt_stp(con, mgmt_ip=SWITCH_IP)
+        if a.mgmt and a.then == "mainline-kernel":
+            plain_mgmt(con, SWITCH_IP, a.cage)
         r = subprocess.run([sys.executable, str(ROOT / "scripts/boot_log_check.py"), "--boot", "-1"],
                            capture_output=True, text=True, timeout=30)  # local file scan, <2 s
         sys.stdout.write(r.stdout)

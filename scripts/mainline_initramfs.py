@@ -12,11 +12,16 @@
   scripts/build_selftest.py (run it first); /init starts it in the background with bootargs st1008f.selftest=1.
 - /init: mount proc/sys/devtmpfs/debugfs, print INIT_MARKER, shell with PROMPT on the console.
   No network config: every port stays down and unbridged until a script brings one up (#16).
+- Bench variant (`--bench` or env ST1008F_INITRAMFS_BENCH=1; default off, image unchanged): musl loader path
+  `/tmp:/lib:/usr/lib` (perf_push.py libs found without LD_LIBRARY_PATH) + dropbear ed25519 host key made
+  in the background at boot (first ssh does not stall on keygen). docs/PLAIN-KERNEL-TESTS.md.
 - Log: tmp/logs/mainline_initramfs.log
 """
 
+import argparse
 import hashlib
 import lzma
+import os
 import time
 from pathlib import Path
 
@@ -67,7 +72,7 @@ for d in /sys/class/net/lan*; do
   ip -o link show "$l" | grep -q '[<,]UP[,>]' && { echo "refused: $l is up (one cage at a time)"; exit 1; }
 done
 ip link set eth0 up && ip link set "lan$n" up || exit 1
-# fraglist GRO on the CPU port, as OpenWrt does: +45 % NAT/flowtable forwarding (docs/NAT.md)
+# fraglist GRO on the CPU port, as OpenWrt does: +45 % NAT/flowtable forwarding (docs/NAT-HISTORY.md)
 ethtool -K eth0 rx-gro-list on; ethtool -K "lan$n" rx-gro-list on
 dev=lan$n
 if [ -n "$vid" ]; then
@@ -124,7 +129,15 @@ class Cpio:
         return bytes(self.buf)
 
 
-def build() -> Path:
+BENCH_INIT = """# bench variant: host key now (ed25519 keygen is fast), dropbear -R covers any other type
+(dropbearkey -t ed25519 -f /etc/dropbear/dropbear_ed25519_host_key >/dev/null 2>&1 &)
+"""
+BENCH_LD_PATH = b"/tmp\n/lib\n/usr/lib\n"
+
+
+def build(bench: bool | None = None) -> Path:
+    if bench is None:
+        bench = os.environ.get("ST1008F_INITRAMFS_BENCH") == "1"
     if not BUSYBOX.exists():
         raise SystemExit(f"missing {BUSYBOX.relative_to(ROOT)}: download {BUSYBOX_URL} "
                          f"(playwrong download tool), sha256 {BUSYBOX_SHA256}")
@@ -137,7 +150,10 @@ def build() -> Path:
     c.chardev("dev/console", 5, 1)  # kernel opens it before /init; devtmpfs is mounted later
     c.file("bin/busybox", bb)
     c.symlink("bin/sh", "busybox")
-    c.file("init", INIT.encode())
+    init = INIT
+    if bench:  # before the final `exec setsid cttyhack sh`
+        init = init.replace("cd /root\n", BENCH_INIT + "cd /root\n", 1)
+    c.file("init", init.encode())
     for name, (kind, data, mode) in sorted(initramfs_tools.staged_files().items()):
         if kind == "link":
             c.symlink(name, data)
@@ -157,9 +173,11 @@ def build() -> Path:
     c.file("etc/shells", b"/bin/sh\n", 0o644)
     for name, target in TOOL_LINKS.items():
         c.symlink(name, target)
+    if bench:
+        c.file("etc/ld-musl-mips-sf.path", BENCH_LD_PATH, 0o644)
     cpio = c.finish()
     OUT.mkdir(parents=True, exist_ok=True)
-    out = OUT / "st1008f-initramfs.cpio.xz"
+    out = OUT / ("st1008f-initramfs-bench.cpio.xz" if bench else "st1008f-initramfs.cpio.xz")
     # kernel XZ decoder: CRC32 check, LZMA2 only
     out.write_bytes(lzma.compress(cpio, format=lzma.FORMAT_XZ, check=lzma.CHECK_CRC32,
                                   filters=[{"id": lzma.FILTER_LZMA2, "preset": 9}]))
@@ -170,4 +188,6 @@ def build() -> Path:
 
 
 if __name__ == "__main__":
-    build()
+    ap = argparse.ArgumentParser(description=__doc__.splitlines()[0])
+    ap.add_argument("--bench", action="store_true", help="bench variant (see module docstring)")
+    build(True if ap.parse_args().bench else None)
