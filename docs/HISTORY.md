@@ -136,3 +136,129 @@ One line per result; detail in the linked docs/issues. Owner decisions: [DECISIO
 - Local OpenWrt builds: main + 6.18 + backports (step 1), OpenWrt userspace on our 7.3 (step 2); 7.3 flash image blocked by `mtdsplit` (#73, [OPENWRT-BUILD.md](OPENWRT-BUILD.md)).
 - Board lost power twice mid-session (10:24, 10:27): the bench relay itself rebooted (uptime 64 s) and comes up OFF; first suspected HA "lights off". `switch_power.py check` now flags relay reboots ([hardware.md](hardware.md#bench-power-relay-84), #84).
 - First SMP boots hung (mainline and OpenWrt-on-7.3): mainline dtsi routes every IRQ to IP2, VPE1 never ticks. Board DTS 2-cell intc fixes it; `300-18` single-CPU affinity lets eth0 run on CPU1; UP still fastest on throughput by a few % ([MAINLINE-PORT.md](MAINLINE-PORT.md) section 9, #73).
+
+## NAT experiments
+
+- Every NAT/NIC measurement, dead end and "which combination won" (2026-10-11 onward): [NAT-HISTORY.md](NAT-HISTORY.md).
+- Today's state: [NAT.md](NAT.md). CPU-port sweeps: [CPU-PORT.md](CPU-PORT.md).
+
+
+## Kernel baselines (7.3-rc6, linux-next)
+
+Moved verbatim from docs/MAINLINE-PORT.md on 2026-11-07 (owner: one base, Linus's latest tag; linux-next and 7.3-rc6 retired).
+
+### Baselines table rows
+
+| Item | Value |
+|---|---|
+| Mainline target | linux-next `next-20261009` (Makefile `7.3-rc6` + `-next-20261009`; pinned `PIN` in `scripts/kernel_base.py`, `./dev.py kernel-base update` moves it), from 2026-10-12 ([DECISIONS](DECISIONS.md)) |
+| Fallback | `v7.3-rc6` (`KERNEL_BASE=v7.3-rc6`; tree `tmp/linux-v7.3`, out dir `tmp/build-mips-v7.3-rc6`); board-tested base for sections 7 and 9. Its `openwrt/patches-v7.3-rc6/` copies of 300-10/300-17 predate the `0ad1348` pin: rebase them (`scripts/patch_rebase.py`) before using the fallback |
+
+### Former section 8
+
+### 8. Status of every OpenWrt realtek patch and file (7.3-rc6, linux-next)
+
+Method: `scripts/openwrt_patch_status.py --tree <base>` (series order; reverse-apply = upstream) plus a source check of each `fails`; next column re-checked on `next-20261009` 2026-10-12 (`tmp/owrt_status_next.tsv`). Ported / applied = in our build (verbatim or forward-ported, section 7). Dropped = not built for this board. Refreshed = forward-port rebased for next; the 7.3 copy stays in `openwrt/patches-v7.3-rc6/`.
+
+#### `patches-6.18`
+
+| Patch | 7.3-rc6 | next | Evidence / reason |
+|---|---|---|---|
+| `021` gpio-regmap shadowed-output cache | dropped | dropped | No gpio-regmap user on this board (RTL8231 only) |
+| `022`, `023-01/02` | upstream | in next | reverse-apply |
+| `024-01/03` dt-bindings `enet-phy-pair-order` | dropped | dropped | RTL8224 binding docs; no RTL8224 |
+| `024-02` RTL8224 pair order | upstream | in next | `realtek_main.c` has pair-order support (different context) |
+| `024-04` | upstream | in next | reverse-apply |
+| `025-01`, `026`, `027-01..04`, `027-06/07` i2c-rtl9300 | upstream | in next | `i2c-rtl9300.c` has the `bus_freq` enum, `F_BUSY`, `rd_reg`, `max_read_len` quirk, clk, RTL9607 config |
+| `025-02`, `027-05`, `027-08` | upstream | in next | reverse-apply |
+| `028`, `029` lm75, `030` RTL8226 MDI swap | upstream | in next | reverse-apply |
+| `031-01..24` mdio-realtek-rtl9300 (v7.2) | upstream | in next | `-16`, `-18..20`, `-22`, `-23` reverse-apply; the rest present with later context. Driver not built (OTTO fork used) |
+| `031-25..34` mdio-realtek-rtl9300 (v7.4) | dropped | dropped: in next | next: `-25..27`, `-30`, `-31`, `-34` reverse-apply; polling setup (`-28`), page tracking (`priv->page[]`, `-29`), RTL838x/839x (`-32/33`) present with later context. `MDIO_REALTEK_RTL9300` stays off (OTTO fork) |
+| `032-06..08` irqchip select / shuffle / multi-parent | upstream | in next | `intc_select`, multi-parent setup, onecell xlate |
+| `033-01` | upstream | in next | reverse-apply |
+| `033-02` i2c-gpio shared SCL | upstream | in next | `i2c-gpio.c` has the shared-SCL code |
+| `034-01`, `035`, `036`, `037` | upstream | in next | reverse-apply (`037`: later context) |
+| `034-02` wdt clock enable | upstream | in next | `devm_clk_get_enabled` |
+| `039-01/02` gpio raw IO / overridable bank IO (v7.4) | dropped | dropped: in next | reverse-apply on next |
+| `040` SPI second CS (v7.4) | dropped | dropped: in next | reverse-apply on next; `init_hw()` now sets `SFCSR = CSB0\|CSB1` (section 4, #61) |
+| `300-01..03` platform / board setup | ported | applied | verbatim |
+| `301` RTL960x platform | dropped | dropped | other SoC |
+| `308` mtune 4kec | dropped | dropped | RTL838x only; needs the generic mtune-24kc hack |
+| `309` csum_partial maddu | ported | applied | verbatim |
+| `318` clk-rtl83xx | dropped | dropped | OpenWrt sets `COMMON_CLK_REALTEK` off for 930x; fixed clocks |
+| `330` thermal hook | ported | applied | verbatim |
+| `331` otto_table hook | ported | applied | verbatim |
+| `700` DSA max ports / u64 masks | ported | refreshed | forward-port, `300-09` |
+| `705` sfp `i2c_block_size` init (v7.1) | upstream | in next | line present in `sfp_i2c_configure()` |
+| `706-01` sfp I2C quirks (v7.2) | upstream | in next | `sfp.c` has the `max_read_len` handling |
+| `706-02` | upstream | in next | reverse-apply |
+| `712` MDIO SMBus library | ported | applied | verbatim |
+| `714` SFP over SMBus | ported | applied | verbatim |
+| `716` rtl838x eth hook | ported | refreshed | forward-port, `300-09` (+ `select PAGE_POOL`) |
+| `717` RTL960x GMAC | dropped | dropped | other SoC |
+| `718` DSA hook | ported | applied | verbatim |
+| `720` multiport PHY (RTL8214/8218) | dropped | dropped | no copper PHYs on board |
+| `721` tag rtl-otto hook | ported | refreshed | forward-port, `300-09`: tag 36 on 7.3, 37 on next (KS8995 took 36) |
+| `722` trapped-frame metadata | ported | applied | verbatim |
+| `723` aux MDIO | dropped | dropped | RTL8231 bus only |
+| `730` PCS hook | ported | refreshed | forward-port, `300-09` |
+| `743` RTL8224 SerDes config | dropped | dropped | no RTL8224 |
+| `802-804` RTL8231 MFD / pinctrl / LEDs | dropped | dropped | no RTL8231 |
+| `806`, `808` MDIO otto / SerDes hooks | ported | refreshed | forward-port, `300-09` |
+| `809`, `810`, `813` Hasivo MCU | dropped | dropped | other boards |
+| `816-01..03`, `817-819` PSE | dropped | dropped | no PoE (`816-03` is upstream) |
+| `820` RTL960x MDIO, `821`, `822` PCIe | dropped | dropped | other SoC / no PCIe use |
+
+#### Our patches (`openwrt/patches/`) on next
+
+| Patch | next | Change for next |
+|---|---|---|
+| `300-04..07` | applied | none |
+| `300-08` phylink fwnode PCS | refreshed | context only (`phylink.c` hunk applied at fuzz 2) |
+| `300-09` Kconfig/Makefile hooks | refreshed | DSA tag value 37; MDIO Kconfig context |
+| `300-10` API fixes | refreshed | `l3.c`: global `arp_tbl` removed (ARP table per netns) -> `arp_table(&init_net)` |
+| `300-11..13`, `300-15` | applied | none |
+| `300-16` port LEDs | refreshed | Kconfig context after `300-06` (fuzz 2 on both bases; one copy serves both) |
+| `300-17` L3 on-link / default route | refreshed | its own `arp_tbl` uses -> `arp_table(&init_net)` |
+| `300-18`, `300-19` | applied | none |
+| `300-21`, `300-22` | new on next | written on next-20261009; W=1 clean (2026-10-13) |
+| `300-23`, `300-24` | new on next | written on next-20261009 (2026-10-13) |
+| `300-26` | new on next | written on next-20261009; W=1 clean (2026-10-13); not built on v7.3-rc6 (same copied rtl83xx files there) |
+
+- None of ours is in next. Generic `pending-6.18/700`, `701` and `hack-6.18/910`, `911`, `940` apply to next as-is.
+- Build: `./dev.py build-kernel --w1` on `next-20261009` (2026-10-12, GCC 16.2, SMP default config): 0 warnings, W=1 on the 12 objects our patches touch: 0 warnings; 618 `=y`; kernel raw 12,366,208 B, `mainline.bin` 4,891,140 B (16 MiB bootm limit).
+- Boot (2026-10-12T14:07+11:00, sw2, `./dev.py ramload mainline-kernel`, merged main ec17cd4): initramfs shell up, `check-log` CLEAN (allowlist: `-next-YYYYMMDD` version, sw2 MAC via nvmem). NIC/NAT numbers vs 7.3 blocked by the bench path (#96).
+- OpenWrt-on-next config: `./dev.py build-openwrt --kernel mainline --regen-config` -> `openwrt/kernel-7.3/config-7.3` (next symbols added, `QCOM_PAS`/`QCOM_SCM` gone). Image not built.
+
+#### `files-6.18`
+
+| File(s) | Status | Note |
+|---|---|---|
+| `arch/mips/include/asm/mach-rtl-otto/*` | ported | verbatim |
+| `drivers/clk/realtek/*`, `include/dt-bindings/clock/rtl83xx-clk.h` | dropped | see `318` |
+| `drivers/net/dsa/rtl83xx/*` (incl. `l3.c` v4+v6 routing offload, `l2`, `tc`, `pie`, `qos`, `lag`, `mirror`, `stp`, `vlan`, `debugfs`) | ported | verbatim + `300-10` |
+| `drivers/net/ethernet/realtek/rtl838x_eth.[ch]` | ported | verbatim + `300-11` + `300-12` + `300-20` (+ shared `rtl930x_nic.h`) |
+| `drivers/net/ethernet/realtek/rtl960x_gmac.[ch]` | dropped | other SoC |
+| `drivers/net/mdio/mdio-realtek-otto.c`, `mdio-realtek-otto-serdes.c` | ported | verbatim |
+| `drivers/net/mdio/mdio-realtek-otto-rtl960x.c` | dropped | other SoC |
+| `drivers/net/pcs/pcs-rtl-otto.c` | ported | verbatim |
+| `drivers/net/phy/realtek/realtek_multiport.c` | dropped | see `720` |
+| `drivers/pci/controller/pcie-realtek.c`, `drivers/phy/realtek/phy-rtk-pcie.c` | dropped | no PCIe use |
+| `drivers/soc/realtek/*`, `include/linux/soc/realtek/otto_table.h` | ported | verbatim |
+| `drivers/thermal/realtek-thermal.c` | ported | verbatim |
+| `net/dsa/tag_rtl_otto.c` | ported | verbatim |
+
+#### OpenWrt `target/linux/generic` patches the realtek code depends on (scope for step 2)
+
+| Generic patch | Needed by | Here |
+|---|---|---|
+| `pending-6.18/737-01..07` phylink fwnode PCS provider | `pcs-rtl-otto` (provider), `rtl83xx/dsa.c` (`fwnode_phylink_pcs_parse`, `fill_available_pcs`) | forward-ported (`300-08`); `737-02/04/05/06` fail verbatim on 7.3 |
+| `pending-6.18/700`, `701` nft flowtable device events / offload `EOPNOTSUPP` | nft `flags offload` flowtables over DSA ports | apply on 7.3; not applied |
+| `pending-6.18/720-*`, `721-*`, `742`, `743` Realtek RTL82xx PHYs | boards with RTL822x/826x PHYs | not needed (SFP only) |
+| `hack-6.18` mtune 24kc | `308` | not needed |
+
+The rest of `generic/` (backports, other vendors' PHY/DSA/Ethernet, MediaTek PPE, bridge BPDU knob `710`) is not referenced by the realtek files above.
+
+### Retired decision (2026-10-12)
+
+- **Kernel base: track linux-next** (pinned `next-YYYYMMDD` in `scripts/kernel_base.py`, `./dev.py kernel-base update`), not v7.3-rc6: newest Realtek MDIO/SPI/GPIO fixes (the 7.4 sets), 7.3 not released. v7.3-rc6 stays selectable (`KERNEL_BASE=v7.3-rc6`). [MAINLINE-PORT.md](MAINLINE-PORT.md#baselines), #16.

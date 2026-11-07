@@ -1,11 +1,11 @@
 # CPU port (RTL9303 port 28): registers and measured rate
 
-Facts only. Procedures and results over time: [NAT-PROGRESS.md](NAT-PROGRESS.md). Issue #148.
+Facts only. Where we are: [NAT.md](NAT.md). Experiments and results over time: [NAT-HISTORY.md](NAT-HISTORY.md). Issue #148.
 
 ## What it is
 - Port 28 = internal CPU port: DMA to RAM through `rtl838x_eth`, no SerDes, no PHY. 2 RX rings, 2 TX rings, ring chosen by RX reason (`QM_RSN2CPUQID`).
 - `MAC_L2_CPU_PORT_CTRL` (`0xC70C`) `INTF_P28_SEL` / `CPU_PORT`: 0 = CPU is port 28 (internal NIC); 1 = port 27 (external CPU interface, 10G). Here port 27 is cage 8 and the strap pin S0 is not wired, so the external mode is not available.
-- Datasheet has no CPU-port speed or DMA figures. No public source found (2026-11-06, NAT-PROGRESS.md).
+- Datasheet has no CPU-port speed or DMA figures. No public source found (2026-11-06, NAT-HISTORY.md).
 - Ports on this board: cages 1-8 = switch ports 0, 8, 16, 20, 24, 25, 26, 27 (SerDes 2-9); 28 = CPU. Other port numbers unwired.
 
 ## Registers (offsets in the switch block; physical = `0x1b000000` + offset; `devmem` wants the physical address)
@@ -40,7 +40,7 @@ Facts only. Procedures and results over time: [NAT-PROGRESS.md](NAT-PROGRESS.md)
 
 ## Measured rate: 1.66 Gbit/s
 - 1400 B UDP + NAT, one direction, picks clocks: 143.7 kpps x 1446 B x 8 = 1.66 Gbit/s (1446 = 1400 + 8 UDP + 20 IP + 14 Ethernet + 4 FCS). Each frame crosses the CPU port twice (RX + TX): 3.3 Gbit/s total.
-- Size dependence: the same CPU (94-96 % busy) forwards 490.7 kpps at 64 B (2 us/packet) and 143 kpps at 1400 B (6.6-6.9 us/packet); a bare receive-and-drop (`rxdrop`, NAT.md) also tops out at 137 kpps at 1400 B. The extra ~4.6 us scales with frame size, so the ceiling is a byte-dependent path (NIC DMA, bus/DDR contention or the chip feeding the CPU queue), not forwarding work. Clock sweep below.
+- Size dependence: the same CPU (94-96 % busy) forwards 490.7 kpps at 64 B (2 us/packet) and 143 kpps at 1400 B (6.6-6.9 us/packet); a bare receive-and-drop (`rxdrop`, NAT-HISTORY.md) also tops out at 137 kpps at 1400 B. The extra ~4.6 us scales with frame size, so the ceiling is a byte-dependent path (NIC DMA, bus/DDR contention or the chip feeding the CPU queue), not forwarding work. Clock sweep below.
 
 ## Frame-size sweep (2026-11-07, UDP + NAT, fast path, `--napi irq1`, picks clocks, 10 s per size)
 

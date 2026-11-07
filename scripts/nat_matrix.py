@@ -24,7 +24,7 @@ PICKS = "turbo cpu=1375,ddr=662,lx=306,sram=500"
 CELLS = [  # (name, kernel variant, ramload extra)
     ("off-base", "skip21", ""), ("off-picks", "skip21", f"--pre|{PICKS}"),
     ("mapped-base", "full", ""), ("mapped-picks", "full", f"--pre|{PICKS}"),
-    # rings: NIC descriptor fetch from SRAM fails (RX or TX alone, docs/NAT.md); kept for re-tests
+    # rings: NIC descriptor fetch from SRAM fails (RX or TX alone, docs/NAT-HISTORY.md); kept for re-tests
     ("rings-base", "full", "--bootargs|rtl838x_eth.sram_rings=3"),
 ]
 DEFAULT = ["off-base", "off-picks", "mapped-base", "mapped-picks"]

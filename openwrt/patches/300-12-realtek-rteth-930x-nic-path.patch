@@ -1,6 +1,6 @@
 Subject: realtek: rteth (rtl838x_eth) NIC path: RTL930x doorbell, TX reclaim, overload (#60 #65)
 
-Measured: docs/NAT.md "NIC path" and #60/#65 (per step, 3 runs each).
+Measured: docs/NAT-HISTORY.md "NIC path" and #60/#65 (per step, 3 runs each).
 - TX doorbell (RTL930x only): one writel_relaxed of a cached DMA_IF_CTRL per kick; no read-poll,
   regmap lock or ktime. SDK r9300_nicTxFetch_set writes the field without a poll; the poll stays
   for RTL838x/839x/931x (empty-read workaround), now in rteth_83xx_tx_kick.

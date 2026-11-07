@@ -1,5 +1,5 @@
 #!/usr/bin/env python3
-"""cpuport_speed_ab — CPU port 28 SPD_SEL A/B on sw2 (#148, docs/NAT-PROGRESS.md).
+"""cpuport_speed_ab — CPU port 28 SPD_SEL A/B on sw2 (#148, docs/NAT-HISTORY.md).
 
 - Writes MAC_FORCE_MODE_CTRL(28) (phys 0x1b00ca8c) over the CONSOLE (the SSH path rides the CPU port).
 - Per value: set, wait for ping (<= 10 x 2 s), run `zc_bench.py --nat --napi irq1`, log the zc+nat line.

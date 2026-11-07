@@ -4,7 +4,7 @@ Subject: [PATCH] net: rteth: debugfs rxq: steer RX reasons and flags to a CPU ri
 - `/sys/kernel/debug/rteth/rxq` (RTL930x): read = frames per RX ring + the ring of 14 reason/flag fields;
   write `<name|all> <ring>` sets a 5-bit QM_RSN2CPUQID / QM_FLAG2CPUQID field, `rr` restores round robin.
 - Purpose: put part of the forwarded traffic on ring 1 so a NAPI pinned to VPE1 can serve it
-  (docs/NAT-PROGRESS.md, second CPU). Debug interface; no behaviour change until written.
+  (docs/NAT-HISTORY.md, second CPU). Debug interface; no behaviour change until written.
 - Module parameter `tx_by_cpu` (run time): TX ring = forwarding CPU, reclaim only the own ring.
 ---
 --- a/drivers/net/ethernet/realtek/rtl838x_eth.h

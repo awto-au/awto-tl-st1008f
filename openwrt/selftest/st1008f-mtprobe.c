@@ -1,4 +1,4 @@
-/* st1008f-mtprobe: synthetic load for the second VPE (docs/NAT-PROGRESS.md, scripts/mt_interference.py)
+/* st1008f-mtprobe: synthetic load for the second VPE (docs/NAT-HISTORY.md, scripts/mt_interference.py)
  * usage: st1008f-mtprobe MODE SECONDS   MODE = spin | small | chase | stream | sram
  *   spin   ALU only (xorshift), no memory
  *   small  dependent loads inside N KiB, default 8 (L1 resident; third argument = KiB)

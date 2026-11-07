@@ -4,7 +4,7 @@ Subject: [PATCH] net: rteth: pick the TX ring without skb_tx_hash (#65)
 eth0 has two TX rings and no ndo_select_queue, so every forwarded packet ran skb_tx_hash()
 (flow dissect + siphash) to choose one: ~11 % of the busy VPE under NAT. Control-priority
 frames go to ring 1, the rest to ring 0. Measured as an XPS map (both CPUs -> tx-0) at the
-picks: NAT TCP P4 431 -> 504 Mbit/s, UDP 64 B 90 -> 103 kpps (docs/NAT.md).
+picks: NAT TCP P4 431 -> 504 Mbit/s, UDP 64 B 90 -> 103 kpps (docs/NAT-HISTORY.md).
 ---
 --- a/drivers/net/ethernet/realtek/rtl838x_eth.c
 +++ b/drivers/net/ethernet/realtek/rtl838x_eth.c

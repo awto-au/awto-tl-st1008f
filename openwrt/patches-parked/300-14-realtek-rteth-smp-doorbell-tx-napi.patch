@@ -6,7 +6,7 @@ Subject: realtek: rteth (rtl838x_eth) SMP: both-ring RTL930x doorbell, optional 
 - tx_cpu module param (/sys/module/rtl838x_eth/parameters/tx_cpu, default -1 = 300-12 inline
   reclaim): N >= 0 moves TX reclaim + skb free to a per-ring TX NAPI scheduled on CPU N by IPI;
   RX poll then skips reclaim, a full ring stops the queue for the TX NAPI to wake.
-- Measured: docs/NAT.md "SMP", #60.
+- Measured: docs/NAT-HISTORY.md "SMP", #60.
 ---
 --- a/drivers/net/ethernet/realtek/rtl838x_eth.c
 +++ b/drivers/net/ethernet/realtek/rtl838x_eth.c

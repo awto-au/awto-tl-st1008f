@@ -25,7 +25,7 @@ The doc hunt (2026-10-11) is recorded in [sources/README.md](../sources/README.m
 - **Stock**: TL-ST1008F stock `rtk.ko` runs `dal_longan_{acl,eee,flowctrl,ipmc,l2,l3,led,mcast,mirror,oam,pie,port,qos,rate,sds,sec,stack,stat,stp,switch,trap,trunk,vlan}_init` with SDK defaults. It is an unmanaged switch with no user configuration. "init" below means only that default.
 - **OWRT**: OpenWrt `target/linux/realtek/files-6.18` at `53ec2d05a4` (`rtl83xx` DSA, `rtl838x_eth`, `pcs-rtl-otto`).
 - **Ours**: U-Boot `rtk` commands / 7.3 mainline port. The 7.3 port has no switch driver yet (MAINLINE-PORT.md), so the 7.3 column is "N" unless stated.
-- **Value** for this board means: 8x SFP+, router with NAT on the CPU path (228 Mbit/s ceiling, NAT.md), IPv6 routed in the ASIC, keep CPU cores free.
+- **Value** for this board means: 8x SFP+, router with NAT on the CPU path (up to 1.25 Gbit/s TCP on the fast path, NAT.md), IPv6 routed in the ASIC, keep CPU cores free.
   - **CPU** marks a feature that removes per-packet CPU work or protects the CPU.
   - **R** marks a feature that improves the router use case.
 - **Effort**: S = register writes or an existing kernel hook; M = new driver code (tc/DSA op, about 100-300 lines); L = new subsystem.
@@ -119,7 +119,7 @@ The doc hunt (2026-10-11) is recorded in [sources/README.md](../sources/README.m
 
 The DS gives §7.24 one paragraph plus Fig. 11. There are no DMA registers, timing or performance figures in the DS. The SDK register database is the full per-chip list, including reserved and dummy registers. Below is every CPU-port and NIC register in it (`scripts/sdk_regdump.py '^DMA_|^NIC_|^L2_NTFY|^MAC_L2_CPU|CPU_Q|CPU_PPS|CPUQID|FLAG2CPU'`).
 
-Per-packet cost today: RX 20-23 µs, TX 17-23 µs. It is the same at 64 B and 1400 B (NAT.md, #65), so the cost is per packet, not per byte.
+Per-packet cost today: RX 20-23 µs, TX 17-23 µs. It is the same at 64 B and 1400 B (NAT-HISTORY.md, #65), so the cost is per packet, not per byte.
 
 ### `DMA_IF_CTRL` 0xBB00E028
 
@@ -133,7 +133,7 @@ Read value `0x06400000`, taken 2026-10-11 at the U-Boot prompt with the NIC idle
 | RX_TRUNCATE_EN | 6 | 0 | Enables the truncation (`dal_longan_switch_cpuPktTruncateEnable_set`) | SDK sets it with len 0x640 | cleared | none for NAT: a forwarded packet needs its payload for TX. Header-only RX suits only copy-to-CPU (sFlow, mirror-to-CPU) where the ASIC forwards the original |
 | TX_EN | 5 | 0 | TX DMA enable | 1 at NIC init | 1 (`tx_rx_enable` 0x30) | - |
 | RX_EN | 4 | 0 | RX DMA enable | 1 | 1 | - |
-| TX_HIGH_FETCH | 3 | 0 | Doorbell, TX ring 1 (high). Self-clearing; the NIC then reads descriptors whose OWN bit is set (9310 DG §11.1.2, Table 11-2) | RMW per packet | `300-12`: one write of a cached value per kick, no read-poll | read-poll + regmap lock + `ktime` -> one `writel`: UDP 64 B forwarding +9 % (NAT.md "NIC path", #60) |
+| TX_HIGH_FETCH | 3 | 0 | Doorbell, TX ring 1 (high). Self-clearing; the NIC then reads descriptors whose OWN bit is set (9310 DG §11.1.2, Table 11-2) | RMW per packet | `300-12`: one write of a cached value per kick, no read-poll | read-poll + regmap lock + `ktime` -> one `writel`: UDP 64 B forwarding +9 % (NAT-HISTORY.md "NIC path", #60) |
 | TX_LOW_FETCH | 2 | 0 | Doorbell, TX ring 0 (low); higher ring ID = higher priority | same | same (mask `GENMASK(3,2)`) | same |
 | TX_HIGH_BUSY | 1 | 0 | TX ring 1 DMA busy, "for debugging" (RO) | polled | - | - |
 | TX_LOW_BUSY | 0 | 0 | TX ring 0 DMA busy, "for debugging" (RO) | polled | - | - |
@@ -175,7 +175,7 @@ Read value `0x06400000`, taken 2026-10-11 at the U-Boot prompt with the NIC idle
 | `QM_CPUQID2QID_CTRL` / `QM_CPUQID2XGQID_CTRL` [32] | 0xA324 / 0xA334 | QID[2:0] / QID[3:0] | CPU queue to internal egress queue of port 28 | reset | reset | none |
 | `SCHED_CPU_Q_CTRL` [32] | 0x7F44 | STRICT_EN 7, WEIGHT[6:0] | Per-CPU-queue strict priority / weight | reset | reset | none; control-plane priority |
 | `EGBW_CPU_Q_MAX_LB_CTRL` [32], `EGBW_CPU_PPS_LB_CTRL`, `EGBW_CTRL` | 0x7CB8, 0x78E8, 0x78E4 | EN, RATE, BURST; pps tick/token; RATE_MODE_CPU | Per-CPU-queue and CPU-port rate limits | off (ST5008F: 600 pps) | off | none; protection |
-| `FC_CPU_Q_EGR_DROP_THR` [32], `_DROP_CTRL`, `_FORCE_DROP_CTRL`, `_PAGE_CNT`, `_PKT_CNT` | 0x7DC0, 0xC468, 0xC4DC, 0x7E40, 0x7EC0 | ON/OFF pages; peak counters | Per-CPU-queue buffer budget | reset | reset; peak 0x340 pages under flood (NAT.md) | none: drops happen at the DMA ring, not here |
+| `FC_CPU_Q_EGR_DROP_THR` [32], `_DROP_CTRL`, `_FORCE_DROP_CTRL`, `_PAGE_CNT`, `_PKT_CNT` | 0x7DC0, 0xC468, 0xC4DC, 0x7E40, 0x7EC0 | ON/OFF pages; peak counters | Per-CPU-queue buffer budget | reset | reset; peak 0x340 pages under flood (NAT-HISTORY.md) | none: drops happen at the DMA ring, not here |
 
 ### SoC-level knobs outside DMA_IF
 
@@ -202,7 +202,7 @@ Read value `0x06400000`, taken 2026-10-11 at the U-Boot prompt with the NIC idle
   - Per-CPU-queue scheduling and rate limits.
   - These isolate traffic classes; they do not raise throughput.
 - The 20-23 µs per packet is CPU-side work: descriptor handling, uncached MMIO, cache invalidate and writeback, skb/page_pool. No register removes it. The fast path Realtek built is the ASIC pipeline (L3 + PIE), not the NIC.
-- Fixes stay in the driver (#60): `xmit_more` batching, BQL, `300-12` (lockless doorbell, TX ring 128, reclaim in xmit; NAT.md "NIC path"), and the trap-reason ring map.
+- Fixes stay in the driver (#60): `xmit_more` batching, BQL, `300-12` (lockless doorbell, TX ring 128, reclaim in xmit; NAT-HISTORY.md "NIC path"), and the trap-reason ring map.
 - Optional SoC delayed-interrupt test, low expected gain.
 
 ## Ranked: unused features worth enabling

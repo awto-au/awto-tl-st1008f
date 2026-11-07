@@ -1,7 +1,7 @@
 Subject: mips/mm: HIGHMEM lowmem fast paths for non-coherent DMA sync and page_address (#27)
 
 HIGHMEM=y costs the CPU-port NIC path per packet although every NIC buffer is lowmem
-(page_pool and slab never use __GFP_HIGHMEM). Measured: docs/NAT.md "HIGHMEM", #27.
+(page_pool and slab never use __GFP_HIGHMEM). Measured: docs/NAT-HISTORY.md "HIGHMEM", #27.
 - dma_sync_phys: lowmem range -> one cache op on phys_to_virt(); no pfn_to_page, per-page
   loop or kmap_atomic/kunmap_atomic (2 out-of-line calls + page_address per sync).
 - page_address: inline the !PageHighMem case (lowmem_page_address); the hash lookup moves to

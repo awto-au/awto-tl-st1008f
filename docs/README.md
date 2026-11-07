@@ -44,8 +44,9 @@
 
 ## Routing, NAT, NIC
 
-- [NAT.md](NAT.md) — NAT path, ceilings, measured results (#65). Ops: [NAT-OPS.md](NAT-OPS.md).
-- [NAT-PROGRESS.md](NAT-PROGRESS.md) — IPv4 NAT: current numbers, change-by-change ledger, what did not help, second-CPU analysis (#65, #60).
+- [NAT.md](NAT.md) — NAT where we are today: data path, best numbers, ceilings, tunables, open issues (#65). Ops: [NAT-OPS.md](NAT-OPS.md).
+- [NAT-HISTORY.md](NAT-HISTORY.md) — NAT experiments and dead ends, dated; "Combinations: what came back better" (#65, #60). [NAT-PROGRESS.md](NAT-PROGRESS.md) is a pointer stub.
+- [CPU-PORT.md](CPU-PORT.md) — CPU port 28 registers, 1400 B ceiling, frame-size and clock sweeps (#148).
 - [RESET-REASON.md](RESET-REASON.md) — the black box: why the last boot ended (panic text, clean, hang), kept across resets; ops: [RESET-REASON-OPS.md](RESET-REASON-OPS.md) (#144).
 - [ROUTING-OFFLOAD.md](ROUTING-OFFLOAD.md) — HW L3 routing offload (#59). Ops: [ROUTING-OFFLOAD-OPS.md](ROUTING-OFFLOAD-OPS.md).
 - [UPSTREAM-L3.md](UPSTREAM-L3.md) — upstream path for L3 offload: survey of router/flowtable offload code, shared `fib_offload` helper proposal (#85).

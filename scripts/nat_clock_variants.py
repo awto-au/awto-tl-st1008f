@@ -1,6 +1,6 @@
 #!/usr/bin/env python3
 """nat_clock_variants — CPU-path packet cost vs clocks: boot flash OpenWrt from our U-Boot with one
-clock change vs `clocks fast`, then run the nat-bench set (#65, docs/NAT.md).
+clock change vs `clocks fast`, then run the nat-bench set (#65, docs/NAT-HISTORY.md).
 
 - Per variant: power-cycle -> stock prompt (caught) -> ours from flash jffs2-log (no `rtk network on`,
   no chain marker = stays at the prompt) -> `clocks fast` -> variant commands -> `clocks` (logged) ->
