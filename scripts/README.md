@@ -325,6 +325,11 @@ End-to-end workflow: [../README.md#workflow](../README.md#workflow).
 - Reports: switch-core address holes, free table codes per access controller, unnamed bits per table entry, NAT-ish names, BIST memory list, longan vs mango features, named regs no SDK code uses, vendor reg/table lists vs GPL, decompile literal addresses outside the named map.
 - Output: `tmp/hidden/sdk_scan.json`. Log: `tmp/logs/hidden_sdk_scan.log`.
 
+### spg_test.py
+
+- Staged `rtk spg` checks (#70): `./dev.py spg-test stage1|2|3|4|5`. Log `tmp/logs/spg_test.log`.
+- `stage5` (#111): `allow-lit` burst through the sw2 7<->8 fibre loop, default 4M x 128 B at line rate (0.47 s); checks MIB out/in, logs CPU-port MIB. `--dry-run` prints the commands; sw1 refused (`--target sw1`).
+
 ### hidden_probe.py
 
 - Read-only `md.l` probes for the candidates in HIDDEN-FEATURES.md (#68): bonding/eFuse status, clock gates, encap block, table-access ctrl, HSB/HSA/HSM snapshots, L3 lookup-test regs, SPG ctrl (#70), all 90 `DMY_REG*`.

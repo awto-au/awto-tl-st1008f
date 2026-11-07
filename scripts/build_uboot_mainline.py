@@ -39,7 +39,8 @@ DEFCONFIG = "tplink_tl-st1008f_ram_defconfig"
 CROSS = "mips64-linux-gnu-"
 # Full clean build with net (#80, nice 19, -j30, 2026-10-12): 6 s. x1.25 rounded up = 8 s.
 # Applies per make call; on expiry make is killed and logged with elapsed time.
-BUILD_TIMEOUT_S = 8
+# $UBOOT_BUILD_TIMEOUT_S raises it on a loaded shared box (load 37 -> 19 s).
+BUILD_TIMEOUT_S = int(os.environ.get("UBOOT_BUILD_TIMEOUT_S", 8))
 TAIL_LINES = 40
 sys.path.insert(0, str(ROOT / "scripts"))
 import uboot_chain_image  # noqa: E402

@@ -138,6 +138,7 @@ st1008f-mainline #
   - needs `rtk network on`; frame: unicast DA 02:53:45:4e:44:00, SA = NIC MAC, type 0x88b5, 4-byte sequence at byte 14, ramp payload.
   - guards as `rtk spg`: lit cage (`rtk_cage_lit`) refused unless `allow-lit` (count <= 100); dark cage count <= 1000; 1 s runtime cap; Ctrl-C stops; RX polled 10 ms after the burst, count printed.
   - starting the NIC lights the target cage's laser only (others off), as `rtk linkcheck`; a dark cage with nothing attached sends into no link.
+- `rtk spg start <port> <stream> <count> [ipg] [allow-lit] [force-link]` (#70, #111): cage ports only; dark count ≤ 100000 and ≤ 10 s; `allow-lit` count ≤ 16000000 and 1.25× limit ≤ 2 s; plan line states the caps; Ctrl-C stops. Detail: [HIDDEN-FEATURES.md](HIDDEN-FEATURES.md#smart-packet-generator-spg-70).
 - `rtk dss`: 10 rows (wire 0-1 x ro 1-5), both CTRL words written back to 0; counts only, no MHz formula (unverified, [SDK-UBOOT-FEATURES.md](SDK-UBOOT-FEATURES.md) Q3).
 
 ## Implemented / not

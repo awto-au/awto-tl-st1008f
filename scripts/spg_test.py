@@ -14,6 +14,10 @@
   no socket drops, storm_watch rc 0. Without root: host rx_packets delta only = UNVERIFIED (rc 3).
 - stage4: through a cage loop (sw2 7<->8 fibre, #110): lasers 1 + the pair, burst out --tx, count the
   partner's ifInUcastPkts and the drop reasons; frames return to the CPU only (our isolation).
+- stage5 (#111, lit-cage cap relaxed): longer allow-lit burst through the sw2 7<->8 fibre loop (default
+  4M x 128 B at IPG 12 = 0.47 s, under the board's 2 s lit bound); pass = result DONE, MIB out == count, partner in == count;
+  CPU-port MIB and drop reasons logged (the CPU queue overflowing is expected). `--dry-run` prints every command.
+- sw2 only: the console daemon owns the sw2 UART (sw1 has no serial); `--target sw1` / sw1's IP is refused.
 - Log: tmp/logs/spg_test.log; results appended to tmp/logs/spg_test.jsonl.
 """
 
@@ -31,7 +35,7 @@ from pathlib import Path
 sys.dont_write_bytecode = True  # the _capture child runs as root: no root-owned __pycache__
 sys.path.insert(0, str(Path(__file__).resolve().parent))
 import hw_probe  # noqa: E402
-from boards import bench_nic  # noqa: E402
+from boards import SW1_IP, bench_nic  # noqa: E402
 from st1008_ramload import Console, network_on  # noqa: E402
 
 ROOT = Path(__file__).resolve().parent.parent
@@ -287,11 +291,11 @@ def drops(con: Console) -> dict[str, int]:
     return {drop_counters.name(i): x & 0xFFFF for i, x in enumerate(v) if x & 0xFFFF}
 
 
-def stage4(con: Console, tx_cage: int, rx_cage: int, count: int, ipg: int) -> int:
+def stage4(con: Console, tx_cage: int, rx_cage: int, count: int, ipg: int, lit_max: bool = False) -> int:
     """SPG out of tx_cage, back in on rx_cage through the owner's loop (sw2 7<->8 fibre, 3<->4 DAC, #110).
     Our U-Boot isolates the cages to the CPU port, so returning frames go to the CPU only."""
-    if count > 1000:
-        raise SystemExit("stage4 count is capped at 1000 (allow-lit)")
+    if count > 1000 and not lit_max:
+        raise SystemExit("stage4 count is capped at 1000 (use stage5 for longer lit bursts)")
     tp, rp = CAGE_PORT[tx_cage - 1], CAGE_PORT[rx_cage - 1]
     mask = 0xFF & ~(1 | 1 << (tx_cage - 1) | 1 << (rx_cage - 1))  # lasers: cage 1 (mgmt) + the pair
     status(con)  # first `rtk spg status` may run `rtk network on`, which parks the lasers: before lighting
@@ -318,10 +322,50 @@ def stage4(con: Console, tx_cage: int, rx_cage: int, count: int, ipg: int) -> in
         rtk(con, "rtk laser 1", 1, "laser cage 1 only")
     tx, rx = (out1 - out0) & 0xFFFFFFFF, (in1 - in0) & 0xFFFFFFFF
     log(f"  port {tp} out {tx}, port {rp} in {rx}, drop reasons {d or 'none'}")
-    ok = row["sent"] == count and rx == count
+    ok = row["sent"] == count and rx == count and (not lit_max or row["result"] == "DONE")
     log(f"stage4 {'PASS' if ok else 'FAIL'}: sent {row['sent']}, back in {rx}, count {count}")
     record({"stage": 4, "tx_cage": tx_cage, "rx_cage": rx_cage, "out": tx, "in": rx, "drops": d, **row})
     return 0 if ok else 1
+
+
+# ---- stage 5: longer lit burst through the loop (#111) ------------------------------------
+CPU_PORT = 28
+LIT_RUN_MAX_US = 2_000_000  # = RUN_LIT_MAX_US in rtk_spg.c: the board refuses a lit run whose 1.25x limit is longer
+
+
+def wire_us(length: int, ipg: int, count: int, mbps: int = 10000) -> float:
+    return count * (length + 8 + max(ipg, 12)) * 8 / mbps
+
+
+def stage5_cmds(tx_cage: int, rx_cage: int, count: int, ipg: int) -> list[str]:
+    tp, rp = CAGE_PORT[tx_cage - 1], CAGE_PORT[rx_cage - 1]
+    mask = 0xFF & ~(1 | 1 << (tx_cage - 1) | 1 << (rx_cage - 1))
+    return ["rtk network on   (only if `rtk spg status` says it is off)", "rtk spg status",
+            f"rtk i2c write 8 1 0x{mask:02x}; rtk i2c write 8 3 0   # lasers: cage 1 + the pair",
+            f"md.l MIB ports {tp} (out w11), {rp} (in w5), {CPU_PORT} (out w11); md.l drop counters 0xB5B8 x85 (clear)",
+            f"rtk spg load {tp} 0 128 128 {DA_DARK} {SA} incr",
+            f"rtk spg start {tp} 0 {count} {ipg} allow-lit", "md.l the same MIB words + drop counters again",
+            "rtk laser 1   # always, also on failure"]
+
+
+def stage5(con: Console | None, tx_cage: int, rx_cage: int, count: int, ipg: int, dry: bool) -> int:
+    exp_us = wire_us(128, ipg, count)
+    if exp_us * 1.25 > LIT_RUN_MAX_US:
+        raise SystemExit(f"stage5: {count} x 128 B at IPG {ipg} = {exp_us:.0f} us x 1.25 over the board's "
+                         f"{LIT_RUN_MAX_US} us lit bound")
+    tp, rp = CAGE_PORT[tx_cage - 1], CAGE_PORT[rx_cage - 1]
+    for c in stage5_cmds(tx_cage, rx_cage, count, ipg):
+        log(f"  {'DRY ' if dry else ''}cmd: {c}")
+    log(f"  expected {exp_us:.0f} us at 10G, board limit {exp_us * 1.25:.0f} us")
+    if dry or con is None:
+        return 0
+    cpu0 = mib(con, CPU_PORT, 11)
+    rc = stage4(con, tx_cage, rx_cage, count, ipg, lit_max=True)
+    cpu1 = mib(con, CPU_PORT, 11)
+    log(f"  CPU port {CPU_PORT} out ucast delta {(cpu1 - cpu0) & 0xFFFFFFFF} of {count} (U-Boot does not drain the NIC: "
+        f"shortfall = CPU-queue drops, not a fault)")
+    record({"stage": 5, "cpu_out": (cpu1 - cpu0) & 0xFFFFFFFF, "count": count, "rc": rc, "port_tx": tp, "port_rx": rp})
+    return rc
 
 
 # ---- root capture child ------------------------------------------------------------------
@@ -382,6 +426,13 @@ def main() -> int:
     s4.add_argument("--rx", type=int, default=8)
     s4.add_argument("--count", type=int, default=100)
     s4.add_argument("--ipg", type=int, default=10000)
+    s5 = sub.add_parser("stage5", help="longer allow-lit burst through the 7<->8 fibre loop (#111), sw2 only")
+    s5.add_argument("--tx", type=int, default=7)
+    s5.add_argument("--rx", type=int, default=8)
+    s5.add_argument("--count", type=int, default=4_000_000)
+    s5.add_argument("--ipg", type=int, default=12, help="IPG_LEN, 12 = line rate")
+    s5.add_argument("--dry-run", action="store_true", help="print every command, touch nothing")
+    ap.add_argument("--target", default="sw2", help="only sw2 (console daemon); sw1 is refused")
     c = sub.add_parser("_capture")
     c.add_argument("--nic", required=True)
     c.add_argument("--src", required=True)
@@ -389,14 +440,20 @@ def main() -> int:
     a = ap.parse_args()
     if a.stage == "_capture":
         return capture(a.nic, a.src, a.cap)
+    if a.target.lower() in ("sw1", "st1008f-1", SW1_IP):
+        raise SystemExit("REFUSED: sw1 is the in-service house switch; the packet generator runs on sw2 only")
     LOG.parent.mkdir(parents=True, exist_ok=True)
     log(f"=== spg_test {a.stage}")
+    if a.stage == "stage5" and a.dry_run:
+        return stage5(None, a.tx, a.rx, a.count, a.ipg, True)
     con = Console()
     con.run("", PROMPT, 1, "our U-Boot prompt")  # prompt echo < 10 ms; 1 s names a wrong prompt / dead console
     if a.stage == "stage1":
         return stage1(con)
     if a.stage == "stage2":
         return stage2(con, a.count, a.ipg_probe)
+    if a.stage == "stage5":
+        return stage5(con, a.tx, a.rx, a.count, a.ipg, False)
     if a.stage == "stage4":
         return stage4(con, a.tx, a.rx, a.count, a.ipg)
     return stage3(con, a.count, a.ipg, a.nic, a.watch)

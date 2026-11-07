@@ -80,4 +80,4 @@ Facts, limits and code: [STORM-PROTECTION.md](STORM-PROTECTION.md).
 ## After the test
 
 - Results (pass/fail per step, trapped vs flooded, CPU-port meter yes/no) go in STORM-PROTECTION.md with date + commit.
-- #111 step 4: SPG refusals (#70) → warnings; storm_watch → logger. Only after L3 + L5 pass.
+- #111 step 4 (owner 2026-11-07): SPG only — `allow-lit` count ≤ 16000000 and ≤ 2 s (HIDDEN-FEATURES.md); storm_watch and the loop guards unchanged; sw2 test `./dev.py spg-test stage5`.

@@ -2,7 +2,8 @@
 /*
  * `rtk spg`: RTL9303 Smart Packet Generator (#70). Registers, fields, sequence: docs/SPG.md.
  * Sequence: GPL SDK rtk-dms1250 rtdrv_netfilter_ext_9300.c (pktgen ioctls, _pkt_stream_offset_oper).
- * Safety: cage ports only, count mandatory + capped, lit ports refused, start blocks to done/limit.
+ * Safety: cage ports only, count mandatory + capped, lit ports need allow-lit + a time bound, start
+ * blocks to done/limit.
  */
 
 #include <command.h>
@@ -45,8 +46,11 @@ static const char *const cmd_name[] = { "nop", "start", "stop", "pause" };
 #define TBUF		1620		/* LEN_MAX rounded up to whole cells */
 #define ETYPE		0x88b5		/* IEEE local experimental: the host capture filters on it */
 #define CNT_CAP		100000
-#define CNT_LIT_CAP	1000		/* with allow-lit */
-#define RUN_MAX_US	10000000	/* refuse a start expected to block the console > 10 s */
+#define CNT_LIT_CAP	16000000	/* allow-lit backstop: 2 s of 128 B at line rate, fits the u32 MIB delta */
+#define RUN_MAX_US	10000000	/* dark: refuse a start expected to block the console > 10 s */
+/* allow-lit: waits for the count's last TX; 1.25x limit above 2 s refused (Ctrl-C polled ~1 ms);
+ * on expiry TIMEOUT, TX stopped. 2 s = 16 Mframes at 128 B, enough to load the CPU/NAT path (#111) */
+#define RUN_LIT_MAX_US	2000000
 #define LIMIT_FLOOR_US	1000		/* start/stop register writes; covers tiny counts */
 #define RX_LIT		20		/* 2 uW in 0.1 uW units: a lit fibre is far above, dark reads ~0 */
 #define PB_POLL_N	100		/* trig self-clear; the SDK never polls it */
@@ -369,6 +373,7 @@ static int spg_start(int argc, char *const argv[])
 	bool allow = false, force = false, have_ipg = false;
 	u32 sts0, mib0, fsave = 0, mbps, wire, gap;
 	u64 exp_us, c = 0, fps;
+	u32 cap_us;
 	const char *res;
 	char why[48], *e;
 	int i, lit, n;
@@ -399,8 +404,8 @@ static int spg_start(int argc, char *const argv[])
 			have_ipg = true;
 		}
 	}
-	if (count > CNT_CAP) {
-		printf("spg: count %lu over the cap %d: refused\n", count, CNT_CAP);
+	if (count > CNT_LIT_CAP) {
+		printf("spg: count %lu over the cap %d: refused\n", count, CNT_LIT_CAP);
 		return CMD_RET_FAILURE;
 	}
 	if (!ld_len[p][s]) {
@@ -413,13 +418,12 @@ static int spg_start(int argc, char *const argv[])
 	}
 	lit = cage_lit(cage_of(p), why, sizeof(why));
 	if (lit && !allow) {
-		printf("spg: port %lu (cage %d) LIT (%s): refused; allow-lit permits count <= %d\n", p,
-		       cage_of(p), why, CNT_LIT_CAP);
+		printf("spg: port %lu (cage %d) LIT (%s): refused; allow-lit permits count <= %d, <= %d s\n", p,
+		       cage_of(p), why, CNT_LIT_CAP, RUN_LIT_MAX_US / 1000000);
 		return CMD_RET_FAILURE;
 	}
-	if (lit && count > CNT_LIT_CAP) {
-		printf("spg: port %lu (cage %d) LIT (%s): allow-lit caps count at %d: refused\n", p,
-		       cage_of(p), why, CNT_LIT_CAP);
+	if (!lit && count > CNT_CAP) {
+		printf("spg: dark count %lu over the cap %d: refused\n", count, CNT_CAP);
 		return CMD_RET_FAILURE;
 	}
 	if (lit && force) {
@@ -435,19 +439,21 @@ static int spg_start(int argc, char *const argv[])
 	gap = ipg > 12 ? ipg : 12;
 	wire = ld_len[p][s] + 8 + gap;
 	exp_us = div_u64((u64)count * wire * 8, mbps);
-	if (exp_us > RUN_MAX_US) {
-		printf("spg: expected run %llu us over %d us: refused\n", (unsigned long long)exp_us,
-		       RUN_MAX_US);
+	cap_us = lit ? RUN_LIT_MAX_US : RUN_MAX_US;
+	limit = exp_us * 5 / 4 > LIMIT_FLOOR_US ? exp_us * 5 / 4 : LIMIT_FLOOR_US;
+	if ((lit ? limit : exp_us) > cap_us) {
+		printf("spg: expected run %llu us (limit %lu us) over %u us: refused\n",
+		       (unsigned long long)exp_us, limit, cap_us);
 		return CMD_RET_FAILURE;
 	}
-	limit = exp_us * 5 / 4 > LIMIT_FLOOR_US ? exp_us * 5 / 4 : LIMIT_FLOOR_US;
 	fps = div_u64((u64)mbps * 1000000, wire * 8);
 	printf("spg: plan port %lu (cage %d) stream %lu: %lu frames, len %u-%u, ipg %lu%s, %u Mb/s link%s"
 	       " -> %llu fps, %llu Mb/s; expect %llu us, auto-stop at TX_DONE or %lu us (1.25x, floor"
-	       " %d us); %s (%s)\n", p, cage_of(p), s, count, ld_min[p][s], ld_len[p][s], ipg,
+	       " %d us); caps: %s <= %u us, count <= %d; %s (%s)\n", p, cage_of(p), s, count, ld_min[p][s], ld_len[p][s], ipg,
 	       have_ipg ? "" : " (register)", mbps, force ? " (forced up)" : link_up(p) ? "" : " (DOWN)",
 	       (unsigned long long)fps, (unsigned long long)div_u64(fps * ld_len[p][s] * 8, 1000000),
-	       (unsigned long long)exp_us, limit, LIMIT_FLOOR_US, lit ? "LIT, allow-lit" : "dark", why);
+	       (unsigned long long)exp_us, limit, LIMIT_FLOOR_US, lit ? "lit run" : "run", cap_us,
+	       lit ? CNT_LIT_CAP : CNT_CAP, lit ? "LIT, allow-lit" : "dark", why);
 	if (have_ipg)
 		sw_rmw(SPG_IPG(p), 0xfffff, ipg);
 	sw_w(SPG_PP(p, PP_CNT_H), 0);
@@ -530,9 +536,10 @@ int rtk_spg(int argc, char *const argv[])
 		       " [badcrc]\n"
 		       "rtk spg start <port> <stream> <count> [ipg] [allow-lit] [force-link]\n"
 		       "rtk spg stop [off]\n"
-		       "  port = SDK cage port 0 8 16 20 24-27; count 1-%d (allow-lit: <= %d, lit cages);\n"
-		       "  start blocks until TX_DONE or 1.25x the expected time; Ctrl-C stops\n",
-		       CNT_CAP, CNT_LIT_CAP);
+		       "  port = SDK cage port 0 8 16 20 24-27; count 1-%d (allow-lit, lit cages: <= %d);\n"
+		       "  run <= %d s expected (allow-lit: 1.25x limit <= %d s); start blocks until TX_DONE or\n"
+		       "  1.25x the expected time; Ctrl-C stops\n",
+		       CNT_CAP, CNT_LIT_CAP, RUN_MAX_US / 1000000, RUN_LIT_MAX_US / 1000000);
 		return CMD_RET_FAILURE;
 	}
 	return ret;

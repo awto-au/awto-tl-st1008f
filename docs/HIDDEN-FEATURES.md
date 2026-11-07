@@ -23,7 +23,10 @@ Catalogue of RTL9303 hardware that the datasheet omits, the SDK leaves unused, o
 - **Risk:** transmits frames: storm risk on the house LAN
 - **Capability (SDK):** 2 streams per port; frame template, count, length sweep, incrementing MACs, payload pattern (zero/incr/decr/fix/repeat), optional bad CRC, inter-packet gap (rate), per-port sent counters. Not in either datasheet; stock never uses it.
 - **Status:** on `main` (merge `abaf5e7`); tested on sw2 2026-10-13T12:30-12:37 with `./dev.py spg-test stage1|2|3`.
-- **Safety in code:** `rtk network on` first; 8 cage ports only; count 1-100000 mandatory; lit cage (laser on, MAC link, copper/DAC incl. PN ending `-T`, RX light, unreadable) refused unless `allow-lit`, then count ≤ 1000; broadcast/multicast DA refused; plan printed before sending; auto-stop on the count or 1.25× expected time; runs > 10 s refused.
+- **Safety in code:** `rtk network on` first; 8 cage ports only; count 1-100000 mandatory; lit cage (laser on, MAC link, copper/DAC incl. PN ending `-T`, RX light, unreadable) refused unless `allow-lit`; broadcast/multicast DA refused; plan printed before sending (with the caps that apply); auto-stop on the count or 1.25× expected time.
+  - Caps (#111, owner 2026-11-07): dark = count ≤ 100000, expected run ≤ 10 s. `allow-lit` = count ≤ 16000000 and 1.25× limit ≤ 2 s (count × (len + 8 + max(IPG,12)) × 8 / link Mb/s); 2 s ≈ 16 Mframes of 128 B at 10G, enough for CPU/NAT-path load, and bounds the console block (Ctrl-C polled). Expiry = `TIMEOUT`, TX paused. Ceiling check is derived, not a count: a slower link or longer frame lowers the allowed count.
+  - Unchanged: one cage lit (host tooling), sw2 only (`spg_test.py` refuses sw1; sw1 has no serial), cage ports only (CPU port 28 never a target), storm_watch and loop guards.
+  - CPU-port queue: frames looping back to the CPU overflow its queue (`EGR_QUEUE` drops; U-Boot does not drain the NIC); counted, harmless, logged by stage5.
 - **Measured:**
   - stage1: generator idle, register views agree; IPG_LEN reset 12 on every cage port.
   - Frames **leave the port directly**: port 0 MIB `ifOutUcastPkts` +100 / +1000 and `ifOutOctets` +128 B per frame, no ingress counts, our CPU-only isolation does not stop them. Host (via the house switch) captures every frame, 124 B + FCS, payload intact.
@@ -35,7 +38,7 @@ Catalogue of RTL9303 hardware that the datasheet omits, the SDK leaves unused, o
   - 100 frames out of port 26, 100 in on port 27 (`ifInUcastPkts`), no drop reason.
   - 1000 × 128 B at IPG 12 (line rate): 125 µs (8.0 Mfps, 8.2 Gbit/s), 1000 back in; `EGR_QUEUE` 774 = the CPU-port queue overflowing (U-Boot does not drain the NIC).
   - Laser on → MAC link 0.3 s.
-- **Traffic source for the NAT bench / all-port test:** SPG → loop → switch ingress works at line rate. A CPU/NAT-path rate needs bursts longer than the lit-port cap (1000 frames ≈ 0.1 ms at line rate): blocked until the guard change (#111). Linux with the loops fitted also needs STP and the pairs kept out of the bridge first.
+- **Traffic source for the NAT bench / all-port test:** SPG → loop → switch ingress works at line rate. A CPU/NAT-path rate needs bursts longer than 1000 frames (0.1 ms at line rate): lit cap now 2 s (#111), `./dev.py spg-test stage5`, not yet run on sw2. Linux with the loops fitted also needs STP and the pairs kept out of the bridge first.
 - **Registers** ([GPL] `rtk_longan_reg_list.c`; base `0xBB000000`; ports 0-27; strides from SDK `macPpInfo`):
 
 | Register | Offset | Fields |
