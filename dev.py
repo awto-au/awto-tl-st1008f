@@ -405,6 +405,13 @@ def cmd_boot_link_check(extra: list[str]) -> int:
     return _script("boot_link_check.py", extra)
 
 
+@command("regression canary on sw2 only (docs/CANARY.md): flash image (boot-link x3, #138 hang-test, switch-check) then plain kernel "
+         "(selftest, vlanproto, gdma, dss, zc under perf, boot log); PASS/WARN/FAIL/NOTRUN, exit 0/1",
+         args="[--only a,b|ids] [--list] [--dry-run] [--update-baseline] [--no-ramload] [--selftest]", kind="hardware")
+def cmd_canary(extra: list[str]) -> int:
+    return _script("canary.py", extra)
+
+
 @command("SerDes calibrated with no signal: does it link when the partner lights? sw2 loop pair (#125)",
          args="[--first lanX] [--second lanY] [--reboot] [--dark-cal]", kind="hardware")
 def cmd_sds_cal_test(extra: list[str]) -> int:
@@ -760,7 +767,8 @@ def _daemon_policy_pass() -> None:
 
 # no board contact, or read-only network checks that may target sw1 (#91)
 HOST_ONLY = {"storm-watch", "check-log", "flash-guard", "doc-check", "console-watch", "console-window",
-             "switch-check", "mode-watch", "switch-logs"}
+             "switch-check", "mode-watch", "switch-logs",
+             "canary"}  # orchestrator: every board flow it spawns goes through dev.py/board_guard itself
 # Owner-approved management of a running switch over SSH (any unit, sw1 included): no power, console or flash.
 NET_MANAGE = {"openwrt-snmp", "openwrt-luci", "switch-net-clean", "switch-snmp", "switch-vlan",
               "uboot-chain-install-ssh",  # jffs2-log write only (flash_guard), owner OK 2026-10-13

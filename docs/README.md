@@ -38,6 +38,7 @@
 - [STORM-PROTECTION.md](STORM-PROTECTION.md) — storm control + loop detection in the switch hardware, U-Boot and Linux defaults (#111). Ops: [STORM-PROTECTION-OPS.md](STORM-PROTECTION-OPS.md).
 - [MONITORING.md](MONITORING.md) — 1 s trends in Netdata on TrueNAS: SNMP + switch sensor daemon, costs (#115).
 - [SYSLOG.md](SYSLOG.md) — remote syslog to TrueNAS: receiver app, file layout, `openwrt-syslog` flow (#115).
+- [CANARY.md](CANARY.md) — `./dev.py canary`: regression run on sw2 (flash image + plain kernel), baseline, what each check protects, what is not covered.
 - [SELFTEST.md](SELFTEST.md) — boot self-test `st1008f-selftest` under Linux: memory, CPU, SRAM, clocks, registers, mode switch, ASIC, flash (#108).
 - [FIRMWARE-ANALYSIS.md](FIRMWARE-ANALYSIS.md) — stock flash/kernel/initramfs; related managed firmware.
 - [MANAGED-FEATURES.md](MANAGED-FEATURES.md) — TL-ST5008F v2 managed feature inventory vs ours (#79).

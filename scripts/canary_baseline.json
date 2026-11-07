@@ -1,0 +1,14 @@
+{
+  "recorded": "2026-11-07",
+  "source": "docs/CANARY.md#baseline; values from docs/CAMPAIGN-PLAIN-7.4.md and docs/PLAIN-KERNEL-TESTS.md",
+  "conditions": {
+    "flash_image": "OpenWrt 6.18.60 (built 2026-11-04), sw2 slot b, chain installed, bootsel fast default clocks",
+    "plain_kernel": "v7.4-rc1 + our series, bench config, bench initramfs, 7.4.0-rc1-dirty",
+    "plain_clocks": "picks cpu=1350,ddr=662,lx=306,sram=500, cage 1, route mode, 1400 B"
+  },
+  "boot_link": {"rounds": 3},
+  "hang_test": {"reset_s": null, "warn_above_s": 130, "note": "no passing run on the 2026-11-04 image yet (#138); fill with --update-baseline after the first PASS"},
+  "gdma": {"ns_4096": 97800, "max_ns_4096": 122000},
+  "zc": {"kpps_1400": 143.3, "tol_pct": 10},
+  "dss": {"polls": 1}
+}

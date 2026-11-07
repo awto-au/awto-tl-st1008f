@@ -186,7 +186,7 @@ class Campaign:
             r4k = next((r for r in rows if r[0] == "4096"), None)
             ok = reg and len(rows) == 8 and bad == 0
             return ("PASS" if ok else "FAIL"), (f"reg {reg} rows {len(rows)} bad+fails {bad} "
-                                               + (f"4k gdma {r4k[2]} MB/s cpu {r4k[4]} MB/s" if r4k else "") + ("" if ok else " " + out.strip()[-120:]))
+                                               + (f"4k gdma {r4k[1]} ns {r4k[2]} MB/s cpu {r4k[4]} MB/s" if r4k else "") + ("" if ok else " " + out.strip()[-120:]))
         self.do("gdma", ssh_cmd(self.ip, "ls /sys/class/dma; insmod /tmp/gdma_bench.ko iters=200 2>&1 | tail -n 1; dmesg | grep -i -E 'gdma|memcpy channel'"), judge=judge)
 
     def dss(self) -> None:
