@@ -420,7 +420,7 @@ clocks: (5 us, clk_oe = 0x[0-9a-f]+, 200 us|canary \d+ words at [0-9a-f]+, rever
 clocks: write 0x[0-9a-f]+.*  # turbo register writes, verbose trace (#46)
 MSPXDC  # stock SPL token on every chained boot (#105)
 clocks: turbo OK = cpu \d+ MHz, mem \d+ MHz, lx \d+ MHz, sram \d+ MHz(, swcore \d+ MHz)?, MCR [0-9a-f]{8}, spi unchanged  # M3 turbo result (#46); `reverted` is not allowlisted
-clocks: swcore now \d+ kHz \(code [0-3]\), e220 [0-9a-f]{8}  # turbo swcore= change, read back (#148)
+clocks: swcore now \d+ kHz \(code [0-3], vco \d+\), e220 [0-9a-f]{8} e214 [0-9a-f]{8}  # turbo swcore= change, read back (#148)
 clocks: mem now \d+ kHz, DTR0 [0-9a-f]{8} DTR1 [0-9a-f]{8} DTR2 [0-9a-f]{8}, canary 0 bad  # turbo/clocks DDR change, zero canary errors ("0 bad" is not a DENY match)
 
 [mainline]

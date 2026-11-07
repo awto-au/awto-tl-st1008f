@@ -62,8 +62,9 @@ STOCK_NOTE = "NOTE: default = stock clocks (CPU 800, DDR 600, LX 175, SRAM 250, 
 TURBO_SETS = {"cpu": {800, 1000, 1050} | set(range(1100, 1426, 25)),
               "ddr": {800, 775, 750, 725, 700, 675, 662, 650, 625, 600, 550, 500, 450, 400, 350, 300},
               "lx": {175, 204, 245, 306}, "sram": {250, 500}, "spi": {25},
-              "swcore": {245, 306, 408, 612}, "swcore_xp": {1}}
+              "swcore": {245, 306, 408, 508, 575, 608, 658, 612}, "swcore_xp": {1}}
 SWCORE_XP = {612}  # experimental (#148): needs swcore_xp=1; mirrors clocks.c swc_pts
+SWCORE_LX = {508: 305, 575: 246, 608: 304, 658: 247}  # VCO points re-code LX: an lx= key must be within 1 %
 CHECK_OK = r"Total of 1 word"   # stock cmp.l: equal
 CHECK_BAD = r"word at 0x"        # stock cmp.l: differ
 STOCK = r"\r?\nRTL9300# "
@@ -289,13 +290,18 @@ def turbo_problem(p: str) -> str | None:
     kv = dict(i.split("=") for i in p.split(","))
     if int(kv.get("swcore", 0)) in SWCORE_XP and kv.get("swcore_xp") != "1":
         return f"swcore={kv['swcore']} is experimental: add swcore_xp=1"
+    sw, lx = int(kv.get("swcore", 0)), int(kv.get("lx", 0))
+    if sw in SWCORE_LX and lx and abs(SWCORE_LX[sw] - lx) * 100 > lx:
+        return f"swcore={sw} sets LX {SWCORE_LX[sw]} MHz: lx={lx} does not match (use lx={245 if SWCORE_LX[sw] < 270 else 306})"
     return None
 
 
 def selftest() -> int:
     """Host-only: turbo_problem accepts/rejects (no hardware)."""
     cases = [("cpu=1350,ddr=662,lx=306,sram=500,swcore=306", True), ("swcore=999", False),
-             ("swcore=612", False), ("swcore=612,swcore_xp=1", True), ("swcore=408", True)]
+             ("swcore=612", False), ("swcore=612,swcore_xp=1", True), ("swcore=408", True),
+             ("swcore=608", True), ("swcore=508", True), ("lx=306,swcore=608", True), ("lx=306,swcore=575", False),
+             ("lx=245,swcore=658", True), ("swcore=999", False)]
     bad = [(p, ok) for p, ok in cases if (turbo_problem(p) is None) != ok]
     print("selftest FAIL:", bad) if bad else print("selftest PASS")
     return 1 if bad else 0

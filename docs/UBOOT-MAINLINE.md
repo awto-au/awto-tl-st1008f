@@ -124,7 +124,7 @@ st1008f-mainline #
 | `hash`, `md5sum`, `sha1sum` | `CMD_HASH` `CMD_MD5SUM` `CMD_SHA1SUM` (+ `*_VERIFY`) | algos: md5 sha1 crc32; sha256 off (+~11 KiB, no room) |
 | `mtest [start end]` | `CMD_MEMTEST` | default 0x80200000-0x80400000 (`SYS_MEMTEST_*`); destructive on the range |
 | `flshow` | `CMD_ST1008F_FLSHOW` | static stock table, no flash access |
-| `clocks set swcore <245\|306\|408> [xp] force` | always (clocks.c) | switch-core clock e220[8:5] + e200 bit 30 relock, read-back, old code restored on mismatch; 612 needs `xp` (#148); built 2026-11-07, not run on the board |
+| `clocks set swcore <245\|306\|408\|508\|575\|608\|658> [xp] force` | always (clocks.c) | switch-core clock: e220 (code, LX, NOR) + e214 (VCO) + e200 bit 30 relock, read-back, old e220/e214 restored on mismatch; refuses LX outside the LX set or NOR/SPI above stock; 612 needs `xp` (wedges forwarding); VCO points compiled only, not run on the board (#148) |
 | `rtk dss` | `CMD_ST1008F_DSS` | die-speed-sensor counts, `rtk_dss.c` |
 | `rtk send [cage] [count] [allow-lit]` | always | CPU-sent 74 B frames, `rtk_send.c` |
 

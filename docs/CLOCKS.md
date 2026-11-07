@@ -47,6 +47,19 @@ Source tags: **[SRC]** GPL file:line (`dms1250/` = `sources/rtk-dms1250/`, `xgs1
 
 - Switch-core clock = SW VCO / (2 x (DIVN2_SWCORE + 2)) = 408 MHz at stock (code 1). Runtime change works from the U-Boot prompt: `mw.l 0xbb00e220 <v>` then e200 bit 30 relock (`mw.l 0xbb00e200 0x0001c0ff`, `0x4001c0ff`); `clocks set swcore` / turbo `swcore=` (#148) use it. Tried 3 (245), 2 (306), 1, 0 (612): all boot and link; the 1400 B CPU-port rate scales with it (86.6 / 108.1 / 143.5 / 182.3 kpps rx-only); 612 left lan1 silent after the rx runs (docs/CAMPAIGN-PLAIN-7.4.md 'Switch-core clock').
 - Switch-core stable range (2026-11-07, #148; docs/CAMPAIGN-PLAIN-7.4.md 'why 612 fails'): SW VCO = 50 MHz x (e214 NCODE + 2); e214 acts at once, so write e220 (LX/NOR re-coded for the new VCO) and e214 in one U-Boot line, then relock. Passing with code 1 (/6) on 3 boots each: 508 (VCO 3050, e214 `0x3b8`, e220 `0x30626`), 575 (3450, `0x438`, `0x34a26`, LX 246), 608 (3650, `0x478`, `0x36826`, best forwarding), 658 (3950, `0x4d8`, `0x38c26`, LX 247). Code 0 (612 at VCO 2450) wedges the CPU-port DMA under forwarding. Recommended maximum 608 MHz (code 1, VCO 3650); LX stays within 1 % of 306 only for VCO 3050 and 3650.
+- U-Boot points (`swc_pts`, clocks.c; `clocks set swcore N`, turbo `swcore=N`): {MHz, VCO, swcore code, LX code, NOR code}. e214 = (live & ~0xff0) | NCODE << 4; e220 = (live & ~0x1ffe0) | NOR << 13 | LX << 9 | code << 5. Written e220, e214, then the e200 bit 30 relock; read back, old words restored on mismatch.
+
+| MHz | VCO | e214 | e220 | LX | NOR / SPI |
+|---|---|---|---|---|---|
+| 508 | 3050 | `000003b8` | `00030626` | 305 | 152.5 / 25.4 |
+| 575 | 3450 | `00000438` | `00034a26` | 246 | 143.8 / 24.0 |
+| 608 | 3650 | `00000478` | `00036826` | 304 | 140.4 / 23.4 |
+| 658 | 3950 | `000004d8` | `00038c26` | 247 | 141.1 / 23.5 |
+| 245 / 306 / 408 | 2450 | stock | stock + code | 306 (recoded near live LX) | 153.1 / 25.5 |
+
+  - 575 and 658: LX moves to 246/247 MHz; forwarding depends on LX (153 kpps vs 159-170 at LX 305).
+  - Refused in U-Boot: LX outside 175/204/245/306 +-1 %; NOR/SPI above stock 25.52 MHz (Linux must not run fast SPI, #50). 612 (code 0) only with `xp`: wedges forwarding.
+  - Table values compiled and host-selftested only; PLL ready wait 1 ms after the relock is unmeasured (#148).
 
 ### SoC `0xb8000000` — [SRC] `dms1250/system/include/soc/socdef/rtl9300_soc_reg.h`
 

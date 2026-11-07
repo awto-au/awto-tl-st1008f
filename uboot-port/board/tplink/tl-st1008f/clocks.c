@@ -212,39 +212,71 @@ static int cpu_set(u32 e208, u32 e210, u32 relock)
 }
 
 #define PLL_E200	0xbb00e200	/* bit 17 LXB_CLK_SEL: 1 = LX on the alternate clock */
+/* LX MHz -> DIVN2_LXB code (lx_set): 2450 / (2 x (code + 2)) */
+static const u16 lx_pts[] = { [2] = 306, [3] = 245, [4] = 204, [5] = 175 };
+
 #define PLL_E220	0xbb00e220	/* [12:9] DIVN2_LXB: LX = sw vco / (2 x (code + 2)) */
 
-/* docs/CLOCKS.md "LX at runtime": switch LX, then hand the console its new clock at once */
-static int lx_set(u32 code)
+/* hand the console its new LX clock at once (UART divisor follows LX) */
+static void uart_follow(void)
 {
 	struct ns16550_plat *plat;
 	struct otto_clocks c;
 	struct udevice *dev;
 
+	if (uclass_get_device(UCLASS_SERIAL, 0, &dev))
+		return;
+	plat = dev_get_plat(dev);
+	otto_clocks_read(&c);
+	plat->clock = c.lx_khz * 1000;
+	serial_setbrg();
+}
+
+/* docs/CLOCKS.md "LX at runtime": switch LX, then hand the console its new clock at once */
+static int lx_set(u32 code)
+{
+	struct otto_clocks c;
+
+	otto_clocks_read(&c);
+	if (c.sw_vco_khz != 2450000) {	/* lx_pts assume the stock SW VCO */
+		puts("clocks: lx codes need SW VCO 2450 (swcore point moves LX itself)\n");
+		return CMD_RET_FAILURE;
+	}
 	if (code < 2 || code > 5) {	/* 5 = 175 MHz stock; 2 = 306 MHz */
 		puts("clocks: lx code 2..5 only\n");
 		return CMD_RET_USAGE;
 	}
-	if (uclass_get_device(UCLASS_SERIAL, 0, &dev))
-		return CMD_RET_FAILURE;
-	plat = dev_get_plat(dev);
 	printf("clocks: 0xbb00e220[12:9] = %u via LXB_CLK_SEL; console follows\n", code);
 	uart_drain();
 	__raw_writel(R(PLL_E200) | BIT(17), (void __iomem *)PLL_E200);
 	__raw_writel((R(PLL_E220) & ~GENMASK(12, 9)) | (code << 9), (void __iomem *)PLL_E220);
 	__raw_writel(R(PLL_E200) & ~BIT(17), (void __iomem *)PLL_E200);
 	__asm__ __volatile__("sync");
+	uart_follow();
 	otto_clocks_read(&c);
-	plat->clock = c.lx_khz * 1000;
-	serial_setbrg();
 	printf("clocks: lx now %u kHz, uart clock updated\n", c.lx_khz);
 	return 0;
 }
 
-/* Switch-core clock = sw vco / (2 x (code + 2)) (docs/CLOCKS.md); bench #148. Add rows here to extend */
-static const struct { u16 mhz; u8 code; bool xp; } swc_pts[] = {
-	{ 245, 3, false }, { 306, 2, false }, { 408, 1, false },	/* 408 = stock */
-	{ 612, 0, true },	/* experimental: not stable (#148), needs swcore_xp=1 / `xp` */
+/* Switch-core clock = sw vco / (2 x (code + 2)) (docs/CLOCKS.md); #148.
+ * vco MHz = 50 x (e214 NCODE + 2); lx/nor = e220 DIVN2_LXB/_SPI_NOR codes proven with that VCO,
+ * lx 0 = recode LX near the live/requested rate. Code 0 (612) wedges forwarding: xp only. */
+static const struct { u16 mhz, vco; u8 code, lx, nor; bool xp; } swc_pts[] = {
+	{ 245, 2450, 3, 0, 6, false }, { 306, 2450, 2, 0, 6, false }, { 408, 2450, 1, 0, 6, false },
+	{ 508, 3050, 1, 3, 8, false },	/* LX 305 */
+	{ 575, 3450, 1, 5, 10, false },	/* LX 246: forwarding depends on LX */
+	{ 608, 3650, 1, 4, 11, false },	/* LX 304: recommended maximum */
+	{ 658, 3950, 1, 6, 12, false },	/* LX 247: forwarding depends on LX */
+	{ 612, 2450, 0, 0, 6, true },	/* wedges CPU-port DMA in forwarding (#148) */
+};
+
+#define PLL_E214	0xbb00e214
+#define SPI_SFCR	0xb8001200
+#define SPI_STOCK_KHZ	25521	/* 153125 / 6: SPI never above stock, Linux must not run fast SPI (#50) */
+#define SWC_LOCK_US	1000	/* SW PLL ready after the relock; unmeasured for VCO steps; expiry = revert */
+
+struct swc_plan {
+	u32 e214, e220;
 };
 
 static int swc_find(u32 mhz)
@@ -257,49 +289,104 @@ static int swc_find(u32 mhz)
 	return -1;
 }
 
-/* live e220[8:5] -> nominal MHz of the table, 0 = not a table code */
+/* live VCO + e220[8:5] -> nominal MHz of the table, 0 = not a table point */
 static u32 swc_live(void)
 {
-	u32 code = F(R(PLL_E220), 8, 5);
+	struct otto_clocks c;
+	u32 code = F(R(PLL_E220), 8, 5), khz;
 	int i;
 
+	otto_clocks_read(&c);
+	khz = c.sw_vco_khz / (2 * (code + 2));
 	for (i = 0; i < ARRAY_SIZE(swc_pts); i++)
-		if (swc_pts[i].code == code)
+		if (swc_pts[i].mhz == khz / 1000 && swc_pts[i].code == code)
 			return swc_pts[i].mhz;
 	return 0;
 }
 
-/* e220[8:5] = code, then the e200 bit 30 relock (0 -> 1); verify, restore the old code on mismatch */
-static int swc_write(u32 code)
+/* register words for point i, or why not: LX within 1 % of an lx_pts rate, SPI <= stock */
+static const char *swc_plan(int i, u32 lx_want, struct swc_plan *pl)
+{
+	u32 vco = swc_pts[i].vco * 1000, lx = swc_pts[i].lx, best = ~0U, d, k, ok = 0;
+	u32 lx_khz, spi_khz;
+	struct otto_clocks c;
+
+	otto_clocks_read(&c);
+	pl->e214 = R(PLL_E214);
+	pl->e220 = (R(PLL_E220) & ~GENMASK(8, 5)) | swc_pts[i].code << 5;
+	if (c.sw_vco_khz == vco)
+		return NULL;	/* same VCO: only the switch-core divider moves */
+	if (lx_want && lx && abs((int)(vco / (2 * (lx + 2)) - lx_want * 1000)) * 100 > lx_want * 1000)
+		return "LX of this point is not the requested lx";
+	if (!lx) {
+		lx_want = lx_want ?: c.lx_khz / 1000;
+		for (k = 2; k <= 5; k++) {
+			d = abs((int)(vco / (2 * (k + 2)) - lx_want * 1000));
+			if (d < best)
+				best = d, lx = k;
+		}
+	}
+	lx_khz = vco / (2 * (lx + 2));
+	for (k = 2; k <= 5; k++)
+		ok |= abs((int)(lx_khz - lx_pts[k] * 1000)) * 100 <= lx_pts[k] * 1000;
+	if (!ok)
+		return "LX would leave the allowed set (175 204 245 306 +-1 %)";
+	spi_khz = vco / (2 * (swc_pts[i].nor + 2)) / (2 * (F(R(SPI_SFCR), 31, 29) + 1));
+	if (spi_khz > SPI_STOCK_KHZ)
+		return "NOR/SPI clock would exceed stock 25.5 MHz";
+	pl->e214 = (pl->e214 & ~GENMASK(11, 4)) | (swc_pts[i].vco / 50 - 2) << 4;
+	pl->e220 = (pl->e220 & ~(GENMASK(16, 13) | GENMASK(12, 9))) | swc_pts[i].nor << 13 | lx << 9;
+	return NULL;
+}
+
+/* e220 (new LX/NOR codes) then e214 (acts at once), e200 bit 30 relock, console follows LX */
+static int swc_write(u32 e220, u32 e214)
 {
 	u32 e200 = R(PLL_E200) & ~BIT(30);
+	ulong t0;
 
-	__raw_writel((R(PLL_E220) & ~GENMASK(8, 5)) | code << 5, (void __iomem *)PLL_E220);
+	uart_drain();
+	__raw_writel(e220, (void __iomem *)PLL_E220);
+	if (e214 != R(PLL_E214))
+		__raw_writel(e214, (void __iomem *)PLL_E214);
 	__raw_writel(e200, (void __iomem *)PLL_E200);
 	__raw_writel(e200 | BIT(30), (void __iomem *)PLL_E200);
 	__asm__ __volatile__("sync");
-	return F(R(PLL_E220), 8, 5) == code && (R(PLL_E200) & BIT(16)) ? 0 : -EIO;
+	t0 = timer_get_us();
+	while (!(R(PLL_E200) & BIT(16)) && timer_get_us() - t0 < SWC_LOCK_US)
+		;
+	uart_follow();
+	return F(R(PLL_E220), 16, 5) == F(e220, 16, 5) && F(R(PLL_E214), 11, 4) == F(e214, 11, 4) &&
+	       (R(PLL_E200) & BIT(16)) ? 0 : -EIO;
 }
 
-static int swc_set(u32 mhz, bool xp)
+static int swc_set(u32 mhz, bool xp, u32 lx_want)
 {
-	u32 old = F(R(PLL_E220), 8, 5);
+	u32 o214 = R(PLL_E214), o220 = R(PLL_E220);
+	struct swc_plan pl;
 	struct otto_clocks c;
+	const char *why;
 	int i = swc_find(mhz);
 
 	if (i < 0 || (swc_pts[i].xp && !xp)) {
 		printf("clocks: swcore %u MHz %s\n", mhz, i < 0 ? "not in the table" : "is experimental: needs xp");
 		return CMD_RET_FAILURE;
 	}
-	uart_drain();
-	if (swc_write(swc_pts[i].code)) {
-		swc_write(old);
-		puts("clocks: swcore read-back mismatch, old code restored\n");
+	why = swc_plan(i, lx_want, &pl);
+	if (why) {
+		printf("clocks: swcore %u MHz refused: %s\n", mhz, why);
+		return CMD_RET_FAILURE;
+	}
+	if (pl.e214 == o214 && pl.e220 == o220)
+		return 0;
+	if (swc_write(pl.e220, pl.e214)) {
+		swc_write(o220, o214);
+		puts("clocks: swcore read-back mismatch, old e220/e214 restored\n");
 		return CMD_RET_FAILURE;
 	}
 	otto_clocks_read(&c);
-	printf("clocks: swcore now %u kHz (code %u), e220 %08x\n",
-	       c.sw_vco_khz / (2 * (swc_pts[i].code + 2)), swc_pts[i].code, R(PLL_E220));
+	printf("clocks: swcore now %u kHz (code %u, vco %u), e220 %08x e214 %08x\n",
+	       c.sw_vco_khz / (2 * (swc_pts[i].code + 2)), swc_pts[i].code, swc_pts[i].vco, R(PLL_E220), R(PLL_E214));
 	return 0;
 }
 
@@ -618,9 +705,6 @@ static int cpu_code(u32 mhz, u32 *ncode, u32 *div)
 	return 0;
 }
 
-/* LX MHz -> DIVN2_LXB code (lx_set): 2450 / (2 x (code + 2)) */
-static const u16 lx_pts[] = { [2] = 306, [3] = 245, [4] = 204, [5] = 175 };
-
 static u32 sram_live(void)
 {
 	return R(0xb8000700) & BIT(1) ? 500 : 250;	/* PLL_SRAM_CTRL sram_pll_sel */
@@ -658,11 +742,17 @@ const char *otto_turbo_check(const struct otto_turbo *t)
 	if (t->sram && t->sram != 250 && t->sram != 500)
 		return "sram: 250 or 500";
 	if (t->swcore && t->swcore != l.swcore) {
+		struct swc_plan pl;
+		const char *why;
+
 		i = swc_find(t->swcore);
 		if (i < 0)
-			return "swcore: 245 306 408 (612 experimental)";
+			return "swcore: 245 306 408 508 575 608 658 (612 experimental)";
 		if (swc_pts[i].xp && !t->swcore_xp)
 			return "swcore: this value is experimental, needs swcore_xp=1";
+		why = swc_plan(i, t->lx, &pl);
+		if (why)
+			return why;
 	}
 	return NULL;
 }
@@ -698,6 +788,7 @@ static int turbo_apply(const struct otto_turbo *t, const struct otto_turbo *l)
 {
 	bool cpu = t->cpu && t->cpu != l->cpu, sram = t->sram && t->sram != l->sram;
 	bool ddr = t->ddr && t->ddr != l->ddr;
+	struct otto_clocks cl;
 	int ret = 0;
 	u32 i;
 
@@ -728,12 +819,13 @@ static int turbo_apply(const struct otto_turbo *t, const struct otto_turbo *l)
 	}
 	/* SPI stays stock: Linux JFFS2 writes at 102.1 MHz left CRC errors (#50) */
 	__asm__ __volatile__("sync");
-	for (i = 2; t->lx && t->lx != l->lx && i <= 5; i++)	/* the console follows */
-		if (lx_pts[i] == t->lx)
+	/* swcore before LX: a VCO point re-codes LX itself (wanted lx = profile lx); never in the SRAM routines */
+	if (t->swcore && t->swcore != l->swcore)
+		ret = swc_set(t->swcore, true, t->lx);
+	otto_clocks_read(&cl);
+	for (i = 2; !ret && t->lx && t->lx != cl.lx_khz / 1000 && cl.sw_vco_khz == 2450000 && i <= 5; i++)
+		if (lx_pts[i] == t->lx)	/* the console follows */
 			ret = lx_set(i);
-	/* last, never in the SRAM-resident routines; checked by otto_turbo_check (revert: any table value) */
-	if (!ret && t->swcore && t->swcore != l->swcore)
-		ret = swc_set(t->swcore, true);
 	return ret;
 }
 
@@ -952,7 +1044,7 @@ static int do_clocks(struct cmd_tbl *cmdtp, int flag, int argc, char *const argv
 			return mem_cmd(argc - 4, argv + 3);
 		/* clocks set cpu <e208> <e210> [relock 0|1] force  (values: scripts/clock_calc.py) */
 		if ((argc == 5 || argc == 6) && !strcmp(argv[2], "swcore"))
-			return swc_set(dectoul(argv[3], NULL), argc == 6 && !strcmp(argv[4], "xp"));
+			return swc_set(dectoul(argv[3], NULL), argc == 6 && !strcmp(argv[4], "xp"), 0);
 		if (argc == 5 && !strcmp(argv[2], "lx"))
 			return lx_set(dectoul(argv[3], NULL));
 		if (argc < 6 || strcmp(argv[2], "cpu"))
@@ -994,7 +1086,7 @@ U_BOOT_CMD(clocks, 24, 0, do_clocks, "show CPU/LX/SPI/MEM clocks and DDR3 timing
 	   "clocks set cpu <e208> <e210> [relock 0|1] force\n"
 	   "  - CPU PLL from SRAM (stock sequence); relock 0 = e200 bit 30 (default), 1 = e220 bit 17\n"
 	   "clocks set lx <code 2..5> force  - LX = 2450 / (2 x (code + 2)) MHz; 5 = stock 175\n"
-	   "clocks set swcore <245|306|408> [xp] force - switch-core clock (e220[8:5] + relock); 612 needs xp\n"
+	   "clocks set swcore <245|306|408|508|575|608|658> [xp] force - switch-core clock (e220/e214 + relock); 612 needs xp\n"
 	   "clocks set mem <MHz> [nosr] force\n"
 	   "  - DDR3 clock to a bin (800..675 step 25: CL 11 CWL 8 via MRS, nosr only; 650 600 550 ...),\n"
 	   "    DRAM kept: self-refresh (nosr: refresh off), MEM PLL, DTRs [, MRS + DLL reset], from\n"
