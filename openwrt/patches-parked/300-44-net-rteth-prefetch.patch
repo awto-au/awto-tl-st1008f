@@ -1,0 +1,88 @@
+From: Dan <dan@awto.au>
+Subject: [PATCH] net: rteth: RX loop prefetches the next done slot's descriptor and frame headers (zc_prefetch_desc, zc_prefetch_hdr; bench experiment, default off)
+
+- #147: fewer stalls per packet at 99 % VPE1 busy.
+- Only a slot the NIC already handed over (OWN_HW clear) is touched, so no stale line is cached.
+- zc_prefetch_desc: invalidate + prefetch the next frag descriptor (the cached alias needs dma_cache_inv, so the loop then skips its own invalidate) and reuse the ring word already read.
+- zc_prefetch_hdr: prefetch the first 128 B (4 D-cache lines) of the next frame.
+- Both default 0 = loop unchanged.
+---
+diff --git a/drivers/net/ethernet/realtek/rtl838x_eth.c b/drivers/net/ethernet/realtek/rtl838x_eth.c
+index 391da71ce0ca..54d946af267b 100644
+--- a/drivers/net/ethernet/realtek/rtl838x_eth.c
++++ b/drivers/net/ethernet/realtek/rtl838x_eth.c
+@@ -97,6 +97,12 @@ MODULE_PARM_DESC(zc_rip, "reverse direction: the client's real IPv4 (replaces th
+ static uint zc_dbg;
+ module_param(zc_dbg, uint, 0644);
+ MODULE_PARM_DESC(zc_dbg, "log the next N TX frames of both paths (len, cpu tag, first bytes)");
++static bool zc_prefetch_desc;
++module_param(zc_prefetch_desc, bool, 0644);
++MODULE_PARM_DESC(zc_prefetch_desc, "RX loop: if the next slot is already done, invalidate + prefetch its frag descriptor and reuse its ring word (#147)");
++static bool zc_prefetch_hdr;
++module_param(zc_prefetch_hdr, bool, 0644);
++MODULE_PARM_DESC(zc_prefetch_hdr, "RX loop: if the next slot is already done, prefetch the first 128 B of its frame (#147)");
+ #define RTETH_ZC_MARK	((struct sk_buff *)1UL)
+ 
+ /* RTL930x NIC core shared with U-Boot (awto-tl-st1008f shared/rtl930x-nic, #83); ctx = regmap */
+@@ -1916,6 +1922,9 @@ static int rteth_hw_receive(struct net_device *dev, int ring, int budget)
+ 	dma_addr_t packet_dma;
+ 	bool is_head, is_tail;
+ 	struct sk_buff *skb;
++	bool pf_desc = READ_ONCE(zc_prefetch_desc), pf_hdr = READ_ONCE(zc_prefetch_hdr);
++	bool pf_have = false, pf_frag = false;
++	dma_addr_t pf_dma = 0;
+ 
+ 	pool = rx_info->pool;
+ 	skb = rx_info->skb;
+@@ -1923,13 +1932,48 @@ static int rteth_hw_receive(struct net_device *dev, int ring, int budget)
+ 
+ 	while (work_done < budget) {
+ 		slot = rx_info->slot;
+-		packet_dma = ctrl->rx_data[ring].ring[slot];
+-		rmb();
++		if (pf_have) {		/* ring word read last iteration: a done slot stays done until we recycle it */
++			packet_dma = pf_dma;
++			pf_have = false;
++		} else {
++			packet_dma = ctrl->rx_data[ring].ring[slot];
++			rmb();
++		}
+ 
+ 		if (packet_dma & RTETH_RING_OWN_HW)
+ 			break;
+ 
+-		frag = rteth_rx_frag(ctrl, ring, slot);
++		/* frag was invalidated and prefetched last iteration: a second invalidate would drop it */
++		frag = pf_frag ? rteth_rx_frag_ptr(ctrl, ring, slot) : rteth_rx_frag(ctrl, ring, slot);
++		pf_frag = false;
++
++		if (pf_desc || pf_hdr) {
++			/* Touch only a slot the NIC has handed over: a prefetch of a line it still writes would cache stale data. */
++			int nslot = (slot + 1) % RTETH_RX_RING_SIZE;
++			dma_addr_t ndma = ctrl->rx_data[ring].ring[nslot];
++
++			rmb();
++			if (!(ndma & RTETH_RING_OWN_HW)) {
++				if (pf_desc) {
++					struct rteth_frag *nf = rteth_rx_frag_ptr(ctrl, ring, nslot);
++
++					if (nf != &ctrl->rx_data[ring].frag[nslot])
++						dma_cache_inv((unsigned long)nf, sizeof(*nf));
++					prefetch(nf);
++					pf_dma = ndma;
++					pf_have = true;
++					pf_frag = true;
++				}
++				if (pf_hdr) {
++					u8 *hp = page_address(rx_info->page[nslot]) + rx_info->offset[nslot] + ctrl->cfg->skb_headroom;
++
++					prefetch(hp);		/* 4 x 32 B D-cache lines: Ethernet, IP, TCP/UDP headers */
++					prefetch(hp + 32);
++					prefetch(hp + 64);
++					prefetch(hp + 96);
++				}
++			}
++		}
+ 		len = frag->len;
+ 		is_head = is_tail;
+ 		is_tail = !frag->more;
