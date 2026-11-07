@@ -34,11 +34,11 @@ Owner decision 2026-11-07: go with what works; DDR and CPU limit testing stopped
 | 4 | `zc_bench --integrity` (udpcheck 1400/500/64) | silent corruption; stall 60 s, total 90 s |
 | 5 | link alive (ping + ssh), temperature, console scan | `Oops|BUG|Kernel panic|gro_list_prepare` (#149) |
 
-- Pass: boot reaches ssh; rx 1400 B >= 5 kpps (one retry only for a stalled flood, a harness artefact of #147, never for noise); integrity PASS; link alive after; temperature <= 85 C; console clean.
+- Pass: boot reaches ssh; rx 1400 B >= 5 kpps (one retry only for a stalled flood, a harness artefact of #147, never for noise); integrity PASS; link alive after; console clean (temperature logged only).
 - Fail: any of the above false and link alive. Hang: no ssh after ramload, or link dead after the test. Both -> next lower point.
 - Scan domains (no monotone knob): pass AND 1400 B rx >= 1.03 x 143.3 kpps (picks, #147) = "gain"; the best gain wins. 1.03 = 6x the 0.5 % spread.
 - Hang recovery: the next point's ramload restarts in software; relay fallback is logged by `restart_board`.
-- Temperature abort: > 85 C after any point aborts the run (logged). Heat: CPU/DDR/switch-core PLL raises are the heat sources; idle readings were 31-48 C (OVERCLOCK.md, CAMPAIGN-PLAIN-7.4.md), quantised 1.3 C.
+- No temperature abort (owner 2026-11-07); temperature is logged. Heat: CPU/DDR/switch-core PLL raises are the heat sources; idle readings were 31-48 C (OVERCLOCK.md, CAMPAIGN-PLAIN-7.4.md), quantised 1.3 C.
 - Time per point ~150 s (estimate: boot ~45 s, setup 8 s, 2 x rx ~12 s, integrity ~25 s, reads ~15 s; replace with `tmp/logs/fastest_search.log` timings).
 
 ## Domains, in order of expected value
@@ -76,7 +76,7 @@ Not searched: LX frequency (pick 306; 204 triggered #149 on OpenWrt; codes above
 | udp1400 / udp64 | `zc_bench --nat --zc-only --napi irq1 --secs 6 --len L` | 60 / 100 s | same rule vs baseline |
 | integrity | `zc_bench --integrity` | 60 / 90 s | PASS only |
 | canary | `canary --only pre,selftest,gdma,dss,bootlog --no-ramload` | 60 / 300 s | rc 0 |
-| flaps / temperature / console | carrier_changes delta; thermal_zone0; log scan | - | flaps WARN; > 80 C WARN, > 85 C FAIL; any Oops/BUG/panic/gro_list_prepare FAIL |
+| flaps / temperature / console | carrier_changes delta; thermal_zone0; log scan | - | flaps WARN; temperature logged only; any Oops/BUG/panic/gro_list_prepare FAIL |
 
 - ASIC drop counters (`drop_counters`) logged per TCP and UDP stage; rows in `tmp/logs/load_test.csv`.
 - Baselines (CAMPAIGN-PLAIN-7.4.md): picks zc 1400 B 143.0 kpps, rx-only 1400 B 143.3, rx-only 64 B 228.3, stack 62.1; stock zc 119.4, stack 44.4. TCP P4 has no number in the docs: the first run becomes the baseline.
@@ -127,7 +127,7 @@ Earlier options lost while the 408 MHz switch-core "door" was the limit. With a 
 
 ## Results 2026-11-07 (core 608)
 - Setup: sw2, plain 7.4-rc1 bench kernel, switch core fixed at 608 MHz (VCO 3650, e214 `0x478`, e220 `0x36826`, LX 304, NOR code 11), one NAT interface, cage 1. Other domains at the picks (1350 / 662 / 500) while one is searched. `./dev.py fastest-search --core 608 --domain D`; rows `tmp/logs/fastest_search_core608.csv`.
-- Quick test per point (one run, no repeats): rx-only 64 B + 1400 B 6 s, integrity, link alive, <= 85 C, console scan. Rx-only 1400 B varies +-6 % on one boot at 608 (CAMPAIGN-PLAIN-7.4.md), so a 3 % gain is not resolvable in a scan.
+- Quick test per point (one run, no repeats): rx-only 64 B + 1400 B 6 s, integrity, link alive, console scan (temperature logged only). Rx-only 1400 B varies +-6 % on one boot at 608 (CAMPAIGN-PLAIN-7.4.md), so a 3 % gain is not resolvable in a scan.
 - Nothing made a default.
 
 ### CPU (bisect 800..1425 step 25)

@@ -3,7 +3,7 @@
 
 - sw2 only: refuses sw1 and any --ip but boards.BENCH_IP; run through `./dev.py fastest-search` (board_guard). Never the relay directly.
 - Point = ramload uboot-mainline --then mainline-kernel (picks for the other domains + this domain's value via `--pre`), then the quick test:
-  link alive, ceiling_rxtx rx 64 B + 1400 B 6 s, zc_bench --integrity, temperature <= 85 C, console free of Oops/BUG/panic/gro_list_prepare.
+  link alive, ceiling_rxtx rx 64 B + 1400 B 6 s, zc_bench --integrity, console free of Oops/BUG/panic/gro_list_prepare (temperature logged only).
 - Domains in order of expected value: switch-core, lx-arb, cpu, ddr, sram. bisect = stock..max from the midpoint; scan = candidate list.
 - ONE NAT interface only (the nat-bench setup: one WAN, one LAN). Hang: the next point's ramload reboots in software (relay only if no prompt).
 - `--combine`: best of every domain together; a failing combination drops the least valuable domain first. `--discover`: read the registers
@@ -36,7 +36,6 @@ CONSOLE = ROOT / "private/serial/st1008-console.log"
 PY = sys.executable
 DEVPY = str(ROOT / "dev.py")
 BAD_CONSOLE = re.compile(rb"Oops|\bBUG\b|Kernel panic|gro_list_prepare")
-TEMP_MAX_MC = 85000          # owner abort limit
 BASE = {"kpps_1400": 143.3}  # --base overrides (core 608 baseline); picks, rx-only 1400 B (CAMPAIGN-PLAIN-7.4.md, #147); a scan point must beat it by GAIN
 GAIN = 1.03                  # 6x the 0.5 % spread measured at 408/306 MHz
 PICKS = {"cpu": 1350, "ddr": 662, "lx": 306, "sram": 500}
@@ -223,7 +222,7 @@ def quick(st: dict, tag: str, dry: bool, kernel: str | None = None) -> dict:
         fh.seek(mark)
         bad = BAD_CONSOLE.findall(fh.read())
     why = [w for ok, w in [(alive, "link dead after test"), (k.get(1400, 0) >= 5, "rx 1400 B stalled"), (res["integrity"] == "PASS", "integrity"),
-                           (res["temp_after_mC"] <= TEMP_MAX_MC, f"temp > {TEMP_MAX_MC // 1000} C"), (not bad, f"console {bad[:2]}")] if not ok]
+                           (not bad, f"console {bad[:2]}")] if not ok]
     if why:
         res["result"], res["detail"] = ("HANG" if not alive else "FAIL"), res["detail"] + why
     return res
@@ -300,8 +299,6 @@ def search(domain: str, a) -> int:
             gain = "yes" if res["result"] == "PASS" and res.get("kpps_1400", 0) >= BASE["kpps_1400"] * GAIN else "no"
         record(domain, str(pts[i]), res, gain)
         done[key] = {"result": res["result"]}
-        if res.get("temp_after_mC", 0) > TEMP_MAX_MC:
-            raise SystemExit(f"ABORT: {res['temp_after_mC']} mC > {TEMP_MAX_MC} mC at {domain}={pts[i]}")
         return res["result"] == "PASS"
 
     if d["mode"] == "scan":
@@ -333,7 +330,7 @@ def dry_plan(domain: str, a) -> None:
         quick(settings_for(domain, pts[1]), f"fs-{domain}-{pts[1]}", True, a.kernel)
     n = len(bisect_plan([float(p) for p in pts], lambda i: True)) if d["mode"] == "bisect" else len(pts)
     log(f"  est. {n} points x {EST_POINT_S} s = {n * EST_POINT_S // 60} min (every point power-cycles: the kernel test needs a boot)")
-    log(f"  caps: boot stall/total {CAPS['boot']}, ceiling {CAPS['ceiling']}, integrity {CAPS['integrity']}; temp abort {TEMP_MAX_MC // 1000} C")
+    log(f"  caps: boot stall/total {CAPS['boot']}, ceiling {CAPS['ceiling']}, integrity {CAPS['integrity']}")
     log("  hang: next ramload restarts the board in software, relay only if no prompt (st1008_ramload.restart_board)")
 
 

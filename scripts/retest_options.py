@@ -144,8 +144,6 @@ def cmd_meas(a):
     row["bad_console"] = [b.decode() for b in bad[:3]]
     row["alive"] = alive()
     row["temp_mC"] = temp()
-    if row["temp_mC"] > 85000:
-        log("ABORT: temperature above 85 C")
     with JSONL.open("a") as fh:
         fh.write(json.dumps(row) + "\n")
     log(f"ROW {json.dumps(row)}")

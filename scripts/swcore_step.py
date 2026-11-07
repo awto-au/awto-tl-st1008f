@@ -4,7 +4,7 @@
 - Boot: `turbo cpu=1350,ddr=662,lx=306,sram=500`, optional SW VCO (e214), e220, relock (e200 bit 30), then the plain 7.4 kernel.
 - Stages (each followed by a ping check): rx 1400 B n=3, stack+zc forwarding 12 s, integrity 1400/500/64.
 - Hang = ping lost after a stage: console dump (IRQ count, DMA state, CPU queue 1), `ip link set eth0 down/up` as recovery, logged.
-- Temperature (thermal_zone0) before and after; abort the step above 85 C.
+- Temperature (thermal_zone0) is logged after each stage; no temperature abort (owner 2026-11-07).
     swcore_step.py --tag 508 --e220 0x2c426 [--e214 0x...] [--no-boot] [--skip rx,fwd,int]
 - Log: tmp/logs/swcore_step_TAG.log
 """
@@ -17,7 +17,6 @@ from pathlib import Path
 ROOT = Path(__file__).resolve().parent.parent
 IP = "192.168.25.56"
 SSH = ["ssh", "-o", "ConnectTimeout=6", "-o", "StrictHostKeyChecking=no", "-o", "UserKnownHostsFile=/dev/null", "-o", "BatchMode=yes", f"root@{IP}"]
-TEMP_MAX_MC = 85000
 LOG = None
 
 
@@ -133,9 +132,6 @@ def main():
         log(f"stage {name} rc {rc}: " + " | ".join(ln[-170:] for ln in keep[-8:]))
         t = temp()
         log(f"temp after {name}: {t / 1000:.1f} C")
-        if t > TEMP_MAX_MC:
-            log("ABORT: temperature above 85 C")
-            return 4
         if not alive():
             status = f"HANG@{name}"
             if not recover(name):
