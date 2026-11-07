@@ -93,3 +93,5 @@ Facts only. Where we are: [NAT.md](NAT.md). Experiments and results over time: [
 - Old options re-tested at the 608 MHz core (2026-11-07): ring split par 123.8 vs rt0 163.6 kpps, NAPI split / threaded -3 to -11 %, tx_by_cpu / noqueue / queue thresholds tie at 169 kpps; no option makes VPE1-free forwarding faster.
 - Second CPU still not useful: forwarding 97-99 % busy on VPE1, every variant that loads VPE0 is slower; best 608 numbers zc+nat 169-171 kpps, NAT TCP P4 1634 / 1631 Mbit/s.
 - Details and the table: docs/CAMPAIGN-PLAIN-7.4.md "Old options re-tested at 608 MHz".
+- Cache variants (300-42 `zc_sync_bytes`, `zc_rx_part`) at 608 MHz (2026-11-07): no gain, 1400 B 165.1-165.8 kpps across all variants (+-0.4 %), 64 B -1.4 % rxpart / -5.8 % both; VPE1 stays 99 %.
+- Details: docs/CAMPAIGN-PLAIN-7.4.md "Cache variants at 608 MHz".

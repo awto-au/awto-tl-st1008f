@@ -315,7 +315,7 @@ Options (kpps = zc+nat fwd 1400 B unless stated):
 | GRO fraglist off, NAT TCP P4 stack | - | 275 / 271 vs 422 / 413 Mbit/s | loses (-35 %) | not read |
 | GRO fraglist off, NAT TCP P4 zc+nat | - | 1630 / 1642 vs 1634 / 1631 | ties | not read |
 | rings in SRAM (`sram_rings=3`) | no traffic | no traffic (eth0 up, no ping), as at 408 | dead | - |
-| cache variants (300-42 `zc_sync_bytes`, `zc_rx_part`) | < 0.3 % at 1400 B | not run: the plain image lacks the parked params; needs a kernel build with 300-42 | open | - |
+| cache variants (300-42 `zc_sync_bytes`, `zc_rx_part`) | < 0.3 % at 1400 B | no gain (section "Cache variants at 608 MHz") | ties | - |
 | SRAM-resident packet buffers | - | no driver parameter exists | not testable | - |
 
 - Second CPU: no option makes it useful. Forwarding is 97-99 % busy on VPE1 (the NIC IRQ + softirq CPU) at 608 and 408; every arrangement that loads VPE0 as well (par, split, threaded) is slower. Ring 0 / VPE0 alone does 163.6 vs 169.3 on VPE1.
@@ -323,3 +323,18 @@ Options (kpps = zc+nat fwd 1400 B unless stated):
 - Ring image reorder: rt0 / rt1 rounds in the first run showed reorder 5272 / 3273 (udpcheck, 64 flows, bad 0); later rt0 runs 0. Not diagnosed.
 - Hangs / recoveries: none. Panics: none (no `gro_list_prepare`, #149 not seen; console scan clean for all rows). Temperature 49.3-53.2 C.
 - `nat_bench setup` returns rc 1 (`ping natlan -> natwan: FAIL`) in every boot here, benches ran fine afterwards.
+
+## Cache variants at 608 MHz
+
+2026-11-07, sw2, `mainline-7.4-rc1-sync.bin` (plain 7.4-rc1 + parked 300-42), core 608 (e220 0x36826 / e214 0x478), turbo cpu 1350 / ddr 662 / sram 500, SPI divide 6 (unchanged), 53 C. `scripts/zc_sync_ab.py` n=3, 12 s runs, zc+nat forwarding, interleaved variants, UDP integrity PASS for all (logs `tmp/logs/zc_sync_ab.jsonl`, tags `c608`, `c608both`).
+
+| variant | 1400 B kpps | 64 B kpps | VPE0/VPE1 busy | verdict |
+|---|---|---|---|---|
+| base (128 B TX sync, full RX sync) | 165.8 / 165.6 | 422.4 / 422.9 | 0-3/99 | reference |
+| txfull (`zc_sync_bytes` 1536) | 165.6 (-0.1 %) | 422.4 (0 %) | 0-1/99 | ties |
+| rxpart (`zc_rx_part` 1) | 165.2 (-0.4 %) | 416.6 (-1.4 %) | 0-2/99 | ties / slightly worse |
+| both | 165.1 (-0.3 %) | 398.4 (-5.8 %) | 0/99 | no gain at 1400 B; loses at 64 B |
+
+- No variant raises 1400 B beyond noise (spread 0.1-0.4 %, band +-3 %); VPE1 stays at 99 %.
+- Base here is 165.7 kpps vs 169-171 on the plain image; the sync kernel differs from the earlier image, so compare variants within this table only.
+- Hangs / panics: none.

@@ -26,7 +26,8 @@ P = "/sys/module/rtl838x_eth/parameters"
 VARIANTS = {  # name: (zc_sync_bytes, zc_rx_part)
     "base": (128, 0),     # current: TX writeback 128 B, full 4096 B page_pool sync on recycle
     "txfull": (1536, 0),  # control: TX writeback of the whole frame (what the owner's V1 would remove)
-    "rxpart": (128, 1),   # V2 (= V3: V1 is already the 128 B default): header-only invalidate on recycle
+    "both": (1536, 1),    # txfull + rxpart together
+    "rxpart": (128, 1),  # V2 (= V3: V1 is already the 128 B default): header-only invalidate on recycle
 }
 
 
