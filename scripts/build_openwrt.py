@@ -43,6 +43,7 @@ DL_DIR = Path(os.environ.get("ST1008F_OPENWRT_DL", ROOT / "tmp/openwrt-dl"))
 CCACHE_DIR = Path(os.environ.get("ST1008F_CCACHE_DIR", ROOT / "tmp/ccache-openwrt"))
 OURS = ROOT / "openwrt/patches"
 BACKPORT = ROOT / "openwrt/backport-6.18"
+BACKPORT_74 = ROOT / "openwrt/backport-7.4"  # --flash: mtdsplit rebased on 7.x (mtdpart.c context)
 TFTP = ROOT / "tmp/tftp"
 LOG = ROOT / "tmp/logs/build_openwrt.log"
 MAKE_LOG = ROOT / "tmp/logs/build_openwrt-make.log"
@@ -99,6 +100,20 @@ PENDING73 = ["700", "701", "344", "644", "645"]  # generic pending-6.18 nft flow
 # generic hack-6.18 patches OpenWrt packages need on mainline (all apply as-is; status of the rest: docs/OPENWRT-BUILD.md)
 HACK73 = ["910", "911", "940"]  # uevent + broadcast_uevent (gpio-button-hotplug); 940: non-empty modules.builtin (kmod packaging)
 UP73 = False  # --up
+FLASH73 = False  # --flash
+# --flash (A/B flash image on the testing kernel, #117): the 6.18 flash pieces on 7.x
+#  - mtdsplit: openwrt/backport-7.4 (400) + 300-32/300-33; DTS firmware_a/b = openwrt,uimage, cmdline-match
+#  - tree patch subset: platform.sh A/B hook, compat 2.0, IMAGE_SIZE 14848k (DTS/dtsi/config hunks stay 6.18-only)
+FLASH_PATCHES = ["300-32-jffs2-skip-erase-of-blank-blocks.patch", "300-33-mtdsplit-uimage-cmdline-match.patch"]
+FLASH_TREE_INCLUDE = ["target/linux/realtek/base-files/*", "target/linux/realtek/image/rtl930x.mk"]
+FLASH_CFG = """CONFIG_MTD_ROOTFS_ROOT_DEV=y
+CONFIG_MTD_SPLIT=y
+CONFIG_MTD_SPLIT_SQUASHFS_ROOT=y
+CONFIG_MTD_SPLIT_SUPPORT=y
+CONFIG_MTD_SPLIT_FIRMWARE=y
+CONFIG_MTD_SPLIT_FIRMWARE_NAME="firmware"
+CONFIG_MTD_SPLIT_UIMAGE_FW=y
+"""  # as OpenWrt's generic + rtl930x config-6.18; config-7.x was regenerated on a tree without mtdsplit
 DEBUG73 = False  # --debug
 # --debug: allocator/list/net/VM checks; image goes to openwrt-ours-debug-initramfs*.bin (docs/OPENWRT-BUILD.md)
 # SLUB_DEBUG(_ON) and DEBUG_VM are OpenWrt-owned (config/Config-kernel.in): they must be set in the buildroot .config
@@ -389,6 +404,29 @@ def tarball_73() -> None:
     log(f"overlay: shared dl {dst.name} {dst.stat().st_size} B from {kernel_base.REPO.relative_to(ROOT)} {BASE}")
 
 
+def flash_dts(dts: str) -> str:
+    """Writable jffs2-log/bootstate/firmware_a/b; firmware_a/b = openwrt,uimage with the slot match (300-33)."""
+    match = {"firmware_a": '"!st1008f.slot=b"', "firmware_b": '"st1008f.slot=b"'}
+    n = 0
+
+    def edit(m: re.Match) -> str:
+        nonlocal n
+        blk, label = m[0], m[1]
+        if label not in ("jffs2-log", "bootstate", *match):
+            return blk
+        n += 1
+        blk = re.sub(r"\n\t*read-only;", "", blk)
+        if label in match:
+            blk = blk.replace(f'label = "{label}";', f'compatible = "openwrt,uimage", "denx,uimage";\n'
+                              f'\t\t\t\tlabel = "{label}";\n\t\t\t\topenwrt,ih-magic = <0x93030000>;\n'
+                              f'\t\t\t\topenwrt,cmdline-match = {match[label]};')
+        return blk
+    out = re.sub(r"\t\t\tpartition@\w+ \{.*?label = \"([\w-]+)\";.*?\n\t\t\t\};", edit, dts, flags=re.S)
+    if n != 4:
+        sys.exit(f"flash_dts: expected 4 partitions in mainline/tplink-tl-st1008f-v2.dts, edited {n}")
+    return out
+
+
 def overlay_73() -> None:
     pin = git("rev-parse", "HEAD", cwd=OWRT_PIN)
     if pin != OWRT_COMMIT:
@@ -404,6 +442,9 @@ def overlay_73() -> None:
         shutil.copy2(next((OWRT_PIN / "patches-6.18").glob(f"{n}-*.patch")), pdir)
     for p in kernel_base.patches(BASE):
         shutil.copy2(p, pdir)
+    if FLASH73:
+        for n in FLASH_PATCHES:
+            shutil.copy2(OURS / n, pdir)
     fdir = TREE / RT / f"files-{PV}"
     for rel in OWRT_FILES:
         src, dst = OWRT_FILES_DIR / rel, fdir / rel
@@ -416,11 +457,15 @@ def overlay_73() -> None:
         gdir.mkdir()
         for n in names:
             shutil.copy2(next((TREE / GEN / f"{kind}-6.18").glob(f"{n}-*.patch")), gdir)
+        if FLASH73 and kind == "pending":
+            shutil.copy2(BACKPORT_74 / "400-mtd-mtdsplit-support.patch", gdir)
     cfg73 = config73()
     if cfg73.exists():
         cfg = cfg73.read_text()
         if DEBUG73:
             cfg = override(cfg, DEBUG_CFG)
+        if FLASH73:
+            cfg = override(cfg, FLASH_CFG)
         if UP73:  # one VPE, as `./dev.py build-kernel --up`
             cfg = override(cfg, (ROOT / "mainline/st1008f-v2-up.config").read_text())
         (TREE / RT / f"rtl930x/config-{PV}").write_text(cfg)
@@ -431,7 +476,18 @@ def overlay_73() -> None:
     im.write_text(im.read_text().replace("  -Wno-graph_child_address \\\n", ""))
     # mainline DTS: 1-cell interrupts + mainline rtl930x.dtsi (OpenWrt's dtsi in the same dir would shadow it)
     dts = (ROOT / "mainline/tplink-tl-st1008f-v2.dts").read_text()
-    (TREE / DTS_FILE).write_text(dts.replace('#include "rtl930x.dtsi"', '#include "realtek/rtl930x.dtsi"'))
+    dts = dts.replace('#include "rtl930x.dtsi"', '#include "realtek/rtl930x.dtsi"')
+    if FLASH73:
+        dts = flash_dts(dts)
+    (TREE / DTS_FILE).write_text(dts)
+    if FLASH73:
+        args = [f"--include={i}" for i in FLASH_TREE_INCLUDE]
+        r = subprocess.run(["git", "apply", "--whitespace=nowarn", *args, str(TREE_PATCH)], cwd=TREE,
+                           capture_output=True, text=True, timeout=30)
+        if r.returncode:
+            log(r.stderr)
+            sys.exit(f"{TREE_PATCH.relative_to(ROOT)} (A/B subset) does not apply to this OpenWrt main")
+        log(f"overlay: --flash: {TREE_PATCH.relative_to(ROOT)} subset {FLASH_TREE_INCLUDE}")
     tarball_73()
     log(f"overlay: {BASE} testing kernel {VER}: {len(list(pdir.iterdir()))} patches, files-{PV} ({len(OWRT_FILES)} paths), "
         f"pending-{PV} {PENDING73}, hack-{PV} {HACK73}, config-{PV} {'from ' + str(cfg73.relative_to(ROOT)) if cfg73.exists() else 'MISSING'}")
@@ -672,6 +728,8 @@ def outputs(kernel: str) -> int:
     TFTP.mkdir(parents=True, exist_ok=True)
     # openwrt-ours = mainline (default-boot RAM test, docs/DEFAULT-BOOT.md); openwrt-ours-6.18 = step 1
     name = "openwrt-ours" + (("-debug" if DEBUG73 else "") if kernel == "mainline" else "-6.18") + TAG
+    if FLASH73:
+        name = f"openwrt-{PV}{TAG}"  # A/B flash image: tmp/openwrt-<PV>-sysupgrade.bin
     for su in sorted((TREE / OUT_DIR).glob("*sysupgrade.bin")):  # A/B image, compat 2.0
         shutil.copy2(su, TFTP.parent / f"{name}-sysupgrade.bin")
         log(f"sysupgrade: tmp/{name}-sysupgrade.bin {su.stat().st_size} B")
@@ -701,6 +759,9 @@ def main() -> int:
     ap.add_argument("--regen-config", action="store_true",
                     help="mainline: rebuild openwrt/kernel-<PV>/config-<PV>, then stop (buildroot left untouched)")
     ap.add_argument("--up", action="store_true", help="mainline: one VPE (merge mainline/st1008f-v2-up.config)")
+    ap.add_argument("--flash", action="store_true",
+                    help="mainline: A/B flash image layer (mtdsplit, uimage slots, compat 2.0, 14.5 MiB slots); "
+                         "output tmp/openwrt-<PV>[tag]-sysupgrade.bin")
     ap.add_argument("--debug", action="store_true",
                     help="mainline: kernel DEBUG_LIST, SLUB_DEBUG_ON, DEBUG_NET, PAGE_POOL_STATS, DEBUG_VM; "
                          "output openwrt-ours-debug-initramfs*.bin")
@@ -713,7 +774,10 @@ def main() -> int:
     if a.kernel == "7.3":
         a.kernel = "mainline"
     comment = not a.no_comment
-    global UP73, DEBUG73, TAG
+    global UP73, DEBUG73, TAG, FLASH73
+    FLASH73 = a.flash
+    if a.flash and a.kernel != "mainline":
+        sys.exit("--flash is for --kernel mainline (6.18 always builds the A/B layer)")
     UP73 = a.up
     DEBUG73 = a.debug
     TAG = a.tag

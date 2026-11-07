@@ -101,7 +101,7 @@ Generic OpenWrt patches on 7.3 (dry-run in series on the prepared 7.3 tree, 2026
 | `pending-6.18` | 10 (incl. 700/701, already in) | 165 | 36 (737-01..05: our 300-08; 400 mtdsplit; 710 bridge BPDU knob; mxl862xx, mtk) |
 | `hack-6.18` | 1 | 52 | 12 (200, 251, 259, 260, 402, 651, 770, 901, 902, 904, 905, 970) |
 
-- `pending-6.18/400-mtd-mtdsplit-support` fails on 7.3: the flash (sysupgrade) image needs the `firmware` split (`openwrt,uimage`); the RAM-boot initramfs does not. Forward-port needed before the 7.3 default boot ([DEFAULT-BOOT.md](DEFAULT-BOOT.md)).
+- `pending-6.18/400-mtd-mtdsplit-support` fails on 7.3: the flash (sysupgrade) image needs the `firmware` split (`openwrt,uimage`); the RAM-boot initramfs does not. Forward-ported as `openwrt/backport-7.4/400-mtd-mtdsplit-support.patch` (one context line in `mtdpart.c`: `<linux/mtd/concat.h>`); applied only with `build_openwrt.py --kernel mainline --flash`, together with 300-32/300-33, the `openwrt,uimage` slot nodes (text edit of `mainline/` DTS), the A/B subset of `openwrt/backport-6.18/openwrt-tree.patch` (platform.sh hook, compat 2.0, `IMAGE_SIZE 14848k`) and the mtdsplit config symbols. Output `tmp/openwrt-<PV>[tag]-sysupgrade.bin` ([DEFAULT-BOOT.md](DEFAULT-BOOT.md#ab-slots)).
 
 Build result 2026-10-12:
 
