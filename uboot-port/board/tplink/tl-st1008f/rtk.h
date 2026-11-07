@@ -160,7 +160,8 @@ char *st1008f_stock_env(const char *var, char *out, int len);
 
 /* clocks.c: turbo profile in MHz, 0 = keep (#46, #105); check = NULL when every value is supported */
 struct otto_turbo {
-	u32 cpu, ddr, lx, sram;	/* MHz, 0 = keep */
+	u32 cpu, ddr, lx, sram, swcore;	/* MHz, 0 = keep */
+	u32 swcore_xp;		/* 1 = experimental swcore values allowed */
 };
 void otto_turbo_live(struct otto_turbo *t);
 const char *otto_turbo_check(const struct otto_turbo *t);

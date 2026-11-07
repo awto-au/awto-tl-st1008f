@@ -120,7 +120,7 @@ static u32 rec_attempts(void)
 #define REC_CLK		(REC + 3)
 #define REC_CLK_MAGIC	0xc10cfa57
 
-/* Turbo profile (#46): stock env `st1008f_turbo=cpu=1100,ddr=650,lx=175,sram=500` (MHz, any subset;
+/* Turbo profile (#46): stock env `st1008f_turbo=cpu=1100,ddr=650,lx=175,sram=500,swcore=306` (MHz, any subset;
  * missing = keep/stock); spi accepted at stock 25 only (#50). Autoboot applies it in M3 only; the
  * `turbo` command in any mode. */
 #define TURBO_VAR	"st1008f_turbo"
@@ -152,6 +152,10 @@ static const char *turbo_parse(char *s, struct otto_turbo *t)
 			t->lx = n;
 		else if (!strcmp(kv, "sram"))
 			t->sram = n;
+		else if (!strcmp(kv, "swcore"))
+			t->swcore = n;
+		else if (!strcmp(kv, "swcore_xp") && n == 1)
+			t->swcore_xp = 1;
 		else if (strcmp(kv, "spi") || n != 25)
 			return "unknown key, or spi not at stock 25 (#50: Linux reads flash)";
 	}
@@ -213,7 +217,8 @@ static int clk_fast(void)
 		rtk_led_fallback("clocks");
 		return 0;
 	}
-	printf("bootsel: M%d: turbo cpu %u ddr %u lx %u sram %u (0 = keep)\n", mode, t.cpu, t.ddr, t.lx, t.sram);
+	printf("bootsel: M%d: turbo cpu %u ddr %u lx %u sram %u swcore %u (0 = keep)\n", mode, t.cpu, t.ddr, t.lx,
+	       t.sram, t.swcore);
 	/* KSEG1: in DRAM before the change; a reset in turbo_run keeps it -> next boot stock. If the
 	 * reset returns, the wdt armed above expires */
 	__raw_writel(REC_CLK_MAGIC, REC_CLK);
@@ -453,8 +458,8 @@ static int do_turbo(struct cmd_tbl *cmdtp, int flag, int argc, char *const argv[
 	if (argc == 2 && !strcmp(argv[1], "show")) {
 		otto_turbo_live(&l);
 		printf("turbo: " TURBO_VAR "=%s\n", st1008f_stock_env(TURBO_VAR, val, sizeof(val)) ?: "(unset = stock)");
-		printf("turbo: live cpu %u mem %u lx %u sram %u MHz (stock 800 600 175 250)\n", l.cpu, l.ddr, l.lx,
-		       l.sram);
+		printf("turbo: live cpu %u mem %u lx %u sram %u swcore %u MHz (stock 800 600 175 250 408)\n", l.cpu,
+		       l.ddr, l.lx, l.sram, l.swcore);
 		return 0;
 	}
 	if (argc == 1) {
@@ -485,4 +490,4 @@ static int do_turbo(struct cmd_tbl *cmdtp, int flag, int argc, char *const argv[
 U_BOOT_CMD(turbo, 8, 0, do_turbo, "clock profile now, any mode (#46, docs/DEFAULT-BOOT.md)",
 	   "            - apply the stored " TURBO_VAR " profile\n"
 	   "turbo show       - stored profile + live clocks\n"
-	   "turbo cpu=N [ddr=N] [lx=N] [sram=N] - apply ad hoc (MHz; env untouched); FAIL = reverted");
+	   "turbo cpu=N [ddr=N] [lx=N] [sram=N] [swcore=N [swcore_xp=1]] - apply ad hoc (MHz; env untouched); FAIL = reverted");

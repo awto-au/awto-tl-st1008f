@@ -10,6 +10,7 @@
           then saveenv; printenv check.
 - revert: stock prompt: setenv bootcmd boota; clear the chain vars; saveenv.
 - prompt: power cycle with the saved chain, ESC in our 2 s window -> our prompt (#46).
+- selftest: host-only check of the turbo profile validator (swcore keys).
 - turbo show|set PROFILE [--all-modes]: `st1008f_turbo` in the stock env (#46; applied by our U-Boot in M3; with `--all-modes` also in M1, `st1008f_turbo_all=1`; M2 always stock).
   No profile (or stock values) = stock clocks in every mode; apply never writes one (owner 2026-10-13).
 - --ssh --ip A.B.C.D (apply, revert, turbo): from a running OpenWrt (sw1: no console) with
@@ -60,7 +61,9 @@ TURBO_ALL_VAR = "st1008f_turbo_all"  # "1": profile also in M1 (bootsel.c); unse
 STOCK_NOTE = "NOTE: default = stock clocks (CPU 800, DDR 600, LX 175, SRAM 250, SPI 25.5) in every mode; this unit leaves today's 1000/650 at its next power-up until a profile is written: ./dev.py uboot-chain-env turbo set PROFILE [--ssh --ip IP] + mode switch M3 (#46)"
 TURBO_SETS = {"cpu": {800, 1000, 1050} | set(range(1100, 1426, 25)),
               "ddr": {800, 775, 750, 725, 700, 675, 662, 650, 625, 600, 550, 500, 450, 400, 350, 300},
-              "lx": {175, 204, 245, 306}, "sram": {250, 500}, "spi": {25}}
+              "lx": {175, 204, 245, 306}, "sram": {250, 500}, "spi": {25},
+              "swcore": {245, 306, 408, 612}, "swcore_xp": {1}}
+SWCORE_XP = {612}  # experimental (#148): needs swcore_xp=1; mirrors clocks.c swc_pts
 CHECK_OK = r"Total of 1 word"   # stock cmp.l: equal
 CHECK_BAD = r"word at 0x"        # stock cmp.l: differ
 STOCK = r"\r?\nRTL9300# "
@@ -283,7 +286,19 @@ def turbo_problem(p: str) -> str | None:
             return f"{item!r}: not key=<decimal MHz>"
         if int(v) not in TURBO_SETS.get(k, set()):
             return f"{item!r}: unknown key or unsupported value ({k}: {sorted(TURBO_SETS.get(k, []))})"
+    kv = dict(i.split("=") for i in p.split(","))
+    if int(kv.get("swcore", 0)) in SWCORE_XP and kv.get("swcore_xp") != "1":
+        return f"swcore={kv['swcore']} is experimental: add swcore_xp=1"
     return None
+
+
+def selftest() -> int:
+    """Host-only: turbo_problem accepts/rejects (no hardware)."""
+    cases = [("cpu=1350,ddr=662,lx=306,sram=500,swcore=306", True), ("swcore=999", False),
+             ("swcore=612", False), ("swcore=612,swcore_xp=1", True), ("swcore=408", True)]
+    bad = [(p, ok) for p, ok in cases if (turbo_problem(p) is None) != ok]
+    print("selftest FAIL:", bad) if bad else print("selftest PASS")
+    return 1 if bad else 0
 
 
 SSH_S = 5  # dropbear connect ~1 s on the LAN; x5
@@ -351,7 +366,7 @@ def env_ssh(ip: str, mode: str, profile: str | None, allow_fallback: bool, all_m
 
 def main() -> int:
     ap = argparse.ArgumentParser(description=__doc__.splitlines()[0])
-    ap.add_argument("mode", choices=["test", "test-bad", "apply", "revert", "boot", "prompt", "set-mac", "turbo", "hang-test"])
+    ap.add_argument("mode", choices=["test", "test-bad", "apply", "revert", "boot", "prompt", "set-mac", "turbo", "hang-test", "selftest"])
     ap.add_argument("--slot", choices=["a", "b"], default="b", help="hang-test: slot to boot with init=/bin/sh")
     ap.add_argument("args", nargs="*", help="set-mac: [MAC] (default random, locally administered); "
                     "turbo: show | set PROFILE")
@@ -364,6 +379,8 @@ def main() -> int:
                     help="turbo set: also apply the profile in M1 (M2 stays stock); default M3 only")
     ap.add_argument("--chain-slot", help="chain slot size, default 0x80000 (env UBOOT_CHAIN_SLOT), 0xF0000 = 960 KiB (#155)")
     a = ap.parse_args()
+    if a.mode == "selftest":
+        return selftest()
     if a.mode in ("test", "test-bad", "apply") or (a.ssh and a.mode == "apply"):
         if a.allow_fallback and not layout.IS_DEFAULT:
             ap.error("--allow-fallback is refused for a non-default chain slot (#155)")

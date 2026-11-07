@@ -241,6 +241,68 @@ static int lx_set(u32 code)
 	return 0;
 }
 
+/* Switch-core clock = sw vco / (2 x (code + 2)) (docs/CLOCKS.md); bench #148. Add rows here to extend */
+static const struct { u16 mhz; u8 code; bool xp; } swc_pts[] = {
+	{ 245, 3, false }, { 306, 2, false }, { 408, 1, false },	/* 408 = stock */
+	{ 612, 0, true },	/* experimental: not stable (#148), needs swcore_xp=1 / `xp` */
+};
+
+static int swc_find(u32 mhz)
+{
+	int i;
+
+	for (i = 0; i < ARRAY_SIZE(swc_pts); i++)
+		if (swc_pts[i].mhz == mhz)
+			return i;
+	return -1;
+}
+
+/* live e220[8:5] -> nominal MHz of the table, 0 = not a table code */
+static u32 swc_live(void)
+{
+	u32 code = F(R(PLL_E220), 8, 5);
+	int i;
+
+	for (i = 0; i < ARRAY_SIZE(swc_pts); i++)
+		if (swc_pts[i].code == code)
+			return swc_pts[i].mhz;
+	return 0;
+}
+
+/* e220[8:5] = code, then the e200 bit 30 relock (0 -> 1); verify, restore the old code on mismatch */
+static int swc_write(u32 code)
+{
+	u32 e200 = R(PLL_E200) & ~BIT(30);
+
+	__raw_writel((R(PLL_E220) & ~GENMASK(8, 5)) | code << 5, (void __iomem *)PLL_E220);
+	__raw_writel(e200, (void __iomem *)PLL_E200);
+	__raw_writel(e200 | BIT(30), (void __iomem *)PLL_E200);
+	__asm__ __volatile__("sync");
+	return F(R(PLL_E220), 8, 5) == code && (R(PLL_E200) & BIT(16)) ? 0 : -EIO;
+}
+
+static int swc_set(u32 mhz, bool xp)
+{
+	u32 old = F(R(PLL_E220), 8, 5);
+	struct otto_clocks c;
+	int i = swc_find(mhz);
+
+	if (i < 0 || (swc_pts[i].xp && !xp)) {
+		printf("clocks: swcore %u MHz %s\n", mhz, i < 0 ? "not in the table" : "is experimental: needs xp");
+		return CMD_RET_FAILURE;
+	}
+	uart_drain();
+	if (swc_write(swc_pts[i].code)) {
+		swc_write(old);
+		puts("clocks: swcore read-back mismatch, old code restored\n");
+		return CMD_RET_FAILURE;
+	}
+	otto_clocks_read(&c);
+	printf("clocks: swcore now %u kHz (code %u), e220 %08x\n",
+	       c.sw_vco_khz / (2 * (swc_pts[i].code + 2)), swc_pts[i].code, R(PLL_E220));
+	return 0;
+}
+
 /*
  * MEM bins: PLL rows = Realtek SDK cg_mem.c (same as the stock SPL table); DTR0/1 + DTR2 base =
  * stock SPL DTR table. 650: no PLL row anywhere -> 600 row with NCODE 50 (SPEC).
@@ -573,6 +635,7 @@ void otto_turbo_live(struct otto_turbo *t)
 	t->ddr = c.mem_khz / 1000;
 	t->lx = c.lx_khz / 1000;
 	t->sram = sram_live();
+	t->swcore = swc_live();
 }
 
 /* Profile check without touching hardware: NULL = every value is supported; 0 = keep */
@@ -592,7 +655,16 @@ const char *otto_turbo_check(const struct otto_turbo *t)
 		ok |= lx_pts[i] == t->lx;
 	if (!ok)
 		return "lx: 175 204 245 306 only";
-	return t->sram && t->sram != 250 && t->sram != 500 ? "sram: 250 or 500" : NULL;
+	if (t->sram && t->sram != 250 && t->sram != 500)
+		return "sram: 250 or 500";
+	if (t->swcore && t->swcore != l.swcore) {
+		i = swc_find(t->swcore);
+		if (i < 0)
+			return "swcore: 245 306 408 (612 experimental)";
+		if (swc_pts[i].xp && !t->swcore_xp)
+			return "swcore: this value is experimental, needs swcore_xp=1";
+	}
+	return NULL;
 }
 
 /* CPU (+ SRAM select, applied by the same re-lock); no lock -> re-lock at the previous values */
@@ -656,9 +728,12 @@ static int turbo_apply(const struct otto_turbo *t, const struct otto_turbo *l)
 	}
 	/* SPI stays stock: Linux JFFS2 writes at 102.1 MHz left CRC errors (#50) */
 	__asm__ __volatile__("sync");
-	for (i = 2; t->lx && t->lx != l->lx && i <= 5; i++)	/* last: the console follows */
+	for (i = 2; t->lx && t->lx != l->lx && i <= 5; i++)	/* the console follows */
 		if (lx_pts[i] == t->lx)
 			ret = lx_set(i);
+	/* last, never in the SRAM-resident routines; checked by otto_turbo_check (revert: any table value) */
+	if (!ret && t->swcore && t->swcore != l->swcore)
+		ret = swc_set(t->swcore, true);
 	return ret;
 }
 
@@ -680,13 +755,13 @@ int otto_turbo(const struct otto_turbo *t)
 	ret = turbo_apply(t, &l);
 	if (ret) {
 		otto_turbo_live(&now);
-		printf("clocks: turbo FAIL, reverting to cpu %u mem %u lx %u sram %u\n", l.cpu, l.ddr, l.lx, l.sram);
+		printf("clocks: turbo FAIL, reverting to cpu %u mem %u lx %u sram %u swcore %u\n", l.cpu, l.ddr, l.lx, l.sram, l.swcore);
 		if (turbo_apply(&l, &now))
 			puts("clocks: revert FAIL too: clocks as listed below\n");
 	}
 	otto_turbo_live(&now);
-	printf("clocks: turbo %s = cpu %u MHz, mem %u MHz, lx %u MHz, sram %u MHz, MCR %08x, spi unchanged\n",
-	       ret ? "reverted" : "OK", now.cpu, now.ddr, now.lx, now.sram, R(MCR_REG));
+	printf("clocks: turbo %s = cpu %u MHz, mem %u MHz, lx %u MHz, sram %u MHz, swcore %u MHz, MCR %08x, spi unchanged\n",
+	       ret ? "reverted" : "OK", now.cpu, now.ddr, now.lx, now.sram, now.swcore, R(MCR_REG));
 	return ret;
 }
 
@@ -876,6 +951,8 @@ static int do_clocks(struct cmd_tbl *cmdtp, int flag, int argc, char *const argv
 		if (!strcmp(argv[2], "mem"))
 			return mem_cmd(argc - 4, argv + 3);
 		/* clocks set cpu <e208> <e210> [relock 0|1] force  (values: scripts/clock_calc.py) */
+		if ((argc == 5 || argc == 6) && !strcmp(argv[2], "swcore"))
+			return swc_set(dectoul(argv[3], NULL), argc == 6 && !strcmp(argv[4], "xp"));
 		if (argc == 5 && !strcmp(argv[2], "lx"))
 			return lx_set(dectoul(argv[3], NULL));
 		if (argc < 6 || strcmp(argv[2], "cpu"))
@@ -917,6 +994,7 @@ U_BOOT_CMD(clocks, 24, 0, do_clocks, "show CPU/LX/SPI/MEM clocks and DDR3 timing
 	   "clocks set cpu <e208> <e210> [relock 0|1] force\n"
 	   "  - CPU PLL from SRAM (stock sequence); relock 0 = e200 bit 30 (default), 1 = e220 bit 17\n"
 	   "clocks set lx <code 2..5> force  - LX = 2450 / (2 x (code + 2)) MHz; 5 = stock 175\n"
+	   "clocks set swcore <245|306|408> [xp] force - switch-core clock (e220[8:5] + relock); 612 needs xp\n"
 	   "clocks set mem <MHz> [nosr] force\n"
 	   "  - DDR3 clock to a bin (800..675 step 25: CL 11 CWL 8 via MRS, nosr only; 650 600 550 ...),\n"
 	   "    DRAM kept: self-refresh (nosr: refresh off), MEM PLL, DTRs [, MRS + DLL reset], from\n"
