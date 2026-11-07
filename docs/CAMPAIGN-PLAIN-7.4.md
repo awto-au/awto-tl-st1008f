@@ -120,3 +120,26 @@
 
 - 0/6 panics; board alive after each (uptime 75-100 s at the end of the run, 54-60 C).
 - Fixed on the way: `set_mgmt_ip` waited for the plain prompt (wrong on OpenWrt) and OpenWrt dropbear stayed bound to the old lan address; direct `ramload openwrt-ours` did not set the bench IP.
+
+## #149 original reproducer: CPU 1350 / LX 204 (2026-11-07, 9 boots)
+
+- Profile `turbo cpu=1350,ddr=662,lx=204,sram=500` (LX also 245, 175), cage 1, `scripts/panic_repro_trial.py`: fresh software-reboot ramload, read-only ssh polls (5 s) until uptime >= 90 s, then `nat-bench setup`, `zc_bench.py --nat --napi irq1 --secs 12 --len 1400` without perf, then with `--perf`.
+- OpenWrt = `tmp/tftp/openwrt-ours-initramfs.bin` (7.3-next-20261009, in-tree GDMA). Plain = `mainline-7.4-rc1.bin` (12:00 build, after the 12:00 patch 300-41 refresh), bench config.
+
+| Trial | Kernel | LX | Panic | Uptime at panic |
+|---|---|---|---|---|
+| 1a | OpenWrt 7.3 | 204 | no (zc 134.6 / 135.2 kpps) | - |
+| 1b | OpenWrt 7.3 | 204 | yes, at start of no-perf zc | 101.6 s |
+| 1c | OpenWrt 7.3 | 204 | no (132.3 / 131.6 kpps) | - |
+| 2a | plain 7.4-rc1 | 204 | no (idle 172 s, zc started late: 134.2 / 134.2) | - |
+| 2b | plain 7.4-rc1 | 204 | no (134.0 / 134.0) | - |
+| 2c | plain 7.4-rc1 | 204 | no (132.0 / 134.3) | - |
+| 3a | OpenWrt 7.3 | 245 | yes, in the perf zc (no-perf zc passed, 136.0 kpps) | 131.4 s |
+| 3b | OpenWrt 7.3 | 175 | no (122.0 / 122.1 kpps) | - |
+
+- Oops identical in 1b and 3a: `CPU 1 Unable to handle kernel paging request at virtual address 00000001`, epc `gro_list_prepare+0xac`, ra `dev_gro_receive+0x164` <- `gro_receive_skb+0x74` <- `rteth_hw_receive+0x24c` <- `rteth_poll_rx` <- `net_rx_action`. Task on CPU 1: `snmpd` (1b), `ksoftirqd/1` (3a): interrupted context differs, the faulting NAPI poll is the same. Kernel then `Kernel panic - not syncing: Fatal exception in interrupt`, reboot after 3 s; next boot cmdline `st1008f.lastreset=panic`.
+- Idle phase (no traffic) to 90-94 s uptime: 0 panics in 3 OpenWrt LX 204 boots, 3 plain boots. The 37 s / 39 s panics of the first 7.3 builds did not recur; panics here came at the first fast-path UDP load.
+- State at 90 s idle, OpenWrt LX 204: 57.1-59.7 C, BogoMIPS 892.92, dmesg `LX frequency from PLL: 204166 kHz, CPU 1350000 kHz`. After the zc runs 58-61 C (plain 48-49 C).
+- Panic rate: OpenWrt 7.3 at CPU 1350: 2/5 across LX 204/245/175 (1/3, 1/1, 0/1); plain 7.4-rc1 at LX 204: 0/3 (campaign above: 0/6 at stock and LX 306). n is small; LX 175 and 306 earlier passed OpenWrt too, so no monotonic LX dependence is visible.
+- Verdict: reproduces on the OpenWrt 7.3 image at CPU 1350 with LX 204 and 245 (traffic-triggered, perf not required: 1b was without perf); plain 7.4-rc1 does not (0/3 here, 0/6 earlier). Points at kernel build (7.3-next + OpenWrt config) or userland (snmpd, fw4, bridge/STP) rather than the clock alone. Not run: plain 7.4 at CPU 800 / LX 204 (skipped: plain did not panic).
+- Script notes: `ramload` returns rc=1 on LX 204/245/175 boots because `boot_log_check` flags the new clock lines (`clocks: lx now 204166 kHz`, `turbo ...`) as UNKNOWN; boots are fine. Plain `--mgmt` boot 2a: lan1 NO-CARRIER at `port-up`, dropbear absent; `panic_repro_trial.py` now starts it over the console if ssh is refused.
