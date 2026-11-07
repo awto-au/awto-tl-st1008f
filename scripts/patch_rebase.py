@@ -5,8 +5,7 @@
   tree into a private git index (tmp/patch_rebase.index, the tree's own index is untouched), then
   apply 300-09 with rejects kept. Fix the `.rej` hunks by hand in the tree.
 - `write 300-09`: body of openwrt/patches/300-09-*.patch = `git diff` of its files vs the snapshot
-  (header kept, new files included); `.rej`/`.orig` deleted. Copy the old patch to
-  openwrt/patches-v7.3-rc6/ first when 7.3 still needs it (kernel_base.py).
+  (header kept, new files included); `.rej`/`.orig` deleted.
 - Log: tmp/logs/patch_rebase.log
 """
 from __future__ import annotations

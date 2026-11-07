@@ -1,7 +1,7 @@
 #!/usr/bin/env python3
 """kernel_series_branch — our mainline patch series as a branch in the machine Linux store (awto-dan#50).
 
-    python3 scripts/kernel_series_branch.py [--base next-20261009]   # default: kernel_base PIN
+    python3 scripts/kernel_series_branch.py [--base v7.4-rc1]   # default: kernel_base PIN
 
 - Branch `awto/st1008f/<base>` = the base tag, then exactly what `mainline_build_check.py` lays down:
   one commit for the OpenWrt realtek files (OWRT_FILES at the pinned OpenWrt commit) + shared cores,

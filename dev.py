@@ -20,6 +20,7 @@ from __future__ import annotations
 
 import json
 import os
+import re
 import shutil
 import subprocess
 import sys
@@ -617,9 +618,12 @@ def cmd_build_kernel(extra: list[str]) -> int:
         return rc
     sys.path.insert(0, str(SCRIPTS))
     from mainline_build_check import out_dir
-    b = out_dir("--no-highmem" in extra, "--up" in extra, "--latency" in extra)
+    import kernel_base
+    b = out_dir("--no-highmem" in extra, "--up" in extra, "--latency" in extra, "--bench" in extra)
+    base = kernel_base.selected()  # Linus-tag bases: tmp/tftp/mainline-7.4-rc1.bin, never mainline.bin
+    out = ["--out", str(REPO / f"tmp/tftp/mainline-{base[1:]}.bin")]
     return _script("mainline_uimage.py", ["--vmlinux", str(b / "vmlinux"), "--dtb",
-                   str(b / "arch/mips/boot/dts/realtek/tplink-tl-st1008f-v2.dtb")])
+                   str(b / "arch/mips/boot/dts/realtek/tplink-tl-st1008f-v2.dtb"), *out])
 
 
 @command("our mainline series as branch awto/st1008f/<base> in the machine Linux store (awto-dan#50); local, push needs approval",
@@ -628,9 +632,9 @@ def cmd_kernel_series_branch(extra: list[str]) -> int:
     return _script("kernel_series_branch.py", extra)
 
 
-@command("Linux base for build-kernel / build-openwrt --kernel mainline: linux-next PIN in scripts/kernel_base.py "
-         "(env KERNEL_BASE=v7.3-rc6 = fallback); update = newest next-YYYYMMDD tag (#16)",
-         args="[show | update [--tag next-YYYYMMDD] | checkout | setup --store PATH]", kind="build")
+@command("Linux base for build-kernel / build-openwrt --kernel mainline: Linus's latest tag (PIN in scripts/kernel_base.py, "
+         "env KERNEL_BASE overrides); update = newest tag from the Linus remote (#16)",
+         args="[show | update [--tag vX.Y[-rcN]] | checkout | setup --store PATH]", kind="build")
 def cmd_kernel_base(extra: list[str]) -> int:
     return _script("kernel_base.py", extra)
 

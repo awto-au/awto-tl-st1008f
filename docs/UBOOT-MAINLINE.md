@@ -28,7 +28,7 @@ Runs on the board: first boot 2026-10-10 (18 s from power-off to prompt via `ram
 | Timer | CP0 Count, board `get_tbclk()` = CPU PLL / 2, read each call | follows a runtime CPU change; `uboot-test timer` checks it against the host clock |
 | Env | `CONFIG_ENV_IS_NOWHERE`, `BOOTDELAY=-1` (stay at prompt) | no flash |
 | Commands | md mw cp cmp go bootm printenv setenv version echo itest sleep fdt dm help run; net: dhcp ping tftpboot wget fastboot (udp) | `saveenv`, `ELF`, flash writes disabled |
-| `reset` | prints `reset: not implemented (stage 0)`, returns | GPIO21 low = board reset (stock `rtk.ko`), deliberately not driven; SoC chip-reset register not yet RE'd |
+| `reset` | writes 1 to the switch-core `RST_GLB_CTRL` (`0xbb00000c`), waits 100 ms, prints `reset: chip still running` if it returns | `uboot-port/arch/mips/mach-otto/cpu.c:36-52`; GPIO21 low = board reset (stock `rtk.ko`), deliberately not driven |
 | Kernel decompress | `CONFIG_LZMA`, `SYS_BOOTM_LEN=0x1000000` | OpenWrt uImages are LZMA |
 | DTB | `OF_SEPARATE`, appended to `u-boot.bin` | one flat file for `go` |
 
@@ -123,7 +123,7 @@ st1008f-mainline #
 - Chained-boot selection primary / recovery (`bootsel`, attempt record in RAM, SoC watchdog): [DEFAULT-BOOT.md](DEFAULT-BOOT.md) (#73); not run on the board.
 - SerDes bring-up + `rtk network on` without stock (#51, [Stage 4](#stage-4-network-on-without-stock-51)).
 - Ethernet: CPU-port NIC ([Ethernet](#ethernet-80)).
-- Not: flash env, reset (next: switch-core `+0x0c` write 1 = `syscon-reboot` per Linux DTS), interrupts (polled console only), second RAM bank for Linux handover ([highmem](#ram-above-256-mib-highmem-32)), second hardware thread.
+- Not: flash env, interrupts (polled console only), second RAM bank for Linux handover ([highmem](#ram-above-256-mib-highmem-32)), second hardware thread.
 - `bootm`: accepts the standard uImage magic `0x27051956` and the Realtek `0x93030000` (stock-style images, flash OpenWrt), so `bootm 0xb4300000` boots the flash OpenWrt (#47).
 
 ## 64-bit divide (`__udivdi3`, #33)

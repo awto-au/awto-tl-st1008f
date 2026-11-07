@@ -3,9 +3,9 @@
 
 - For each `--- /dev/null` / `+++ b/<path>` section in the patch, replace its body with the
   current content of <tree>/<path>. Other sections (edits to existing files) are kept as is.
-- Use after editing a file the patch creates (e.g. 300-06 mode-switch driver) in the kernel_base.py tree (tmp/linux-next).
+- Use after editing a file the patch creates (e.g. 300-06 mode-switch driver) in the kernel_base.py tree (tmp/linux-vX.Y).
 
-    python3 scripts/patch_refresh.py openwrt/patches/300-06-*.patch [--tree tmp/linux-next]
+    python3 scripts/patch_refresh.py openwrt/patches/300-06-*.patch [--tree tmp/linux-v7.4]
 """
 import argparse
 import time

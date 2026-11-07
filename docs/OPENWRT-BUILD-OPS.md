@@ -10,7 +10,7 @@ Facts, patch status, sizes: [OPENWRT-BUILD.md](OPENWRT-BUILD.md). Log: `tmp/logs
 ```
 ./dev.py build-openwrt                      # step 1: OpenWrt 6.18 + backports -> tmp/tftp/openwrt-ours-6.18-initramfs[-std].bin
 ./dev.py build-openwrt --kernel-only        # re-patch + kernel + images only (after one full build)
-./dev.py build-openwrt --kernel mainline    # step 2: our port on the kernel-base (linux-next) as OpenWrt testing kernel -> tmp/tftp/openwrt-ours-initramfs[-std].bin
+./dev.py build-openwrt --kernel mainline    # step 2: our port on the kernel-base (Linus tag) as OpenWrt testing kernel -> tmp/tftp/openwrt-ours-initramfs[-std].bin
 ./dev.py build-openwrt --update             # pull newest OpenWrt main first (re-check every rebased patch)
 ./dev.py build-openwrt --no-overlay         # stock OpenWrt main (baseline)
 ```

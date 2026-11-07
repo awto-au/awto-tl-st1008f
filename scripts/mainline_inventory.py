@@ -14,6 +14,8 @@ import subprocess
 import sys
 from pathlib import Path
 
+import kernel_base
+
 ROOT = Path(__file__).resolve().parent.parent
 LOG = ROOT / "tmp/logs/mainline_inventory.log"
 
@@ -115,7 +117,7 @@ def main():
     ap = argparse.ArgumentParser()
     ap.add_argument("--openwrt", default=str(ROOT / "tmp/openwrt"))
     ap.add_argument("--linux", default=str(ROOT / "tmp/linux-store/.git"))
-    ap.add_argument("--ref", default="v7.3-rc6")
+    ap.add_argument("--ref", default=kernel_base.PIN)
     a = ap.parse_args()
     LOG.parent.mkdir(parents=True, exist_ok=True)
     LOG.write_text("")

@@ -1,6 +1,6 @@
 #!/usr/bin/env python3
 """openwrt_patch_check — apply OpenWrt realtek 300-02/03 + our openwrt/patches/*.patch to
-arch/mips/generic in tmp/linux-v7.3 (same base file as v6.18), compile board-realtek.o, restore.
+arch/mips/generic in the kernel_base tree (same base file as v6.18), compile board-realtek.o, restore.
 
 - Proves our patch applies after OpenWrt's series and compiles warning-free (#53).
 - The tree is restored in `finally` (git checkout of the two files, overlay header dir removed).
@@ -13,8 +13,10 @@ import sys
 import time
 from pathlib import Path
 
+import kernel_base
+
 ROOT = Path(__file__).resolve().parent.parent
-TREE = ROOT / "tmp/linux-v7.3"
+TREE = kernel_base.tree()
 BUILD = ROOT / "tmp/build-mips"
 OWRT = ROOT / "tmp/openwrt/target/linux/realtek"
 SERIES = [OWRT / "patches-6.18/300-02-enhance-realtek-board-setup.patch",

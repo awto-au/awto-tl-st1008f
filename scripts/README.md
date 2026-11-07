@@ -414,7 +414,7 @@ Desk-only; no switch access. Needs `tmp/openwrt` (sparse clone of openwrt, `targ
 
 ### mainline_inventory.py
 - Purpose: compare OpenWrt `files-6.18` and version-tagged `patches-6.18` against a mainline ref (exists? first release? subject merged?).
-- Run: `scripts/mainline_inventory.py [--ref v7.3-rc6]`
+- Run: `scripts/mainline_inventory.py [--ref TAG]`
 - Output: markdown tables on stdout and `tmp/logs/mainline_inventory.log`.
 
 ### mainline_patch_check.py
@@ -423,20 +423,20 @@ Desk-only; no switch access. Needs `tmp/openwrt` (sparse clone of openwrt, `targ
 - Output: `tmp/logs/mainline_patch_check.log` (patch table, then make output), build tree `tmp/build-fp`.
 
 ### mainline_build_check.py
-- Purpose: build the mainline kernel against the `kernel_base.py` tree (linux-next PIN `tmp/linux-next`; `KERNEL_BASE=v7.3-rc6` -> `tmp/linux-v7.3`): OpenWrt realtek patches applied verbatim (`OWRT_VERBATIM`), driver files copied from `files-6.18` (`OWRT_FILES`), then `kernel_base.patches()` (`openwrt/patches/*.patch`, ours + forward-ports; 7.3 copies in `openwrt/patches-v7.3-rc6/`); `allnoconfig` + `mainline/st1008f-v2.config` (+ `st1008f-v2-smp.config` with `--smp`) + generated initramfs fragment. Checks `tmp/openwrt` is at the pinned OpenWrt commit.
+- Purpose: build the mainline kernel against the `kernel_base.py` tree (PIN tag, worktree `tmp/linux-vX.Y`): OpenWrt realtek patches applied verbatim (`OWRT_VERBATIM`), driver files copied from `files-6.18` (`OWRT_FILES`), then `kernel_base.patches()` (`openwrt/patches/*.patch`, ours + forward-ports); `allnoconfig` + `mainline/st1008f-v2.config` (+ `st1008f-v2-smp.config` with `--smp`) + generated initramfs fragment. Checks `tmp/openwrt` is at the pinned OpenWrt commit.
 - Run: `scripts/mainline_build_check.py [--dtb-only] [--apply-only] [--up] [--w1] [--skip PREFIX] [--jobs N]` (or `./dev.py build-kernel [...]`, which also wraps `tmp/tftp/mainline.bin`). Runs at nice 19, default `-j8` (owner limit). `--skip 300-21` leaves a patch out (A/B bisects, #107).
-- Output: `tmp/logs/mainline_build_check.log`, build tree `tmp/build-mips` (`-v7.3-rc6` suffix on the fallback); prints the `=y` and warning counts; `--w1` rebuilds the objects our patches touch with W=1 (any warning fails).
+- Output: `tmp/logs/mainline_build_check.log`, build tree `tmp/build-mips` (`-<tag>` suffix, e.g. `tmp/build-mips-v7.4-rc1`); prints the `=y` and warning counts; `--w1` rebuilds the objects our patches touch with W=1 (any warning fails).
 - Fails, listing them, if `olddefconfig` drops or changes any fragment line.
 - Notes: `--out` must be absolute (relative paths resolve inside the kernel tree). Patch/file status table: [../docs/MAINLINE-PORT.md](../docs/MAINLINE-PORT.md).
 
 ### kernel_base.py
-- Purpose: one setting for the kernel base: `PIN` (linux-next `next-YYYYMMDD`, default) or env `KERNEL_BASE=v7.3-rc6` (fallback). Used by `mainline_build_check.py`, `build_openwrt.py`, `patch_rebase.py` and the patch helpers.
-- Run: `./dev.py kernel-base [show | update [--tag next-YYYYMMDD] | checkout | setup --store PATH]`. `setup` = symlink `tmp/linux-store` to the machine Linux store (awto-dan#50). `update` = newest tag from `ls-remote`, full fetch into the store (remote `next`), worktree `tmp/linux-next`, rewrites `PIN`. `checkout` creates the worktree of the selected base (`tmp/linux-next` or `tmp/linux-v7.3`).
+- Purpose: one setting for the kernel base: `PIN` (Linus's latest tag, default) or env `KERNEL_BASE=<vX.Y[-rcN]>`. Used by `mainline_build_check.py`, `build_openwrt.py`, `patch_rebase.py` and the patch helpers.
+- Run: `./dev.py kernel-base [show | update [--tag vX.Y[-rcN]] | checkout | setup --store PATH]`. `setup` = symlink `tmp/linux-store` to the machine Linux store (awto-dan#50). `update` = newest tag from `ls-remote` of the Linus remote, full fetch into the store (remote `torvalds`), worktree `tmp/linux-vX.Y`, rewrites `PIN`. `checkout` creates the worktree of the selected base.
 - Log: `tmp/logs/kernel_base.log`. After `update`: rebase the series (`patch_rebase.py`), record it in MAINLINE-PORT §8 and Baselines.
 
 ### patch_rebase.py
 - Purpose: refresh one patch of the series onto the current base: `prepare 300-NN` applies the series up to it, snapshots the tree in a private index (`tmp/patch_rebase.index`), applies it keeping `.rej`; fix by hand; `write 300-NN` regenerates its body (`git diff` vs the snapshot, header kept).
-- Copy the old patch to `openwrt/patches-v7.3-rc6/` first when the fallback still needs it. Log: `tmp/logs/patch_rebase.log`.
+Log: `tmp/logs/patch_rebase.log`.
 
 ### openwrt_patch_status.py
 - Purpose: classify each OpenWrt patch against the `kernel_base.py` tree (`--tree`) in series order: `upstream` (reverse-applies), `applies` (kept applied so series stack), `fails`. Resets the tree before and after.

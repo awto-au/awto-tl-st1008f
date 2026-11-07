@@ -1,7 +1,7 @@
 #!/usr/bin/env python3
 """build_perf — static `perf` for the mainline initramfs board (#67).
 
-- Source: tools/perf of the kernel_base tree (tmp/linux-next). Compiler: the local OpenWrt buildroot's
+- Source: tools/perf of the kernel_base tree (tmp/linux-vX.Y). Compiler: the local OpenWrt buildroot's
   musl toolchain (tmp/openwrt-build/staging_dir/toolchain-mips_24kc_*_musl; `./dev.py build-openwrt` makes it).
 - Minimal static build: no libelf/libdw/libtraceevent/libbpf/python/perl/slang/libunwind. Kernel symbols
   come from /proc/kallsyms on the board, which is all NIC/NAT path profiling needs.
@@ -17,10 +17,12 @@ import sys
 import time
 from pathlib import Path
 
+import kernel_base
+
 ROOT = Path(__file__).resolve().parent.parent
 LOG = ROOT / "tmp/logs/build_perf.log"
 OUT = ROOT / "tmp/perf"
-TREE = ROOT / "tmp/linux-next"
+TREE = kernel_base.tree()
 TC_GLOB = "tmp/openwrt-build/staging_dir/toolchain-mips_24kc_*_musl"
 BUILD_S = 900  # tools/perf minimal at -j8 ~3-5 min on this host; x1.25 + configure, first build
 

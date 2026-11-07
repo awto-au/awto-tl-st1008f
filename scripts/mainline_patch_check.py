@@ -3,7 +3,7 @@
 
 Reports per patch: ok | fuzz | FAIL | skipped (already upstream / not needed for RTL930x).
 Also copies files-6.18/ into the tree, then optionally builds the copied drivers.
-Works on a scratch copy (--work), never on tmp/linux-v7.3 itself.
+Works on a scratch copy (--work), never on the kernel_base tree itself.
 Log: tmp/logs/mainline_patch_check.log
 """
 import argparse
@@ -12,6 +12,8 @@ import shutil
 import subprocess
 import sys
 from pathlib import Path
+
+import kernel_base
 
 ROOT = Path(__file__).resolve().parent.parent
 LOG = ROOT / "tmp/logs/mainline_patch_check.log"
@@ -124,7 +126,7 @@ def apply(tree, patch):
 
 def main():
     ap = argparse.ArgumentParser()
-    ap.add_argument("--src", default=str(ROOT / "tmp/linux-v7.3"))
+    ap.add_argument("--src", default=str(kernel_base.tree()))
     ap.add_argument("--work", default=str(ROOT / "tmp/linux-fp"))
     ap.add_argument("--openwrt", default=str(ROOT / "tmp/openwrt"))
     ap.add_argument("--build", action="store_true", help="configure and build with make -k")

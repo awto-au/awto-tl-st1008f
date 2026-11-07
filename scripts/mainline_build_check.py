@@ -1,18 +1,17 @@
 #!/usr/bin/env python3
-"""Build the mainline ST1008F v2 kernel: linux-next (kernel_base.py) + forward-ported OpenWrt realtek drivers (#16).
+"""Build the mainline ST1008F v2 kernel: Linus's latest tag (kernel_base.py) + forward-ported OpenWrt realtek drivers (#16).
 
-Needs: the kernel_base.py tree (default PIN linux-next tag -> tmp/linux-next, checked out on demand;
-KERNEL_BASE=v7.3-rc6 -> tmp/linux-v7.3), tmp/openwrt at OWRT_COMMIT, mips big-endian cross gcc
+Needs: the kernel_base.py tree (PIN tag -> tmp/linux-vX.Y, checked out on demand), tmp/openwrt at OWRT_COMMIT, mips big-endian cross gcc
 (default mips64-linux-gnu-, -mabi=32). Log: tmp/logs/mainline_build_check.log
 Derived tree state, rebuilt each run (patched files reset via git, copied/created files deleted):
 - OWRT_VERBATIM patches-6.18, OWRT_FILES from files-6.18, then kernel_base.patches() (ours and
-  forward-ports, 300-04..; per-base copies in openwrt/patches-<base>/). Status of every OpenWrt patch/file: docs/MAINLINE-PORT.md.
+  forward-ports, 300-04..). Status of every OpenWrt patch/file: docs/MAINLINE-PORT.md.
 - DTS + dts Makefile line; allnoconfig + mainline/st1008f-v2.config (MT SMP, both VPEs: default)
   (+ st1008f-v2-up.config with --up, + st1008f-v2-nohighmem.config with --no-highmem,
   + st1008f-v2-latency.config with --latency) + generated
   initramfs fragment (mainline_initramfs.py); olddefconfig; fail if a fragment option did not
   survive (a later fragment wins); build vmlinux + dtb at nice 19, -j8 max.
-- Out dir: tmp/build-mips[-v7.3-rc6][-nohighmem][-up][-lat] (out_dir(); dev.py build-kernel uses the same).
+- Out dir: tmp/build-mips-<tag>[-nohighmem][-up][-lat][-bench] (out_dir(); dev.py build-kernel uses the same).
 """
 import argparse
 import os
@@ -55,7 +54,7 @@ SHARED_FILES = {
     "drivers/net/ethernet/realtek/rtl930x_nic.h": ROOT / "shared/rtl930x-nic/rtl930x_nic.h",
     "drivers/net/dsa/rtl83xx/rtl930x_storm.h": ROOT / "shared/rtl930x-storm/rtl930x_storm.h",  # 300-26
 }
-OWRT_GENERIC_PENDING = ["344"]  # csum_partial maddu: realtek 309 moved to generic pending-6.18 (OpenWrt 818516b)
+OWRT_GENERIC_PENDING = ["344", "644"]  # 644: DSA port_vlan_protocol hook (not in v7.4-rc1) used by rtl83xx dsa.c; 344: csum_partial maddu: realtek 309 moved to generic pending-6.18 (OpenWrt 818516b)
 PATCHES = [*(next((OWRT / "patches-6.18").glob(f"{n}-*.patch")) for n in OWRT_VERBATIM),
            *(next((OWRT.parent / "generic/pending-6.18").glob(f"{n}-*.patch")) for n in OWRT_GENERIC_PENDING),
            *kernel_base.patches()]
@@ -131,10 +130,10 @@ def check_fragments(config: Path, fragments: list[Path]) -> list[str]:
     return [f"{ln}  (got {have.get(k, 'not set')})" for k, (v, ln) in want.items() if have.get(k) != v]
 
 
-def out_dir(no_highmem: bool, up: bool, lat: bool = False) -> Path:
-    base = kernel_base.selected()  # fallback base gets its own out dir: no mixed-tree objects
-    return ROOT / ("tmp/build-mips" + ("" if kernel_base.is_next(base) else f"-{base}")
-                   + ("-nohighmem" if no_highmem else "") + ("-up" if up else "") + ("-lat" if lat else ""))
+def out_dir(no_highmem: bool, up: bool, lat: bool = False, bench: bool = False) -> Path:
+    return ROOT / (f"tmp/build-mips-{kernel_base.selected()}"
+                   + ("-nohighmem" if no_highmem else "") + ("-up" if up else "") + ("-lat" if lat else "")
+                   + ("-bench" if bench else ""))
 
 
 def run(cmd, cwd):
@@ -160,12 +159,14 @@ def main():
                     help="merge mainline/st1008f-v2-nohighmem.config (256 MiB reference, #27)")
     ap.add_argument("--latency", action="store_true",
                     help="merge mainline/st1008f-v2-latency.config (irqsoff/timerlat tracers; not for benches, #73)")
+    ap.add_argument("--bench", action="store_true",
+                    help="merge mainline/st1008f-v2-bench.config (MODULES, DMA_ENGINE) + bench initramfs (PLAIN-KERNEL-TESTS.md)")
     ap.add_argument("--skip", action="append", default=[], metavar="PREFIX",
                     help="leave out patches whose name starts with PREFIX (A/B bisect, e.g. 300-21)")
     ap.add_argument("--w1", action="store_true",
                     help="after the build, rebuild the objects our openwrt/patches touch with W=1; warnings fail")
     a = ap.parse_args()
-    a.out = a.out or str(out_dir(a.no_highmem, a.up, a.latency))
+    a.out = a.out or str(out_dir(a.no_highmem, a.up, a.latency, a.bench))
     os.nice(19)  # owner: builds yield to interactive host work
     LOG.parent.mkdir(parents=True, exist_ok=True)
     LOG.write_text("")
@@ -190,7 +191,8 @@ def main():
     frags = [ROOT / "mainline/st1008f-v2.config",
              *([ROOT / "mainline/st1008f-v2-up.config"] if a.up else []),
              *([ROOT / "mainline/st1008f-v2-nohighmem.config"] if a.no_highmem else []),
-             *([ROOT / "mainline/st1008f-v2-latency.config"] if a.latency else []), mainline_initramfs.build()]
+             *([ROOT / "mainline/st1008f-v2-latency.config"] if a.latency else []),
+             *([ROOT / "mainline/st1008f-v2-bench.config"] if a.bench else []), mainline_initramfs.build(bench=a.bench or None)]
     merge = tree / "scripts/kconfig/merge_config.sh"
     if run([str(merge), "-m", "-O", str(out), str(out / ".config"), *map(str, frags)], tree):
         sys.exit("merge_config failed, see log")

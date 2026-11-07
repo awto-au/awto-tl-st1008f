@@ -72,7 +72,7 @@ Disk:
 
 ## Step 2: our 7.3 port as OpenWrt testing kernel
 
-`--kernel mainline` (old name `7.3`; base from `scripts/kernel_base.py`, linux-next since 2026-10-12, [MAINLINE-PORT.md](MAINLINE-PORT.md#baselines)): OpenWrt's `KERNEL_TESTING_PATCHVER` mechanism, same OpenWrt main tree and userspace.
+`--kernel mainline` (old name `7.3`; base from `scripts/kernel_base.py`, Linus's latest tag since 2026-11-07, [MAINLINE-PORT.md](MAINLINE-PORT.md#baselines)): OpenWrt's `KERNEL_TESTING_PATCHVER` mechanism, same OpenWrt main tree and userspace.
 
 | Piece | Source |
 |---|---|
