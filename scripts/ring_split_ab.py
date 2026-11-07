@@ -6,7 +6,7 @@
 - Fixed: threaded NAPI ring0 -> VPE0 / ring1 -> VPE1, tx_by_cpu=1, eth0 noqueue, CPU queue 0 and 1 drop threshold 1024 pages.
 - Variants (n runs each, interleaved): rt0 / rt1 = l3_net_route ring 0 / 1 (baseline); par = rt1 + PIE `sport 1 0 0` / `sport 1 1 1`
   (udpblast varies the source port only: even -> ring 0, odd -> ring 1); par_acl1 = par + acl_hit queue 1 (fallback of the design).
-- Per run (steady window, ramp and tail cut): kpps, VPE0/VPE1 busy, rx ring frames, tag QID counts, zc per ring, EGR_QUEUE drops;
+- Per run (whole sender run, counters read idle before/after): kpps, VPE0/VPE1 busy, rx ring frames, tag QID counts, zc per ring, EGR_QUEUE drops;
   per variant and round one udpcheck run (bad payloads, reorder per source port).
 - Verdict rule = design on #146: PASS = >= 143 kpps, both VPEs 60-90 %, EGR_QUEUE below rt1, 0 bad, 0 reorder, ring share 40-60 %.
 - Log tmp/logs/ring_split_ab.log, rows tmp/logs/ring_split_ab.jsonl.
@@ -17,7 +17,6 @@ import json
 import statistics
 import subprocess
 import sys
-import threading
 import time
 from pathlib import Path
 
@@ -37,6 +36,7 @@ VARIANTS = {
     "par": [f"echo 'l3_net_route 1' > {D}/rxq", *RULES],
     "par_acl1": [f"echo 'l3_net_route 1' > {D}/rxq", f"echo 'acl_hit 1' > {D}/rxq", *RULES],
 }
+SSH_LOADED_S = 60  # ssh while a VPE is 100 % busy: 20 s default timed out under load; 60 s = stall rule
 KNOBS = {"napi_thread": "on", "tx_by_cpu": "1", "qdisc": "noqueue"}  # + ring N NAPI thread pinned to VPE N (pin_napi)
 
 
@@ -61,7 +61,7 @@ def snapshot(nb, zb, dev):
     """rx counter first (local, fast), then rxq + /proc/stat in one ssh call."""
     t = time.monotonic()
     rx = zb.rx(dev)
-    out = nb.sw(f"cat {D}/rxq; grep -E '^cpu[01] ' /proc/stat")
+    out = nb.sw(f"cat {D}/rxq; grep -E '^cpu[01] ' /proc/stat", tmo=SSH_LOADED_S)
     cpu = {}
     for ln in out.splitlines():
         if ln.startswith("cpu"):
@@ -70,30 +70,27 @@ def snapshot(nb, zb, dev):
     return {"t": t, "rx": rx, "rxq": parse_rxq(out), "cpu": cpu}
 
 
-def busy(a, b, k):
-    return 100 - 100 * (b["cpu"][k][1] - a["cpu"][k][1]) / max(1, b["cpu"][k][0] - a["cpu"][k][0])
+def busy(a, b, k, dt):
+    """Non-idle jiffies of the run over its wall time (USER_HZ 100); idle ticks after the run do not count."""
+    return 100 * ((b["cpu"][k][0] - a["cpu"][k][0]) - (b["cpu"][k][1] - a["cpu"][k][1])) / (100 * dt)
 
 
 def one_run(nb, zb, dc, secs, ln, flows):
+    """Counters read idle before and after the run: ssh to the board stalls while a loaded ring carries the control plane."""
     dev = f"{nb.HOST_NIC}.992"
     cmd = ["sudo", "-n", "ip", "netns", "exec", "natlan", str(ROOT / "tmp/udpblast"), "10.99.1.2", "10.99.2.2", "5201",
            str(ln), str(secs), str(flows)]
-    res = {}
-    th = threading.Thread(target=lambda: res.update(r=subprocess.run(cmd, capture_output=True, text=True, timeout=secs * 3 + 30)))
     dc.snap()  # clear-on-read: the next read counts this run only
-    th.start()
-    ev = threading.Event()
-    ev.wait(2.0)  # sender ramp: socket setup + first batches; window starts after it
     a = snapshot(nb, zb, dev)
-    ev.wait(max(0.5, secs - 2.0 - 1.0 - (time.monotonic() - a["t"])))  # window ends 1 s before the sender stops
-    b = snapshot(nb, zb, dev)
-    th.join()
+    t0 = time.monotonic()
+    subprocess.run(cmd, capture_output=True, text=True, timeout=secs * 3 + 30)  # sender stops itself at secs
+    b = snapshot(nb, zb, dev)  # rx counter first, so the tail after the sender is not counted as run time
     drops = dc.delta([0] * dc.N, dc.snap())
-    dt = b["t"] - a["t"]
+    dt = b["t"] - t0
     d = {k: b["rxq"].get(k, 0) - a["rxq"].get(k, 0) for k in b["rxq"]}
     rings = [d.get("ring0_frames", 0), d.get("ring1_frames", 0)]
     return {
-        "kpps": (b["rx"] - a["rx"]) / dt / 1000, "window_s": round(dt, 2), "vpe0": busy(a, b, "cpu0"), "vpe1": busy(a, b, "cpu1"),
+        "kpps": (b["rx"] - a["rx"]) / dt / 1000, "window_s": round(dt, 2), "vpe0": busy(a, b, "cpu0", dt), "vpe1": busy(a, b, "cpu1", dt),
         "rings": rings, "share0": rings[0] / max(1, sum(rings)),
         "tagqid": {k: v for k, v in d.items() if k.startswith("tagqid") and v},
         "zc": {k: v for k, v in d.items() if "zc_" in k}, "egr_queue": drops.get("EGR_QUEUE", 0), "drops": drops,
@@ -144,7 +141,7 @@ def prepare(nb, nk, zb, a):
 
 def finish(nb):
     nb.sw(f"echo 0 > {P}/zc; echo 1 > {P}/zc_ring; echo 0 > {P}/rx_qid_stats; echo 0 > {P}/zc_sport_add; "
-          f"echo clear > {D}/rxq_pie; echo rr > {D}/rxq", check=False)
+          f"echo clear > {D}/rxq_pie; echo rr > {D}/rxq", check=False, tmo=SSH_LOADED_S)
 
 
 def verdict(name, rows, base):
@@ -194,6 +191,7 @@ def main():
             print(f"  {v}:", *RESET, *VARIANTS[v], sep="\n    ")
         return 0
     import drop_counters as dc
+    dc.READ_S = SSH_LOADED_S
     import nat_bench as nb
     import nat_knobs as nk
     import zc_bench as zb

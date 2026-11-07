@@ -84,3 +84,6 @@ Facts only. Where we are: [NAT.md](NAT.md). Experiments and results over time: [
 - Valid `turbo` steps: LX 175 / 204 / 245 / 306; CPU 800 / 1000 / 1050 / 1100-1425 step 25; an invalid value rejects the whole profile ('nothing changed', board stays at stock clocks).
 
 - zc cache maintenance (2026-11-07): TX writeback was already 128 B; header-only recycle invalidate (300-42, `zc_rx_part`) and full-frame TX writeback both change 1400/500 B by < 0.3 %, 64 B -1.5 % / 0 %. Cache ops are not the size-dependent cost: docs/CAMPAIGN-PLAIN-7.4.md.
+
+- Two-ring split (2026-11-07, #146, 300-43): PIE CPU-queue rule steers by source-port parity, ring share 50 / 50, tag QID verified; 124-128 kpps with both VPEs busy vs 143.3 on one: FAIL, shared 34Kc pipeline.
+- Details and table: docs/CAMPAIGN-PLAIN-7.4.md "Two-ring receive split".

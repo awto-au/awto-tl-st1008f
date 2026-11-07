@@ -328,6 +328,7 @@ Network, 2026-10-12 (commit b02ed5f; 1 GHz via our U-Boot and 800 MHz via stock)
 - OpenWrt verbatim `300-01..03`, `330`, `331`, `712`, `714`, `718`, `722` and generic pending `344`, `644` (DSA `port_vlan_protocol`, absent in v7.4-rc1; used by rtl83xx `dsa.c`) apply on v7.4-rc1.
 - Refreshed for v7.4-rc1: `300-08` (phylink fwnode PCS: `pcs/Makefile` context, `phylink_destroy()` now calls `phylink_destroy_sfp_cage_port()`). Fuzz 1-2 only on the rest.
 - `300-32`, `300-33` are 6.18-image only (`kernel_base.OPENWRT_ONLY`).
+- `300-43` (two-ring split: `rxq_pie` PIE CPU-queue rule, zc on both rings, queue 0 threshold, tag QID counters; #146) applies on v7.4-rc1, default off.
 - Build 2026-11-07: `./dev.py build-kernel` SMP+HIGHMEM, make rc 0, 0 warnings -> `tmp/tftp/mainline-7.4-rc1.bin`. Not booted.
 
 ## 9. SMP: interrupt routing, throughput, latency (#73, #60, #16)

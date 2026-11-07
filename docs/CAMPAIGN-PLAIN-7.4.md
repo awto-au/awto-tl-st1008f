@@ -206,3 +206,22 @@
 
 - #138: 0 silent boards in 10 (previous run 2026-10-15: console silent ~30 s after `Run /sbin/init` until the relay). #137: 0 `could not sync clock` in 10 boots (earlier logs: SerDes 6/9 at ~21 s uptime).
 - `./dev.py uboot-chain-env hang-test` (slot b, `init=/bin/sh`, `bootsel wdt on` 13 s): FAIL. Kernel cmdline had `watchdog.open_timeout=92`; `Run /bin/sh as init` at 1.95 s; no SoC reset within the 165 s limit (uptime 167 s), shell still alive at 216 s (`/sys/class/watchdog/`: watchdog0 = `18003260.watchdog`, watchdog1 = a virtual `watchdog` device). Recovered with `reboot -f` over the console. DEFAULT-BOOT.md records the same test passing on 2026-10-15 (reset 6 s after `/bin/sh`, #138 image); this image is newer (OpenWrt bump 2026-11-04) -> the open_timeout stop-feeding path does not reset the board here. Not diagnosed; file against #138.
+
+## Two-ring receive split, PIE CPU-queue rule (2026-11-07, #146)
+
+- Setup: plain 7.4-rc1 bench kernel + 300-43 (`tmp/tftp/mainline-7.4-rc1-ring.bin`), picks 1350/306/662/500, cage 1, `rtl838x_eth.cpuq0_drop_pages=1024` (queue 1 1024 by default, both 1024/1008 pages), threaded NAPI ring N on VPE N, `tx_by_cpu=1`, eth0 `noqueue`, zc on both rings (`zc_ring 2`, TX ring = CPU & 1), udpblast 1400 B, 64 flows (source port 40000+i, one destination port), 10 s per run, n=3 interleaved, `scripts/ring_split_ab.py --tag ring2` (rows `tmp/logs/ring_split_ab.jsonl`).
+- Variants: rt0 / rt1 = `l3_net_route` ring 0 / 1; par = rt1 + PIE `sport 1 0 0` and `sport 1 1 1` (UDP, action = CPU queue id only); par_acl1 = par + `acl_hit` queue 1.
+- Busy % = non-idle jiffies / run wall time (counters read idle before and after: ssh to the board stalls while a loaded ring carries the control plane; a windowed first attempt was discarded). Integrity = udpcheck pattern run per variant and round (bad payloads / reorder per source port).
+
+| Variant | kpps (min-max) | VPE0 / VPE1 busy % | ring0 / ring1 frames (mean per run) | tag QID 0 / 1 | EGR_QUEUE per run | bad / reorder |
+|---|---|---|---|---|---|---|
+| rt0 | 143.3 (142.8-143.5) | 100 / 0 | 1.46 M / 36 | 1.46 M / 36 | 39201 | 0 / 0 |
+| rt1 | 136.7 (136.4-136.9) | 0 / 87 | 58 / 1.44 M | 58 / 1.44 M | 50863 | 0 / 0 |
+| par | 124.0 (115.3-128.5) | 96 / 56 | 0.67 M / 0.65 M | same | 14967 | 0 / 0 |
+| par_acl1 | 128.2 (126.8-128.9) | 100 / 63 (one run 156 / 66: jiffy accounting) | 0.69 M / 0.70 M | same | 33315 | 0 / 0 |
+
+- Steering works: the ACL CPU-QID action overrides the reason queue of the L3-trapped frame (ring share 50 / 50 in every par run, tag QID 0 and 1 equal, no forward action needed, route trap kept); `acl_hit` queue is not needed.
+- zc TX ring full on ring 0: `ring0_zc_busy` 78-104 k per run (frames fall back to the skb path), ring 1 0.
+- Verdict (rule of #146): FAIL, "rate drops with both VPEs busy": 124-128 kpps with both VPEs busy vs 143.3 (rt0) / 136.7 (rt1) with one. The shared 34Kc pipeline, not one VPE, is the limit; splitting receive does not raise the ceiling. EGR_QUEUE drops fall (par 15 k vs rt1 51 k) but the rate does not.
+- Side result: with all traffic on ring 0 / VPE0 the rate is 143.3 kpps vs 136.7 on ring 1 / VPE1 (earlier 143 on VPE1 with `irq1` softirq instead of the NAPI thread).
+- Panics: none (#149 `gro_list_prepare` not seen; stack path is not used on the zc path).

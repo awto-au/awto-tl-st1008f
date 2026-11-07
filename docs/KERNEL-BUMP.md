@@ -64,6 +64,7 @@ Method: `git apply --cached -C1` of each patch alone onto a scratch index of eac
 | 300-38 debugfs rxq steering | needed | |
 | 300-39 zc forward prototype | needed | uses `page_pool_put_full_page`/`get_dma_addr`, unchanged API |
 | 300-40 CPU queue drop threshold | needed | |
+| 300-43 two-ring split | needed | experiment, default off; builds on rc1 (0 warnings, W=1 clean) |
 | 300-41 GDMA dmaengine driver | needed, see dmaengine | `drivers/dma/{Kconfig,Makefile}` context drifted vs rc6 only; builds on rc1 (`CONFIG_RTL9300_GDMA=y`) |
 
 - 300-08 detail: rc1 split `pcs-xpcs-plat.o` out of `pcs_xpcs-y` (`PCS_XPCS_PLATFORM`, `PCS_XPCS_ROCKCHIP`, commit `b9e7cb89aac8` and neighbours) and phylink gained phy_port bookkeeping (`b8335326fe06`, `51ebb13c1d96`, `9e7cd33fafb2`). `phylink_config` wol fields unchanged vs next. Upstream still has no fwnode PCS provider: `git grep fwnode_pcs_add_provider|fill_available_pcs|num_possible_pcs` empty at next and rc1 (verified). Series stays ours until Christian Marangi's series lands (unverified status on lore).
