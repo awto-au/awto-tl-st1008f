@@ -642,7 +642,7 @@ def cmd_build_uboot(extra: list[str]) -> int:
 
 
 @command("build mainline Linux (SMP: both VPEs) and wrap it as tmp/tftp/mainline.bin",
-         args="[--dtb-only] [--up] [--no-highmem] [--latency] [--w1] [--skip PREFIX]  (base: kernel-base; --skip: leave a patch out, A/B #107; --up: one VPE, A/B #16; "
+         args="[--dtb-only] [--up] [--no-highmem] [--latency] [--bench] [--clean] [--w1] [--skip PREFIX]  (base: kernel-base; --skip: leave a patch out, A/B #107; --up: one VPE, A/B #16; "
               "--no-highmem: 256 MiB reference #27; --latency: irqsoff/timerlat tracers #73; --w1: W=1 on our patched objects)",
          kind="build")
 def cmd_build_kernel(extra: list[str]) -> int:
@@ -652,9 +652,9 @@ def cmd_build_kernel(extra: list[str]) -> int:
     sys.path.insert(0, str(SCRIPTS))
     from mainline_build_check import out_dir
     import kernel_base
-    b = out_dir("--no-highmem" in extra, "--up" in extra, "--latency" in extra, "--bench" in extra)
+    b = out_dir("--no-highmem" in extra, "--up" in extra, "--latency" in extra, "--bench" in extra, "--clean" in extra)
     base = kernel_base.selected()  # Linus-tag bases: tmp/tftp/mainline-7.4-rc1.bin, never mainline.bin
-    out = ["--out", str(REPO / f"tmp/tftp/mainline-{base[1:]}.bin")]
+    out = ["--out", str(REPO / f"tmp/tftp/mainline-{base[1:]}{'-clean' if '--clean' in extra else ''}.bin")]
     return _script("mainline_uimage.py", ["--vmlinux", str(b / "vmlinux"), "--dtb",
                    str(b / "arch/mips/boot/dts/realtek/tplink-tl-st1008f-v2.dtb"), *out])
 
