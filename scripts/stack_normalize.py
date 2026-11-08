@@ -52,6 +52,7 @@ SYSCTLS = [
     ("net.ipv4.tcp_window_scaling", "1"), ("net.ipv4.tcp_ecn", "0"), ("net.ipv4.tcp_syncookies", "1"),
     ("net.ipv4.tcp_fin_timeout", "30"),
     ("net.ipv4.conf.all.rp_filter", "0"), ("net.ipv4.conf.default.rp_filter", "0"),  # strict rpf = extra fib lookup per packet; OpenWrt sets 1
+    ("net.core.bpf_jit_enable", "1"), ("net.ipv4.tcp_keepalive_time", "120"),  # OpenWrt defaults; plain kernel 0 / 7200
     ("kernel.printk", "1 4 1 7"),                       # no console spam during a run (115200 serial)
 ]
 OFFLOADS = {  # ethtool -K on eth0 and lan1; every stack showed these defaults already: pinned so a driver change shows up
@@ -142,7 +143,7 @@ done <<'EOF'
 EOF
 for f in /proc/sys/net/ipv4/conf/*/rp_filter; do echo 0 > $f; done
 for q in /sys/class/net/*/queues/rx-*/rps_cpus /sys/class/net/*/queues/rx-*/rps_flow_cnt /sys/class/net/*/queues/tx-*/xps_cpus; do
-  [ -e $q ] && {{ echo 0 > $q || echo "FAIL $q"; }}
+  [ -e $q ] && {{ echo 0 > $q 2>/dev/null; v=$(cat $q 2>/dev/null) && ! echo "$v" | grep -qE '^[0,]*$' && echo "FAIL $q"; }}
 done
 for n in threaded gro_flush_timeout napi_defer_hard_irqs; do echo 0 > /sys/class/net/eth0/$n 2>/dev/null; done
 tc qdisc replace dev eth0 root {a.qdisc} || echo "FAIL qdisc {a.qdisc}"
@@ -268,7 +269,7 @@ def _norm(key, val):
         names = sorted({os.path.basename(ln.split()[0]) for ln in val.splitlines() if ln.split()} - {"sh", "ash", "tr", "cat", "sleep", "dropbear"})
         return "\n".join(names)
     if key == "sysctl":  # volatile counters
-        return "\n".join(ln for ln in val.splitlines() if not re.search(r"nf_conntrack_count|netdev_rss_key|nf_conntrack_buckets", ln))
+        return "\n".join(ln for ln in val.splitlines() if not re.search(r"nf_conntrack_count|netdev_rss_key|nf_conntrack_buckets|tcp_fastopen_key|tcp_mem|tcp_available_ulp|tcp_l3mdev_accept|bpf_jit_kallsyms", ln))  # random / RAM-size / config-dependent, not on the path
     if key == "ethtool_i_eth0":
         return val
     return val

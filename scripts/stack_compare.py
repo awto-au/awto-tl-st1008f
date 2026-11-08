@@ -425,11 +425,16 @@ class Session:
     def matrix(self):
         S = self.stack
         zc, l3 = STACKS[S][3], S == "B"  # routed L3 off/on: B only (C n/m, owner)
-        rc, _ = nbcmd("setup", tmo=120)
-        if rc:
-            rc, _ = nbcmd("setup", tmo=120)  # one retry: first ping can race the SVI
-        if rc:
-            raise Hang("nat_bench setup failed twice")
+        for attempt in range(10):  # a panicked board leaves TCP sockets that pin the old natlan netns (and enp8s0.991) ~1-3 min
+            if attempt:
+                hold(15)
+            rc, _ = nbcmd("setup", tmo=120)  # rc 1 = SVI ping, dropped by fw4 input until `mode` adds nattest: not fatal
+            nbcmd("mode", "nat")
+            rc, _ = nbcmd("status")  # ping natlan -> natwan through the switch: the real check
+            if rc == 0:
+                break
+        else:
+            raise Hang("nat_bench: natlan cannot reach natwan after 10 x (setup + mode nat), 15 s apart")
         for mode in ("nat", "nat-ft"):
             nbcmd("mode", mode)
             for p in (1, 2, 4):
@@ -461,7 +466,11 @@ def normalise(stack, snapdir, tag=""):
     argv = [PY, "scripts/stack_normalize.py", "--stack", stack, "--napi", "irq1", "--snap-dir", str(snapdir)]
     if tag:
         argv += ["--snapshot-only", "--tag", tag]
-    rc, out = sh(argv, 60, 400, "stack_normalize")  # push of ~1.4 MB + 90 s remote script, 3x measured later
+    for _ in range(2):  # one retry: a stale ssh mux or a slow first login made "normalise did not finish" once
+        rc, out = sh(argv, 60, 400, "stack_normalize")  # push of ~1.4 MB + 90 s remote script, 3x measured later
+        if "snapshot ->" in out:
+            break
+        rc = 99  # no snapshot written = tool failure (rc 1 alone is also the normalise FAIL-lines code)
     (CTRL / "logs").mkdir(parents=True, exist_ok=True)
     (CTRL / "logs" / f"normalize-{stack}-{snapdir.name}{'-' + tag if tag else ''}.txt").write_text(out)
     log(f"normalise {stack} {tag} rc {rc}: {out.strip().splitlines()[-1] if out.strip() else ''}")
