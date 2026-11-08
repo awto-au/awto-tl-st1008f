@@ -1,5 +1,5 @@
 {
-  "recorded": "2026-11-08",
+  "recorded": "2026-11-07",
   "source": "docs/CANARY.md#baseline; values from docs/CAMPAIGN-PLAIN-7.4.md and docs/PLAIN-KERNEL-TESTS.md",
   "conditions": {
     "flash_image": "OpenWrt 6.18.60, sw2 slot b, chain with safe profile cpu=1350,ddr=662,sram=500 (no swcore)",

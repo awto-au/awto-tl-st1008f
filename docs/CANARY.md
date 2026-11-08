@@ -50,13 +50,13 @@
 
 ## Baseline
 
-- Machine-readable: `scripts/canary_baseline.json` (committed). Recorded 2026-11-08 (written by hand: selftest `sfp` FAILs, so no all-PASS run for `--update-baseline`).
+- Machine-readable: `scripts/canary_baseline.json` (committed). Recorded 2026-11-07 (written by hand: selftest `sfp` FAILs, so no all-PASS run for `--update-baseline`).
 
 | Value | Baseline | Rule | Source |
 |---|---|---|---|
-| zc 1400 B, final profile, under perf | 165.9 kpps | +-10 % PASS, below FAIL, above WARN | canary run 2026-11-08T23:36 (runs 167.8, 163.9) |
-| gdma 4096 B | 92.7 us | ceiling 115.9 us (x1.25), over = FAIL | canary 2026-11-08T23:35 |
-| hang reset | 93 s | WARN above 130 s | canary hang_test 2026-11-08T23:32 (also 93 s on 2026-11-07) |
+| zc 1400 B, final profile, under perf | 165.9 kpps | +-10 % PASS, below FAIL, above WARN | canary run 2026-11-07T23:36 (runs 167.8, 163.9) |
+| gdma 4096 B | 92.7 us | ceiling 115.9 us (x1.25), over = FAIL | canary 2026-11-07T23:35 |
+| hang reset | 93 s | WARN above 130 s | canary hang_test 2026-11-07T23:32 (also 93 s at 2026-11-07T17:54) |
 | dss polls | 1 | any other FAIL | 10 rows polls=1 |
 | boot-link rounds | 3 | all must pass | 3/3, bounces 0 |
 
@@ -64,7 +64,7 @@
 - Plain zc without perf: 168.7-170.3 kpps (5 boots below).
 - Rebaseline only on a deliberate, understood change (new kernel, driver change); record the reason in the commit.
 
-## Verdicts 2026-11-08 (sw2, final profile)
+## Verdicts 2026-11-07 (sw2, final profile)
 
 | Check | Verdict | Value |
 |---|---|---|
@@ -82,12 +82,12 @@
 | bootlog | PASS | CLEAN (allowlist from 2db6655) |
 | consolescan | PASS | 0 hits |
 
-- First full run 2026-11-08T23:26 failed B (7 FAIL): plain kernel has no dropbear, canary did not start it. Fixed in `canary.py` (`ensure_ssh`).
+- First full run 2026-11-07T23:26 failed B (7 FAIL): plain kernel has no dropbear, canary did not start it. Fixed in `canary.py` (`ensure_ssh`).
 - Open: selftest `sfp` 2 s timeout at core 608 (fails the canary until the bound or the cause is fixed).
 
 ## Five plain boots at the final profile (2026-11-08T00:05-00:18+11:00)
 
-- `scripts/plain_final_boots.py`: ramload (final profile), NAT-mode iperf3 TCP P4 120 s, zc+nat 1400 B 10 s, integrity (1400/500/64 B). Pass: no oops, integrity PASS, ssh alive, temp <= 85 C. Rows `tmp/logs/plain_final_boots.jsonl`.
+- `scripts/plain_final_boots.py`: ramload (final profile), NAT-mode iperf3 TCP P4 120 s, zc+nat 1400 B 10 s, integrity (1400/500/64 B). Pass: no oops, integrity PASS, ssh alive; temperature logged only (owner 2026-11-07). Rows `tmp/logs/plain_final_boots.jsonl`.
 
 | Boot | Result | zc+nat kpps | TCP P4 NAT (stack) Mbit/s | Temp C |
 |---|---|---|---|---|

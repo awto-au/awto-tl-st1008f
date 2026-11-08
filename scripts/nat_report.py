@@ -455,7 +455,7 @@ def s3():
             "Culprit: CPU 1350 at core &gt;= 575. Core 608 with CPU 1000-1325 and core 508 with CPU 1350 pass.",
             "Image pick: core 608 + CPU 1325 (5/5): zc +10 % over core 508 + CPU 1350 (170.4 vs 154.9 kpps).",
             "Flash console garbles at LX 304 (#159: UART base_baud assumes LX 175). The flash chain profile stays cpu=1350, ddr=662, sram=500 without swcore; 300-23 is in the 6.18 build list, untested.",
-            "Owner decision 2026-11-07 names CPU 1350; the image result moves the pick to 1325. Confirm.",
+            "Owner choice 2026-11-08: CPU 1325 (the image result moved the pick from 1350).",
             "Temperature is logged only; there is no 85 C abort (owner 2026-11-07). Idle readings 46-63 C.",
         ])
     )
@@ -576,7 +576,7 @@ def s7():
                     ["boot 1", "boot 2", "boot 3*", "boot 4", "boot 5"],
                     [("kpps", "a", [170.0, 168.7, 0, 170.1, 169.9])], 200, "zc+nat 1400 B, kpps", h=250,
                     yticks=[0, 50, 100, 150, 200])
-    verd = table(["Check", "Verdict (2026-11-08)", "Note"], [
+    verd = table(["Check", "Verdict (2026-11-07)", "Note"], [
         ["boot_link", ("PASS", "winc"), "3/3, bounces 0"],
         ["hang_test", ("PASS", "winc"), "reset 93 s; #157 did not show"],
         ["plain_boot, pre, prep, vlanproto, gdma, dss, bootlog, consolescan", ("PASS", "winc"), "gdma 92.7 us"],
@@ -587,7 +587,7 @@ def s7():
         "<h3>Panics and resets</h3>"
         + table(["Issue", "Finding", "State"], [
             ["#149", "rteth RX gro_list_prepare NULL deref: OpenWrt 7.3 2/5 at CPU 1350 LX 204/245/175; plain 7.4-rc1 0/9", "not seen on 7.4; needs-test"],
-            ["#160", "core 608 + CPU 1350 panics or xz-decode errors on the 7.4-rc1 image; plain clean; 1325 5/5", "pick 1325"],
+            ["#160", "core 608 + CPU 1350 panics or xz-decode errors on the 7.4-rc1 image; plain clean; 1325 5/5", "1325 chosen (owner 2026-11-08)"],
             ["#163", "l3fix initramfs reset 5/5 at 26-32 s = missing st1008f-stx helper; rebuild passes 3/3 at 608/1325", "build now fails without helper; strict path untested"],
             ["#156", "receive floods go dead after 1-3 runs (43 of 69 rx runs stalled), recovers later", "open, needs-test"],
             ["#157", "SoC watchdog did not reset a hung board once in 14 hang-tests; later runs reset at 93 s", "intermittent"],
@@ -609,7 +609,7 @@ ISSUES = [  # group, number, title-short, status, next
     ("NAT / clock", 163, "Boot selftest reset when st1008f-stx missing", "root cause found: missing helper, not 300-17", "strict build path untested; close after a strict build"),
     ("NAT / clock", 162, "Tooling flakes at final profile", "ramload rc 1 2/15; selftest sfp 2 s timeout", "fix the bound or cause; then --update-baseline"),
     ("NAT / clock", 161, "Image NAT TCP 83-104 vs plain 413-422", "answered: nat vs nat-ft; rps_cpus=1 costs 23-39 %", "nft delete fw4 + noqueue + perf on both images"),
-    ("NAT / clock", 160, "Core 608 + CPU 1350 panics on image", "1350 fails, 1325 5/5", "decide 1325 as image pick; failure rate unmeasured"),
+    ("NAT / clock", 160, "Core 608 + CPU 1350 panics on image", "1350 fails, 1325 5/5", "1325 chosen (owner 2026-11-08); failure rate at 1350 unmeasured"),
     ("NAT / clock", 159, "608 profile garbles flash console", "300-23 in 6.18 flash build list", "build, flash, test console at LX 304"),
     ("NAT / clock", 158, "Productise the zc fast path", "prototype works (IPv4, TCP/UDP)", "IPv6, new flows/ICMP/fragments, tx_by_cpu reclaim, boot defaults"),
     ("NAT / clock", 156, "Receive floods go dead after 1-3 runs", "ingress discards with empty CPU queue", "needs-test"),
@@ -687,12 +687,12 @@ TIMELINE = [
     ("2026-11-07", "OpenWrt main bumped, kernel base v7.4-rc1 (#151)"),
     ("2026-11-07", "old options re-tested at 608: no second-CPU gain; zc+nat 169-171 kpps"),
     ("2026-11-07", "CPU 1375+ and DDR 675+ are real limits, not PLL lock (#103, #148)"),
-    ("2026-11-07", "owner: final settings, go with what works; 608 / 1350 / 662 / 304 / 500; #65 #146 #148 closed"),
+    ("2026-11-07", "owner: final settings, go with what works; 608 / 1350 / 662 / 304 / 500 (CPU later set to 1325, 2026-11-08); #65 #146 #148 closed"),
     ("2026-11-07", "swcore=608 chain install: flash console garbles at LX 304 (#159); profile left without swcore"),
     ("2026-11-07", "OpenWrt image: CPU 1350 fails at core 575 / 608; 1325 stable 5/5 (#160)"),
     ("2026-11-07", "85 C temperature abort removed from scripts and docs (owner)"),
     ("2026-11-07", "L3 offload on 7.4 keeps 9.1-9.2 Gbit/s; NAT path cost: no conntrack/sysctl effect (#59, #71)"),
-    ("2026-11-08", "canary baseline at the final profile: zc 165.9 kpps, gdma 92.7 us, hang reset 93 s"),
+    ("2026-11-07", "canary baseline at the final profile: zc 165.9 kpps, gdma 92.7 us, hang reset 93 s"),
     ("2026-11-08", "prefetch (300-44) parked: no variant past noise at 1400 B (#147)"),
     ("2026-11-08", "#161: image zc+nat within 2 % of plain; the 83-104 figure is the nat path; rps_cpus=1 costs 23-39 %"),
     ("2026-11-08", "#163: l3fix initramfs resets = missing st1008f-stx helper, not 300-17"),

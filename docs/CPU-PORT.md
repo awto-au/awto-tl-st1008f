@@ -38,8 +38,9 @@ Facts only. Where we are: [NAT.md](NAT.md). Experiments and results over time: [
 - `0x227` (10G), `0x22F` (2.5G), `0x237` (5G) written alone: CPU-port traffic stops; restoring `0x217` over the console recovers it.
 - No rate measured at any setting but 1G.
 
-## Measured rate: 1.66 Gbit/s
-- 1400 B UDP + NAT, one direction, picks clocks: 143.7 kpps x 1446 B x 8 = 1.66 Gbit/s (1446 = 1400 + 8 UDP + 20 IP + 14 Ethernet + 4 FCS). Each frame crosses the CPU port twice (RX + TX): 3.3 Gbit/s total.
+## Measured rate: 1.66 Gbit/s at core 408 (~1.9 Gbit/s now)
+- Current (core 608, CPU 1325): 1400 B x 170 kpps = ~1.9 Gbit/s of payload ([NAT.md](NAT.md)). The 1.66 figure below is the core-408 measurement.
+- 1400 B UDP + NAT, one direction, picks clocks, core 408: 143.7 kpps x 1446 B x 8 = 1.66 Gbit/s (1446 = 1400 + 8 UDP + 20 IP + 14 Ethernet + 4 FCS). Each frame crosses the CPU port twice (RX + TX): 3.3 Gbit/s total.
 - Size dependence: the same CPU (94-96 % busy) forwards 490.7 kpps at 64 B (2 us/packet) and 143 kpps at 1400 B (6.6-6.9 us/packet); a bare receive-and-drop (`rxdrop`, NAT-HISTORY.md) also tops out at 137 kpps at 1400 B. The extra ~4.6 us scales with frame size, so the ceiling is a byte-dependent path (NIC DMA, bus/DDR contention or the chip feeding the CPU queue), not forwarding work. Clock sweep below.
 
 ## Frame-size sweep (2026-11-07, UDP + NAT, fast path, `--napi irq1`, picks clocks, 10 s per size)
@@ -81,8 +82,7 @@ Facts only. Where we are: [NAT.md](NAT.md). Experiments and results over time: [
 
 - Cutting any one clock by a quarter costs 3-8 %: the 1400 B ceiling is almost independent of CPU, DDR and LX clocks, so it sits in a fixed-rate path outside them (switch core to NIC / CPU-queue transfer). `rxdrop` (receive and drop) stops at the same 137 kpps.
 - Switch-core clock (`0xbb00e220` DIVN2_SWCORE 8:5) is the 1400 B limit: 306 MHz (-25 %) gives 108 kpps rx-only / 110 forwarding, 245 MHz (-40 %) 87 kpps, 408 MHz (stock) 143.5 / 144.8, 612 MHz (+50 %) 182 kpps rx-only (+27 %). 64 B unaffected. Table: docs/CAMPAIGN-PLAIN-7.4.md 'Switch-core clock vs the 1400 B ceiling'.
-- 612 MHz not usable yet: lan1 went silent after the rx runs and in zc-only flows (cause open); forwarding/integrity not measured there.
-- Next: make 612 (or an intermediate, none exists between 408 and 612) stable before a turbo key; the 'almost independent of CPU, DDR and LX' line above stays true because those clocks are not the limit.
+- Result: 612 MHz via divider code 0 wedges CPU-port DMA (lan1 silent after rx runs); 608 via VCO 3650 code 1 is the maximum usable step: [CAMPAIGN-PLAIN-7.4.md](CAMPAIGN-PLAIN-7.4.md). The 'almost independent of CPU, DDR and LX' line above stays true because those clocks are not the limit.
 - LX 204 MHz: the 7.3 RX path panics in `gro_list_prepare` (2/2, #149); 245 and 306 are stable.
 - Valid `turbo` steps: LX 175 / 204 / 245 / 306; CPU 800 / 1000 / 1050 / 1100-1425 step 25; an invalid value rejects the whole profile ('nothing changed', board stays at stock clocks).
 

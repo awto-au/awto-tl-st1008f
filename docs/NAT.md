@@ -1,7 +1,7 @@
 # NAT on the TL-ST1008F (RTL9303): final state
 
 Target: IPv4 NAT at 2.5 Gbit/s (owner ISP: NBN HFC ~2 Gbit/s down), issue #65 (closed). State as of 2026-11-08 (owner decision: go with what works, [DECISIONS.md](DECISIONS.md)).
-Graphs and issue board: [NAT-REPORT.html](NAT-REPORT.html) (`python3 scripts/nat_report.py`).
+Graphs and issue board: open rendered with `code-insiders --reuse-window docs/NAT-REPORT.html` (VS Code markdown preview does not open .html links); relative link [NAT-REPORT.html](NAT-REPORT.html); regenerate `python3 scripts/nat_report.py`. Key numbers also in "Graphs" below.
 Run the measurements: [NAT-OPS.md](NAT-OPS.md). Experiments, dead ends, core-408 numbers: [NAT-HISTORY.md](NAT-HISTORY.md). CPU-port registers: [CPU-PORT.md](CPU-PORT.md). No NAT hardware in the die: [HIDDEN-FEATURES.md](HIDDEN-FEATURES.md) (#68).
 
 ## Verdict
@@ -24,6 +24,34 @@ Run the measurements: [NAT-OPS.md](NAT-OPS.md). Experiments, dead ends, core-408
 - Not default on the flash chain: stock clocks unless the M3 turbo profile is set (#109, #152).
 - Flash chain profile stays `cpu=1350,ddr=662,sram=500` without `swcore`: the flash OpenWrt console garbles at LX 304 (UART `base_baud` assumes LX 175, #159). `300-23` (clocks from PLL) is in the 6.18 flash build list, untested.
 - Temperature is logged only; there is no 85 C abort (owner 2026-11-07). Idle readings 46-63 C.
+
+## Graphs
+Plain-md copy of the HTML report's headline numbers (plain 7.4 kernel, sw2, cage 1).
+
+Switch core vs 1400 B rate (zc+nat, 2026-11-07):
+
+| Core MHz | kpps |
+|---|---|
+| 245 | 87 |
+| 306 | 108-110 |
+| 408 (stock) | 143.5-144.8 |
+| 608 | 169-171 |
+
+Option deltas at core 608 (re-tested, no gain):
+
+| Option | Effect |
+|---|---|
+| ring split | 123.8 vs 163.6 kpps |
+| NAPI split / threaded | -3 to -11 % |
+| tx_by_cpu / noqueue / queue thresholds | tie at ~169 kpps |
+
+Paths:
+
+| Path | 1400 B kpps | TCP P4 Mbit/s |
+|---|---|---|
+| ASIC routing | ~0 % CPU | 9060-9200 |
+| zc fast path (`zc=1`) | 169-171 | ~1630 |
+| stack, flowtable (`nat-ft`) | 60 | 413-422 |
 
 ## Data path
 - ASIC: L2 switching, L3 routing (MAC rewrite, TTL, checksum; v4 and v6). `0/0` and `::/0` defaults and on-link neighbours trap to the CPU; `300-17` (`l3_default_v4/v6`, `l3_onlink`, opt-in) adds them ([ROUTING-OFFLOAD.md](ROUTING-OFFLOAD.md), #59).
@@ -51,6 +79,17 @@ Core 608, CPU 1350 / DDR 662 / LX 304 / SRAM 500, sw2, plain 7.4-rc1 bench kerne
 - Switch core 408 -> 608: zc+nat 1400 B 144.8 -> 169-171 kpps (+17 %), TCP P4 1458 -> 1634 (+12 %); 64 B unchanged (VPE-bound).
 - Flash OpenWrt 6.18 and 7.3 stack numbers, core-408 rows: [NAT-HISTORY.md](NAT-HISTORY.md).
 - Fast-path TCP rows lose frames at the ASIC CPU queue (retransmits), not in the fast path.
+
+## Stack TCP numbers: which path and clock
+| Mbit/s (fwd) | Path | Image | Switch core |
+|---|---|---|---|
+| 413-422 | `nat-ft` (flowtable) | plain | 608 |
+| 323 | `nat-ft` | plain | 508 |
+| 242 | `nat` (conntrack, no flowtable) | plain | 608 (canary boots) |
+| 240 | `nat` | plain | 508 |
+| 85 | `nat` | OpenWrt image | 508 |
+
+- Different paths and clocks, not noise. Rows: `tmp/logs/nat_bench.jsonl`, `tmp/logs/nat161.jsonl`, [CANARY.md](CANARY.md).
 
 ## OpenWrt image vs plain kernel (#161, core 508, CPU 1350, 2026-11-08)
 - Image zc+nat is within 2 % of plain (1536 vs 1565 Mbit/s): the fast path works on the image.

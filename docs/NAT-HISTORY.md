@@ -1009,6 +1009,7 @@ Not isolated:
 
 - Image `tmp/tftp/openwrt-ours-l3fix-initramfs.bin` (7.4 + 300-17 fixes), RAM-loaded on sw2 with `ramload uboot-mainline --then openwrt-ours-l3fix` (new image key).
 - Clocks: core 608 raw (e220 0x36826 / e214 0x478), CPU 1325, DDR 662, SRAM 500, LX 306; also once at the ramload default clocks (CPU 1000, stock core).
+- Superseded: missing `st1008f-stx` selftest helper (#163), not the 300-17 fixes.
 - Result: image did not stay up. 5 boots of 5 (3 at the 608/1325 profile, 2 at default clocks) ended in a SoC reset 26-32 s after kernel start (blackbox "unclean ... msg boot"); the chain then booted the flash 6.18 slot a.
   - Boot to shell and STP worked in 4 of 5; in the boot with `ps w` captured, `nft -f /dev/stdin` (fw4 reload) sat in D state at ~17 s, then no console echo.
   - Console loglevel is 1 after `ramload`, so no kernel message was captured; sysrq-w capture not obtained (race with the ramload STP step).

@@ -276,7 +276,7 @@
 - Conditions: 2026-11-07, sw2, cage 1 to sw1 lan4, host NIC 10G, kernel `7.4.0-rc1-dirty`; rx numbers vary +-5 % with the host flood (sent 430-830 kpps); one 575 rx run (80.9 kpps) coincided with a low host send rate.
 - Forwarding depends on LX as well: 575 and 658 (LX 246) forward 153 kpps, 608 and 508 (LX 305) 159-170, rx-only does not. LX is part of the rate; compare rows with equal LX only.
 - Gain stops near 170-182 kpps rx (VPE1 98-99 % busy, 5.4-5.7 us per packet): the CPU-port ceiling stops being the clock above ~500 MHz.
-- Temperature: sensor `thermal_zone0` reads 49.3 -> 53.2 C over all steps (never above 53.2 C); abort limit 85 C.
+- Temperature: sensor `thermal_zone0` reads 49.3 -> 53.2 C over all steps (never above 53.2 C); temperature is logged only, no abort limit (owner 2026-11-07).
 - Panics: none in the step runs (no `gro_list_prepare`, #149 not seen). The one `kfree_skb_list_reason` panic in the console log is from 12:46, before this work.
 - Link at boot: lan1 comes up ~4 s after `port-up` (one ramload check ran before it, `BOOT FAIL` in the harness only); the SW PLL relock drops the cage 1 link for ~1 s (sw1 lan4 Link Down/Up 0.9 s apart), not SerDes related: the link is up and clean before and after at every setting.
 - Harness notes: dropbear is not started when `port-up` finds no carrier (`dropbear -R -B` from the console); `ssh` host-key warnings go to stderr; a raw `mw.l 0xbb00e214` garbles the console until e220 re-codes LX, so e220 + e214 + relock go in one line.
