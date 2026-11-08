@@ -2,11 +2,27 @@
 
 Every measurement that exists per stack, with clocks, date and source. Graphs: [NAT-REPORT.html](NAT-REPORT.html#s10) (section 10; `python3 scripts/nat_report.py`). Final numbers: [NAT.md](NAT.md); conditions per row: [NAT-HISTORY.md](NAT-HISTORY.md).
 
-- Stacks: stock firmware, OpenWrt 6.18 (flash image), OpenWrt 7.3, OpenWrt 7.4 (images, RAM boot unless noted), plain 7.4-rc1 (bench initramfs, no OpenWrt).
+- Stacks: see the legend below. Table `Stack` column keeps the short names 6.18 / 7.3 / 7.3 I / 7.4 / plain 7.4.
 - Clock notation: CPU MHz / switch core MHz. Stock = 800 / 408 (DDR 600, LX 175). Base = 1000 / 408 (DDR 650). Picks = 1350 / 408 (DDR 662, LX 306, SRAM 500). Final = 1325-1350 / 608 (LX 304).
 - Metric unless noted: TCP `-P 4` forward through NAT, one-armed over lan1, sw2, cage 1. `nat` = conntrack + masquerade, no flowtable. `nat-ft` = nftables software flowtable (skb stack). `zc` = in-place fast path (`300-39`).
 - n/m = not measured. n/a = not applicable.
 - "Stock-clock U-Boot era" rows are OpenWrt / mainline booted at stock clocks; the stock firmware itself has no rows (below).
+
+## Stack legend
+
+| Label | Kernel | OpenWrt / userland | Fast path | Rows |
+|---|---|---|---|---|
+| Stock FW | Linux 3.18.24 | TP-Link stock, Realtek SDK 3.2.0 | none | not measured |
+| 6.18: OpenWrt SNAPSHOT r36962 + Linux 6.18.55 (flash image) | 6.18.55 | OpenWrt SNAPSHOT r36962 | none (no `300-17`, no zc) | 2026-10-11 |
+| 7.3: OpenWrt main b455c5b851 + Linux 7.3-rc6-next-20261009 (image) | 7.3-rc6 + next-20261009 | OpenWrt main `b455c5b851` (2026-11-04) | zc `300-39`, queue-1 `300-40` | 2026-11-06 |
+| 7.3 I: Linux 7.3-rc6 / next-20261009 plain (no OpenWrt) | 7.3-rc6 (10-12), next-20261009 (10-13, 10-15) | bench initramfs, no OpenWrt | `300-11` to `300-35`, per row | 2026-10-12 to 10-15 |
+| 7.4: OpenWrt main r38178 + Linux 7.4-rc1 (image) | 7.4-rc1 | OpenWrt main `7e8bfcfe76` = r38178 (2026-11-07) | `300-17` rebased, zc `300-39/40`; L3 fixes rows: image `l3fix2` | 2026-11-07, 11-08 |
+| plain 7.4: Linux 7.4-rc1 plain (no OpenWrt) | 7.4-rc1 + series (`uname -r` 7.4.0-rc1-dirty) | bench initramfs: BusyBox 1.31 + OpenWrt 24.10.7 ipks | series incl. zc `300-39/40` | 2026-11-07, 11-08 |
+
+- Evidence: r38178 = `r38178-7e8bfcfe76` in `tmp/logs/l3_offload_ab-20261107-*.txt`; r36962 = NAT-HISTORY.md "Measured (2026-10-11)" conditions; b455c5b, next-20261009: NAT-HISTORY.md "OpenWrt on 7.3"; plain userland: PLAIN-KERNEL-TESTS.md, CAMPAIGN-PLAIN-7.4.md.
+- Unknown: OpenWrt revision number (r...) of `b455c5b851` (not recorded). Kernel/userland of the CPU-PORT.md frame-size sweep rows other than 64 B / 1400 B (490.7 and 143.3 kpps were first measured on the 7.3 image, 2026-11-06; the 2026-11-07 sweep does not name its stack). 6.18 2026-10-10 IPv4 hairpin row (ROUTING-OFFLOAD.md): "OpenWrt SNAPSHOT (kernel 6.18)", exact revision unrecorded.
+- 6.18 row: docs also record the flash as installed from the 25.12.4 sysupgrade file (OPENWRT-BUILD.md, header `Linux-6.18.55`); the 2026-10-11 conditions in NAT-HISTORY.md name SNAPSHOT r36962, used here. Upstream 25.12.4 initramfs is kernel 6.12.87 and was not used for any NAT row.
+- Chart labels (NAT-REPORT.html) use `OpenWrt <rev> / Linux <ver>` compact forms of these rows.
 
 ## Stock firmware (TL-ST1008F v2 runtime, Realtek SDK 3.2.0)
 | Stack | Test | Result | Clocks / date | Source |
@@ -15,7 +31,7 @@ Every measurement that exists per stack, with clocks, date and source. Graphs: [
 | Stock FW | NAT, IP routing | none: unmanaged firmware, `rc` ends in `diag`, no `/bin/cli`, no netfilter app | - | README.md; artifacts/stock-initramfs-excerpts.md |
 | Stock FW | any throughput, CPU load | n/m (no iperf, no IP tools in the initramfs; L2 switching is ASIC) | - | - |
 
-## OpenWrt 6.18 (flash image; 6.18.55 for the 2026-10-11 rows, 6.18.60 now)
+## OpenWrt SNAPSHOT r36962 + Linux 6.18.55 (flash image; 6.18.60 is the flash now, no NAT rows)
 | Stack | Test | Result | Clocks / date | Source |
 |---|---|---|---|---|
 | 6.18 | NAT `nat`, GRO on / off | 80 / 58 Mbit/s | base 1000/408, 2026-10-11 | NAT-HISTORY.md Measured |
@@ -30,7 +46,7 @@ Every measurement that exists per stack, with clocks, date and source. Graphs: [
 | 6.18 | IPv4 gateway-routed hairpin in ASIC | 9190 (8 streams), UDP 9.53 Gbit/s, 0 % CPU | 2026-10-10 | ROUTING-OFFLOAD.md |
 | 6.18 | zc fast path, `300-17` offload, final clocks | n/a (not in the 6.18 build) / n/m at final clocks | - | OPENWRT-BUILD.md |
 
-## OpenWrt 7.3 (RAM boot `openwrt-ours`, next-20261009; mainline 7.3 initramfs rows marked I)
+## OpenWrt main b455c5b + Linux 7.3-rc6-next-20261009 (RAM boot `openwrt-ours`; rows marked `7.3 I` = Linux 7.3 plain initramfs, no OpenWrt)
 | Stack | Test | Result | Clocks / date | Source |
 |---|---|---|---|---|
 | 7.3 | `nat` / `nat-ft` v4 (old image, GRO list off) | 77.7 / 203.2 Mbit/s; v6 72.7 / 205.3 | stock, 2026-11-06 | NAT-HISTORY.md OpenWrt on 7.3 |
@@ -46,7 +62,7 @@ Every measurement that exists per stack, with clocks, date and source. Graphs: [
 | 7.3 I | L3 offload off / on, on-link v4 / v6, default v4 / v6 | 355 / 9247, 332 / 9101, 563 / 9255, 534 / 9112-9125 | 1000/408, 2026-10-12 | ROUTING-OFFLOAD.md |
 | 7.3 I | TCP P1 vs P4 (`nat-ft`, gro-list) | 289 vs 287 | 1000/408, 2026-10-12 | nat_bench.jsonl |
 
-## OpenWrt 7.4 (RAM boot `openwrt-ours` = OpenWrt main on 7.4-rc1, rebuilt 2026-11-07)
+## OpenWrt main r38178 (7e8bfcfe76) + Linux 7.4-rc1 (RAM boot `openwrt-ours`, built 2026-11-07)
 | Stack | Test | Result | Clocks / date | Source |
 |---|---|---|---|---|
 | 7.4 | `nat` / `nat-ft` / zc TCP P4 fwd (rev) | 85.5 (103) / 267.7 (344) / 1536 (1555) | 1350/508, 2026-11-08 | NAT-HISTORY.md #161; nat161.jsonl |
@@ -57,7 +73,7 @@ Every measurement that exists per stack, with clocks, date and source. Graphs: [
 | 7.4 | L3 off / on before the fixes | 86 / 9206 (v4 on-link) | 1350/408, 2026-11-07 | NAT-HISTORY.md L3 offload on the 7.4 base |
 | 7.4 | UDP 64 B, stack UDP 1400 B, size sweep, streams, offered load | n/m | - | - |
 
-## Plain 7.4-rc1 (bench kernel)
+## Linux 7.4-rc1 plain, no OpenWrt (bench kernel, bench initramfs)
 | Stack | Test | Result | Clocks / date | Source |
 |---|---|---|---|---|
 | plain 7.4 | zc / stack UDP 1400 B | 119.4 / 44.4 kpps | stock 800/408, 2026-11-07 | CAMPAIGN-PLAIN-7.4.md #149 |

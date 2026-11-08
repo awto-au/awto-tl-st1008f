@@ -57,6 +57,24 @@ def jsonl(name):
 # ---------------------------------------------------------------- svg helpers
 W = 520
 
+# Stack labels. Source of every version: docs/NAT-STACKS.md "Stack legend".
+OW_IMG = "OpenWrt r38178 / 7.4-rc1"          # compact form for chart labels
+OW_IMG_FULL = "OpenWrt main r38178 + Linux 7.4-rc1 (image)"
+PLAIN = "plain 7.4-rc1 (no OpenWrt)"
+LEGEND = [  # label | kernel | OpenWrt / userland | fast path | where measured
+    ["Stock FW", "Linux 3.18.24", "TP-Link stock (Realtek SDK 3.2.0)", "none", "not measured (no NAT in firmware)"],
+    ["OpenWrt SNAPSHOT r36962 + Linux 6.18.55 (flash image)", "6.18.55", "OpenWrt SNAPSHOT r36962",
+     "none (no 300-17 / zc)", "2026-10-11 rows"],
+    ["OpenWrt main b455c5b + Linux 7.3-rc6-next-20261009 (image)", "7.3-rc6 + next-20261009", "OpenWrt main b455c5b851 (2026-11-04)",
+     "zc 300-39, queue-1 300-40", "2026-11-06 rows"],
+    ["Linux 7.3-rc6 / next-20261009 plain (no OpenWrt)", "7.3-rc6, then next-20261009", "bench initramfs, BusyBox, no OpenWrt",
+     "300-11 .. 300-35, no zc", "2026-10-12 .. 10-15 rows"],
+    ["OpenWrt main r38178 + Linux 7.4-rc1 (image)", "7.4-rc1", "OpenWrt main 7e8bfcfe76 = r38178 (2026-11-07)",
+     "300-17 rebased, zc 300-39/40; L3 fixes: image l3fix2", "2026-11-07 / 11-08 rows"],
+    ["Linux 7.4-rc1 plain (no OpenWrt)", "7.4-rc1 (uname 7.4.0-rc1-dirty)", "bench initramfs: BusyBox 1.31 + OpenWrt 24.10.7 ipks",
+     "series incl. zc 300-39/40", "2026-11-07 / 11-08 rows"],
+]
+
 
 def svg_open(h, label):
     return (f'<svg viewBox="0 0 {W} {h}" role="img" aria-label="{E(label)}" '
@@ -160,7 +178,10 @@ def lines(title, series, xlim, ylim, xticks, yticks, xlabel, ylabel, h=290, note
                 cls = "val bad-t" if not p.get("ok", True) else "val"
                 out.append(f'<text class="{cls}" x="{cx + dx:.1f}" y="{cy + dy:.1f}" text-anchor="{anc}">{E(lab)}</text>')
         last = ok[-1] if ok else s["pts"][-1]
-        out.append(f'<text class="sname-{s["cls"]}" x="{sx(last["x"]) + 10:.1f}" y="{sy(last["y"]) + 4 + s.get("name_dy", 0):.1f}">{E(s["name"])}</text>')
+        nx, ny = sx(last["x"]) + 10, sy(last["y"]) + 4 + s.get("name_dy", 0)
+        nl = s["name"].split("\n")
+        tsp = "".join(f'<tspan x="{nx:.1f}" dy="{0 if k == 0 else 12}">{E(t_)}</tspan>' for k, t_ in enumerate(nl))
+        out.append(f'<text class="sname-{s["cls"]}" x="{nx:.1f}" y="{ny - 6 * (len(nl) - 1):.1f}">{tsp}</text>')
     out.append("</svg>")
     return "".join(out)
 
@@ -170,7 +191,7 @@ def vgroups(title, cats, series, ymax, unit, h=280, yticks=None):
     log(f"chart '{title}':")
     for n, c, v in series:
         log(f"  series {n}: " + ", ".join(f"{a}={b}" for a, b in zip(cats, v)))
-    l, r, t, b = 50, 12, 14, 70
+    l, r, t, b = 50, 12, 14, 70 + 12 * max(c.count("\n") for c in cats)
     pw, ph = W - l - r, h - t - b
     gw = pw / len(cats)
     bw = gw * 0.8 / len(series)
@@ -189,7 +210,8 @@ def vgroups(title, cats, series, ymax, unit, h=280, yticks=None):
             out.append(f'<rect class="b-{cls}" x="{x:.1f}" y="{sy(v):.1f}" width="{bw - 2:.1f}" height="{t + ph - sy(v):.1f}" rx="2"/>')
             out.append(f'<text class="val" x="{x + bw / 2 - 1:.1f}" y="{sy(v) - 4:.1f}" text-anchor="middle">{v:g}</text>')
             out.append(f'<text class="sn" x="{x + bw / 2 - 1:.1f}" y="{t + ph + 11}" text-anchor="middle">{E(n)}</text>')
-        out.append(f'<text class="lbl" x="{gx + gw * 0.4:.1f}" y="{t + ph + 30}" text-anchor="middle">{E(c)}</text>')
+        for k, c_ in enumerate(c.split("\n")):
+            out.append(f'<text class="lbl" x="{gx + gw * 0.4:.1f}" y="{t + ph + 30 + 12 * k}" text-anchor="middle">{E(c_)}</text>')
     out.append("</svg>")
     return "".join(out)
 
@@ -337,30 +359,31 @@ def s1():
     res, tag = nat161()
     rows = [
         ("Target", TARGET_MBIT, "target", f"{TARGET_MBIT}"),
-        ("zc+nat, plain kernel", zc_plain, "win", f"{zc_plain}  ({zc_plain / TARGET_MBIT * 100:.0f} %)"),
-        ("zc+nat, OpenWrt image", zc_img, "win", f"{zc_img}  ({zc_img / TARGET_MBIT * 100:.0f} %)"),
-        ("stack nat-ft, plain (core 608)", 422, "neutral", "422"),
-        ("stack nat-ft, image (core 508)", res[("openwrt", "default", "nat-ft", "fwd")], "neutral",
+        ("zc+nat, plain 7.4-rc1 (no OpenWrt)", zc_plain, "win", f"{zc_plain}  ({zc_plain / TARGET_MBIT * 100:.0f} %)"),
+        ("zc+nat, OpenWrt r38178 / 7.4-rc1", zc_img, "win", f"{zc_img}  ({zc_img / TARGET_MBIT * 100:.0f} %)"),
+        ("nat-ft, plain 7.4-rc1 (core 608)", 422, "neutral", "422"),
+        ("nat-ft, OpenWrt r38178 (core 508)", res[("openwrt", "default", "nat-ft", "fwd")], "neutral",
          fmt(res[("openwrt", "default", "nat-ft", "fwd")], 0)),
-        ("stack nat (conntrack), image", res[("openwrt", "default", "nat", "fwd")], "lose",
+        ("nat, OpenWrt r38178 (core 508)", res[("openwrt", "default", "nat", "fwd")], "lose",
          fmt(res[("openwrt", "default", "nat", "fwd")], 0)),
     ]
     g1 = hbars("NAT TCP -P 4 forward goodput vs the 2.5 Gbit/s target", rows, 2500, "Mbit/s, iperf3 TCP -P 4, one direction",
-               ticks=[0, 500, 1000, 1500, 2000, 2500], label_w=190)
+               ticks=[0, 500, 1000, 1500, 2000, 2500], label_w=225)
     rows2 = [("CPU-port rate needed", TARGET_KPPS, "target", f"~{TARGET_KPPS}"),
-             ("zc+nat 1400 B, final", 170, "win", "170  (54 %)"),
-             ("stack 1400 B", 60.2, "neutral", "60")]
+             ("zc+nat 1400 B, plain 7.4-rc1", 170, "win", "170  (54 %)"),
+             ("stack 1400 B, plain 7.4-rc1", 60.2, "neutral", "60")]
     g2 = hbars("1400 B forwarding rate vs the rate 2.5 Gbit/s needs", rows2, 350, "kpps (frames per second through the CPU port, 1400 B UDP payload)",
-               ticks=[0, 100, 200, 300], label_w=170)
+               ticks=[0, 100, 200, 300], label_w=190)
     return (
         "<h2 id='s1'>1 Where we are</h2>"
         "<div class='tiles'>"
-        "<div class='tile'><b>1634</b><span>Mbit/s NAT TCP, zc fast path (65 % of 2500)</span></div>"
-        "<div class='tile'><b>170</b><span>kpps 1400 B zc+nat (needs ~312)</span></div>"
-        "<div class='tile'><b>9.1</b><span>Gbit/s routed in the ASIC, 0 % CPU (no NAT)</span></div>"
-        "<div class='tile'><b>2.8x</b><span>zc fast path over the skb stack</span></div>"
+        "<div class='tile'><b>1634</b><span>Mbit/s NAT TCP, zc fast path (65 % of 2500); Linux 7.4-rc1 plain, no OpenWrt</span></div>"
+        "<div class='tile'><b>170</b><span>kpps 1400 B zc+nat (needs ~312); OpenWrt main r38178 + Linux 7.4-rc1 (image): 170.4</span></div>"
+        "<div class='tile'><b>9.1</b><span>Gbit/s routed in the ASIC, 0 % CPU (no NAT); OpenWrt main r38178 + Linux 7.4-rc1 (image, l3fix2)</span></div>"
+        "<div class='tile'><b>2.8x</b><span>zc fast path over the skb stack; Linux 7.4-rc1 plain, no OpenWrt</span></div>"
         "</div>"
         + ul([
+            "Stacks: <b>image</b> = OpenWrt main r38178 (7e8bfcfe76) + Linux 7.4-rc1, RAM boot; <b>plain</b> = Linux 7.4-rc1 + our series, bench initramfs (BusyBox, no OpenWrt). Full legend: section 10.",
             "Target 2.5 Gbit/s IPv4 NAT (NBN HFC ~2 Gbit/s, #65). Not reachable by clocks; every clock/option left is at its limit or a tie.",
             "The ASIC rewrites MACs and TTL only; every NAT packet crosses the CPU port twice.",
             "Final settings: core 608, CPU 1325 (OpenWrt-stable) / 1350 (plain, short runs), DDR 662, LX 304, SRAM 500.",
@@ -380,7 +403,7 @@ def s2():
         if fw is not None:
             pts_fw.append(dict(x=mhz, y=round(fw, 1), lab=fmt(fw, 0), pos="below"))
     pts_rx.append(dict(x=612, y=CORE_612_RX, ok=False, lab="612 code 0: wedge", pos="above"))
-    g_core = lines("1400 B rx-only and forwarding rate vs switch-core clock",
+    g_core = lines("1400 B rx-only and forwarding rate vs switch-core clock (Linux 7.4-rc1 plain, no OpenWrt)",
                    [dict(name="rx-only", cls="a", pts=pts_rx, name_dy=-6),
                     dict(name="forwarding", cls="b", pts=pts_fw, name_dy=8)],
                    (220, 690), (60, 200), [245, 306, 408, 508, 575, 608, 658], [60, 100, 140, 180],
@@ -393,10 +416,10 @@ def s2():
     pts_i = [dict(x=x, y=y, lab=fmt(y, 0), pos="below") for x, y in CPU_IMG]
     pts_i.append(dict(x=1350, y=125, ok=False, lab="1350 fails", pos="below"))
     g_cpu = lines("1400 B rate vs CPU clock at switch core 608",
-                  [dict(name="rx-only, plain", cls="a", pts=pts_c, name_dy=-4),
-                   dict(name="zc+nat, image", cls="c", pts=pts_i, name_dy=10)],
+                  [dict(name="rx-only\nplain 7.4-rc1", cls="a", pts=pts_c, name_dy=-4),
+                   dict(name="zc+nat\nOpenWrt r38178\nLinux 7.4-rc1", cls="c", pts=pts_i, name_dy=14)],
                   (960, 1400), (110, 200), [1000, 1100, 1200, 1300, 1350], [120, 140, 160, 180],
-                  "CPU clock, MHz (X = failure; image 1350 plotted at the axis floor)", "1400 B rate, kpps")
+                  "CPU clock, MHz (X = failure; image 1350 plotted at the axis floor)", "1400 B rate, kpps", r=100)
     pts64 = [dict(x=x, y=b, lab=fmt(b, 0), pos="above") for x, a, b in CPU_RX]
     pts64.append(dict(x=CPU_FAIL[0], y=CPU_FAIL[2], ok=False, lab="1375 panic", pos="below"))
     g_cpu64 = lines("64 B rx-only rate vs CPU clock at switch core 608",
@@ -417,11 +440,13 @@ def s2():
             "Above ~500 MHz gain flattens at 170-180 kpps: VPE1 is the limit, not the core clock. CPU raises give little: 64 B follows the CPU clock.",
             "Not cache maintenance (falsified: TX writeback and header-only recycle both &lt; 0.5 % at 1400 B).",
         ])
-        + fig(g_core, "docs/CAMPAIGN-PLAIN-7.4.md 'Switch-core clock vs the 1400 B ceiling' + '#148 steps' (means of the boots listed; plain 7.4-rc1, 2026-11-07)")
+        + fig(g_core, "docs/CAMPAIGN-PLAIN-7.4.md 'Switch-core clock vs the 1400 B ceiling' + '#148 steps' (means of the boots listed; plain 7.4-rc1, 2026-11-07)",
+              "Linux 7.4-rc1 plain (no OpenWrt): rate vs switch-core clock")
         + "<p class='note'>575 and 658 forward lower because the re-code puts LX at 246/247 MHz; compare equal-LX rows only.</p>"
         + core_tab
-        + fig(g_cpu, "docs/FASTEST-SETTINGS.md CPU table (rx-only, plain); docs/CAMPAIGN-PLAIN-7.4.md 'Highest stable CPU at core 608 on OpenWrt' (zc+nat, image)")
-        + fig(g_cpu64, "docs/FASTEST-SETTINGS.md CPU table (64 B column)")
+        + fig(g_cpu, "docs/FASTEST-SETTINGS.md CPU table (rx-only, plain); docs/CAMPAIGN-PLAIN-7.4.md 'Highest stable CPU at core 608 on OpenWrt' (zc+nat, image)",
+              "rx-only: Linux 7.4-rc1 plain (no OpenWrt); zc+nat: OpenWrt main r38178 + Linux 7.4-rc1 (image)")
+        + fig(g_cpu64, "docs/FASTEST-SETTINGS.md CPU table (64 B column)", "Linux 7.4-rc1 plain (no OpenWrt), 64 B rx-only")
         + ul([
             "CPU 1375 passes at core 408 and fails at core 608 (xz decode errors, panic): the CPU limit moves with the core clock. PLL locks at once; the fault is CPU logic.",
             "OpenWrt image at core 608: 1000-1325 pass, 1350 fails 0/2 (xz decode wrong, Oops at 32-53 s). Plain kernel 1350 passes short runs.",
@@ -513,16 +538,16 @@ def s5():
     g = lambda *k: res[k]
     cats = ["nat", "nat-ft", "zc+nat"]
     plain_zc, img_zc = 1565, 1536  # src: docs/NAT-HISTORY.md #161 (zc_bench --tcp)
-    ch = vgroups("NAT TCP forward goodput by path, plain vs OpenWrt image (core 508)", cats,
-                 [("plain", "a", [round(g("plain", "default", "nat", "fwd")), round(g("plain", "default", "nat-ft", "fwd")), plain_zc]),
-                  ("image", "c", [round(g("openwrt", "default", "nat", "fwd")), round(g("openwrt", "default", "nat-ft", "fwd")), img_zc])],
+    ch = vgroups("NAT TCP forward goodput by path, Linux 7.4-rc1 plain (no OpenWrt) vs OpenWrt main r38178 + Linux 7.4-rc1 (image), core 508", cats,
+                 [("plain 7.4-rc1", "a", [round(g("plain", "default", "nat", "fwd")), round(g("plain", "default", "nat-ft", "fwd")), plain_zc]),
+                  ("OpenWrt r38178", "c", [round(g("openwrt", "default", "nat", "fwd")), round(g("openwrt", "default", "nat-ft", "fwd")), img_zc])],
                  1800, "TCP -P 4 forward, Mbit/s", yticks=[0, 600, 1200, 1800])
-    rps = [("image as booted (irq1)", g("openwrt", "irq1", "nat", "fwd"), "lose", fmt(g("openwrt", "irq1", "nat", "fwd"), 0)),
+    rps = [("OpenWrt r38178 as booted (irq1)", g("openwrt", "irq1", "nat", "fwd"), "lose", fmt(g("openwrt", "irq1", "nat", "fwd"), 0)),
            ("+ rps_cpus = 0", tag["rps0"], "tie", fmt(tag["rps0"], 0)),
            ("+ nf_conntrack_checksum = 1", tag["rps0+ctcsum1"], "tie", fmt(tag["rps0+ctcsum1"], 0)),
-           ("plain, same path", g("plain", "irq1", "nat", "fwd"), "win", fmt(g("plain", "irq1", "nat", "fwd"), 0))]
-    gr = hbars("Image nat path: forward goodput as settings are removed", rps, 300, "Mbit/s, TCP -P 4 forward, irq on VPE1",
-               ticks=[0, 100, 200, 300], label_w=190)
+           ("plain 7.4-rc1, same path", g("plain", "irq1", "nat", "fwd"), "win", fmt(g("plain", "irq1", "nat", "fwd"), 0))]
+    gr = hbars("OpenWrt r38178 + Linux 7.4-rc1 (image) nat path: forward goodput as settings are removed", rps, 300, "Mbit/s, TCP -P 4 forward, irq on VPE1",
+               ticks=[0, 100, 200, 300], label_w=200)
     return (
         "<h2 id='s5'>5 NAT paths compared</h2>"
         + ul([
@@ -533,8 +558,10 @@ def s5():
             "Not explained: remaining ~2.2x per packet on nat. Candidates: fw4 hook chains, fq_codel, build config. Next probe in #161.",
             "Stack numbers differ by setup: 413-422 (NAT.md, nat-ft, core 608) vs 323 (nat-ft, core 508, #161) vs 242 (canary boots, nat).",
         ])
-        + fig(ch, "docs/NAT-HISTORY.md #161 (tmp/logs/nat161.jsonl means, 3 runs x 15 s; zc+nat from zc_bench --tcp); core 508, CPU 1350")
-        + fig(gr, "docs/NAT-HISTORY.md #161 'Partial A/B on the image' (tmp/logs/nat161.jsonl, 1 x 15 s per point)")
+        + fig(ch, "docs/NAT-HISTORY.md #161 (tmp/logs/nat161.jsonl means, 3 runs x 15 s; zc+nat from zc_bench --tcp); core 508, CPU 1350",
+              "plain = Linux 7.4-rc1 (no OpenWrt); OpenWrt r38178 = OpenWrt main + Linux 7.4-rc1 (image)")
+        + fig(gr, "docs/NAT-HISTORY.md #161 'Partial A/B on the image' (tmp/logs/nat161.jsonl, 1 x 15 s per point)",
+              "OpenWrt main r38178 + Linux 7.4-rc1 (image) vs plain 7.4-rc1")
     )
 
 
@@ -557,13 +584,14 @@ def s6():
         "<h2 id='s6'>6 Routing offload (#59)</h2>"
         + ul([
             "ASIC routing keeps wire speed: 9.06-9.20 Gbit/s at ~345 pps on eth0 (off: 22-30 kpps trapped to the CPU).",
-            "Image <code>openwrt-ours-l3fix2</code> (7.4-rc1 + 300-17 fixes), core 608, CPU 1325, n=3, one boot, 2026-11-08; no panic or reset.",
+            "Image <code>openwrt-ours-l3fix2</code> (OpenWrt main r38178 + Linux 7.4-rc1 + 300-17 fixes), core 608, CPU 1325, n=3, one boot, 2026-11-08; no panic or reset.",
             "Fixes confirmed: plain ::/0 stays trap after a source-route delete; v4 rt_offload clears when l3_default_v4 goes 1 to 0.",
             "Open: h needs a trap row for 0.0.0.0/8 above the default; notifier updates; sampling/mirror.",
             "Earlier 5/5 image resets at 26-32 s were a missing <code>st1008f-stx</code> selftest helper (#163), not the 300-17 fixes.",
             "Offload bypasses nftables (#66): opt-in only; this box keeps v4 default off (ASIC cannot NAT).",
         ])
-        + fig(gl, "docs/NAT-HISTORY.md 'L3 offload checks on the 7.4 base with the fixes' (medians of n=3; tmp/logs/l3_offload_ab-20261108-*.txt)")
+        + fig(gl, "docs/NAT-HISTORY.md 'L3 offload checks on the 7.4 base with the fixes' (medians of n=3; tmp/logs/l3_offload_ab-20261108-*.txt)",
+              "OpenWrt main r38178 + Linux 7.4-rc1 (image l3fix2)")
         + checks
         + "<p class='src'>source: docs/NAT-HISTORY.md 'L3 offload checks on the 7.4 base' (#59)</p>"
     )
@@ -714,12 +742,12 @@ def s9():
 
 # ------------------------------------------------------------- progression
 # Stacks in chronological order of first measurement. Every number: docs/NAT-STACKS.md row.
-STACKS = [  # key, short label, sub label (clocks of the plotted value)
-    ("stock", "Stock FW", "800/408"),
-    ("ow618", "OpenWrt 6.18", "1000/408"),
-    ("ow73", "OpenWrt 7.3", "1350/408"),
-    ("ow74", "OpenWrt 7.4", "1350/508"),
-    ("p74", "plain 7.4-rc1", "1350/608"),
+STACKS = [  # key, two-line label (userland / kernel), sub label (clocks of the plotted value); full forms in LEGEND
+    ("stock", "Stock FW\nLinux 3.18.24", "800/408"),
+    ("ow618", "OpenWrt r36962\nLinux 6.18.55", "1000/408"),
+    ("ow73", "OpenWrt b455c5b\nLinux 7.3-next", "1350/408"),
+    ("ow74", "OpenWrt r38178\nLinux 7.4-rc1", "1350/508"),
+    ("p74", "no OpenWrt\nLinux 7.4-rc1", "1350/608"),
 ]
 NM, NA = "n/m", "n/a"  # not measured (no run exists) / not applicable (feature absent in that stack)
 
@@ -740,13 +768,14 @@ def matrix(title, cols, rows, label_w=150):
     """rows: (label, [cell...]); cell = text (measured) or NM / NA (hollow dashed)."""
     log(f"chart '{title}':")
     cw = (W - label_w) / len(cols)
-    rh, top = 26, 34
+    rh, top = 26, 46
     h = top + rh * len(rows) + 4
     out = [svg_open(h, title)]
-    for j, (a, b) in enumerate(cols):
+    for j, (a, b, c3) in enumerate(cols):
         cx = label_w + j * cw + cw / 2
         out.append(f'<text class="lbl" x="{cx:.1f}" y="13" text-anchor="middle">{E(a)}</text>')
-        out.append(f'<text class="tick" x="{cx:.1f}" y="26" text-anchor="middle">{E(b)}</text>')
+        out.append(f'<text class="lbl" x="{cx:.1f}" y="26" text-anchor="middle">{E(b)}</text>')
+        out.append(f'<text class="tick" x="{cx:.1f}" y="39" text-anchor="middle">{E(c3)}</text>')
     for i, (lab, cells) in enumerate(rows):
         y = top + i * rh
         out.append(f'<text class="lbl" x="{label_w - 6}" y="{y + rh / 2 + 4}" text-anchor="end">{E(lab)}</text>')
@@ -766,7 +795,7 @@ def vgroups2(title, cats, subs, series, ymax, unit, h=300, yticks=None, log_y=Fa
     log(f"chart '{title}':")
     for n, c, v in series:
         log(f"  series {n}: " + ", ".join(f"{a}={b}" for a, b in zip(cats, v)))
-    l, r, t, b = 50, 12, 16, 84
+    l, r, t, b = 50, 12, 16, 84 + 12 * max(c.count("\n") for c in cats)
     pw, ph = W - l - r, h - t - b
     gw = pw / len(cats)
     bw = gw * 0.84 / len(series)
@@ -794,8 +823,10 @@ def vgroups2(title, cats, subs, series, ymax, unit, h=300, yticks=None, log_y=Fa
                 out.append(f'<rect class="b-{cls}" x="{x:.1f}" y="{sy(v):.1f}" width="{bw - 2:.1f}" height="{t + ph - sy(v):.1f}" rx="2"/>')
                 out.append(f'<text class="val" x="{cx:.1f}" y="{sy(v) - 4:.1f}" text-anchor="middle">{v:g}</text>')
             out.append(f'<text class="sn" x="{cx:.1f}" y="{t + ph + 12}" text-anchor="middle">{E(n)}</text>')
-        out.append(f'<text class="lbl" x="{gx + gw * 0.42:.1f}" y="{t + ph + 32}" text-anchor="middle">{E(c)}</text>')
-        out.append(f'<text class="tick" x="{gx + gw * 0.42:.1f}" y="{t + ph + 46}" text-anchor="middle">{E(subs[i])}</text>')
+        cl = c.split("\n")
+        for k, c_ in enumerate(cl):
+            out.append(f'<text class="lbl" x="{gx + gw * 0.42:.1f}" y="{t + ph + 32 + 12 * k}" text-anchor="middle">{E(c_)}</text>')
+        out.append(f'<text class="tick" x="{gx + gw * 0.42:.1f}" y="{t + ph + 34 + 12 * len(cl)}" text-anchor="middle">{E(subs[i])}</text>')
     out.append("</svg>")
     return "".join(out)
 
@@ -813,30 +844,30 @@ def s10():
     # ---- same-clock pair (#161): plain vs image at core 508 / CPU 1350
     res, _ = nat161()
     rows_cmp = [
-        ("plain 7.4 nat-ft", res[("plain", "default", "nat-ft", "fwd")], "a", ""),
-        ("OpenWrt 7.4 nat-ft", res[("openwrt", "default", "nat-ft", "fwd")], "b", ""),
-        ("plain 7.4 nat", res[("plain", "default", "nat", "fwd")], "a", ""),
-        ("OpenWrt 7.4 nat", res[("openwrt", "default", "nat", "fwd")], "b", ""),
+        ("plain 7.4-rc1 nat-ft", res[("plain", "default", "nat-ft", "fwd")], "a", ""),
+        ("OpenWrt r38178 nat-ft", res[("openwrt", "default", "nat-ft", "fwd")], "b", ""),
+        ("plain 7.4-rc1 nat", res[("plain", "default", "nat", "fwd")], "a", ""),
+        ("OpenWrt r38178 nat", res[("openwrt", "default", "nat", "fwd")], "b", ""),
     ]
     rows_cmp = [(a, b, "win" if c == "a" else "neutral", f"{b:.0f}") for a, b, c, _ in rows_cmp]
-    gcmp = hbars("same clocks (core 508, CPU 1350): plain 7.4 vs OpenWrt 7.4, stack TCP -P 4 forward", rows_cmp, 400, "Mbit/s, iperf3 TCP -P 4 forward",
-                 ticks=[0, 100, 200, 300, 400], label_w=150)
+    gcmp = hbars("same clocks (core 508, CPU 1350): Linux 7.4-rc1 plain (no OpenWrt) vs OpenWrt main r38178 + Linux 7.4-rc1 (image), stack TCP -P 4 forward", rows_cmp, 400, "Mbit/s, iperf3 TCP -P 4 forward",
+                 ticks=[0, 100, 200, 300, 400], label_w=160)
 
     # ---- (b) progression over time: one x slot per measured date (ordinal; the Oct 15 - Nov 6 gap has no NAT run)
     # src: docs/NAT-HISTORY.md Ledger + 'Best numbers' + docs/NAT.md; slots 1..7 = Oct 11, 12, 13, 15, Nov 6, 7, 8
     xl = {1: "Oct 11", 2: "Oct 12", 3: "Oct 13", 4: "Oct 15", 5: "Nov 6", 6: "Nov 7", 7: "Nov 8"}
-    tcp_stack = [dict(x=1, y=248, lab="248 6.18", pos="below"), dict(x=2, y=370, lab="370 300-13", pos="below"),
-                 dict(x=3, y=533, lab="533 300-28", pos="below"), dict(x=4, y=544, lab="544 noqueue", pos="above"),
-                 dict(x=5, y=507, lab="507 7.3 knobs", pos="below"), dict(x=6, y=422, lab="422", pos="below")]
-    tcp_zc = [dict(x=5, y=1250, lab="1250 300-39", pos="left"), dict(x=5, y=1519, lab="1519 300-40", pos="left"),
-              dict(x=6, y=1634, lab="1634 core 608", pos="above")]
+    tcp_stack = [dict(x=1, y=248, lab="248 6.18.55", pos="below"), dict(x=2, y=370, lab="370 7.3-rc6", pos="below"),
+                 dict(x=3, y=533, lab="533 next", pos="below"), dict(x=4, y=544, lab="544 next", pos="above"),
+                 dict(x=5, y=507, lab="507 OW 7.3", pos="below"), dict(x=6, y=422, lab="422 plain 7.4", pos="below")]
+    tcp_zc = [dict(x=5, y=1250, lab="1250 OW 7.3", pos="left"), dict(x=5, y=1519, lab="1519 OW 7.3", pos="left"),
+              dict(x=6, y=1634, lab="1634 plain 7.4", pos="above")]
     gt = lines("best NAT TCP -P 4 vs date", [dict(name="zc", cls="c", pts=tcp_zc, name_dy=0),
                                            dict(name="stack", cls="a", pts=tcp_stack, name_dy=0)],
                (0.4, 7.6), (0, 1900), [1, 2, 3, 4, 5, 6, 7], [0, 500, 1000, 1500],
                "date, 2026 (one slot per measured date; no NAT run Oct 15 to Nov 6)", "NAT TCP -P 4, Mbit/s", xlab=xl, h=300, r=50)
-    kp = [dict(x=1, y=39.7, lab="39.7 6.18", pos="below"), dict(x=2, y=65, lab="65 300-12", pos="below"),
-          dict(x=4, y=76.5, lab="76.5 300-35", pos="above"), dict(x=5, y=143.7, lab="143.7 zc", pos="above"),
-          dict(x=6, y=170.3, lab="170.3 core 608", pos="above"), dict(x=7, y=170.4, lab="170.4 CPU 1325", pos="below")]
+    kp = [dict(x=1, y=39.7, lab="39.7 6.18.55", pos="below"), dict(x=2, y=65, lab="65 7.3-rc6", pos="below"),
+          dict(x=4, y=76.5, lab="76.5 next", pos="above"), dict(x=5, y=143.7, lab="143.7 OW 7.3", pos="above"),
+          dict(x=6, y=170.3, lab="170.3 plain 7.4", pos="above"), dict(x=7, y=170.4, lab="170.4 OW 7.4", pos="below")]
     gk = lines("best 1400 B UDP forwarding vs date", [dict(name="1400 B", cls="b", pts=kp)],
                (0.4, 7.6), (0, 220), [1, 2, 3, 4, 5, 6, 7], [0, 50, 100, 150, 200],
                "date, 2026 (Oct 11-15 skb stack; Nov 6 on the zc fast path)", "1400 B forwarding, kpps", xlab=xl, h=270, r=50)
@@ -853,12 +884,12 @@ def s10():
     ref = [dict(x=600, y=600), dict(x=900, y=900)]
     go = lines("UDP 1400 B goodput vs offered load", [
         dict(name="no loss", cls="d", pts=ref, name_dy=-8),
-        dict(name="7.3 picks", cls="a", pts=s_pick, name_dy=8),
-        dict(name="7.3 +12", cls="c", pts=s300_12, name_dy=0),
-        dict(name="7.3 +11", cls="b", pts=s300_11, name_dy=0),
-        dict(name="6.18", cls="e", pts=[dict(x=600, y=round(g618, 1), lab=f"{g618:.0f}", pos="below")], name_dy=0),
+        dict(name="next-20261009\n+300-35 picks", cls="a", pts=s_pick, name_dy=8),
+        dict(name="7.3-rc6\n+300-12", cls="c", pts=s300_12, name_dy=0),
+        dict(name="7.3-rc6\n+300-11", cls="b", pts=s300_11, name_dy=0),
+        dict(name="OpenWrt r36962\nLinux 6.18.55", cls="e", pts=[dict(x=600, y=round(g618, 1), lab=f"{g618:.0f}", pos="below")], name_dy=0),
     ], (550, 950), (300, 950), [600, 700, 900], [400, 600, 800],
-        "offered UDP load, Mbit/s (NAT + flowtable, skb stack)", "receiver goodput, Mbit/s", h=300, r=70,
+        "offered UDP load, Mbit/s (NAT + flowtable, skb stack)", "receiver goodput, Mbit/s", h=300, r=100,
         missing=[(800, "7.4: no offered-load run")])
     # CPU busy vs offered load, mainline-20261015 rows
     def busy(lab, cpu):
@@ -868,30 +899,30 @@ def s10():
         dict(name="VPE0", cls="a", pts=[dict(x=o, y=round(busy(f"nic-udp1400-{o}", "cpu0"), 1), lab=fmt(busy(f"nic-udp1400-{o}", "cpu0"), 0), pos="above") for o in (600, 700, 900)]),
         dict(name="VPE1", cls="b", pts=[dict(x=o, y=round(busy(f"nic-udp1400-{o}", "cpu1"), 1), lab=fmt(busy(f"nic-udp1400-{o}", "cpu1"), 1), pos="above") for o in (600, 700, 900)]),
     ], (550, 950), (0, 100), [600, 700, 900], [0, 25, 50, 75, 100],
-        "offered UDP load, Mbit/s (7.3 + series to 300-35, picks, 2026-10-15)", "CPU busy, %", h=240, r=60)
+        "offered UDP load, Mbit/s (next-20261009 plain, to 300-35, picks)", "CPU busy, %", h=240, r=60)
     # frame size
     # src: docs/CPU-PORT.md frame-size sweep; docs/CAMPAIGN-PLAIN-7.4.md rx/tx table; docs/NAT.md numbers
     sz = [64, 200, 500, 800, 1100, 1400]
     zc408 = [490.7, 409.6, 313.6, 225.6, 173.0, 142.5]
     rx408 = [228.3, 216.2, 193.9, 175.6, 174.2, 143.3]
     gs = lines("forwarding rate vs frame size", [
-        dict(name="zc 408", cls="a", pts=[dict(x=s, y=v, lab=(f"{v:g}" if s in (64, 500) else None), pos="above") for s, v in zip(sz, zc408)], name_dy=-7),
+        dict(name="zc, core 408\nstack unrecorded", cls="a", pts=[dict(x=s, y=v, lab=(f"{v:g}" if s in (64, 500) else None), pos="above") for s, v in zip(sz, zc408)], name_dy=-7),
         dict(name="rx-only", cls="d", pts=[dict(x=s, y=v, lab=None) for s, v in zip(sz, rx408)], name_dy=8),
-        dict(name="zc 608", cls="b", pts=[dict(x=64, y=424.5, lab="424.5", pos="below"), dict(x=1400, y=170, lab="170", pos="above")], name_dy=-8),
-        dict(name="7.3 stack", cls="c", pts=[dict(x=64, y=110.8, lab="110.8", pos="above"), dict(x=1400, y=76.5, lab="76.5", pos="above")]),
-        dict(name="6.18 stack", cls="e", pts=[dict(x=64, y=44.9, lab="44.9", pos="below"), dict(x=1400, y=39.7, lab="39.7", pos="below")]),
+        dict(name="zc, core 608\nplain 7.4-rc1", cls="b", pts=[dict(x=64, y=424.5, lab="424.5", pos="below"), dict(x=1400, y=170, lab="170", pos="above")], name_dy=-8),
+        dict(name="next-20261009\nplain, stack", cls="c", pts=[dict(x=64, y=110.8, lab="110.8", pos="above"), dict(x=1400, y=76.5, lab="76.5", pos="above")]),
+        dict(name="OpenWrt r36962\n6.18.55, stack", cls="e", pts=[dict(x=64, y=44.9, lab="44.9", pos="below"), dict(x=1400, y=39.7, lab="39.7", pos="below")]),
     ], (0, 1500), (0, 520), [64, 500, 800, 1100, 1400], [0, 100, 200, 300, 400, 500],
-        "UDP payload, bytes", "forwarded frames, kpps", h=320, r=75,
-        missing=[(300, "7.4 image, stock: n/m")])
+        "UDP payload, bytes", "forwarded frames, kpps", h=320, r=100,
+        missing=[(300, "OpenWrt r38178 image, stock: n/m")])
     # streams
     # src: docs/NAT-HISTORY.md 'Measured (2026-10-11)' (GRO off chain boot) and 'Mainline 7.3' (gro-list on)
     p73_p1 = mean([r["mbps"] for r in nb_rows("mainline73-1ghz-grolist", "fwd-P1")] or [288.8])
     p73_p4 = mean([r["mbps"] for r in nb_rows("mainline73-1ghz-grolist", "fwd-P4")] or [287.0])
     gst = lines("NAT TCP vs parallel streams", [
-        dict(name="7.3 ft", cls="c", pts=[dict(x=1, y=round(p73_p1, 1), lab=fmt(p73_p1, 0), pos="above"), dict(x=4, y=round(p73_p4, 1), lab=fmt(p73_p4, 0), pos="above")]),
-        dict(name="6.18 ft", cls="e", pts=[dict(x=1, y=216.9, lab="217", pos="below"), dict(x=4, y=213.2, lab="213", pos="below")]),
+        dict(name="7.3-rc6 plain\nnat-ft", cls="c", pts=[dict(x=1, y=round(p73_p1, 1), lab=fmt(p73_p1, 0), pos="above"), dict(x=4, y=round(p73_p4, 1), lab=fmt(p73_p4, 0), pos="above")]),
+        dict(name="OpenWrt r36962\n6.18.55 nat-ft", cls="e", pts=[dict(x=1, y=216.9, lab="217", pos="below"), dict(x=4, y=213.2, lab="213", pos="below")]),
     ], (0.5, 5.5), (0, 400), [1, 2, 4], [0, 100, 200, 300, 400],
-        "parallel TCP streams (-P N); P8 and all zc / 7.4 / plain 7.4 streams: not measured", "NAT TCP, Mbit/s", h=250, r=70,
+        "parallel TCP streams (-P N); P8 and all zc / 7.4 streams: not measured", "NAT TCP, Mbit/s", h=250, r=100,
         missing=[(2, "P2: no run")], xlab={1: "P1", 2: "P2", 4: "P4"})
     # ---- (d) routed L3 off vs on, TCP -P 4 forward, log scale
     # src: docs/NAT-HISTORY.md 'Measured (2026-10-11)', 'L3 offload checks ... fixes' ; docs/ROUTING-OFFLOAD.md
@@ -906,7 +937,7 @@ def s10():
                    [("off", "a", d6_off), ("on", "c", d6_on)], 10000, "routed TCP -P 4 fwd, Mbit/s (log scale)",
                    yticks=[10, 100, 1000, 10000], log_y=True)
     # ---- measurement matrix
-    cols = [("Stock", "FW 3.18"), ("OpenWrt", "6.18"), ("OpenWrt", "7.3"), ("OpenWrt", "7.4"), ("plain", "7.4-rc1")]
+    cols = [("Stock FW", "", "3.18.24"), ("OpenWrt", "r36962", "6.18.55"), ("OpenWrt", "b455c5b", "7.3-next"), ("OpenWrt", "r38178", "7.4-rc1"), ("no OpenWrt", "plain", "7.4-rc1")]
     mrows = [
         ("NAT TCP P4, skb stack", [NA, "248", "507", "268", "422"]),
         ("NAT TCP P4, zc fast path", [NA, NA, "1519", "1536", "1634"]),
@@ -918,23 +949,34 @@ def s10():
         ("routed v4, ASIC on", [NM, NA, "9198", "9197", NM]),
         ("IPv6 routed in ASIC", [NM, "9079", "9055-9085", "9066", NM]),
         ("TCP P1/P2/P8 streams", [NM, "P1 217", NM, NM, NM]),
-        ("UDP offered-load sweep", [NM, "600 only", "600-900", NM, NM]),
-        ("frame-size sweep", [NM, "64, 1400", "64, 1400", "1400 only", "64-1400"]),
+        ("UDP offered-load sweep", [NM, "600 only", "600-900 \u2020", NM, NM]),
+        ("frame-size sweep", [NM, "64, 1400", "64, 1400 \u2020", "1400 only", "64-1400"]),
     ]
     gm = matrix("measurement matrix: stack x test", cols, mrows)
     return (
         "<h2 id='s10'>10 Progression across software stacks</h2>"
-        "<p class='note'>Stock FW (kernel 3.18.24 on this unit), OpenWrt 6.18 flash image, OpenWrt 7.3, OpenWrt 7.4 (images, RAM boot) and plain 7.4-rc1. "
+        "<h3>Stack legend</h3>"
+        + table(["Label", "Kernel", "OpenWrt / userland", "Fast path", "Rows"], LEGEND)
+        + "<p class='note'>Chart labels are the compact form: OpenWrt revision on the first line, Linux version on the second. "
+        "Matrix cells marked &dagger; come from the plain Linux 7.3 initramfs (no OpenWrt). Sweep of 1400 B vs frame size: the stack of the mid sizes is not recorded in CPU-PORT.md (unknown). "
+        "Full audit: <a href='NAT-STACKS.md'>NAT-STACKS.md</a> 'Stack legend'.</p>"
+        "<p class='note'>Stock FW (Linux 3.18.24 on this unit), OpenWrt SNAPSHOT r36962 + Linux 6.18.55 (flash image), OpenWrt main b455c5b + Linux 7.3-rc6-next-20261009 (image), OpenWrt main r38178 + Linux 7.4-rc1 (image) and Linux 7.4-rc1 plain (no OpenWrt). "
         "Audit of every measurement with clocks, date and source: <a href='NAT-STACKS.md'>NAT-STACKS.md</a>. Solid cell or bar = measured; "
         "dashed hollow = <b>n/m</b> not measured (no run exists) or <b>n/a</b> not applicable (feature absent in that stack). No value is estimated. "
         "Clocks differ per stack (under each bar: CPU MHz / switch-core MHz of the plotted value); only the same-clock pair below is an A/B.</p>"
-        + fig(gm, "docs/NAT-STACKS.md audit table; * = route, no flowtable", "Which stack has which measurement (best value, units in the row label)")
+        + fig(gm, "docs/NAT-STACKS.md audit table; * = route, no flowtable; &dagger; = plain Linux 7.3 initramfs".replace("&dagger;", "\u2020"), "Which stack has which measurement (best value, units in the row label; columns = OpenWrt revision, Linux version)")
         + fig(ga, "docs/NAT-STACKS.md: 6.18 NAT-HISTORY 'Measured (2026-10-11)'; 7.3 'Where we are' + 'In-place forward prototype'; 7.4 #161 (nat161.jsonl means) and docs/NAT.md",
               "Best NAT TCP per stack, skb stack vs in-place fast path")
         + "<p class='note'>Stock: no NAT in the firmware (unmanaged). 6.18 has no fast-path build (n/a). 7.3 zc = 1519 with 300-40 (core 408); 7.4 image zc and stack at core 508 (CPU 1325/608 TCP not run); plain 7.4 at core 608.</p>"
         + fig(gcmp, "docs/NAT-HISTORY.md #161, tmp/logs/nat161.jsonl (mean of 3 x 15 s, irq on VPE0, 2026-11-08)", "Same clocks: image vs plain on the stack path")
         + fig(gt, "docs/NAT-HISTORY.md Ledger, 'Best numbers', 'In-place forward prototype'; docs/NAT.md numbers; tmp/logs/nat_bench.jsonl, retest_options.jsonl",
               "Progression over time: best NAT TCP (stack and fast path)")
+        + table(["Slot", "Stack of the plotted points"], [
+            ["Oct 11", "OpenWrt SNAPSHOT r36962 + Linux 6.18.55 (flash image)"],
+            ["Oct 12 / 13 / 15", "Linux 7.3-rc6 (Oct 12) / next-20261009 (Oct 13, 15) plain, no OpenWrt"],
+            ["Nov 6", "OpenWrt main b455c5b + Linux 7.3-rc6-next-20261009 (image)"],
+            ["Nov 7", "Linux 7.4-rc1 plain, no OpenWrt"],
+            ["Nov 8", "OpenWrt main r38178 + Linux 7.4-rc1 (image)"]])
         + ul([
             "Oct 11 to 15: skb stack 248 to 544 Mbit/s (flowtable, picks clocks, 300-12/13/27/28, noqueue).",
             "Nov 6: in-place path (300-39) 1250, queue-1 threshold (300-40) 1519; Nov 7: switch core 408 to 608, 1634.",
@@ -945,10 +987,10 @@ def s10():
         + fig(go, "tmp/logs/nat_bench.jsonl (goodput = offered x (1 - loss), means of 3 boots' rows): tags base, mainline73-1ghz-grolist, nic-final, mainline-20261015; docs/NAT-HISTORY.md",
               "Over load: UDP 1400 B goodput vs offered load")
         + "<p class='note'>300-11 collapses past 600 (59 % loss at 900); 300-12 (TX ring 128, doorbell, reclaim) holds 765; picks clocks hold 899.5. 6.18 only has the 600 row (462 goodput). No 7.4 run.</p>"
-        + fig(gb, "tmp/logs/nat_bench.jsonl, tag mainline-20261015 (7.3 + series, picks)", "Over load: CPU busy per VPE vs offered load")
+        + fig(gb, "tmp/logs/nat_bench.jsonl, tag mainline-20261015 (7.3 + series, picks)", "Over load: CPU busy per VPE vs offered load (Linux next-20261009 plain, no OpenWrt, series to 300-35, picks, 2026-10-15)")
         + "<p class='note'>VPE0 is 94-96 % busy at every point on every recorded stack (6.18 base 94-95 %, 7.3 95 %); the second VPE idles in the skb path. Other stacks: no per-load CPU rows (n/m).</p>"
         + fig(gs, "docs/CPU-PORT.md frame-size sweep; docs/CAMPAIGN-PLAIN-7.4.md rx/tx table; docs/NAT.md; docs/NAT-HISTORY.md 'Measured (2026-10-11)', 'Mainline with today's series'",
-              "Over load: forwarded kpps vs frame size (zc 408 = core 408, 7.3 picks; zc 608 = plain 7.4, core 608)")
+              "Over load: forwarded kpps vs frame size (zc core 408 = picks; zc core 608 = Linux 7.4-rc1 plain). Stack series: next-20261009 plain 7.3, OpenWrt r36962 6.18.55")
         + "<p class='note'>Stack series are UDP offered-load rows (6.18 at 600 offered; 7.3 at 900 offered), not the zc sweep: the same 64 B and 1400 B sizes only.</p>"
         + fig(gst, "tmp/logs/nat_bench.jsonl rows fwd-P1 / fwd-P4 (tag mainline73-1ghz-grolist, means), natft-tcp-P1/P4 2026-10-11 (GRO off, chain boot)",
               "Over load: NAT TCP vs parallel streams")

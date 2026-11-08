@@ -2,8 +2,8 @@
 
 Target: IPv4 NAT at 2.5 Gbit/s (owner ISP: NBN HFC ~2 Gbit/s down), issue #65 (closed). State as of 2026-11-08 (owner decision: go with what works, [DECISIONS.md](DECISIONS.md)).
 Graphs and issue board: open rendered with `code-insiders --reuse-window docs/NAT-REPORT.html` (VS Code markdown preview does not open .html links); relative link [NAT-REPORT.html](NAT-REPORT.html); regenerate `python3 scripts/nat_report.py`. Key numbers also in "Graphs" below.
-Progression across stacks (stock FW, OpenWrt 6.18 / 7.3 / 7.4, plain 7.4-rc1), audit and gap list: [NAT-STACKS.md](NAT-STACKS.md); graphs [NAT-REPORT.html](NAT-REPORT.html#s10).
-- NAT TCP P4, best per stack: 6.18 248, 7.3 507 (skb) / 1519 (zc), 7.4 image 268 / 1536 (core 508), plain 7.4 422 / 1634 (core 608); clocks differ per row.
+Progression across stacks (stock FW Linux 3.18.24; OpenWrt SNAPSHOT r36962 + Linux 6.18.55; OpenWrt main b455c5b + Linux 7.3-rc6-next-20261009; OpenWrt main r38178 + Linux 7.4-rc1; Linux 7.4-rc1 plain, no OpenWrt), audit, stack legend and gap list: [NAT-STACKS.md](NAT-STACKS.md); graphs [NAT-REPORT.html](NAT-REPORT.html#s10).
+- NAT TCP P4, best per stack: OpenWrt r36962 / Linux 6.18.55 248; OpenWrt b455c5b / 7.3-next 507 (skb) / 1519 (zc); OpenWrt r38178 / Linux 7.4-rc1 268 / 1536 (core 508); Linux 7.4-rc1 plain (no OpenWrt) 422 / 1634 (core 608); clocks differ per row.
 - Stock FW has no NAT or routing (unmanaged); no stack has data for every test: 12 test rows, matrix in the report.
 - Missing for a same-clock comparison: 6.18 and 7.3 vs 7.4 at final clocks, UDP offered-load and `-P 1/2/8` on 7.4, plain 7.4 L3 (gaps G1-G11).
 Run the measurements: [NAT-OPS.md](NAT-OPS.md). Experiments, dead ends, core-408 numbers: [NAT-HISTORY.md](NAT-HISTORY.md). CPU-port registers: [CPU-PORT.md](CPU-PORT.md). No NAT hardware in the die: [HIDDEN-FEATURES.md](HIDDEN-FEATURES.md) (#68).
@@ -30,7 +30,7 @@ Run the measurements: [NAT-OPS.md](NAT-OPS.md). Experiments, dead ends, core-408
 - Temperature is logged only; there is no 85 C abort (owner 2026-11-07). Idle readings 46-63 C.
 
 ## Graphs
-Plain-md copy of the HTML report's headline numbers (plain 7.4 kernel, sw2, cage 1).
+Plain-md copy of the HTML report's headline numbers (sw2, cage 1). In this file `image` = OpenWrt main r38178 (`7e8bfcfe76`) + Linux 7.4-rc1, RAM boot; `plain` = Linux 7.4-rc1 + our series, bench initramfs (BusyBox, no OpenWrt). Other stacks: [NAT-STACKS.md](NAT-STACKS.md#stack-legend).
 
 Switch core vs 1400 B rate (zc+nat, 2026-11-07):
 
@@ -91,11 +91,11 @@ Core 608, CPU 1350 / DDR 662 / LX 304 / SRAM 500, sw2, plain 7.4-rc1 bench kerne
 | 323 | `nat-ft` | plain | 508 |
 | 242 | `nat` (conntrack, no flowtable) | plain | 608 (canary boots) |
 | 240 | `nat` | plain | 508 |
-| 85 | `nat` | OpenWrt image | 508 |
+| 85 | `nat` | image (OpenWrt r38178 + 7.4-rc1) | 508 |
 
 - Different paths and clocks, not noise. Rows: `tmp/logs/nat_bench.jsonl`, `tmp/logs/nat161.jsonl`, [CANARY.md](CANARY.md).
 
-## OpenWrt image vs plain kernel (#161, core 508, CPU 1350, 2026-11-08)
+## OpenWrt r38178 + Linux 7.4-rc1 image vs Linux 7.4-rc1 plain (#161, core 508, CPU 1350, 2026-11-08)
 - Image zc+nat is within 2 % of plain (1536 vs 1565 Mbit/s): the fast path works on the image.
 - The 83-104 Mbit/s figure is the image on `nat` (conntrack + masquerade, no flowtable); the 413-422 plain figure is `nat-ft`. Different paths.
 - Same-core stack rows (Mbit/s fwd / rev): plain `nat` 240 / 311, plain `nat-ft` 323 / 406, image `nat` 85 / 103, image `nat-ft` 268 / 344.
