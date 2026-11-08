@@ -2,7 +2,9 @@
 """openwrt_sysupgrade_ssh — sysupgrade a running flash OpenWrt over SSH, config kept (sw1: no console).
 
 - Owner 2026-10-13: sw1 is reflashed only when the owner requests it.
-- Image: the local upstream-layout sysupgrade image (same file as openwrt_install.py).
+- Image: `--image PATH` (default: the local upstream-layout sysupgrade image, as openwrt_install.py).
+- Image vs box: A/B slots need compat 2.0 and size <= IMAGE_SIZE 14848k (docs/DEFAULT-BOOT.md#ab-slots).
+- `--dry-run`: read-only ssh (board, mtd, revision) + all checks, prints the commands, no backup/upload.
 - Refused unless the board is tplink,tl-st1008f-v2 with the upstream 29 MiB `firmware` or the A/B slots (#117).
 - Config backup first (`sysupgrade -b`) -> private/sysupgrade-backup/<ip>-<ts>.tar.gz (gitignored).
 - Image pushed over SSH stdin (dropbear has no sftp-server), md5 both ends, `sysupgrade -T`, then
@@ -29,6 +31,7 @@ ROOT = Path(__file__).resolve().parent.parent
 LOG = ROOT / "tmp/logs/openwrt_sysupgrade_ssh.log"
 SRC = ROOT / "tmp/openwrt-build/bin/targets/realtek/rtl930x/openwrt-realtek-rtl930x-tplink_tl-st1008f-v2-squashfs-sysupgrade.bin"
 BACKUP = ROOT / "private/sysupgrade-backup"
+SLOT_MAX = 14848 * 1024  # IMAGE_SIZE := 14848k, docs/DEFAULT-BOOT.md#ab-slots
 FIRMWARE = (0x300000, 0x1D00000)  # upstream layout: 0x300000 to the end of the 32 MiB chip
 SSH = ["ssh", "-o", "ConnectTimeout=5", "-o", "BatchMode=yes", "-o", "StrictHostKeyChecking=accept-new"]
 CMD_S = 30     # one SSH command: sysupgrade -T / -b ~2-5 s on a 1 GHz MIPS; x6 for a loaded box
@@ -71,6 +74,8 @@ def wait(ip: str, up: bool, cap: float, what: str) -> float:
 def main() -> int:
     ap = argparse.ArgumentParser(description=__doc__.splitlines()[0])
     ap.add_argument("--ip", required=True)
+    ap.add_argument("--image", type=Path, default=SRC, help="sysupgrade image (default: the upstream-layout build)")
+    ap.add_argument("--dry-run", action="store_true", help="read-only checks and the printed commands; no backup, no upload")
     ap.add_argument("--pull", action="store_true",
                     help="the unit fetches the image over host HTTP (:8008, this one file) instead of an SSH push: "
                          "no ssh crypto load during the transfer (sw1, 2026-11-06: two SSH pushes stalled it)")
@@ -79,15 +84,19 @@ def main() -> int:
     a = ap.parse_args()
     flash_guard.check_range(*FIRMWARE, "openwrt-sysupgrade-ssh firmware")  # #81: never the stock area
     flash_guard.check_mtd("firmware", "openwrt-sysupgrade-ssh")
-    raw = SRC.read_bytes()
+    src = a.image if a.image.is_absolute() else (Path.cwd() / a.image if (Path.cwd() / a.image).exists() else ROOT / a.image)
+    if not src.is_file():
+        raise SystemExit(f"FAIL: image {src} not found")
+    raw = src.read_bytes()
     m = re.search(rb'\{ *"metadata_version".*\}', raw[-4096:])
     meta = json.loads(m.group(0)) if m else {}
     # a compat_version bump moves the board list to new_supported_devices (#117: 2.0 = A/B)
     if "tplink,tl-st1008f-v2" not in meta.get("new_supported_devices", meta.get("supported_devices", [])):
-        raise SystemExit(f"FAIL: {SRC.name}: metadata does not name tplink,tl-st1008f-v2")
+        raise SystemExit(f"FAIL: {src.name}: metadata does not name tplink,tl-st1008f-v2")
     rev = meta.get("version", {}).get("revision", "?")
     md5 = hashlib.md5(raw).hexdigest()
-    log(f"{a.ip}: image {len(raw)} B, revision {rev}, md5 {md5}")
+    compat = str(meta.get("compat_version", "1.0"))
+    log(f"{a.ip}: image {src} {len(raw)} B, revision {rev}, compat {compat}, md5 {md5}")
 
     board = ssh(a.ip, "cat /tmp/sysinfo/board_name").strip()
     if board != "tplink,tl-st1008f-v2":
@@ -96,9 +105,21 @@ def main() -> int:
     mtd = ssh(a.ip, "grep -E '\"firmware(_a|_b)?\"' /proc/mtd")
     if f"{FIRMWARE[1]:08x}" not in mtd and not ("firmware_a" in mtd and "firmware_b" in mtd):
         raise SystemExit(f"FAIL: firmware partitions neither upstream nor A/B: {mtd.strip()}")
+    ab = "firmware_a" in mtd and "firmware_b" in mtd
+    if ab and compat != "2.0":
+        raise SystemExit(f"FAIL: box has A/B slots, image compat {compat} (needs 2.0): a 1.0 image must never be flashed")
+    if ab and len(raw) > SLOT_MAX:
+        raise SystemExit(f"FAIL: image {len(raw)} B > slot {SLOT_MAX} B (14.5 MiB)")
+    if not ab and compat == "2.0" and not a.force:
+        raise SystemExit("FAIL: single-firmware box, compat 2.0 image: needs --force (#117)")
+    F = "-F " if a.force else ""
+    log(f"  commands: sysupgrade {F}-T /tmp/f.bin; sysupgrade {F}/tmp/f.bin (config kept)")
     before = ssh(a.ip, ". /etc/openwrt_release; echo $DISTRIB_REVISION").strip()
     log(f"  running {before}; board {board}; {mtd.strip()}")
 
+    if a.dry_run:
+        log(f"DRY-RUN ok: {a.ip} {before} -> {rev}; nothing uploaded")
+        return 0
     BACKUP.mkdir(parents=True, exist_ok=True)
     out = BACKUP / f"{a.ip}-{time.strftime('%Y%m%d-%H%M%S')}.tar.gz"
     ssh(a.ip, "sysupgrade -b /tmp/cfg.tar.gz")
@@ -132,7 +153,6 @@ def main() -> int:
     got = ssh(a.ip, "md5sum /tmp/f.bin").split()[0]
     if got != md5:
         raise SystemExit(f"FAIL: md5 on the box {got} != {md5}")
-    F = "-F " if a.force else ""
     ssh(a.ip, f"sysupgrade {F}-T /tmp/f.bin")
     log("  pushed, md5 ok, sysupgrade -T ok; upgrading (config kept)")
     subprocess.run([*SSH, f"root@{a.ip}", f"sysupgrade {F}/tmp/f.bin </dev/null >/dev/null 2>&1 &"],

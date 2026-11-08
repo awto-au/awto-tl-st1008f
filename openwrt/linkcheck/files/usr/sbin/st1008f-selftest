@@ -67,21 +67,17 @@ mhz() { printf '%d.%03d' $(($1 / 1000)) $(($1 % 1000)); }	# kHz -> "M.mmm"
 have() { command -v "$1" >/dev/null 2>&1; }
 dbgfs() { [ -d $DBG/gpio ] || [ -d $DBG/st1008f-mode-switch ] || mount -t debugfs debugfs $DBG 2>/dev/null; }
 
-# peek ADDR...: R_<addr> = value (hex text, lower case), via the helper or BusyBox devmem
+# peek ADDR...: R_<addr> = value (hex text, lower case) via the helper only.
+# No devmem fallback: BusyBox devmem on KSEG1 addresses resets the SoC (#163).
 peek() {
-	if [ -x $STX ]; then
-		eval "$($STX peek "$@" | awk '$2 ~ /^0x/ { printf "R_%s=%s\n", substr($1, 3), $2 }')"
-	else
-		for a in "$@"; do
-			v=$(devmem "$a" 32 2>/dev/null) || continue
-			eval "R_${a#0x}=$v"
-		done
-	fi
+	[ -x $STX ] || return 0
+	eval "$($STX peek "$@" | awk '$2 ~ /^0x/ { printf "R_%s=%s\n", substr($1, 3), $2 }')"
 }
 reg() { eval "echo \${R_${1#0x}:-}"; }
 
 # ---- steps: each runs as `$0 --step NAME` in its own process group ----
 step_clocks() {
+	[ -x $STX ] || { res clocks SKIP "st1008f-stx missing"; return; }
 	peek 0xbb00e200 0xbb00e208 0xbb00e210 0xbb00e214 0xbb00e220 0xb800023c 0xb8000240 0xb8000700 \
 		0xb8001200 0xb8001204 0xb8001000 0xb8001004 0xb8001008 0xb800100c 0xb8001010 0xb80040f8 \
 		0xb8000044 0xb8001300 0xb8001304 0xb8001310 0xb8001320 0xb8001330 0xb8004000 0xb8004004 \
@@ -89,7 +85,7 @@ step_clocks() {
 	e208=$(reg 0xbb00e208) e210=$(reg 0xbb00e210) e214=$(reg 0xbb00e214) e220=$(reg 0xbb00e220)
 	m2=$(reg 0xb800023c) m3=$(reg 0xb8000240) sp=$(reg 0xb8000700) sfcr=$(reg 0xb8001200)
 	if [ -z "$e208" ] || [ -z "$m3" ] || [ -z "$sfcr" ]; then
-		res clocks FAIL "/dev/mem unreadable (CONFIG_DEVMEM, helper or devmem missing)"
+		res clocks FAIL "/dev/mem unreadable (CONFIG_DEVMEM)"
 		return
 	fi
 	# docs/CLOCKS.md: VCO = 25 MHz x (4 if SEL_DIV4) x (NCODE + 2) x 2 / 2^PREDIV
@@ -151,6 +147,7 @@ step_clocks() {
 cmdarg() { tr ' ' '\n' < /proc/cmdline | sed -n "s/^st1008f\.$1=//p"; }
 
 step_mode() {
+	[ -x $STX ] || { res mode SKIP "st1008f-stx missing"; return; }
 	dbgfs
 	peek 0xb8003300 0xb8003308 0xb800330c
 	cnr=$(reg 0xb8003300) dir=$(reg 0xb8003308) d1=$(reg 0xb800330c)
@@ -284,6 +281,7 @@ END { if (!n) exit 1
 		(h(356) * 256 + h(357)) * 2 / 1000, h(358) * 256 + h(359), h(360) * 256 + h(361), int(h(366) / 2) % 2 }'
 
 step_sfp() {
+	[ -x $STX ] || { res sfp SKIP "st1008f-stx missing"; return; }
 	have ethtool || { res sfp SKIP "no ethtool"; return; }
 	peek 0xb800330c
 	gd=$(reg 0xb800330c)
@@ -328,6 +326,7 @@ sds_name() {
 }
 
 step_asic() {
+	[ -x $STX ] || { res asic SKIP "st1008f-stx missing"; return; }
 	peek 0xbb000194 0xbb000198 0xbb0002a0 0xbb0002a4 0xbb00cb10 0xbb00cb10 0xbb00cb18 0xbb00cb1c \
 		0xbb00cb20 0xbb00cb24 0xbb00cc00 0xbb00cc4c 0xbb00cc50 0xbb00cc54 0xbb00cc58
 	lnk=$(reg 0xbb00cb10)	# latched low: the second read of the pair is "now"
@@ -387,6 +386,7 @@ step_asic() {
 
 # storm control + loop detect (#111, docs/STORM-PROTECTION.md): 300-26 debugfs, else the registers
 step_storm() {
+	[ -x $STX ] || { res storm SKIP "st1008f-stx missing"; return; }
 	dbgfs
 	peek 0xbb008a60 0xbb008a6c 0xbb00a250 0xbb008c50 0xbb008c90 0xbb008cd0 0xbb008cf0 0xbb008d10 0xbb008d18 \
 		0xbb008d20 0xbb008d28 0xbb008d30 0xbb008d3c 0xbb008c4c 0xbb008b5c

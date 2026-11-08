@@ -515,13 +515,16 @@ DEFAULT_BOOT = ROOT / "openwrt/default-boot"
 LINKCHECK = ROOT / "openwrt/linkcheck/files"
 
 
-def selftest_files(dst: Path) -> None:
-    """st1008f-selftest helper + CPU test data (scripts/build_selftest.py) into files/ (#108)."""
+def selftest_files(dst: Path, strict: bool = False) -> None:
+    """st1008f-selftest helper + CPU test data (scripts/build_selftest.py) into files/ (#108).
+    strict (after the toolchain exists, before world): no helper = hard fail (#163: devmem on KSEG1 resets the SoC)."""
     import build_selftest
     tcs = sorted(TREE.glob("staging_dir/toolchain-mips_24kc_*_musl/bin"))
     try:
         out = build_selftest.build(str(tcs[-1]) if tcs else None)
-    except SystemExit as e:  # first build: no toolchain yet; the script SKIPs mem/flash without the helper
+    except SystemExit as e:  # config time of a first build: no toolchain yet; rebuilt strict before world
+        if strict:
+            sys.exit(f"FAIL selftest: st1008f-stx not built ({e}); refusing an image without it (#163)")
         log(f"WARN selftest: helper not built ({e}); image gets st1008f-selftest without st1008f-stx")
         return
     shutil.copytree(out, dst, dirs_exist_ok=True)
@@ -809,6 +812,9 @@ def main() -> int:
         disk_check("download", comment)
         if run(["make", j, "download"], T_DOWNLOAD, comment=comment):
             return 1
+        if run(["make", j, "tools/install", "toolchain/install"], T_WORLD, comment=comment):
+            return 1
+        selftest_files(TREE / "files", strict=True)  # toolchain exists now; files/ is read by world
         disk_check("world", comment)
         rc = run(["make", j, "world"], T_WORLD, comment=comment)
         prune()
