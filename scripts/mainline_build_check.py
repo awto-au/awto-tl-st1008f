@@ -131,10 +131,10 @@ def check_fragments(config: Path, fragments: list[Path]) -> list[str]:
 
 
 def out_dir(no_highmem: bool, up: bool, lat: bool = False, bench: bool = False, clean: bool = False,
-            owrt: bool = False) -> Path:
+            owrt: bool = False, owrt_bb: bool = False) -> Path:
     return ROOT / (f"tmp/build-mips-{kernel_base.selected()}"
                    + ("-nohighmem" if no_highmem else "") + ("-up" if up else "") + ("-lat" if lat else "")
-                   + ("-bench" if bench else "") + ("-clean" if clean else "") + ("-owrt" if owrt else ""))
+                   + ("-bench" if bench else "") + ("-clean" if clean else "") + ("-owrt3" if owrt_bb else "-owrt" if owrt else ""))
 
 
 def run(cmd, cwd):
@@ -167,14 +167,17 @@ def main():
     ap.add_argument("--owrt-userland", action="store_true",
                     help="initramfs tools (nft, ip, tc, ethtool, dropbear, musl) from the OpenWrt buildroot + fw4 ruleset + "
                          "mainline/st1008f-v2-clean-fw4.config; needs --bench (NAT-STACK-TESTS.md)")
+    ap.add_argument("--owrt-busybox", action="store_true",
+                    help="--owrt-userland + BusyBox and applet links from the OpenWrt buildroot, minimal init, no 24.10.7 files (C-clean3)")
     ap.add_argument("--skip", action="append", default=[], metavar="PREFIX",
                     help="leave out patches whose name starts with PREFIX (A/B bisect, e.g. 300-21)")
     ap.add_argument("--w1", action="store_true",
                     help="after the build, rebuild the objects our openwrt/patches touch with W=1; warnings fail")
     a = ap.parse_args()
+    a.owrt_userland = a.owrt_userland or a.owrt_busybox
     if a.owrt_userland and not a.bench:
         sys.exit("--owrt-userland needs --bench")
-    a.out = a.out or str(out_dir(a.no_highmem, a.up, a.latency, a.bench, a.clean, a.owrt_userland))
+    a.out = a.out or str(out_dir(a.no_highmem, a.up, a.latency, a.bench, a.clean, a.owrt_userland, a.owrt_busybox))
     os.nice(19)  # owner: builds yield to interactive host work
     LOG.parent.mkdir(parents=True, exist_ok=True)
     LOG.write_text("")
@@ -203,7 +206,7 @@ def main():
              *([ROOT / "mainline/st1008f-v2-bench.config"] if a.bench else []),
              *([ROOT / "mainline/st1008f-v2-clean.config"] if a.clean else []),
              *([ROOT / "mainline/st1008f-v2-clean-fw4.config"] if a.owrt_userland else []),
-             mainline_initramfs.build(bench=a.bench or None, owrt=a.owrt_userland)]
+             mainline_initramfs.build(bench=a.bench or None, owrt=a.owrt_userland, owrt_bb=a.owrt_busybox)]
     merge = tree / "scripts/kconfig/merge_config.sh"
     if run([str(merge), "-m", "-O", str(out), str(out / ".config"), *map(str, frags)], tree):
         sys.exit("merge_config failed, see log")

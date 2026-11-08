@@ -19,6 +19,9 @@
   buildroot's root-realtek (the image under test), instead of the 24.10.7 ipks; iperf3 + libatomic stay from 24.10.7 (the
   OpenWrt image has neither). Adds /etc/fw4-b.nft (mainline/fw4-b.nft, loaded by nat_bench.py).
   Output st1008f-initramfs-bench-owrt.cpio.xz + initramfs-owrt.config.
+- `--owrt-busybox` (implies --owrt-userland; C-clean3): BusyBox 1.38 + applet links also from the OpenWrt root, no 24.10.7
+  files at all (no iperf3: stack_normalize.py pushes the one static iperf3), minimal /init (no applet --install, no selftest
+  start, no tracefs). Output st1008f-initramfs-bench-owrt3.cpio.xz + initramfs-owrt3.config.
 - Log: tmp/logs/mainline_initramfs.log
 """
 
@@ -64,6 +67,21 @@ grep -q 'st1008f[.]selftest=1' /proc/cmdline && (st1008f-selftest --quiet --cons
 exec setsid cttyhack sh
 """
 
+# C-clean3: B's BusyBox has no cttyhack/stty; applet links come from the OpenWrt root, so no --install
+INIT_OWRT3 = f"""#!/bin/sh
+export PATH=/sbin:/bin:/usr/sbin:/usr/bin HOME=/root PS1='{PROMPT}'
+mount -t proc proc /proc
+mount -t sysfs sysfs /sys
+mount -t devtmpfs devtmpfs /dev
+mount -t debugfs debugfs /sys/kernel/debug
+mkdir -p /dev/pts && mount -t devpts devpts /dev/pts
+echo "{INIT_MARKER} (Linux $(uname -r))"
+L=/sys/devices/platform/st1008f-leds
+grep -q '^booting' $L/state 2>/dev/null && echo 1 > $L/clear
+cd /root
+exec setsid sh -c 'exec sh -i </dev/console >/dev/console 2>&1'
+"""
+
 # One cage at a time (house LAN loop, 2026-10-10): refuses while another lanX is up or a bridge exists.
 PORT_UP = """#!/bin/sh
 # port-up <cage 1-8> [addr/len] [vlan-id]: bring up lan<cage> only (laser on via SFP TX-disable release)
@@ -96,17 +114,28 @@ TOOL_LINKS = {"sbin/ip": "/usr/libexec/ip-full", "sbin/tc": "/usr/libexec/tc-tin
 
 
 OWRT_ROOT = ROOT / "tmp/openwrt-build/staging_dir/target-mips_24kc_musl/root-realtek"
+OWRT_BB_BINS = ["bin/busybox"]  # --owrt-busybox only
 OWRT_BINS = ["usr/sbin/nft", "usr/libexec/ip-full", "usr/libexec/tc-full", "usr/sbin/ethtool",
              "usr/sbin/dropbear", "usr/bin/dropbearkey", "lib/ld-musl-mips-sf.so.1"]
 OWRT_LIBDIRS = ["lib", "usr/lib"]
 FW4_B = ROOT / "mainline/fw4-b.nft"
 
 
-def owrt_staged(root: Path = OWRT_ROOT) -> dict:
+def owrt_applets(root: Path = OWRT_ROOT) -> dict:
+    """Every applet symlink of root (bin sbin usr/bin usr/sbin) that resolves to bin/busybox -> {path: ("link", target, 0)}."""
+    out = {}
+    for d in ("bin", "sbin", "usr/bin", "usr/sbin"):
+        for f in sorted((root / d).iterdir()):
+            if f.is_symlink() and os.path.normpath(os.path.join(f.parent, os.readlink(f))) == str(root / "bin/busybox"):
+                out[f"{d}/{f.name}"] = ("link", os.readlink(f), 0)
+    return out
+
+
+def owrt_staged(root: Path = OWRT_ROOT, busybox: bool = False) -> dict:
     """OWRT_BINS + the DT_NEEDED closure from root's lib dirs -> {path: ("file", bytes, mode) | ("link", target, 0)}.
-    Libraries keep their soname symlinks (a symlink target is staged too)."""
+    Libraries keep their soname symlinks (a symlink target is staged too). busybox: + bin/busybox and its applet links."""
     import subprocess
-    out, todo = {}, list(OWRT_BINS)
+    out, todo = {}, list(OWRT_BINS + (OWRT_BB_BINS if busybox else []))
 
     def add(rel: str) -> None:
         src = root / rel
@@ -118,7 +147,7 @@ def owrt_staged(root: Path = OWRT_ROOT) -> dict:
             add(os.path.normpath(os.path.join(os.path.dirname(rel), tgt)))
         elif src.is_file():
             out[rel] = ("file", src.read_bytes(), src.stat().st_mode & 0o777)
-            if rel.endswith(".so") or ".so." in rel or rel in OWRT_BINS:
+            if rel.endswith(".so") or ".so." in rel or rel in OWRT_BINS or rel in OWRT_BB_BINS:
                 todo.append(rel)
         else:
             raise SystemExit(f"owrt-userland: {rel} missing in {root}")
@@ -144,6 +173,9 @@ def owrt_staged(root: Path = OWRT_ROOT) -> dict:
     libc = out.get("lib/ld-musl-mips-sf.so.1")
     if libc:
         out.setdefault("lib/libc.so", ("link", "ld-musl-mips-sf.so.1", 0))
+    if busybox:
+        for k, v in owrt_applets(root).items():
+            out.setdefault(k, v)
     return out
 
 
@@ -192,29 +224,38 @@ BENCH_INIT = """# bench variant: host key now (ed25519 keygen is fast), dropbear
 BENCH_LD_PATH = b"/tmp\n/lib\n/usr/lib\n"
 
 
-def build(bench: bool | None = None, owrt: bool = False) -> Path:
+def build(bench: bool | None = None, owrt: bool = False, owrt_bb: bool = False) -> Path:
     if bench is None:
         bench = os.environ.get("ST1008F_INITRAMFS_BENCH") == "1"
-    if not BUSYBOX.exists():
-        raise SystemExit(f"missing {BUSYBOX.relative_to(ROOT)}: download {BUSYBOX_URL} "
-                         f"(playwrong download tool), sha256 {BUSYBOX_SHA256}")
-    bb = BUSYBOX.read_bytes()
-    if hashlib.sha256(bb).hexdigest() != BUSYBOX_SHA256:
-        raise SystemExit(f"{BUSYBOX.relative_to(ROOT)}: sha256 mismatch (bad download?)")
+    owrt = owrt or owrt_bb
     c = Cpio()
     for d in DIRS:
         c.dir(d)
     c.chardev("dev/console", 5, 1)  # kernel opens it before /init; devtmpfs is mounted later
-    c.file("bin/busybox", bb)
-    c.symlink("bin/sh", "busybox")
-    init = INIT
-    if bench:  # before the final `exec setsid cttyhack sh`
-        init = init.replace("cd /root\n", BENCH_INIT + "cd /root\n", 1)
+    if owrt_bb:  # BusyBox + applet links + musl + tools: all from the OpenWrt root (staged below)
+        init = INIT_OWRT3
+        if bench:
+            init = init.replace("cd /root\n", BENCH_INIT + "cd /root\n", 1)
+        staged = owrt_staged(busybox=True)
+    else:
+        if not BUSYBOX.exists():
+            raise SystemExit(f"missing {BUSYBOX.relative_to(ROOT)}: download {BUSYBOX_URL} "
+                             f"(playwrong download tool), sha256 {BUSYBOX_SHA256}")
+        bb = BUSYBOX.read_bytes()
+        if hashlib.sha256(bb).hexdigest() != BUSYBOX_SHA256:
+            raise SystemExit(f"{BUSYBOX.relative_to(ROOT)}: sha256 mismatch (bad download?)")
+        c.file("bin/busybox", bb)
+        c.symlink("bin/sh", "busybox")
+        init = INIT
+        if bench:  # before the final `exec setsid cttyhack sh`
+            init = init.replace("cd /root\n", BENCH_INIT + "cd /root\n", 1)
+        staged = initramfs_tools.staged_files()
+        if owrt:  # the 24.10.7 set minus everything but iperf3 (+ its lib), then the OpenWrt image's own tools
+            staged = {k: v for k, v in staged.items() if "iperf" in k or "libatomic" in k}
+            staged.update(owrt_staged())
     c.file("init", init.encode())
-    staged = initramfs_tools.staged_files()
-    if owrt:  # the 24.10.7 set minus everything but iperf3 (+ its lib), then the OpenWrt image's own tools
-        staged = {k: v for k, v in staged.items() if "iperf" in k or "libatomic" in k}
-        staged.update(owrt_staged())
+    for name in TOOL_LINKS:  # written below (ip-full, tc-full), not as the BusyBox applet
+        staged.pop(name, None)
     for name, (kind, data, mode) in sorted(staged.items()):
         if kind == "link":
             c.symlink(name, data)
@@ -224,9 +265,10 @@ def build(bench: bool | None = None, owrt: bool = False) -> Path:
     # st1008f-selftest (#108): the OpenWrt overlay script + build_selftest.py helper/data
     c.dir("usr/share")
     c.dir("usr/share/st1008f-selftest")
-    c.file("usr/sbin/st1008f-selftest", SELFTEST.read_bytes())
-    for name, (data, mode) in sorted(build_selftest.staged().items()):
-        c.file(name, data, mode)
+    if not owrt_bb:
+        c.file("usr/sbin/st1008f-selftest", SELFTEST.read_bytes())
+        for name, (data, mode) in sorted(build_selftest.staged().items()):
+            c.file(name, data, mode)
     c.dir("etc")
     c.dir("etc/dropbear")  # -R writes host keys here on first connect
     c.file("etc/passwd", b"root::0:0:root:/root:/bin/sh\n", 0o644)
@@ -240,12 +282,13 @@ def build(bench: bool | None = None, owrt: bool = False) -> Path:
         c.file("etc/ld-musl-mips-sf.path", BENCH_LD_PATH, 0o644)
     cpio = c.finish()
     OUT.mkdir(parents=True, exist_ok=True)
-    out = OUT / ("st1008f-initramfs-bench-owrt.cpio.xz" if owrt else
+    out = OUT / ("st1008f-initramfs-bench-owrt3.cpio.xz" if owrt_bb else
+                 "st1008f-initramfs-bench-owrt.cpio.xz" if owrt else
                  "st1008f-initramfs-bench.cpio.xz" if bench else "st1008f-initramfs.cpio.xz")
     # kernel XZ decoder: CRC32 check, LZMA2 only
     out.write_bytes(lzma.compress(cpio, format=lzma.FORMAT_XZ, check=lzma.CHECK_CRC32,
                                   filters=[{"id": lzma.FILTER_LZMA2, "preset": 9}]))
-    cfg = OUT / ("initramfs-owrt.config" if owrt else "initramfs.config")
+    cfg = OUT / ("initramfs-owrt3.config" if owrt_bb else "initramfs-owrt.config" if owrt else "initramfs.config")
     cfg.write_text(f'CONFIG_INITRAMFS_SOURCE="{out}"\n')
     log(f"{out}: cpio {len(cpio)} B -> xz {out.stat().st_size} B, "
         f"sha256 {hashlib.sha256(out.read_bytes()).hexdigest()[:16]}")
@@ -256,5 +299,6 @@ if __name__ == "__main__":
     ap = argparse.ArgumentParser(description=__doc__.splitlines()[0])
     ap.add_argument("--bench", action="store_true", help="bench variant (see module docstring)")
     ap.add_argument("--owrt-userland", action="store_true", help="tools from the OpenWrt buildroot (see module docstring)")
+    ap.add_argument("--owrt-busybox", action="store_true", help="also BusyBox + applet links from the OpenWrt buildroot (C-clean3)")
     a = ap.parse_args()
-    build(True if a.bench else None, a.owrt_userland)
+    build(True if a.bench else None, a.owrt_userland, a.owrt_busybox)
