@@ -1033,3 +1033,39 @@ Not isolated:
 - Spread inside a variant 0.1-0.4 % at 1400 B, 0.2-1.3 % at 64 B.
 - Verdict 1400 B: no variant outside the +-3 % band; prefetch is not a gain at the bulk size.
 - 64 B: `desc` +3.9 % and `both` +3.5 % (just past the band, small packets only); `hdr` -5.7 %. Parameters stay default off.
+
+## L3 offload checks on the 7.4 base with the fixes (2026-11-08, #59)
+
+- Image: `openwrt-ours-l3fix2` (7.4-rc1, `300-17` with the v4 `rt_offload` clear and the v6 FIB replay), sw2, cage 1, `ramload uboot-mainline --stock-clocks --then ... --pre turbo cpu=1325,ddr=662,lx=306,sram=500` + core 608 raw regs (`c608_cpu1325`). `/usr/libexec/st1008f-stx` present, BogoMIPS 875.72.
+- Run: `l3_offload_ab.py -n 3 --with-g` (`tmp/logs/l3_offload_ab-20261108-124930.txt`), checks re-run after the script fix (`-130653.txt`). One boot, ~21 min, no panic/reset/`gro_list_prepare` (#149) in dmesg.
+
+| Path | Dir | Offload off | Offload on | eth0 pps off/on |
+|---|---|---|---|---|
+| v4 on-link | fwd | 90 [86..91] | 9197 [9184..9200] | 22436 / 345 |
+| v4 on-link | rev | 90 [88..94] | 9201 [9195..9202] | 22306 / 342 |
+| v4 default | fwd | 94 [92..98] | 9201 [9191..9222] | 23215 / 345 |
+| v4 default | rev | 90 [88..92] | 9189 [9188..9212] | 22354 / 344 |
+| v6 on-link | fwd | 86 [83..86] | 9058 [9056..9068] | 22617 / 345 |
+| v6 on-link | rev | 89 [89..94] | 9068 [9052..9147] | 23507 / 343 |
+| v6 default | fwd | 171 [168..171] | 9066 [9064..9067] | 30140 / 341 |
+| v6 default | rev | 1456 [1361..1731] | 9058 [9049..9059] | 17970 / 341 |
+
+| Check | Result |
+|---|---|
+| a `ip neigh del` | PASS |
+| b neighbour MAC change | PASS |
+| c `ip route add` covering prefix | PASS |
+| d local `/32` | PASS |
+| e `ip rule add` | PASS |
+| f source-specific `::/0` | PASS: plain `::/0` back to `fwd` ~4 s after the delete, `rt_offload` again, dmesg "no longer offloaded" + "replaying the FIB" |
+| g 120 s run, neighbour states | PASS (DELAY/REACHABLE/STALE, never FAILED, 0 "no valid neighbour") |
+| h martian DIPs (`scripts/l3_offload_h.py`) | FAIL: DIP `0.0.0.1` forwarded to natwan (2 of 2 runs); `127.0.0.2` and `::1` not seen; control `10.99.2.2` seen |
+| i all params 0 | PASS |
+
+- v4 flag: `l3_default_v4` 1 -> 0 turns the v4 default from `rt_offload` to `rt_trap` (fix confirmed).
+- h: `BAD_DIP_ACT` drop covers loopback and `::1` but not `0.0.0.0/8` with the v4 default row forwarding; needs a trap row for `0.0.0.0/8` above the default (open).
+- First check f run failed: the v6 gateway neighbour was STALE (no v6 traffic since check e), so the default row read `trap`. Script bug, not the driver.
+
+### Script changes
+- `l3_offload_ab.py`: v6 ping before the check preconditions and before f's wait; f no longer toggles `l3_default_v6` (the driver replays by itself).
+- New `scripts/l3_offload_h.py`: raw AF_PACKET UDP frames (no scapy installed) from natlan to the SVI MAC, sniffer in natwan, control DIP.

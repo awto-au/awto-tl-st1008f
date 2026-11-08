@@ -325,10 +325,9 @@ def chk_f():
         return None, f"route add refused ({out.strip()[-80:]}): kernel without IPV6_SUBTREES?"
     trapped = wait_state([t], False, "f v6 default trap")
     sw(f"ip -6 route del ::/0 from fd99:11::/64 via {gw} dev {svi(nb.WAN_VID)}")
-    set_params({**ALL_ON, "l3_default_v6": 0})
-    set_params(ALL_ON)
-    back = wait_state([t], True, "f v6 default back")
-    return (trapped and back), f"source-specific default: trap={trapped}, back after 0->1={back}"
+    ping_ns(nb.NS_LAN, nb.FAR6)  # v6 gateway neighbour must be fresh or the default row reads trap
+    back = wait_state([t], True, "f v6 default back after delete (no param toggle, 300-17 replay)")
+    return (trapped and back), f"source-specific default: trap={trapped}, back after delete={back}"
 
 
 def chk_g():
@@ -362,6 +361,7 @@ def run_checks(with_g: bool) -> list[tuple[str, str, str]]:
     log("=== checks (ROUTING-OFFLOAD.md a..i), all three params on")
     set_params(ALL_ON)
     ping_ns(nb.NS_LAN, nb.H_WAN)
+    ping_ns(nb.NS_LAN, nb.FAR6)
     wait_state([("host", f"{nb.H_LAN}/32"), ("host", f"{nb.H_WAN}/32"), ("dflt", "4"), ("dflt", "6")], True, "checks precondition")
     plan = [("a", chk_a), ("b", chk_b), ("c", chk_c), ("d", chk_d), ("e", chk_e), ("f", chk_f)]
     if with_g:
@@ -382,7 +382,7 @@ def run_checks(with_g: bool) -> list[tuple[str, str, str]]:
             wait_state([("host", f"{nb.H_WAN}/32")], True, "post-fail re-arm")
     if not with_g:
         res.append(("g", "NOTRUN", "120 s run; use --with-g"))
-    res.append(("h", "NOTRUN", "martian DIPs need scapy raw frames; not scripted"))
+    res.append(("h", "NOTRUN", "run scripts/l3_offload_h.py (raw AF_PACKET frames)"))
     try:
         with cap(CHECK_CAP_S, "check i"):
             ok, why = chk_i()
