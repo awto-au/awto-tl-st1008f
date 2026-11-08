@@ -64,6 +64,7 @@ IMAGES = {
     "openwrt-ours-l3fix": ("openwrt-ours-l3fix-initramfs.bin", 0x84f00000, "bootm", OW_READY, 40),  # 7.4 + 300-17 fixes (#59)
     "openwrt-ours-l3fix2": ("openwrt-ours-l3fix2-initramfs.bin", 0x84f00000, "bootm", OW_READY, 40),  # same, with st1008f-stx (#163)
     "openwrt-7.4-sw": ("openwrt-7.4-sw-initramfs.bin", 0x84f00000, "bootm", OW_READY, 40),  # 7.4 without the 300-17 fixes? (#59)
+    "openwrt-ours-clean": ("openwrt-ours-clean-initramfs.bin", 0x84f00000, "bootm", OW_READY, 40),  # l3fix2 tree, no PERF/PROFILING/DYNAMIC_DEBUG (NAT-STACK-TESTS.md)
     "openwrt-upstream": ("openwrt-upstream-r38188-initramfs.bin", 0x84f00000, "bootm", OW_READY, 40),  # snapshot as shipped, no patches (NAT-STACK-TESTS.md)
     "openwrt-ours-7.3": ("openwrt-ours-7.3-gdma-initramfs.bin", 0x84f00000, "bootm", OW_READY, 40),
     "mainline-kernel": ("mainline.bin", 0x84f00000, "bootm",
@@ -484,7 +485,7 @@ def main() -> int:
                     help="uboot-mainline: keep stock CPU 800 MHz + SPI 25.5 MHz (default: 1 GHz + SPI 122.5 MHz)")
     ap.add_argument("--spi", metavar="D:CODE",
                     help="with --then: SPI before bootm, SFCR D (0 = /2) and NOR code e220[16:13] (6 = stock)")
-    ap.add_argument("--then", choices=["openwrt", "openwrt-ours", "openwrt-ours-6.18", "openwrt-ours-l3fix", "openwrt-ours-l3fix2", "openwrt-7.4-sw", "openwrt-upstream", "mainline-kernel"],
+    ap.add_argument("--then", choices=["openwrt", "openwrt-ours", "openwrt-ours-6.18", "openwrt-ours-l3fix", "openwrt-ours-l3fix2", "openwrt-ours-clean", "openwrt-7.4-sw", "openwrt-upstream", "mainline-kernel"],
                     help="uboot-mainline: also TFTP that image (std magic) to 0x84f00000, bootm it from ours "
                          "(after `clocks fast`)")
     ap.add_argument("--cpu", metavar="E208",

@@ -205,6 +205,9 @@ CONFIG_KERNEL_PERF_EVENTS=y
 CONFIG_KERNEL_KALLSYMS=y
 CONFIG_KERNEL_PROFILING=y
 """  # dyndbg: pr_debug/dev_dbg switchable at runtime (#125); OpenWrt's KERNEL_* overrides the target config
+CLEAN_OFF = ("CONFIG_KERNEL_DYNAMIC_DEBUG", "CONFIG_KERNEL_PERF_EVENTS", "CONFIG_KERNEL_KALLSYMS",
+             "CONFIG_KERNEL_PROFILING")  # --clean drops these seed lines: upstream defaults (off); NAT-STACK-TESTS.md
+CLEAN = False  # --clean
 # perf + kallsyms in the kernel for PC sampling (#148); no perf apk: apk rejects its raw 7.4-rc1 version and the unpacked image passes bootm's 32 MiB limit; scripts/build_perf.py
 # + nat-bench switch-side tools (docs/NAT-OPS.md): a RAM boot cannot apk-add matching kmods
 # st1008f-selftest (#108, every image): /dev/mem + devmem (register reads), unxz/xzcat (CPU test), taskset
@@ -325,7 +328,7 @@ def run(cmd: list, timeout: float, cwd: Path = TREE, comment: bool = True) -> in
 
 
 def du_gb(p: Path) -> float:
-    r = subprocess.run(["du", "-sb", str(p)], capture_output=True, text=True, timeout=300)  # ~1 M files
+    r = subprocess.run(["du", "-sb", str(p.resolve())], capture_output=True, text=True, timeout=300)  # ~1 M files
     return int(r.stdout.split()[0]) / 1e9 if r.returncode == 0 else -1
 
 
@@ -644,7 +647,11 @@ def config(kernel: str, dboot: str = "") -> int:
     if DEBUG73:
         extra += DEBUG_OWRT_CFG
     extra += SELFTEST_CFG + dboot + "".join(f"CONFIG_PACKAGE_{p}=y\n" for p in FEED_PKGS) + shared_config()
-    (TREE / ".config").write_text(SEED + extra)
+    seed = SEED
+    if CLEAN:
+        seed = "".join(ln + "\n" for ln in SEED.splitlines() if ln.split("=")[0] not in CLEAN_OFF)
+        log(f"CLEAN profile: seed without {', '.join(s[7:] for s in CLEAN_OFF)} (upstream defaults)")
+    (TREE / ".config").write_text(seed + extra)
     rc = run(["make", "defconfig"], T_DEFCONFIG)
     if rc:
         return rc
@@ -768,6 +775,9 @@ def main() -> int:
     ap.add_argument("--debug", action="store_true",
                     help="mainline: kernel DEBUG_LIST, SLUB_DEBUG_ON, DEBUG_NET, PAGE_POOL_STATS, DEBUG_VM; "
                          "output openwrt-ours-debug-initramfs*.bin")
+    ap.add_argument("--clean", action="store_true",
+                    help="clean profile: seed omits KERNEL_DYNAMIC_DEBUG / PERF_EVENTS / KALLSYMS / PROFILING "
+                         "(upstream defaults); output tag gets -clean")
     ap.add_argument("--tag", default="", help="suffix for the output names (keeps known-good tftp images)")
     ap.add_argument("--no-overlay", action="store_true", help="stock OpenWrt main (baseline / rebase base)")
     ap.add_argument("--no-comment", action="store_true", help="no #73 comment on a disk abort")
@@ -777,13 +787,14 @@ def main() -> int:
     if a.kernel == "7.3":
         a.kernel = "mainline"
     comment = not a.no_comment
-    global UP73, DEBUG73, TAG, FLASH73
+    global UP73, DEBUG73, TAG, FLASH73, CLEAN
+    CLEAN = a.clean
     FLASH73 = a.flash
     if a.flash and a.kernel != "mainline":
         sys.exit("--flash is for --kernel mainline (6.18 always builds the A/B layer)")
     UP73 = a.up
     DEBUG73 = a.debug
-    TAG = a.tag
+    TAG = a.tag + ("-clean" if a.clean and not a.tag.endswith("-clean") else "")
     t0 = time.time()
     if a.kernel == "mainline":
         set_base()

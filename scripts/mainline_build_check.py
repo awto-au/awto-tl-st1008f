@@ -130,10 +130,11 @@ def check_fragments(config: Path, fragments: list[Path]) -> list[str]:
     return [f"{ln}  (got {have.get(k, 'not set')})" for k, (v, ln) in want.items() if have.get(k) != v]
 
 
-def out_dir(no_highmem: bool, up: bool, lat: bool = False, bench: bool = False, clean: bool = False) -> Path:
+def out_dir(no_highmem: bool, up: bool, lat: bool = False, bench: bool = False, clean: bool = False,
+            owrt: bool = False) -> Path:
     return ROOT / (f"tmp/build-mips-{kernel_base.selected()}"
                    + ("-nohighmem" if no_highmem else "") + ("-up" if up else "") + ("-lat" if lat else "")
-                   + ("-bench" if bench else "") + ("-clean" if clean else ""))
+                   + ("-bench" if bench else "") + ("-clean" if clean else "") + ("-owrt" if owrt else ""))
 
 
 def run(cmd, cwd):
@@ -163,12 +164,17 @@ def main():
                     help="merge mainline/st1008f-v2-bench.config (MODULES, DMA_ENGINE) + bench initramfs (PLAIN-KERNEL-TESTS.md)")
     ap.add_argument("--clean", action="store_true",
                     help="merge mainline/st1008f-v2-clean.config last: no tracing/profiling, options aligned to the OpenWrt image (NAT-STACK-TESTS.md)")
+    ap.add_argument("--owrt-userland", action="store_true",
+                    help="initramfs tools (nft, ip, tc, ethtool, dropbear, musl) from the OpenWrt buildroot + fw4 ruleset + "
+                         "mainline/st1008f-v2-clean-fw4.config; needs --bench (NAT-STACK-TESTS.md)")
     ap.add_argument("--skip", action="append", default=[], metavar="PREFIX",
                     help="leave out patches whose name starts with PREFIX (A/B bisect, e.g. 300-21)")
     ap.add_argument("--w1", action="store_true",
                     help="after the build, rebuild the objects our openwrt/patches touch with W=1; warnings fail")
     a = ap.parse_args()
-    a.out = a.out or str(out_dir(a.no_highmem, a.up, a.latency, a.bench, a.clean))
+    if a.owrt_userland and not a.bench:
+        sys.exit("--owrt-userland needs --bench")
+    a.out = a.out or str(out_dir(a.no_highmem, a.up, a.latency, a.bench, a.clean, a.owrt_userland))
     os.nice(19)  # owner: builds yield to interactive host work
     LOG.parent.mkdir(parents=True, exist_ok=True)
     LOG.write_text("")
@@ -195,7 +201,9 @@ def main():
              *([ROOT / "mainline/st1008f-v2-nohighmem.config"] if a.no_highmem else []),
              *([ROOT / "mainline/st1008f-v2-latency.config"] if a.latency else []),
              *([ROOT / "mainline/st1008f-v2-bench.config"] if a.bench else []),
-             *([ROOT / "mainline/st1008f-v2-clean.config"] if a.clean else []), mainline_initramfs.build(bench=a.bench or None)]
+             *([ROOT / "mainline/st1008f-v2-clean.config"] if a.clean else []),
+             *([ROOT / "mainline/st1008f-v2-clean-fw4.config"] if a.owrt_userland else []),
+             mainline_initramfs.build(bench=a.bench or None, owrt=a.owrt_userland)]
     merge = tree / "scripts/kconfig/merge_config.sh"
     if run([str(merge), "-m", "-O", str(out), str(out / ".config"), *map(str, frags)], tree):
         sys.exit("merge_config failed, see log")

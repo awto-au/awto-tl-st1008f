@@ -159,14 +159,20 @@ def set_mode(mode: str) -> int:
     hw = mode.endswith("-hw")  # flowtable with `flags offload`: the driver gets the flows (300-39, #148)
     ft = mode.endswith("-ft") or hw
     log(f"mode {mode}: masquerade={'on' if nat else 'off'} flowtable={'on' if ft else 'off'}")
-    fw4 = "true" if mainline() or not has_nft() or sw("nft list table inet fw4 >/dev/null 2>&1 && echo y || echo n",
-                                                      check=False).strip() == "n" else (
-       "nft list chain inet fw4 forward | grep -q nattest || "
-       f"nft insert rule inet fw4 forward iifname '{{ switch.{LAN_VID}, switch.{WAN_VID} }}' accept "
-       "comment nattest; "
-       "nft list chain inet fw4 input | grep -q nattest-nd || "
-       f"nft insert rule inet fw4 input iifname '{{ switch.{LAN_VID}, switch.{WAN_VID} }}' meta l4proto icmpv6 "
-       "accept comment nattest-nd")  # IPv6 ND replies to the SVIs (fw4 input policy drop)
+    # mainline: fw4 ruleset staged at /etc/fw4-b.nft (mainline/fw4-b.nft, same hook chains as the OpenWrt image) when present
+    ins = ("nft list chain inet fw4 forward | grep -q nattest || "
+           f"nft insert rule inet fw4 forward iifname '{{ {svi(LAN_VID)}, {svi(WAN_VID)} }}' accept comment nattest; "
+           "nft list chain inet fw4 input | grep -q nattest-nd || "
+           f"nft insert rule inet fw4 input iifname '{{ {svi(LAN_VID)}, {svi(WAN_VID)} }}' meta l4proto icmpv6 "
+           "accept comment nattest-nd")  # IPv6 ND replies to the SVIs (fw4 input policy drop)
+    if not has_nft():
+        fw4 = "true"
+    elif mainline():
+        fw4 = ("{ test -f /etc/fw4-b.nft && { nft list table inet fw4 >/dev/null 2>&1 || nft -f /etc/fw4-b.nft; "
+               + ins + "; }; true; }")
+    else:
+        fw4 = ("true" if sw("nft list table inet fw4 >/dev/null 2>&1 && echo y || echo n", check=False).strip() == "n"
+               else ins)
     sw("nft delete table inet nattest 2>/dev/null; " + fw4)
     if not has_nft() and (nat or ft):
         raise SystemExit("FAIL: mode nat/ft needs nf_tables; this kernel has none")

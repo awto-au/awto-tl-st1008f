@@ -2,7 +2,7 @@
 """stack_compare — identical NAT bench on three stacks (A upstream OpenWrt, B ours OpenWrt, C plain kernel); DRY-RUN ONLY.
 
 - Plan: docs/NAT-STACK-TESTS.md. Prints every command per stack x clock set; `--run` is refused until the owner releases it.
-- Stacks: A = `openwrt-upstream` (snapshot as shipped), B = `openwrt-ours-l3fix2`, C = `mainline-kernel --kernel <clean image>`.
+- Stacks: A = `openwrt-upstream` (snapshot as shipped), B = `openwrt-ours-clean` (profile runs: `openwrt-ours-l3fix2`), C = `mainline-kernel --kernel mainline-7.4-rc1-clean2.bin`. A7 (upstream + 7.4) cannot be built: NAT-STACK-TESTS.md.
 - Clock sets: common = core 508 / CPU 1350 / DDR 662 / LX 306 / SRAM 500; final = core 608 / CPU 1325 (LX 304-306).
 - Profile `clean`: tracing off (numbers). Profile `profile`: perf (+ ftrace on C) on, one diagnosis run per stack.
 - Log: tmp/logs/stack_compare.log. Reuses nat_bench.py / zc_bench.py / l3_offload_ab.py commands unchanged.
@@ -23,10 +23,11 @@ RAW = {  # core 508 (nat161_compare.py RAW) and core 608 (openwrt_core_stability
 # key: (label, ramload --then, extra ramload args, zc fast path present, L3 offload (300-17) present, tracing in the image)
 STACKS = {
     "A": ("upstream OpenWrt snapshot r38188, Linux 6.18.60, no patches", "openwrt-upstream", ["--no-linkcheck"], False, False, "none (no PERF, no FTRACE)"),
-    "B": ("ours: OpenWrt main r38178 + 7.4-rc1 + series (l3fix2)", "openwrt-ours-l3fix2", ["--no-linkcheck"], True, True, "PERF_EVENTS + PROFILING compiled in, no FTRACE"),
-    "C": ("plain Linux 7.4-rc1 + series, bench initramfs", "mainline-kernel", ["--kernel", "mainline-7.4-rc1-clean.bin", "--mgmt"], True, True, "clean image: none"),
+    "B": ("ours: OpenWrt main r38178 + 7.4-rc1 + series, clean profile", "openwrt-ours-clean", ["--no-linkcheck"], True, True, "none (no PERF, PROFILING, DYNAMIC_DEBUG, FTRACE)"),
+    "C": ("plain Linux 7.4-rc1 + series, bench initramfs", "mainline-kernel", ["--kernel", "mainline-7.4-rc1-clean2.bin", "--mgmt"], True, True, "clean image, OpenWrt tools + fw4 ruleset: none"),
 }
 PROFILE_IMG = {"C": ["--kernel", "mainline-7.4-rc1.bin", "--mgmt"]}  # existing image: PERF + FTRACE + function_graph compiled in
+PROFILE_THEN = {"B": "openwrt-ours-l3fix2"}  # perf-enabled image (PERF_EVENTS + PROFILING + DYNAMIC_DEBUG)
 SECS = 15
 
 
@@ -77,6 +78,7 @@ def plan(stack, clk, profile):
     if stack == "C":
         boot = f"{PY} dev.py ramload uboot-mainline --stock-clocks --then mainline-kernel {' '.join(img)} --cage 1 --pre \"{TURBO[clk]}\" --pre \"{RAW[clk]}\""
     else:
+        then = PROFILE_THEN.get(stack, then) if profile == "profile" else then
         boot = f"{PY} dev.py ramload uboot-mainline --stock-clocks --then {then} {' '.join(extra)} --cage 1 --pre \"{TURBO[clk]}\" --pre \"{RAW[clk]}\""
     cmds = [(95, boot)]
     if profile == "clean":

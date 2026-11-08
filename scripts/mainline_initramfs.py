@@ -15,6 +15,10 @@
 - Bench variant (`--bench` or env ST1008F_INITRAMFS_BENCH=1; default off, image unchanged): musl loader path
   `/tmp:/lib:/usr/lib` (perf_push.py libs found without LD_LIBRARY_PATH) + dropbear ed25519 host key made
   in the background at boot (first ssh does not stall on keygen). docs/PLAIN-KERNEL-TESTS.md.
+- `--owrt-userland` (NAT-STACK-TESTS.md): nft/ip/tc/ethtool/dropbear + musl and their libs copied from the OpenWrt
+  buildroot's root-realtek (the image under test), instead of the 24.10.7 ipks; iperf3 + libatomic stay from 24.10.7 (the
+  OpenWrt image has neither). Adds /etc/fw4-b.nft (mainline/fw4-b.nft, loaded by nat_bench.py).
+  Output st1008f-initramfs-bench-owrt.cpio.xz + initramfs-owrt.config.
 - Log: tmp/logs/mainline_initramfs.log
 """
 
@@ -22,6 +26,7 @@ import argparse
 import hashlib
 import lzma
 import os
+import re
 import time
 from pathlib import Path
 
@@ -90,6 +95,58 @@ DIRS = ["bin", "sbin", "lib", "usr", "usr/bin", "usr/sbin", "usr/lib", "usr/libe
 TOOL_LINKS = {"sbin/ip": "/usr/libexec/ip-full", "sbin/tc": "/usr/libexec/tc-tiny"}
 
 
+OWRT_ROOT = ROOT / "tmp/openwrt-build/staging_dir/target-mips_24kc_musl/root-realtek"
+OWRT_BINS = ["usr/sbin/nft", "usr/libexec/ip-full", "usr/libexec/tc-full", "usr/sbin/ethtool",
+             "usr/sbin/dropbear", "usr/bin/dropbearkey", "lib/ld-musl-mips-sf.so.1"]
+OWRT_LIBDIRS = ["lib", "usr/lib"]
+FW4_B = ROOT / "mainline/fw4-b.nft"
+
+
+def owrt_staged(root: Path = OWRT_ROOT) -> dict:
+    """OWRT_BINS + the DT_NEEDED closure from root's lib dirs -> {path: ("file", bytes, mode) | ("link", target, 0)}.
+    Libraries keep their soname symlinks (a symlink target is staged too)."""
+    import subprocess
+    out, todo = {}, list(OWRT_BINS)
+
+    def add(rel: str) -> None:
+        src = root / rel
+        if rel in out:
+            return
+        if src.is_symlink():
+            tgt = os.readlink(src)
+            out[rel] = ("link", tgt, 0)
+            add(os.path.normpath(os.path.join(os.path.dirname(rel), tgt)))
+        elif src.is_file():
+            out[rel] = ("file", src.read_bytes(), src.stat().st_mode & 0o777)
+            if rel.endswith(".so") or ".so." in rel or rel in OWRT_BINS:
+                todo.append(rel)
+        else:
+            raise SystemExit(f"owrt-userland: {rel} missing in {root}")
+
+    seen = set()
+    while todo:
+        rel = todo.pop(0)
+        if rel in seen:
+            continue
+        seen.add(rel)
+        add(rel)
+        real = root / rel
+        if real.is_symlink():
+            continue
+        r = subprocess.run(["readelf", "-d", str(real)], capture_output=True, text=True)
+        for need in re.findall(r"\(NEEDED\)\s+Shared library: \[(.+?)\]", r.stdout):
+            if need.startswith("libc.so"):
+                need = "ld-musl-mips-sf.so.1"  # musl: libc.so is the loader
+            hit = next((f"{d}/{need}" for d in OWRT_LIBDIRS if (root / d / need).exists()), None)
+            if not hit:
+                raise SystemExit(f"owrt-userland: {rel} needs {need}: not in {OWRT_LIBDIRS} of {root}")
+            todo.append(hit)
+    libc = out.get("lib/ld-musl-mips-sf.so.1")
+    if libc:
+        out.setdefault("lib/libc.so", ("link", "ld-musl-mips-sf.so.1", 0))
+    return out
+
+
 def log(msg: str) -> None:
     print(msg)
     LOG.parent.mkdir(parents=True, exist_ok=True)
@@ -135,7 +192,7 @@ BENCH_INIT = """# bench variant: host key now (ed25519 keygen is fast), dropbear
 BENCH_LD_PATH = b"/tmp\n/lib\n/usr/lib\n"
 
 
-def build(bench: bool | None = None) -> Path:
+def build(bench: bool | None = None, owrt: bool = False) -> Path:
     if bench is None:
         bench = os.environ.get("ST1008F_INITRAMFS_BENCH") == "1"
     if not BUSYBOX.exists():
@@ -154,7 +211,11 @@ def build(bench: bool | None = None) -> Path:
     if bench:  # before the final `exec setsid cttyhack sh`
         init = init.replace("cd /root\n", BENCH_INIT + "cd /root\n", 1)
     c.file("init", init.encode())
-    for name, (kind, data, mode) in sorted(initramfs_tools.staged_files().items()):
+    staged = initramfs_tools.staged_files()
+    if owrt:  # the 24.10.7 set minus everything but iperf3 (+ its lib), then the OpenWrt image's own tools
+        staged = {k: v for k, v in staged.items() if "iperf" in k or "libatomic" in k}
+        staged.update(owrt_staged())
+    for name, (kind, data, mode) in sorted(staged.items()):
         if kind == "link":
             c.symlink(name, data)
         else:
@@ -172,22 +233,28 @@ def build(bench: bool | None = None) -> Path:
     c.file("etc/group", b"root:x:0:\n", 0o644)
     c.file("etc/shells", b"/bin/sh\n", 0o644)
     for name, target in TOOL_LINKS.items():
-        c.symlink(name, target)
+        c.symlink(name, target.replace("tc-tiny", "tc-full") if owrt else target)
+    if owrt:
+        c.file("etc/fw4-b.nft", FW4_B.read_bytes(), 0o644)
     if bench:
         c.file("etc/ld-musl-mips-sf.path", BENCH_LD_PATH, 0o644)
     cpio = c.finish()
     OUT.mkdir(parents=True, exist_ok=True)
-    out = OUT / ("st1008f-initramfs-bench.cpio.xz" if bench else "st1008f-initramfs.cpio.xz")
+    out = OUT / ("st1008f-initramfs-bench-owrt.cpio.xz" if owrt else
+                 "st1008f-initramfs-bench.cpio.xz" if bench else "st1008f-initramfs.cpio.xz")
     # kernel XZ decoder: CRC32 check, LZMA2 only
     out.write_bytes(lzma.compress(cpio, format=lzma.FORMAT_XZ, check=lzma.CHECK_CRC32,
                                   filters=[{"id": lzma.FILTER_LZMA2, "preset": 9}]))
-    (OUT / "initramfs.config").write_text(f'CONFIG_INITRAMFS_SOURCE="{out}"\n')
+    cfg = OUT / ("initramfs-owrt.config" if owrt else "initramfs.config")
+    cfg.write_text(f'CONFIG_INITRAMFS_SOURCE="{out}"\n')
     log(f"{out}: cpio {len(cpio)} B -> xz {out.stat().st_size} B, "
         f"sha256 {hashlib.sha256(out.read_bytes()).hexdigest()[:16]}")
-    return OUT / "initramfs.config"
+    return cfg
 
 
 if __name__ == "__main__":
     ap = argparse.ArgumentParser(description=__doc__.splitlines()[0])
     ap.add_argument("--bench", action="store_true", help="bench variant (see module docstring)")
-    build(True if ap.parse_args().bench else None)
+    ap.add_argument("--owrt-userland", action="store_true", help="tools from the OpenWrt buildroot (see module docstring)")
+    a = ap.parse_args()
+    build(True if a.bench else None, a.owrt_userland)

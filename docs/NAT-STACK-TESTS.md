@@ -1,6 +1,6 @@
 # NAT stack comparison plan: upstream OpenWrt vs ours vs plain kernel
 
-Status 2026-11-08: plan + config audit + images prepared. Nothing run on hardware. Existing published numbers: [NAT-STACKS.md](NAT-STACKS.md) (audit, legend, gaps), [NAT.md](NAT.md).
+Status 2026-11-08: plan + config audit + images built (A, B-clean, B-profile, C-clean2); A7 not buildable. Nothing run on hardware. Existing published numbers: [NAT-STACKS.md](NAT-STACKS.md) (audit, legend, gaps), [NAT.md](NAT.md).
 
 - Owner request 2026-11-08: drop the "unknown" rows; one clean comparison on the same kernel generation.
 - Every figure from this plan states its profile: **clean** (no tracing, numbers) or **profile** (perf / ftrace on, diagnosis only). Profile figures never share a table with clean ones.
@@ -11,11 +11,17 @@ Status 2026-11-08: plan + config audit + images prepared. Nothing run on hardwar
 | | Kernel | Userland | Patches | Image (RAM boot) |
 |---|---|---|---|---|
 | A upstream | Linux 6.18.60 | OpenWrt SNAPSHOT r38188-7efbba7631 (2026-11-07 20:23 GMT), fw4 | none | `tmp/upstream-snapshot/dl/openwrt-realtek-rtl930x-tplink_tl-st1008f-v2-initramfs-kernel.bin` |
-| B ours-OpenWrt | Linux 7.4-rc1 | OpenWrt main r38178-7e8bfcfe76 | full series | `tmp/tftp/openwrt-ours-l3fix2-initramfs.bin` |
-| C plain | Linux 7.4-rc1 (`7.4.0-rc1-dirty`) | bench initramfs: BusyBox 1.31 + OpenWrt 24.10.7 ipks, no fw4 | full series | `tmp/tftp/mainline-7.4-rc1-clean.bin` (clean), `mainline-7.4-rc1.bin` (profile) |
+| A7 upstream + 7.4 | not buildable (below) | | none | none |
+| B ours-OpenWrt | Linux 7.4-rc1 | OpenWrt main r38178-7e8bfcfe76 | full series | clean: `tmp/tftp/openwrt-ours-clean-initramfs.bin`; profile: `openwrt-ours-l3fix2-initramfs.bin` |
+| C plain | Linux 7.4-rc1 (`7.4.0-rc1-dirty`) | bench initramfs: BusyBox 1.31 + tools copied from B's rootfs (nft, ip, tc, ethtool, dropbear, musl) + fw4 ruleset; iperf3 from 24.10.7 | full series | clean: `tmp/tftp/mainline-7.4-rc1-clean2.bin`; profile: `mainline-7.4-rc1.bin` (old userland) |
 
-- **A is not 7.4.** Upstream main ships 6.18 (`KERNEL_PATCHVER:=6.18`, snapshot `linux_kernel.version` 6.18.60). Upstream main has `KERNEL_TESTING_PATCHVER:=7.4` and `target/linux/realtek/patches-7.4` (upstream's own 300-xx, none of ours), so "upstream + 7.4, zero of our patches" is buildable (option A7 below); not built (a second OpenWrt tree is ~4 GB of the 4 GB floor).
-- Closest same-generation option **A7**: OpenWrt main worktree + `CONFIG_TESTING_KERNEL=y` + `CONFIG_KERNEL_PREEMPT_VOLUNTARY=y` (see preempt note), no `openwrt/patches/*`. Unknown until built: whether upstream 7.4 boots this board (upstream DTS `tplink_tl-st1008f-v2` exists in the profiles) and whether `300-05` (timer from PLL) is needed. Needs owner decision.
+- **A is not 7.4.** Upstream main ships 6.18 (`KERNEL_PATCHVER:=6.18`, snapshot `linux_kernel.version` 6.18.60).
+- **A7 (upstream main + testing kernel 7.4, zero of our patches) cannot be built (owner asked 2026-11-08; checked in `git ls-tree HEAD` of OpenWrt main 7e8bfcfe76, also the store's `origin/main`):**
+  - no `KERNEL_TESTING_PATCHVER` in `target/linux/realtek/Makefile` (our overlay adds it); no `generic/kernel-7.4`, no `generic/{backport,pending,hack}-7.4`, no `realtek/patches-7.4`, `files-7.4`, `rtl930x/config-7.4`.
+  - the earlier statement that upstream main carries `patches-7.4` was wrong: those directories are created by `build_openwrt.py` `overlay_73()` from our port (`OWRT_VERBATIM` = 9 of upstream's 112 `patches-6.18`, plus 42 patches incl. our 300-xx and forward-ports, `files-7.4` 12 paths, generic pending 700/701/344/644/645, hack 910/911/940).
+  - A7 would be "upstream's 6.18 patch set rebased to 7.4-rc1" = the port itself; the other 103 patches fail or are superseded on 7.4. Not attempted (no second tree built).
+  - Snapshot commit `7efbba7631` is not in the OpenWrt store (store `origin/main` = 7e8bfcfe76); not fetched (shared store).
+- Closest same-generation substitute: none. A stays the 6.18.60 snapshot "as shipped".
 - Latest 7.4.x: `v7.4-rc1` is the latest tag in `/mnt/2tb/git_mirror/linux` (2026-11-08; next tags in the store: v7.3-rc7, v7.3-rc6). Updating = store fetch (store job), then `./dev.py kernel-base update` (rewrites PIN in `scripts/kernel_base.py`), `scripts/patch_rebase.py`, record in MAINLINE-PORT Baselines, full rebuild of B and C. Not done.
 
 ### A: upstream snapshot as shipped
@@ -38,15 +44,21 @@ Does it boot on sw2 unpatched? Untested. Expectations, from the code:
 
 ### B: ours, OpenWrt 7.4
 
-- Reference = the l3fix2 image (r38178 + 7.4-rc1 + series), sha256 of the RAM image `2c328eac11ce05af985fac7f095c5657e6586713f47d55f35ef86ee3e85cf4e8`; the `-std` copy `d015e6c494eff150ee017050602676922383874977a2efe8c621977749a0c6d1`.
-- Kernel config of the built tree: `tmp/openwrt-build/build_dir/target-mips_24kc_musl/linux-realtek_rtl930x/linux-7.4-rc1/.config` (audit below). Not a clean-profile image by the owner's definition: PERF_EVENTS + PROFILING + DYNAMIC_DEBUG compiled in (idle).
+- **B-clean** (`openwrt-ours-clean`): same tree, patches (incl. `300-17` fixes) and selftest helper (strict check passed) as l3fix2; `build_openwrt.py --kernel mainline --clean` drops `CONFIG_KERNEL_DYNAMIC_DEBUG / PERF_EVENTS / KALLSYMS / PROFILING` from the seed (logged: `CLEAN profile: seed without ...`). KALLSYMS stays `y`: OpenWrt's `KERNEL_KALLSYMS` defaults to y (`default y if !SMALL_FLASH`), as upstream.
+- **B-profile** = l3fix2 (r38178 + 7.4-rc1 + series; PERF_EVENTS + PROFILING + DYNAMIC_DEBUG compiled in, idle). Perf / dyndbg runs only.
+- Kernel configs saved: `tmp/kernel-config-B-clean.config`, `tmp/kernel-config-B-profile.config`; buildroot `.config`: `tmp/owrt-config-B-clean.config`, `tmp/owrt-config-B-profile.config`.
+- Build tree moved to `/home/dan/st1008f-scratch/openwrt-build` (symlink `tmp/openwrt-build`): the rebuilt toolchain pushed `/mnt/2tb` below the 4 GB floor (make killed by the disk guard once at 3.1 GB). Shared `dl/` and ccache stay on `/mnt/2tb`.
 
 ### C: plain 7.4
 
 - Existing `mainline-7.4-rc1.bin` = **profile** kernel (FTRACE + function graph + PERF compiled in, HZ 250). sha256 `6f2391f9a4e347a48d7d7b503156fb944428f136ac41cb9eb72a41be733e8db6`.
 - New **clean** kernel: `./dev.py build-kernel --bench --clean` = `st1008f-v2.config` + bench fragment + `mainline/st1008f-v2-clean.config` (aligned to B, below). Image `tmp/tftp/mainline-7.4-rc1-clean.bin` (see Builds).
-- Userland of C (unchanged): static BusyBox 1.31 (musl 1.1, `sources/busybox/busybox-mips`) + 24.10.7 ipks: nftables 1.1.1 (nojson), iperf3 3.17.1, ethtool 6.11, ip-full / tc-tiny 6.11.0, dropbear 2024.86. No conntrack-tools, no perf in the image (perf is pushed over ssh by `perf_push.py`), no fw4, no procd, no irqbalance.
-- Userland gap to B: B runs OpenWrt main userland incl. fw4 hook chains and `fq_codel` on eth0; C has neither. Candidate cause of the unexplained `nat` TCP gap (plain 240 vs image 85.5, [NAT-STACKS.md](NAT-STACKS.md) / #161). Alignment at test time: load B's `nft list ruleset` (saved in `tmp/logs/nat161_openwrt_settings.txt`) into C before `nat` rows, and `tc qdisc replace dev eth0 root fq_codel` is now the kernel default in the clean image. A fresh minimal initramfs with current BusyBox is not worth it: BusyBox does not sit in the forwarding path; the iperf3 / nft / ip versions are the ones that matter. Option for exact parity: stage B's own rootfs (`build_dir/.../root-realtek`) into C's initramfs (owner decision).
+- **C-clean2** userland (`mainline_initramfs.py --bench --owrt-userland`): static BusyBox 1.31 (`sources/busybox/busybox-mips`) as shell; tools copied from B's `staging_dir/target-mips_24kc_musl/root-realtek` with their DT_NEEDED closure: nft (nftables-json 1.1.7 + libnftables, libnftnl 1.3.2, libmnl, libjansson), ip-full 7.3.0, tc-full 7.3.0, ethtool-full 7.2, dropbear 2026.94 (+ dropbearkey), musl 1.2.6, libgcc_s 14.4.0, libbpf 1.8.0, libelf, libxtables, libz. Same binaries as B.
+- Not in B, so not "the same as B": iperf3 (B has no iperf3; C keeps 24.10.7 iperf3 3.17.1 + libatomic for `zc_bench`), conntrack (neither image has it), BusyBox (C 1.31 static vs B 1.38).
+- fw4: `mainline/fw4-b.nft` (B's fw4 table from `tmp/logs/nat161_openwrt_settings.txt`, counters and `nattest` rules removed) is in the image as `/etc/fw4-b.nft`; `nat_bench.py set_mode` loads it when present (plain kernel only) and inserts the same `nattest` accept rules with C's SVI names. Hook chains and policies as B (input/forward/output policy drop, mangle/raw/nat hooks).
+- C kernel fragment `mainline/st1008f-v2-clean-fw4.config` adds the nf_tables expressions the ruleset needs (LIMIT, LOG, REJECT*, FIB*, REDIR, QUOTA, NUMGEN, HASH); all survived olddefconfig. No perf in the image (`perf_push.py` over ssh), no procd, no irqbalance, no netifd.
+- Profile C (`mainline-7.4-rc1.bin`) keeps the old userland (no `/etc/fw4-b.nft`: `nat_bench.py` skips fw4).
+- Userland gap to B (old C): B runs OpenWrt main userland incl. fw4 hook chains and `fq_codel` on eth0; old C had neither (C-clean2 has both). Candidate cause of the unexplained `nat` TCP gap (plain 240 vs image 85.5, [NAT-STACKS.md](NAT-STACKS.md) / #161). Alignment at test time: load B's `nft list ruleset` (saved in `tmp/logs/nat161_openwrt_settings.txt`) into C before `nat` rows, and `tc qdisc replace dev eth0 root fq_codel` is now the kernel default in the clean image. A fresh minimal initramfs with current BusyBox is not worth it: BusyBox does not sit in the forwarding path; the iperf3 / nft / ip versions are the ones that matter. Option for exact parity: stage B's own rootfs (`build_dir/.../root-realtek`) into C's initramfs (owner decision).
 
 ## Config audit
 
@@ -128,8 +140,8 @@ C (clean) = `mainline/st1008f-v2-clean.config`, merged last by `build-kernel --b
 - Profile C = today's config without the clean fragment (= existing `mainline-7.4-rc1.bin`). Proposed later split: move the PERF/FTRACE lines out of `st1008f-v2.config` into `st1008f-v2-profile.config` and make clean the default; not done (would change what every existing image means).
 
 B to A (where our patches do not need the difference):
-- Drop `CONFIG_KERNEL_PERF_EVENTS`, `CONFIG_KERNEL_PROFILING`, `CONFIG_KERNEL_DYNAMIC_DEBUG` from the B build seed (`scripts/build_openwrt.py` SEED / `shared_config()`), keep `CONFIG_KERNEL_PREEMPT_VOLUNTARY` (7.x has no NONE) -> B-clean. Perf then needs a separate B-profile image (the #148 flow). Full rebuild of B (~minutes incremental, disk 4.2 GB tree exists); not done, needs owner decision.
-- Cannot align: kernel generation (A 6.18) unless A7 is built; PREEMPT (NONE vs VOLUNTARY).
+- Done: `build_openwrt.py --clean` drops `CONFIG_KERNEL_PERF_EVENTS`, `CONFIG_KERNEL_PROFILING`, `CONFIG_KERNEL_DYNAMIC_DEBUG`, `CONFIG_KERNEL_KALLSYMS` from the seed -> B-clean; `CONFIG_KERNEL_PREEMPT_VOLUNTARY` kept (7.x has no NONE). Perf uses the l3fix2 image (#148 flow).
+- Cannot align: kernel generation (A 6.18; A7 not buildable); PREEMPT (NONE vs VOLUNTARY).
 
 ## Builds and downloads done 2026-11-08
 
@@ -140,7 +152,9 @@ B to A (where our patches do not need the difference):
 | `sha256sums` of the snapshot dir | download truncated twice (server resets); profiles.json used for the checksums |
 | C clean kernel | built, image + sha256 below |
 | B | existing l3fix2 image used as is (not clean, see audit) |
-| A7, C with fresh BusyBox, B-clean | not built: need owner decisions below |
+| B-clean | built 2026-11-08 (`--clean`), below |
+| C with B's userland (C-clean2) | built 2026-11-08, below |
+| A7 | not buildable: upstream main has no 7.4 support (see A7 above) |
 
 C clean build result: built OK (0 warnings, all overlay options survived olddefconfig), out dir `tmp/build-mips-v7.4-rc1-bench-clean`, `mainline_build_check.py --bench --clean`. Verified in its `.config`: FTRACE n, PERF_EVENTS n, HZ 100, STACKPROTECTOR y, MEMCG y, IP_MULTIPLE_TABLES y, NETFILTER_EGRESS n, NF_CONNTRACK_ZONES y, DEFAULT_NET_SCH fq_codel.
 - `tmp/tftp/mainline-7.4-rc1-clean.bin` 5,382,583 B, sha256 `ce45cfdca09fd2da2ed7124b86358145d843748d434494b3e4ba075334c322a2`; `-clean-std.bin` sha256 `6eced708b198403f3d24e8243b2c068c86fc01b38eb16e143e2dc4fb1804ee19`.
@@ -169,10 +183,69 @@ Tests per stack and clock set (profile clean, perf/ftrace off):
 - Order: C-clean first at common clocks (answers "what does the clean config buy" against the 2026-11-08 plain row 240 / 323 / 1565), then B, then A (A needs cages 3, 4, 7, 8 unplugged).
 - `nat161_compare.py` stays for the two-stack #161 flow; `stack_compare.py` generalises to three stacks and the cell list above (dry-run only; execution wiring is the owner's release).
 
-## Owner decisions
+## Owner answers 2026-11-08 and what was done
 
-1. A: accept 6.18.60 snapshot as "upstream as shipped", or also build A7 (upstream main + testing kernel 7.4, zero patches)? A7 needs a second OpenWrt tree (~4 GB) and may not boot without `300-05`.
-2. B: rebuild B-clean (drop PERF / PROFILING / DYNAMIC_DEBUG from the seed) so B itself meets "clean = no tracing"?
-3. C userland: keep BusyBox 1.31 + 24.10.7 ipks (plus B's nft ruleset), or stage B's own rootfs into the initramfs for exact userland parity?
-4. Unplug cages 3, 4, 7, 8 on sw2 for A (no linkcheck/STP in upstream OpenWrt)?
-5. Release hardware runs and the clock sets (is core 608 for A worth a boot).
+1. A: snapshot r38188 (done) and A7: not buildable (above).
+2. B: B-clean built; perf-enabled l3fix2 kept as PROFILE.
+3. C: tools of B copied into C's initramfs (C-clean2).
+4. Cages 3, 4, 7, 8 unplugged by the owner for every A run (upstream OpenWrt: no linkcheck, no STP: storm hazard, [CLAUDE.md](../CLAUDE.md) Hazards).
+5. Hardware runs: not released; commands below are dry-run output only.
+
+## Images (sha256, built or fetched 2026-11-08)
+
+| Stack | File (`tmp/tftp/`) | Bytes | sha256 |
+|---|---|---|---|
+| A | `openwrt-upstream-r38188-initramfs.bin` | 5,559,476 | `0e02ff2526a9d5904d3a01d31f6d8b26b3f1c8eccc0097ff4f0b0e1111fccaf6` |
+| A std | `openwrt-upstream-r38188-initramfs-std.bin` | 5,559,476 | `1b4f68417fb1f9889d8e5cfe2b4a505da70d4cc5b23f49e8bcf6b0ee977d41e8` |
+| A7 | not built | | |
+| B-clean | `openwrt-ours-clean-initramfs.bin` | 7,994,858 | `d49969634ddb6ee98ac80c86f2d52f3145f27608cedf11159c4b608bba6c8172` |
+| B-clean std | `openwrt-ours-clean-initramfs-std.bin` | 7,994,858 | `33affe72f7fe69d565cb5d1f9e550fdc39f97405757bef9df359fd965de4e188` |
+| B-profile | `openwrt-ours-l3fix2-initramfs.bin` | 8,160,679 | `2c328eac11ce05af985fac7f095c5657e6586713f47d55f35ef86ee3e85cf4e8` |
+| B-profile std | `openwrt-ours-l3fix2-initramfs-std.bin` | 8,160,679 | `d015e6c494eff150ee017050602676922383874977a2efe8c621977749a0c6d1` |
+| C-clean2 | `mainline-7.4-rc1-clean2.bin` | 6,781,186 | `e8242ab3c42b01fca14c0f9874dc9a5486beda260738e2d736d8248ae046a95a` |
+| C-clean2 std | `mainline-7.4-rc1-clean2-std.bin` | 6,781,186 | `3be10dff84920d9ac019b9f90c315a8aa7aedf6de20f4b4c0b98e311bd9455e2` |
+| C-clean (old userland) | `mainline-7.4-rc1-clean.bin` | 5,382,583 | `ce45cfdca09fd2da2ed7124b86358145d843748d434494b3e4ba075334c322a2` |
+| C-profile | `mainline-7.4-rc1.bin` | | `6f2391f9a4e347a48d7d7b503156fb944428f136ac41cb9eb72a41be733e8db6` |
+
+- C-clean2: out dir `tmp/build-mips-v7.4-rc1-bench-clean-owrt` (0 warnings), `./dev.py build-kernel --bench --clean --owrt-userland` (names the image `-clean2`).
+- B-clean also left `tmp/openwrt-ours-clean-sysupgrade.bin` (8,388,915 B; never flash, A/B layout not applied).
+
+## Debug / perf / trace state per stack (from the built `.config`)
+
+| Option | A (derived) | B-clean | B-profile | C-clean2 | C-profile |
+|---|---|---|---|---|---|
+| PERF_EVENTS | n | n | **y** | n | **y** |
+| PROFILING | n | n | **y** | n | n |
+| DYNAMIC_DEBUG | n | n | **y** | n | n |
+| FTRACE (+ function tracers) | n | n | n | n | **y** |
+| KPROBES | n | n | n | n | n (UPROBES y) |
+| KALLSYMS / _ALL | y / n | y / n | y / n | y / n | y / **y** |
+| LOCKDEP / PROVE_LOCKING | n | n | n | n | n |
+| HZ | 100 | 100 | 100 | 100 | 250 |
+| DEBUG_FS | y | y | y | y | y |
+
+- A is derived (no kernel `.config` ships); the snapshot `config.buildinfo` sets none of `KERNEL_PERF_EVENTS / PROFILING / DYNAMIC_DEBUG / FTRACE` (it sets `ALL_KMODS`, `BUILDBOT`, `COLLECT_KERNEL_DEBUG`).
+- DEBUG_INFO (reduced, vmlinux only) y in A and B, n in C: no run-time effect.
+
+## Diff summary
+
+- **A7 vs B-clean `.config`: not possible (A7 not built).** Substitute: B-clean vs the snapshot's buildroot seed (`tmp/upstream-snapshot/dl/config.buildinfo`): the snapshot carries no `KERNEL_*` debug/perf symbol; B-clean's seed = ours (`build_openwrt.py` SEED, minus the four clean-off symbols), so the remaining differences are packages (`ALL_KMODS` in A vs the bench set in B), the testing kernel and PREEMPT (A: NONE on 6.18; B: VOLUNTARY on 7.4).
+- **B-clean vs B-profile kernel `.config`** (`diff` of `tmp/kernel-config-B-{profile,clean}.config`): only `PERF_EVENTS`, `HW_PERF_EVENTS`, `PROFILING`, `DYNAMIC_DEBUG` + `DYNAMIC_DEBUG_CORE` (profile y, clean n), and `MODULES_TREE_LOOKUP`, `DEBUG_PERF_USE_VMALLOC` / `CGROUP_PERF` / `FW_LOADER_DEBUG` / `TEST_DYNAMIC_DEBUG` Kconfig-dependent lines, plus the `INITRAMFS_SOURCE` path (tree moved to `/home`). Buildroot `.config`: only `KERNEL_PERF_EVENTS`, `KERNEL_PROFILING`, `KERNEL_DYNAMIC_DEBUG` (and `PACKAGE_perf` unset in both).
+- **C-clean2 vs C-clean** (kernel): + `NFT_LIMIT / LOG / REJECT / REJECT_INET / REJECT_IPV4 / REJECT_IPV6 / FIB* / REDIR / QUOTA / NUMGEN / HASH`; initramfs differs (B's tools, `/etc/fw4-b.nft`).
+
+## Ready-to-run command list (dry-run; nothing executed)
+
+`python3 scripts/stack_compare.py --dry-run --stacks A,B,C --clocks common,final --profile both` prints every command (log `tmp/logs/stack_compare.log`). Boot lines per stack and clock set (common clocks shown; `final` swaps in `turbo cpu=1325,...` and raw `0x36826`):
+
+```
+# A (cages 3,4,7,8 UNPLUGGED by the owner first; first boot at stock clocks, no --pre)
+python3 dev.py ramload uboot-mainline --stock-clocks --then openwrt-upstream --no-linkcheck --cage 1 --pre "turbo cpu=1350,ddr=662,lx=306,sram=500" --pre "<raw core 508>"
+# B-clean
+python3 dev.py ramload uboot-mainline --stock-clocks --then openwrt-ours-clean --no-linkcheck --cage 1 --pre "turbo ..." --pre "<raw core>"
+# C-clean2
+python3 dev.py ramload uboot-mainline --stock-clocks --then mainline-kernel --kernel mainline-7.4-rc1-clean2.bin --mgmt --cage 1 --pre "turbo ..." --pre "<raw core>"
+# profile runs (common clocks only): B-profile --then openwrt-ours-l3fix2 ; C-profile --kernel mainline-7.4-rc1.bin
+```
+
+- Order: C-clean2, B-clean, then A. Cells per stack: `scripts/stack_compare.py` output (nat / nat-ft P1/2/4 fwd+rev, stack UDP 1400/500/64, L3 on/off for B and C, zc cells for B and C; A has none of zc/L3).
+- A7 rows: none.
