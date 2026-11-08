@@ -178,6 +178,7 @@ SNAP = [  # (key, remote command); every command stderr merged; output compared 
     ("nft_ruleset_lines", "nft list ruleset 2>&1 | grep -v stack-mgmt | wc -l"),
     ("nft_ruleset_sha256", "nft list ruleset 2>&1 | grep -v stack-mgmt | sed 's/packets [0-9]* bytes [0-9]*//' | sha256sum | cut -d' ' -f1"),
     ("rteth_params", "grep -r . /sys/module/rtl838x_eth/parameters 2>/dev/null | sort; true"),
+    ("l3_params", "grep -r . /sys/module/rtl_otto_dsa/parameters 2>/dev/null | sort; true"),
     ("processes", "for d in /proc/[0-9]*; do c=$(tr '\\0' ' ' < $d/cmdline 2>/dev/null); [ -n \"$c\" ] && echo \"$c\"; done"),
     ("loadavg", "cat /proc/loadavg"), ("meminfo", "grep -E 'MemTotal|MemFree' /proc/meminfo"),
     ("cpuinfo", "grep -i -E 'bogomips|model name' /proc/cpuinfo"), ("nproc_online", "cat /sys/devices/system/cpu/online"),
@@ -254,7 +255,7 @@ IGNORE = re.compile(r"^(stack|when|flavour_expected|normalise_failures|qdisc_req
 # the stack under test, by construction: key regex -> reason. Anything else that differs = NOT CONTROLLED.
 KNOWN = [
     (r"uname_r", "kernel under test (A 6.18.60 vs B/C 7.4-rc1)"),
-    (r"rteth_params", "A has no 300-xx rteth module parameters (patch set under test)"),
+    (r"rteth_params|l3_params", "A has no 300-xx rteth/l3 module parameters (patch set under test)"),
     (r"config_gz_sha256|kconfig_debug", "only C ships /proc/config.gz (IKCONFIG); A and B: build-time config in NAT-STACK-TESTS.md"),
     (r"processes", "OpenWrt base system (procd, ubusd, netifd, logd, urngd, hotplug, linkwatch) runs on A/B, not C"),
     (r"sha_native", "native tool binaries are separate builds (same versions, see v_*)"),
@@ -293,6 +294,7 @@ def main():
     ap.add_argument("--ip", default=BENCH_IP)
     ap.add_argument("--napi", choices=["irq1", "default"], default="irq1", help="NIC irq on VPE1 (smp_affinity 2, as the --napi irq1 cells) or both (3)")
     ap.add_argument("--qdisc", default="noqueue", help="eth0 root qdisc on every stack (default noqueue: no queueing, one less variable; plain kernel gave 544 vs 528 with it)")
+    ap.add_argument("--snap-dir", default=str(ROOT / "tmp/logs"), help="where the snapshot json is written")
     ap.add_argument("--tag", default="", help="snapshot file suffix (e.g. post)")
     ap.add_argument("--snapshot-only", action="store_true", help="skip push and normalisation; snapshot only (drift check after a bench)")
     ap.add_argument("--pack", action="store_true", help="host only: build tmp/stack-tools ip/tc/libs/wrappers/fw4 + MANIFEST")
@@ -320,9 +322,10 @@ def main():
     snap = parse_snapshot(out)
     snap.update({"stack": a.stack, "when": time.strftime("%Y-%m-%dT%H:%M:%S%z"), "napi": a.napi, "qdisc_requested": a.qdisc,
                  "normalise_failures": "\n".join(bad), "flavour_expected": FLAVOUR[a.stack]})
-    p = ROOT / f"tmp/logs/stack_snapshot-{a.stack}{'-' + a.tag if a.tag else ''}.json"
+    p = Path(a.snap_dir) / f"stack_snapshot-{a.stack}{'-' + a.tag if a.tag else ''}.json"
+    p.parent.mkdir(parents=True, exist_ok=True)
     p.write_text(json.dumps(snap, indent=1, sort_keys=True) + "\n")
-    log(f"snapshot -> {p.relative_to(ROOT)} ({len(snap)} keys); normalise failures: {len(bad)}")
+    log(f"snapshot -> {p} ({len(snap)} keys); normalise failures: {len(bad)}")
     return 1 if bad else 0
 
 
