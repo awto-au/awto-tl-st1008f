@@ -1004,3 +1004,32 @@ Not isolated:
 - Part of the gap is `rps_cpus` = 1 (OpenWrt packet steering), which defeats `--napi irq1` placement: the image never gets a stack path on VPE1. Removing it gives +23-39 % on `nat`.
 - Remaining ~2.2x per packet on `nat` is not explained: candidates are the fw4 hook chains (not removed), `fq_codel` on `eth0`, and kernel config differences in conntrack/nf (image build vs plain build). Next probe: on the image `nft delete table inet fw4` then `tc qdisc replace dev eth0 root noqueue`, and `perf` (`perf_push.py`, `nat_perf.py`) on both images for `nf_hook_slow` / `nf_conntrack_in` shares, with RPS 0 and the same irq placement.
 - Bench note: `nat_bench.py run` leaves a root `iperf3 -s -1` in the netns when the client cannot connect (failed run); the leftover blocks the next `setup` (`8021q: VLAN device already exists`) until it is killed.
+
+## L3 offload fixes on the 7.4 base (#59), 2026-11-08
+
+- Image `tmp/tftp/openwrt-ours-l3fix-initramfs.bin` (7.4 + 300-17 fixes), RAM-loaded on sw2 with `ramload uboot-mainline --then openwrt-ours-l3fix` (new image key).
+- Clocks: core 608 raw (e220 0x36826 / e214 0x478), CPU 1325, DDR 662, SRAM 500, LX 306; also once at the ramload default clocks (CPU 1000, stock core).
+- Result: image did not stay up. 5 boots of 5 (3 at the 608/1325 profile, 2 at default clocks) ended in a SoC reset 26-32 s after kernel start (blackbox "unclean ... msg boot"); the chain then booted the flash 6.18 slot a.
+  - Boot to shell and STP worked in 4 of 5; in the boot with `ps w` captured, `nft -f /dev/stdin` (fw4 reload) sat in D state at ~17 s, then no console echo.
+  - Console loglevel is 1 after `ramload`, so no kernel message was captured; sysrq-w capture not obtained (race with the ramload STP step).
+  - One boot hit the ramload STP check (45 s) and cut relay power per #19; next ramload restarted the daemon first and powered on.
+- `l3_offload_ab.py` checks a-i: NOT RUN (board never answered ssh long enough). Check f and the `offload --default-v4 0` rt_offload expectation are unverified on hardware.
+- Control not run: the 7.3 `openwrt-ours` image holds 608/1325 5/5 (openwrt_core_stability.py), so the hang is image-side (7.4 + fixes), not clocks.
+- Next: boot with `ignore_loglevel` bootargs and `echo w > /proc/sysrq-trigger` right after the shell; bisect fixes in `l3.c` (notifier path) vs the 7.4 userspace.
+
+## #147 prefetch A/B, 2026-11-08
+
+- Kernel `mainline-7.4-rc1-pf.bin` (plain, 300-44 parked patch), booted `retest_options.py boot --core 608 --cpu 1325`; BogoMIPS 872 (1325 MHz), SPI divide 6.
+- `zc_prefetch_ab.py --tag pf1`: n=3 interleaved rounds, 12 s runs, NAT zc path (`zc_bench.py --nat --napi irq1 --zc-only`), VPE1 99 % busy in all cells; integrity PASS in every variant and round.
+- Log: tmp/logs/zc_prefetch_ab.log.
+
+| Variant (desc, hdr) | 1400 B kpps | vs base | 64 B kpps | vs base |
+|---|---|---|---|---|
+| base (0,0) | 166.8 | - | 424.8 | - |
+| desc (1,0) | 166.5 | -0.1 % | 441.2 | +3.9 % |
+| hdr (0,1) | 166.7 | 0.0 % | 400.6 | -5.7 % |
+| both (1,1) | 165.9 | -0.5 % | 439.9 | +3.5 % |
+
+- Spread inside a variant 0.1-0.4 % at 1400 B, 0.2-1.3 % at 64 B.
+- Verdict 1400 B: no variant outside the +-3 % band; prefetch is not a gain at the bulk size.
+- 64 B: `desc` +3.9 % and `both` +3.5 % (just past the band, small packets only); `hdr` -5.7 %. Parameters stay default off.

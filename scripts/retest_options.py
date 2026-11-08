@@ -60,7 +60,7 @@ def temp():
 
 def cmd_boot(a):
     e220, e214, lx = CORES[a.core]
-    pre = ["--pre", f"turbo cpu=1350,ddr=662,lx={lx},sram=500"]
+    pre = ["--pre", f"turbo cpu={a.cpu},ddr=662,lx={lx},sram=500"]
     if e220:
         pre += ["--pre", f"mw.l 0xbb00e220 {e220}; mw.l 0xbb00e214 {e214}; mw.l 0xbb00e200 0x0001c0ff; mw.l 0xbb00e200 0x4001c0ff"]
     pre += ["--pre", "md.l 0xbb00e220 1", "--pre", "md.l 0xbb00e214 1", "--pre", "md.l 0xb8001200 1"]
@@ -155,6 +155,7 @@ def main():
     sp = ap.add_subparsers(dest="cmd", required=True)
     b = sp.add_parser("boot")
     b.add_argument("--core", choices=list(CORES), required=True)
+    b.add_argument("--cpu", type=int, default=1350, help="CPU MHz in the turbo pre line")
     b.add_argument("--kernel", default="mainline-7.4-rc1.bin")
     b.add_argument("--bootargs", default="")
     m = sp.add_parser("meas")

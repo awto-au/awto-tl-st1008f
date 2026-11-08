@@ -254,6 +254,17 @@ def cpu_report(a: dict, b: dict) -> dict:
     return out
 
 
+def stop_srv(p: subprocess.Popen) -> None:
+    """Stop our own iperf3 server child. SIGTERM: sudo relays it; SIGKILL on sudo would orphan iperf3 in the netns."""
+    if p.poll() is None:
+        p.terminate()
+        try:
+            p.wait(timeout=3)  # relay + exit < 0.1 s
+        except subprocess.TimeoutExpired:
+            log("iperf3 server ignored SIGTERM for 3 s: SIGKILL (may orphan it in the netns)")
+            p.kill()
+
+
 def iperf(ns_srv: str, srv_ip: str, ns_cli: str | None, secs: int, streams: int, reverse: bool,
           udp: int | None, length: int | None) -> dict:
     srv = (["sudo", "-n", "nice", "-n", "19", "ip", "netns", "exec", ns_srv] if ns_srv else []) + \
@@ -272,9 +283,9 @@ def iperf(ns_srv: str, srv_ip: str, ns_cli: str | None, secs: int, streams: int,
     try:
         r = subprocess.run(cli, capture_output=True, text=True, timeout=tmo)
     except subprocess.TimeoutExpired:
-        p.kill()
+        stop_srv(p)
         raise SystemExit(f"iperf3 timed out after {tmo}s (secs={secs})")
-    p.kill()
+    stop_srv(p)  # also when the client could not connect: -1 server would stay and pin the netns
     try:
         return json.loads(r.stdout)
     except json.JSONDecodeError:
@@ -531,11 +542,13 @@ def v6_run(secs: int, streams: int, onlink: bool, dst: str | None = None, revers
     time.sleep(0.5)  # iperf3 -s binds in <50 ms
     a = snap()
     tmo = int((secs + 2) * 1.25) + 5
-    r = subprocess.run(["sudo", "-n", "nice", "-n", "19", "ip", "netns", "exec", NS_LAN, "iperf3", "-6", "-c", dst,
-                        "-B", src, "-t", str(secs), "-P", str(streams), "-J", "-O", "2"] + (["-R"] if reverse else []),
-                       capture_output=True, text=True, timeout=tmo)
+    try:
+        r = subprocess.run(["sudo", "-n", "nice", "-n", "19", "ip", "netns", "exec", NS_LAN, "iperf3", "-6", "-c", dst,
+                            "-B", src, "-t", str(secs), "-P", str(streams), "-J", "-O", "2"] + (["-R"] if reverse else []),
+                           capture_output=True, text=True, timeout=tmo)
+    finally:
+        stop_srv(srv)
     b = snap()
-    srv.kill()
     res = json.loads(r.stdout)
     summarize(f"v6-{'onlink' if onlink else 'gw'}-{dst}-tcp-P{streams}-{secs}s{'-R' if reverse else ''}", res, a, b, None)
     log(sw("grep fd99 /sys/kernel/debug/realtek_otto_l3/routes; true"))

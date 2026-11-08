@@ -61,6 +61,8 @@ IMAGES = {
                           OW_READY, 40),
     # DEBUG kernel (build_openwrt.py --debug) and the preserved 7.3 + GDMA image for A/B (docs/OPENWRT-BUMP.md)
     "openwrt-ours-debug": ("openwrt-ours-debug-initramfs.bin", 0x84f00000, "bootm", OW_READY, 40),
+    "openwrt-ours-l3fix": ("openwrt-ours-l3fix-initramfs.bin", 0x84f00000, "bootm", OW_READY, 40),  # 7.4 + 300-17 fixes (#59)
+    "openwrt-7.4-sw": ("openwrt-7.4-sw-initramfs.bin", 0x84f00000, "bootm", OW_READY, 40),  # 7.4 without the 300-17 fixes? (#59)
     "openwrt-ours-7.3": ("openwrt-ours-7.3-gdma-initramfs.bin", 0x84f00000, "bootm", OW_READY, 40),
     "mainline-kernel": ("mainline.bin", 0x84f00000, "bootm",
                         r"st1008f-initramfs: up|st1008f-linux # ", 10),  # prompt gets split by kernel messages
@@ -480,7 +482,7 @@ def main() -> int:
                     help="uboot-mainline: keep stock CPU 800 MHz + SPI 25.5 MHz (default: 1 GHz + SPI 122.5 MHz)")
     ap.add_argument("--spi", metavar="D:CODE",
                     help="with --then: SPI before bootm, SFCR D (0 = /2) and NOR code e220[16:13] (6 = stock)")
-    ap.add_argument("--then", choices=["openwrt", "openwrt-ours", "openwrt-ours-6.18", "mainline-kernel"],
+    ap.add_argument("--then", choices=["openwrt", "openwrt-ours", "openwrt-ours-6.18", "openwrt-ours-l3fix", "openwrt-7.4-sw", "mainline-kernel"],
                     help="uboot-mainline: also TFTP that image (std magic) to 0x84f00000, bootm it from ours "
                          "(after `clocks fast`)")
     ap.add_argument("--cpu", metavar="E208",
