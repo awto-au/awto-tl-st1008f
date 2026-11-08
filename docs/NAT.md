@@ -2,6 +2,10 @@
 
 Target: IPv4 NAT at 2.5 Gbit/s (owner ISP: NBN HFC ~2 Gbit/s down), issue #65 (closed). State as of 2026-11-08 (owner decision: go with what works, [DECISIONS.md](DECISIONS.md)).
 Graphs and issue board: open rendered with `code-insiders --reuse-window docs/NAT-REPORT.html` (VS Code markdown preview does not open .html links); relative link [NAT-REPORT.html](NAT-REPORT.html); regenerate `python3 scripts/nat_report.py`. Key numbers also in "Graphs" below.
+Progression across stacks (stock FW, OpenWrt 6.18 / 7.3 / 7.4, plain 7.4-rc1), audit and gap list: [NAT-STACKS.md](NAT-STACKS.md); graphs [NAT-REPORT.html](NAT-REPORT.html#s10).
+- NAT TCP P4, best per stack: 6.18 248, 7.3 507 (skb) / 1519 (zc), 7.4 image 268 / 1536 (core 508), plain 7.4 422 / 1634 (core 608); clocks differ per row.
+- Stock FW has no NAT or routing (unmanaged); no stack has data for every test: 12 test rows, matrix in the report.
+- Missing for a same-clock comparison: 6.18 and 7.3 vs 7.4 at final clocks, UDP offered-load and `-P 1/2/8` on 7.4, plain 7.4 L3 (gaps G1-G11).
 Run the measurements: [NAT-OPS.md](NAT-OPS.md). Experiments, dead ends, core-408 numbers: [NAT-HISTORY.md](NAT-HISTORY.md). CPU-port registers: [CPU-PORT.md](CPU-PORT.md). No NAT hardware in the die: [HIDDEN-FEATURES.md](HIDDEN-FEATURES.md) (#68).
 
 ## Verdict
