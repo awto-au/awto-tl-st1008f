@@ -10,33 +10,38 @@ Status 2026-11-08: plan + config audit + images built (A, B-clean, B-profile, C-
 
 | | Kernel | Userland | Patches | Image (RAM boot) |
 |---|---|---|---|---|
-| A upstream | Linux 6.18.60 | OpenWrt SNAPSHOT r38188-7efbba7631 (2026-11-07 20:23 GMT), fw4 | none | `tmp/upstream-snapshot/dl/openwrt-realtek-rtl930x-tplink_tl-st1008f-v2-initramfs-kernel.bin` |
+| A upstream | Linux 6.18.60 (`Linux version 6.18.60 ... #0 SMP Fri Nov 6 22:31:19 2026`, built tree) | OpenWrt r38178 (upstream main `7e8bfcfe76`, same commit as B), device-profile default packages only, fw4 | none (zero patches, none of our files) | `tmp/tftp/openwrt-upstream-r38178-initramfs.bin` (+ `-std`); tree `/home/dan/st1008f-scratch/openwrt-upstream-r38178` |
 | A7 upstream + 7.4 | not buildable (below) | | none | none |
 | B ours-OpenWrt | Linux 7.4-rc1 | OpenWrt main r38178-7e8bfcfe76 | full series | clean: `tmp/tftp/openwrt-ours-clean-initramfs.bin`; profile: `openwrt-ours-l3fix2-initramfs.bin` |
 | C plain | Linux 7.4-rc1 (`7.4.0-rc1-dirty`) | C-clean3: B's own BusyBox 1.38 + applet links, musl, dropbear, nft, ip, tc, ethtool; minimal init; no iperf3 (pushed by the normaliser) | full series | clean: `tmp/tftp/mainline-7.4-rc1-clean3.bin` (clean2: BusyBox 1.31 + 24.10.7 iperf3, superseded for the comparison); profile: `mainline-7.4-rc1.bin` (old userland) |
 
-- **A is not 7.4.** Upstream main ships 6.18 (`KERNEL_PATCHVER:=6.18`, snapshot `linux_kernel.version` 6.18.60).
+- **A is not 7.4.** Upstream main ships 6.18 (`KERNEL_PATCHVER:=6.18`, built tree: 6.18.60).
+- Owner decision 2026-11-08: OpenWrt version identical across stacks. A = upstream built at B's commit (r38178). The downloaded snapshot r38188 (`7efbba7631`) is kept only as a note: files `tmp/upstream-snapshot/`, ramload key `openwrt-upstream-snapshot`, not used in the comparison.
 - **A7 (upstream main + testing kernel 7.4, zero of our patches) cannot be built (owner asked 2026-11-08; checked in `git ls-tree HEAD` of OpenWrt main 7e8bfcfe76, also the store's `origin/main`):**
   - no `KERNEL_TESTING_PATCHVER` in `target/linux/realtek/Makefile` (our overlay adds it); no `generic/kernel-7.4`, no `generic/{backport,pending,hack}-7.4`, no `realtek/patches-7.4`, `files-7.4`, `rtl930x/config-7.4`.
   - the earlier statement that upstream main carries `patches-7.4` was wrong: those directories are created by `build_openwrt.py` `overlay_73()` from our port (`OWRT_VERBATIM` = 9 of upstream's 112 `patches-6.18`, plus 42 patches incl. our 300-xx and forward-ports, `files-7.4` 12 paths, generic pending 700/701/344/644/645, hack 910/911/940).
   - A7 would be "upstream's 6.18 patch set rebased to 7.4-rc1" = the port itself; the other 103 patches fail or are superseded on 7.4. Not attempted (no second tree built).
   - Snapshot commit `7efbba7631` is not in the OpenWrt store (store `origin/main` = 7e8bfcfe76); not fetched (shared store).
-- Closest same-generation substitute: none. A stays the 6.18.60 snapshot "as shipped".
+- Closest same-generation substitute: none. A stays 6.18.60 (upstream, zero patches).
 - Latest 7.4.x: `v7.4-rc1` is the latest tag in `/mnt/2tb/git_mirror/linux` (2026-11-08; next tags in the store: v7.3-rc7, v7.3-rc6). Updating = store fetch (store job), then `./dev.py kernel-base update` (rewrites PIN in `scripts/kernel_base.py`), `scripts/patch_rebase.py`, record in MAINLINE-PORT Baselines, full rebuild of B and C. Not done.
 
-### A: upstream snapshot as shipped
+### A: upstream r38178, zero patches (built)
 
 | Item | Value |
 |---|---|
-| Snapshot | OpenWrt SNAPSHOT `r38188-7efbba7631`, commit `7efbba7631b5401b9f470e28fca0d6a18f579f83`, downloaded 2026-11-08 from `downloads.openwrt.org/snapshots/targets/realtek/rtl930x/` (Last-Modified 2026-11-07 20:23:44 GMT) |
-| Kernel | `Linux-6.18.60` (uImage header), profiles.json `linux_kernel.version` 6.18.60, vermagic `018229039bfd7eafcc23e3a1b5dd2217` |
-| initramfs-kernel | 5,559,476 B, sha256 `0e02ff2526a9d5904d3a01d31f6d8b26b3f1c8eccc0097ff4f0b0e1111fccaf6` (= profiles.json; checked) |
-| sysupgrade | 6,029,619 B, sha256 `2974daa034ef8fd43fdc60b26bb04ac5eb2229fca0be3f33343ce48dd7e27873` (= profiles.json; checked). Upstream 29 MiB layout: never flash (A/B slot layout needs compat 2.0, [DEFAULT-BOOT.md](DEFAULT-BOOT.md)) |
-| Magic | download already carries the Realtek magic `0x93030000` (stock U-Boot `bootm`); std-magic copy for our U-Boot made with `scripts/uimage_std_magic.py`: `tmp/upstream-snapshot/upstream-r38188-initramfs-std.bin`, sha256 `1b4f68417fb1f9889d8e5cfe2b4a505da70d4cc5b23f49e8bcf6b0ee977d41e8` |
-| tftp copies | `tmp/tftp/openwrt-upstream-r38188-initramfs.bin` + `-std.bin`; ramload key `openwrt-upstream` (`--then openwrt-upstream`) |
+| Source | `git worktree` of the shared OpenWrt store at `7e8bfcfe76204efc9433be341642901876eb555b` (= B's `OWRT_COMMIT`, r38178), `/home/dan/st1008f-scratch/openwrt-upstream-r38178`; no `openwrt/patches`, `files`, linkcheck, seed or 300-xx |
+| Config | `target realtek/rtl930x`, device `tplink_tl-st1008f-v2`, `make defconfig` from 3 lines (target, subtarget, device) + dl dir; `tmp/owrt-config-A-upstream-r38178.config`, kernel `tmp/kernel-config-A-upstream-r38178.config` |
+| Feeds | none installed (device default package set is all in the base tree; no feed update, no extra packages) |
+| Kernel | `Linux version 6.18.60 (... GCC 14.4.0 toolchain-c0e63334e4, GNU ld 2.46.1) #0 SMP Fri Nov 6 22:31:19 2026` (built-tree vmlinux) |
+| initramfs-kernel | `tmp/tftp/openwrt-upstream-r38178-initramfs.bin`, 5,353,577 B, sha256 `57124dd796cdfdddaf7555c322756e67ed9be5e3a47af97e58047d7d1ade51d4`; Realtek magic `0x93030000` straight from the OpenWrt build (same image rule as every other image) |
+| std magic | `tmp/tftp/openwrt-upstream-r38178-initramfs-std.bin`, sha256 `14f140308d88ce10075b2d2a5dbdf92ccb0185fd13170aa9db6cba236880db93` (`scripts/uimage_std_magic.py`) |
+| sysupgrade | built (5,767,475 B) but not copied to tmp: upstream 29 MiB layout, never flash |
+| Build | 2026-11-08, `make -j20`, 1992 s wall at load ~45-70 (shared box), 11 GB tree + 1.7 GB dl copy on `/home` |
+| Toolchain | identical to B: `toolchain-mips_24kc_gcc-14.4.0_musl`, `mips-openwrt-linux-musl-gcc (OpenWrt GCC 14.4.0 toolchain-c0e63334e4) 14.4.0`, binutils 2.46.1, musl (same `CONFIG_*` in both `.config`) |
+| Ramload key | `openwrt-upstream` (`--then openwrt-upstream`); snapshot r38188 note: key `openwrt-upstream-snapshot`, sha256 `0e02ff2526a9d5904d3a01d31f6d8b26b3f1c8eccc0097ff4f0b0e1111fccaf6` |
 
 Does it boot on sw2 unpatched? Untested. Expectations, from the code:
-- Upstream has the board DTS and the rtl930x drivers; the 2026-10-11 NAT rows ran the earlier snapshot r36962 (flash image), so booting is likely.
+- Upstream has the board DTS and the rtl930x drivers; the 2026-10-11 NAT rows ran the earlier snapshot r36962 (flash image), so booting is likely. Whether r38178 unpatched boots this board is unknown without hardware.
 - No `300-05`: CP0 timer rate comes from DT `/cpus` `frequency` (default 500 MHz) not the PLL ([CLOCKS.md](CLOCKS.md)). At any CPU rate other than that, switch-side clock-derived values (jiffies, CPU busy %) scale wrongly. iperf3 Mbit/s is host-timed and stays valid; CPU0/CPU1 columns from A are not comparable.
 - No `300-04` (DRAM prefetch), `300-21/25` (SRAM), `300-23` (LX from PLL), `300-17` (L3 offload), `300-39/40` (zc): A runs the stack path only; no zc, no L3-offload rows.
 - No st1008f-linkcheck: upstream OpenWrt bridges every port with STP off. sw2 has cage loops 3-4 and 7-8: unplug cages 3, 4, 7, 8 (cage 1 only) before booting A (storm hazard, [CLAUDE.md](../CLAUDE.md) Hazards). Use `--no-linkcheck`.
@@ -63,7 +68,7 @@ Does it boot on sw2 unpatched? Untested. Expectations, from the code:
 
 ## Config audit
 
-Sources: A = derived (generic + rtl930x `config-6.18` of `tmp/openwrt-build/target/linux/realtek` + `config/Config-kernel.in` buildbot defaults; the snapshot ships no kernel `.config`, so values are derived, not read from the binary); B = final `.config` of the built 7.4 tree; C = `tmp/build-mips-v7.4-rc1-bench/.config` (the config of `mainline-7.4-rc1.bin`). Generator: `python3 scripts/config_audit.py` (full per-symbol dump, log `tmp/logs/config_audit.log`). `n` = not set, `-` = absent.
+Sources: A = final kernel `.config` of the built upstream r38178 tree (`tmp/kernel-config-A-upstream-r38178.config`), read, not derived; B = final `.config` of the built 7.4 tree; C = `tmp/build-mips-v7.4-rc1-bench/.config` (the config of `mainline-7.4-rc1.bin`). Generator: `python3 scripts/config_audit.py` (full per-symbol dump, log `tmp/logs/config_audit.log`). `n` = not set, `-` = absent.
 
 | Option | A upstream 6.18 | B ours 7.4 | C plain 7.4 | Throughput effect |
 |---|---|---|---|---|
@@ -79,15 +84,15 @@ Sources: A = derived (generic + rtl930x `config-6.18` of `tmp/openwrt-build/targ
 | DEBUG_LIST, DEBUG_VM, DEBUG_NET, PAGE_POISONING, SLUB_DEBUG, PAGE_POOL_STATS | n | n | n | none; only the `--debug` image has them (below) |
 | SCHEDSTATS / SCHED_DEBUG / NET_DROP_MONITOR | n / - / - | n / - / - | n / - / - | none |
 | MAGIC_SYSRQ / PRINTK_TIME | y / y | y / y | y / y | none |
-| Preempt model | NONE (6.18) | VOLUNTARY | VOLUNTARY | 7.x MIPS has no PREEMPT_NONE choice (OpenWrt default would give full PREEMPT, [build_openwrt.py](../scripts/build_openwrt.py) `config()`): A vs B differs in kernel generation and model |
+| Preempt model | NONE (6.18, `PREEMPT_NONE=y`) | VOLUNTARY | VOLUNTARY | 7.x MIPS has no PREEMPT_NONE choice (OpenWrt default would give full PREEMPT, [build_openwrt.py](../scripts/build_openwrt.py) `config()`): A vs B differs in kernel generation and model |
 | HZ | 100 | 100 | **250** | tick overhead at 250 vs 100: expected < 1 %, not measured |
 | NR_CPUS / SMP / MIPS_MT_SMP | 2 / y / y | 2 / y / y | 2 / y / y | same |
 | HIGHMEM | y | y | y | same (`300-13` fast paths in B and C) |
 | CPU | MIPS32 R2, IRQ_VI | same | same | same (34Kc, no `-march=34kc` flag; `CPU_MIPS32_R2`) |
-| Optimisation | -O2 (PERFORMANCE) | -O2 | -O2 | same flag; compilers differ: A 6.18 OpenWrt GCC (toolchain), B GCC 14.4.0, C host GCC 16.2.1 mips64-linux-gnu |
-| STACKPROTECTOR / HARDENED_USERCOPY | y* / y | y / y | **n / n** | canary per function, usercopy check per copy_to_user: expected a few % |
-| SLAB_FREELIST_HARDENED / RANDOM / MERGE_DEFAULT | y / y / y* | y / y / y | **n / n / n** | per-alloc cost; expected a few % on skb-heavy paths |
-| CGROUPS / MEMCG / NAMESPACES | y* | y / y / y | **n / - / n** | memcg charges skb and slab: expected a few %; C has no netns (bench uses VLAN subifs, not netns, on the switch side) |
+| Optimisation | -O2 (PERFORMANCE) | -O2 | -O2 | same flag; compiler: A and B identical (OpenWrt GCC 14.4.0 toolchain-c0e63334e4, musl, binutils 2.46.1); C host GCC 16.2.1 mips64-linux-gnu |
+| STACKPROTECTOR / HARDENED_USERCOPY | y / y | y / y | **n / n** | canary per function, usercopy check per copy_to_user: expected a few % |
+| SLAB_FREELIST_HARDENED / RANDOM / MERGE_DEFAULT | y / y / y | y / y / y | **n / n / n** | per-alloc cost; expected a few % on skb-heavy paths |
+| CGROUPS / MEMCG / NAMESPACES | y / y / y | y / y / y | **n / - / n** | memcg charges skb and slab: expected a few %; C has no netns (bench uses VLAN subifs, not netns, on the switch side) |
 | IP_ADVANCED_ROUTER, IP_MULTIPLE_TABLES, IPV6_MULTIPLE_TABLES | y* | y y y | **n n n** | policy routing = fib_rules lookup per forwarded packet: expected to matter on route and nat rows |
 | NF_CONNTRACK (m/y), ZONES / TIMEOUT / MARK / PROCFS | m (kmods) | m; y y y y | y; **n n n n** | built-in vs module: no run-time difference; ZONES etc. add a few branches |
 | NF_FLOW_TABLE / NFT_FLOW_OFFLOAD | m | m | y | same code |
@@ -103,13 +108,13 @@ Sources: A = derived (generic + rtl930x `config-6.18` of `tmp/openwrt-build/targ
 | Cmdline | DTB (`MIPS_CMDLINE_FROM_DTB`) | DTB + bootargs (`DTB_EXTEND`) | same as B | A: no `console=`/bootargs from U-Boot merge; record `/proc/cmdline` per boot (`nat161_compare.py` DUMP does) |
 | LOGLEVEL console default | 15 | 15 | 7 | console spam only |
 
-`*` = derived from Config-kernel.in / OpenWrt generic defaults, not read from the snapshot binary; B shows STACKPROTECTOR `y` (regular), and A is expected to match.
+A column read from the built `.config` (no derived values left).
 
 ### Debug / trace state behind every published number
 
 | Rows ([NAT-STACKS.md](NAT-STACKS.md)) | Kernel config in the image | Tracing / debug active during the number |
 |---|---|---|
-| 6.18 (OpenWrt SNAPSHOT r36962, 2026-10-11) | upstream defaults (derived): no PERF, no FTRACE; DEBUG_INFO reduced | none |
+| 6.18 (OpenWrt SNAPSHOT r36962, 2026-10-11) | upstream defaults (derived, earlier snapshot): no PERF, no FTRACE; DEBUG_INFO reduced | none |
 | 7.3 image rows (2026-11-06) | image built before `29b22a6` (2026-11-07): no PERF / PROFILING | none |
 | 7.3 I (plain 7.3, 2026-10-12 to 10-15) | `st1008f-v2.config` since 2026-10-11: PERF_EVENTS + HW_PERF + FTRACE + FUNCTION_TRACER + FUNCTION_GRAPH + DYNAMIC_FTRACE compiled in, HZ 250; no DEBUG_LIST/SLUB_DEBUG/DEBUG_VM | tracer idle (`current_tracer` nop) except the `rteth-ftrace` rows (inflated, not in the table) and `nat_perf` rows (perf running) |
 | 7.4 image rows (2026-11-07, 11-08, `openwrt-ours`, `l3fix2`) | PERF_EVENTS + PROFILING + DYNAMIC_DEBUG compiled in (since `29b22a6`); no FTRACE | perf only in the explicit `--perf` runs; zc benches run with no perf process |
@@ -127,7 +132,7 @@ Expected to move numbers (rough, from our own data where marked):
 - **Hardening + memcg + fq_codel + policy routing (B vs old C)**: each a few %; together plausibly 5-15 % on stack rows (`nat`, `nat-ft`, route). zc rows pay less (no skb alloc, no qdisc, no fib lookup). Unmeasured; the clean C vs B A/B measures the sum, not the parts.
 - **Userland (fw4 hook chains, procd, irqbalance, rps_cpus default)**: B vs C `nat` gap 85.5 vs 240 Mbit/s is unexplained by config alone (#161); the nft ruleset load into C is the first alignment test.
 - **A vs B**: different kernel generation (6.18 vs 7.4), no zc/L3/ring/SRAM/prefetch patches: expected large (A `nat-ft` 243-248 at base clocks on r36962 vs B 267.7 at picks), not attributable to config.
-- **Compiler**: B GCC 14.4.0, C host GCC 16.2.1, A OpenWrt toolchain: unknown, keep as a stated difference.
+- **Compiler**: A and B identical (OpenWrt GCC 14.4.0 toolchain-c0e63334e4, verified from both trees); C host GCC 16.2.1 stays a stated difference.
 - **Timer rate on A** (no `300-05`): host-timed Mbit/s valid, switch-side CPU % not.
 
 Irrelevant (same in all three, or off the data path): DEBUG_INFO, DEBUG_FS, KALLSYMS, MAGIC_SYSRQ, PRINTK_TIME, SMP/NR_CPUS/HIGHMEM/CPU type, BPF, IKCONFIG, console loglevel, LOCKDEP and friends (all off everywhere), module vs built-in conntrack / flowtable code.
@@ -142,7 +147,7 @@ C (clean) = `mainline/st1008f-v2-clean.config`, merged last by `build-kernel --b
 
 B to A (where our patches do not need the difference):
 - Done: `build_openwrt.py --clean` drops `CONFIG_KERNEL_PERF_EVENTS`, `CONFIG_KERNEL_PROFILING`, `CONFIG_KERNEL_DYNAMIC_DEBUG`, `CONFIG_KERNEL_KALLSYMS` from the seed -> B-clean; `CONFIG_KERNEL_PREEMPT_VOLUNTARY` kept (7.x has no NONE). Perf uses the l3fix2 image (#148 flow).
-- Cannot align: kernel generation (A 6.18; A7 not buildable); PREEMPT (NONE vs VOLUNTARY).
+- Cannot align: kernel generation (A 6.18.60; A7 not buildable); PREEMPT (NONE vs VOLUNTARY).
 
 ## What is held identical / what still differs
 
@@ -161,15 +166,16 @@ Normaliser `scripts/stack_normalize.py --stack A|B|C` runs over ssh on the boote
 | sysctls | list `SYSCTLS` in the script (conntrack, flowtable, tcp_*, rmem/wmem, budget, rp_filter 0, printk) | `/proc/sys` | set | `nf_conntrack_checksum` was 0 on B, 1 on C; `rp_filter` 1 on OpenWrt, 0 plain |
 | IRQ | eth0 irq affinity 2 (VPE1), `--napi default` = 3 | `smp_affinity` | set | as `zc_bench.py --napi irq1` |
 | Services | collectd, lldpd, uhttpd, sysntpd, dnsmasq, odhcpd, snmpd, metricsd, rpcd, cron, irqbalance stopped | `init.d stop` + killall | stopped | kept: dropbear, network, procd/ubusd/netifd, logd, urngd, fan/led/gpio/poe, linkwatch (B only) |
-| Kernel debug/perf/trace | none compiled in B-clean, C-clean3, A (derived) | build + runtime probes in snapshot | n | listed per stack in the result header |
+| Kernel debug/perf/trace | none compiled in B-clean, C-clean3, A (read from built `.config`) | build + runtime probes in snapshot | n | listed per stack in the result header |
 | Clocks, cage, host, topology, cells | common / final sets, cage 1, same netns bench | `stack_compare.py` | same | A: cages 3, 4, 7, 8 unplugged |
 
 Cannot be aligned (listed in every result header):
-- Kernel: A 6.18.60 vs B/C 7.4-rc1; A7 (upstream + 7.4) not buildable. PREEMPT NONE (A) vs VOLUNTARY (B, C).
+- Kernel version: A 6.18.60 vs B/C 7.4-rc1; A7 (upstream + 7.4) not buildable. PREEMPT NONE (A) vs VOLUNTARY (B, C).
+- OpenWrt base: A and B both r38178 (aligned). C has no OpenWrt base (own BusyBox/musl copied from B).
 - Patch set: A has none of 300-xx (rteth ring/BQL/SRAM, prefetch, L3 offload, zc, CP0 timer from PLL).
-- Compiler for the kernel: A OpenWrt toolchain, B GCC 14.4.0, C host GCC 16.2.1.
+- Compiler for the kernel: A = B (OpenWrt GCC 14.4.0, same toolchain dir name and `--version`); C host GCC 16.2.1 differs.
 - OpenWrt base system (procd, netifd, hotplug, linkwatch) on A and B, absent on C: kept, only the optional daemons stop.
-- A's kernel config is derived (no IKCONFIG); only C has `/proc/config.gz`, so build-time config for A and B stays a document, run-time probes (perf, ftrace, dyndbg, kprobes, lockdep, schedstat, `current_tracer`) go in the snapshot.
+- A's and B's kernel configs are read from the built trees (no IKCONFIG on the boards); only C has `/proc/config.gz`, so build-time config for A and B stays a document, run-time probes (perf, ftrace, dyndbg, kprobes, lockdep, schedstat, `current_tracer`) go in the snapshot.
 - Free memory, BogoMIPS (not compared).
 
 Untested on hardware: C-clean3 boot (BusyBox without cttyhack, `sh -i` on `/dev/console`), the push step and its timeouts (assumed 256 KiB/s floor), `tc qdisc replace root noqueue` on the mq device, ip/tc wrappers with `LD_LIBRARY_PATH` on A, `nft` load of `fw4-b.nft` on A, every snapshot command on A's BusyBox.
@@ -178,8 +184,9 @@ Untested on hardware: C-clean3 boot (BusyBox without cttyhack, `sh -i` on `/dev/
 
 | Item | Result |
 |---|---|
-| A snapshot initramfs + sysupgrade + profiles.json + config.buildinfo | `tmp/upstream-snapshot/dl/`, sha256 checked against profiles.json |
-| A std-magic copy | `tmp/upstream-snapshot/upstream-r38188-initramfs-std.bin` (+ tftp copies `openwrt-upstream-r38188-initramfs[-std].bin`) |
+| A upstream r38178 (zero patches) | built, `tmp/tftp/openwrt-upstream-r38178-initramfs[-std].bin`, below |
+| Snapshot r38188 (note only) | `tmp/upstream-snapshot/dl/`, sha256 checked against profiles.json |
+| Snapshot std-magic copy | `tmp/upstream-snapshot/upstream-r38188-initramfs-std.bin` (+ tftp copies `openwrt-upstream-r38188-initramfs[-std].bin`) |
 | `sha256sums` of the snapshot dir | download truncated twice (server resets); profiles.json used for the checksums |
 | C clean kernel | built, image + sha256 below |
 | B | existing l3fix2 image used as is (not clean, see audit) |
@@ -216,7 +223,7 @@ Tests per stack and clock set (profile clean, perf/ftrace off):
 
 ## Owner answers 2026-11-08 and what was done
 
-1. A: snapshot r38188 (done) and A7: not buildable (above).
+1. A: upstream r38178 built, zero patches (done; replaces snapshot r38188, 2026-11-08 owner decision: identical OpenWrt version) and A7: not buildable (above).
 2. B: B-clean built; perf-enabled l3fix2 kept as PROFILE.
 3. C: tools of B copied into C's initramfs (C-clean2).
 4. Cages 3, 4, 7, 8 unplugged by the owner for every A run (upstream OpenWrt: no linkcheck, no STP: storm hazard, [CLAUDE.md](../CLAUDE.md) Hazards).
@@ -226,8 +233,9 @@ Tests per stack and clock set (profile clean, perf/ftrace off):
 
 | Stack | File (`tmp/tftp/`) | Bytes | sha256 |
 |---|---|---|---|
-| A | `openwrt-upstream-r38188-initramfs.bin` | 5,559,476 | `0e02ff2526a9d5904d3a01d31f6d8b26b3f1c8eccc0097ff4f0b0e1111fccaf6` |
-| A std | `openwrt-upstream-r38188-initramfs-std.bin` | 5,559,476 | `1b4f68417fb1f9889d8e5cfe2b4a505da70d4cc5b23f49e8bcf6b0ee977d41e8` |
+| A | `openwrt-upstream-r38178-initramfs.bin` | 5,353,577 | `57124dd796cdfdddaf7555c322756e67ed9be5e3a47af97e58047d7d1ade51d4` |
+| A std | `openwrt-upstream-r38178-initramfs-std.bin` | 5,353,577 | `14f140308d88ce10075b2d2a5dbdf92ccb0185fd13170aa9db6cba236880db93` |
+| A snapshot r38188 (note) | `openwrt-upstream-r38188-initramfs.bin` | 5,559,476 | `0e02ff2526a9d5904d3a01d31f6d8b26b3f1c8eccc0097ff4f0b0e1111fccaf6` |
 | A7 | not built | | |
 | B-clean | `openwrt-ours-clean-initramfs.bin` | 7,994,858 | `d49969634ddb6ee98ac80c86f2d52f3145f27608cedf11159c4b608bba6c8172` |
 | B-clean std | `openwrt-ours-clean-initramfs-std.bin` | 7,994,858 | `33affe72f7fe69d565cb5d1f9e550fdc39f97405757bef9df359fd965de4e188` |
@@ -245,7 +253,7 @@ Tests per stack and clock set (profile clean, perf/ftrace off):
 
 ## Debug / perf / trace state per stack (from the built `.config`)
 
-| Option | A (derived) | B-clean | B-profile | C-clean2 | C-profile |
+| Option | A (built .config) | B-clean | B-profile | C-clean2 | C-profile |
 |---|---|---|---|---|---|
 | PERF_EVENTS | n | n | **y** | n | **y** |
 | PROFILING | n | n | **y** | n | n |
@@ -257,12 +265,12 @@ Tests per stack and clock set (profile clean, perf/ftrace off):
 | HZ | 100 | 100 | 100 | 100 | 250 |
 | DEBUG_FS | y | y | y | y | y |
 
-- A is derived (no kernel `.config` ships); the snapshot `config.buildinfo` sets none of `KERNEL_PERF_EVENTS / PROFILING / DYNAMIC_DEBUG / FTRACE` (it sets `ALL_KMODS`, `BUILDBOT`, `COLLECT_KERNEL_DEBUG`).
+- A from the built r38178 tree `.config` (`tmp/kernel-config-A-upstream-r38178.config`): PERF_EVENTS n, PROFILING n, DYNAMIC_DEBUG n, FTRACE n, KPROBES n, SCHEDSTATS n, KALLSYMS y, HZ 100, DEBUG_INFO y (reduced), DEBUG_FS y, PREEMPT_NONE y; buildroot `KERNEL_DEBUG_FS/KALLSYMS/DEBUG_KERNEL/DEBUG_INFO(_REDUCED)` y, `KERNEL_PERF_EVENTS` and `KERNEL_FTRACE` not set.
 - DEBUG_INFO (reduced, vmlinux only) y in A and B, n in C: no run-time effect.
 
 ## Diff summary
 
-- **A7 vs B-clean `.config`: not possible (A7 not built).** Substitute: B-clean vs the snapshot's buildroot seed (`tmp/upstream-snapshot/dl/config.buildinfo`): the snapshot carries no `KERNEL_*` debug/perf symbol; B-clean's seed = ours (`build_openwrt.py` SEED, minus the four clean-off symbols), so the remaining differences are packages (`ALL_KMODS` in A vs the bench set in B), the testing kernel and PREEMPT (A: NONE on 6.18; B: VOLUNTARY on 7.4).
+- **A7 vs B-clean `.config`: not possible (A7 not built).** Substitute: A's built `.config` (`tmp/owrt-config-A-upstream-r38178.config`) vs B-clean's: A has no `KERNEL_*` debug/perf symbol beyond the OpenWrt defaults; remaining differences are packages (device default set in A vs ours plus feeds in B), the kernel generation and PREEMPT (A: NONE on 6.18; B: VOLUNTARY on 7.4).
 - **B-clean vs B-profile kernel `.config`** (`diff` of `tmp/kernel-config-B-{profile,clean}.config`): only `PERF_EVENTS`, `HW_PERF_EVENTS`, `PROFILING`, `DYNAMIC_DEBUG` + `DYNAMIC_DEBUG_CORE` (profile y, clean n), and `MODULES_TREE_LOOKUP`, `DEBUG_PERF_USE_VMALLOC` / `CGROUP_PERF` / `FW_LOADER_DEBUG` / `TEST_DYNAMIC_DEBUG` Kconfig-dependent lines, plus the `INITRAMFS_SOURCE` path (tree moved to `/home`). Buildroot `.config`: only `KERNEL_PERF_EVENTS`, `KERNEL_PROFILING`, `KERNEL_DYNAMIC_DEBUG` (and `PACKAGE_perf` unset in both).
 - **C-clean2 vs C-clean** (kernel): + `NFT_LIMIT / LOG / REJECT / REJECT_INET / REJECT_IPV4 / REJECT_IPV6 / FIB* / REDIR / QUOTA / NUMGEN / HASH`; initramfs differs (B's tools, `/etc/fw4-b.nft`).
 

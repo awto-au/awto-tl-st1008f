@@ -2,7 +2,7 @@
 """stack_compare — identical NAT bench on three stacks (A upstream OpenWrt, B ours OpenWrt, C plain kernel); DRY-RUN ONLY.
 
 - Plan: docs/NAT-STACK-TESTS.md. Prints every command per stack x clock set; `--run` is refused until the owner releases it.
-- Stacks: A = `openwrt-upstream` (snapshot as shipped), B = `openwrt-ours-clean` (profile runs: `openwrt-ours-l3fix2`), C = `mainline-kernel --kernel mainline-7.4-rc1-clean3.bin`. A7 (upstream + 7.4) cannot be built: NAT-STACK-TESTS.md.
+- Stacks: A = `openwrt-upstream` (r38178 built from upstream, zero patches), B = `openwrt-ours-clean` (profile runs: `openwrt-ours-l3fix2`), C = `mainline-kernel --kernel mainline-7.4-rc1-clean3.bin`. A7 (upstream + 7.4) cannot be built: NAT-STACK-TESTS.md.
 - Clock sets: common = core 508 / CPU 1350 / DDR 662 / LX 306 / SRAM 500; final = core 608 / CPU 1325 (LX 304-306).
 - Profile `clean`: tracing off (numbers). Profile `profile`: perf (+ ftrace on C) on, one diagnosis run per stack.
 - Per boot: `stack_normalize.py` runs BEFORE the cells (pinned tools, services, ruleset, sysctls, RPS/XPS, qdisc, offloads, IRQ), a
@@ -29,7 +29,7 @@ RAW = {  # core 508 (nat161_compare.py RAW) and core 608 (openwrt_core_stability
 }
 # key: (label, ramload --then, extra ramload args, zc fast path present, L3 offload (300-17) present, tracing in the image)
 STACKS = {
-    "A": ("upstream OpenWrt snapshot r38188, Linux 6.18.60, no patches", "openwrt-upstream", ["--no-linkcheck"], False, False, "none (no PERF, no FTRACE)"),
+    "A": ("OpenWrt r38178 (upstream, zero patches) + Linux 6.18.x", "openwrt-upstream", ["--no-linkcheck"], False, False, "none (no PERF, no FTRACE)"),
     "B": ("ours: OpenWrt main r38178 + 7.4-rc1 + series, clean profile", "openwrt-ours-clean", ["--no-linkcheck"], True, True, "none (no PERF, PROFILING, DYNAMIC_DEBUG, FTRACE)"),
     "C": ("plain Linux 7.4-rc1 + series, bench initramfs", "mainline-kernel", ["--kernel", "mainline-7.4-rc1-clean3.bin", "--mgmt"], True, True, "clean image (C-clean3: B's BusyBox/musl/dropbear/nft/ip/tc/ethtool + fw4 ruleset): none"),
 }
@@ -108,8 +108,8 @@ BY_DESIGN = [
     "PREEMPT: A NONE (6.18), B/C VOLUNTARY (7.x MIPS has no NONE choice)",
     "patch set: A has none of 300-xx (rteth TX ring / BQL xmit_more / SRAM rings / DRAM prefetch / L3 offload / zc / CP0 timer from PLL)",
     "A CP0 timer rate from DT (no 300-05): host-timed Mbit/s valid, switch-side CPU % not comparable",
-    "compiler: A OpenWrt toolchain, B GCC 14.4.0, C kernel by host GCC 16.2.1 (mips64-linux-gnu); userland all OpenWrt GCC 14.4.0",
-    "OpenWrt base system (procd/ubusd/netifd/logd/urngd/hotplug/st1008f-linkwatch) on A and B, not C; A's kernel config is derived, not read",
+    "compiler: A = B (OpenWrt GCC 14.4.0); C kernel by host GCC 16.2.1 (mips64-linux-gnu); userland all OpenWrt GCC 14.4.0",
+    "OpenWrt base system (procd/ubusd/netifd/logd/urngd/hotplug/st1008f-linkwatch) on A and B, not C; OpenWrt base r38178 on A and B",
     "free memory (initramfs size, kernel size)",
 ]
 
