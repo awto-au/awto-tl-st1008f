@@ -35,7 +35,9 @@ def log(msg):
 def rx(dev):
     r = subprocess.run(["sudo", "-n", "ip", "netns", "exec", "natwan", "cat", f"/sys/class/net/{dev}/statistics/rx_packets"],
                        capture_output=True, text=True, timeout=10)
-    return int(r.stdout.strip() or 0)
+    if r.returncode or not r.stdout.strip().isdigit():
+        raise RuntimeError(f"RX counter unavailable: {r.stderr[-200:]}")
+    return int(r.stdout.strip())
 
 
 def zc():
@@ -90,10 +92,14 @@ def run(label, secs, flows, ln):
     wall = time.time() - t
     if pp:
         perf_report(pp, ln, label)
+    if r.returncode or not re.search(r"sent [1-9][0-9]*", r.stdout):
+        raise RuntimeError(f"UDP trigger failed rc={r.returncode}: {r.stdout[-200:]} {r.stderr[-200:]}")
     b, zb, c1 = rx(dev), zc(), cpu_stat()
     m = None
     sent = re.search(r"sent (\d+)", r.stdout)
     # forwarded rate over the iperf window (secs + 2 s ramp); the dumps after it are idle
+    if b <= a:
+        raise RuntimeError("UDP trigger produced no received packets")
     kpps = (b - a) / secs / 1000
     d = {k: zb[k] - za[k] for k in zb}
     log(f"{label}: natwan rx {b - a} pkts = {kpps:.1f} kpps ({kpps * 1000 * (ln + 46) * 8 / 1e6:.0f} Mbit/s on the wire) | "
@@ -109,6 +115,8 @@ def run_tcp(label, secs, reverse):
     r = subprocess.run(cmd, cwd=ROOT, capture_output=True, text=True, timeout=secs * 6 + 60)  # run + ramp + dumps, x6
     zb = zc()
     m = re.search(r"RESULT \S+: ([\d.]+) Mbit/s \{[^}]*\} \| eth0 rx ([\d.]+) Mbit/s (\d+) pps", r.stdout)
+    if r.returncode or not m or float(m.group(1)) <= 0:
+        raise RuntimeError(f"TCP trigger failed rc={r.returncode}: {r.stdout[-300:]} {r.stderr[-200:]}")
     d = {k: zb[k] - za[k] for k in zb}
     log(f"{label}{' (reverse)' if reverse else ''}: iperf3 TCP P4 {m.group(1) if m else '?'} Mbit/s | eth0 stack rx {m.group(3) if m else '?'} pps | "
         f"zc_fwd {d['zc_fwd']} miss {d['zc_miss']} busy {d['zc_busy']} ring1 {d['ring1_frames']}")
@@ -148,17 +156,18 @@ def main():
     ap.add_argument("--len", type=int, default=1400)
     ap.add_argument("--tcp", action="store_true", help="iperf3 TCP through both directions (needs --nat parameters; implies --nat)")
     ap.add_argument("--nat", action="store_true", help="source NAT the flow: 10.99.1.2 -> 10.99.2.1, port + 1000")
-    ap.add_argument("--napi", choices=["irq", "split", "irq1"], default="irq",
-                    help="irq1 = no thread, NIC IRQ + softirq poll on VPE1 (no scheduler in the path); split = threaded NAPI, ring1 (fast path) thread on VPE1, other on VPE0")
+    ap.add_argument("--napi", choices=["irq", "split", "irq0", "irq1"], default="irq",
+                    help="irq0/irq1 = no thread, NIC IRQ + softirq poll on VPE0/1 (no scheduler in the path); split = threaded NAPI, ring1 (fast path) thread on VPE1, other on VPE0")
     ap.add_argument("--zc-only", action="store_true", help="skip the stack run and the wire check (A/B of zc variants)")
     ap.add_argument("--integrity", action="store_true", help="only the payload pattern check (zc+nat on) for len 1400/500/64")
     ap.add_argument("--perf", action="store_true", help="perf record -a during each run (perf_push.py first); report = all CPUs")
     a = ap.parse_args()
     global PERF
     PERF = a.perf
-    if a.napi == "irq1":
-        nb.sw("echo 0 > /sys/class/net/eth0/threaded; echo 2 > /proc/irq/$(awk '/eth0/{print +$1}' /proc/interrupts)/smp_affinity")
-        log("napi: softirq on VPE1, irq affinity " + nb.sw("cat /proc/irq/$(awk '/eth0/{print +$1}' /proc/interrupts)/smp_affinity"))
+    if a.napi in ("irq0", "irq1"):
+        affinity = "1" if a.napi == "irq0" else "2"
+        nb.sw(f"echo 0 > /sys/class/net/eth0/threaded; echo {affinity} > /proc/irq/$(awk '/eth0/{{print +$1}}' /proc/interrupts)/smp_affinity")
+        log(f"napi: softirq {a.napi}, irq affinity " + nb.sw("cat /proc/irq/$(awk '/eth0/{print +$1}' /proc/interrupts)/smp_affinity"))
     if a.napi == "split":
         nb.sw("echo 1 > /sys/class/net/eth0/threaded; i=0; for t in $(ps | awk '/napi\\/eth0/{print $1}'); do "
               "taskset -p $((2 >> (i % 2))) $t >/dev/null; i=$((i+1)); done")

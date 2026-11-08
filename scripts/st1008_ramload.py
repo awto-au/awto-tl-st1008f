@@ -486,7 +486,7 @@ def main() -> int:
                     help="uboot-mainline: keep stock CPU 800 MHz + SPI 25.5 MHz (default: 1 GHz + SPI 122.5 MHz)")
     ap.add_argument("--spi", metavar="D:CODE",
                     help="with --then: SPI before bootm, SFCR D (0 = /2) and NOR code e220[16:13] (6 = stock)")
-    ap.add_argument("--then", choices=["openwrt", "openwrt-ours", "openwrt-ours-6.18", "openwrt-ours-l3fix", "openwrt-ours-l3fix2", "openwrt-ours-clean", "openwrt-7.4-sw", "openwrt-upstream", "openwrt-upstream-snapshot", "mainline-kernel"],
+    ap.add_argument("--then", choices=["openwrt", "openwrt-ours", "openwrt-ours-debug", "openwrt-ours-6.18", "openwrt-ours-l3fix", "openwrt-ours-l3fix2", "openwrt-ours-clean", "openwrt-7.4-sw", "openwrt-upstream", "openwrt-upstream-snapshot", "mainline-kernel"],
                     help="uboot-mainline: also TFTP that image (std magic) to 0x84f00000, bootm it from ours "
                          "(after `clocks fast`)")
     ap.add_argument("--cpu", metavar="E208",

@@ -121,8 +121,14 @@ def pack():
 # ---- remote scripts ---------------------------------------------------------------------------------------------------
 def normalize_script(a):
     sysctl = "\n".join(f"{k} {v}" for k, v in SYSCTLS)
-    offl = " ".join(f"{k} {v}" for k, v in OFFLOADS.items())
-    aff = "2" if a.napi == "irq1" else "3"
+    offloads = dict(OFFLOADS)
+    if a.gro_mode == "list-off":
+        offloads["rx-gro-list"] = "off"
+    elif a.gro_mode == "off":
+        offloads["gro"] = "off"
+        offloads["rx-gro-list"] = "off"
+    offl = " ".join(f"{k} {v}" for k, v in offloads.items())
+    aff = {"irq0": "1", "irq1": "2", "default": "3"}[a.napi]
     return f"""#!/bin/sh
 # stack_normalize remote part: stack {a.stack} napi {a.napi} qdisc {a.qdisc}
 T={REMOTE}
@@ -142,8 +148,14 @@ done <<'EOF'
 {sysctl}
 EOF
 for f in /proc/sys/net/ipv4/conf/*/rp_filter; do echo 0 > $f; done
-for q in /sys/class/net/*/queues/rx-*/rps_cpus /sys/class/net/*/queues/rx-*/rps_flow_cnt /sys/class/net/*/queues/tx-*/xps_cpus; do
+for q in /sys/class/net/*/queues/rx-*/rps_flow_cnt /sys/class/net/*/queues/tx-*/xps_cpus; do
   [ -e $q ] && {{ echo 0 > $q 2>/dev/null; v=$(cat $q 2>/dev/null) && ! echo "$v" | grep -qE '^[0,]*$' && echo "FAIL $q"; }}
+done
+for q in /sys/class/net/*/queues/rx-*/rps_cpus; do
+  [ -e $q ] || continue
+  echo {a.rps_mask} > $q 2>/dev/null || echo "FAIL $q"
+  v=$(cat $q 2>/dev/null)
+  [ "$((0x$v))" -eq {int(a.rps_mask, 16)} ] || echo "FAIL $q readback '$v'"
 done
 for n in threaded gro_flush_timeout napi_defer_hard_irqs; do echo 0 > /sys/class/net/eth0/$n 2>/dev/null; done
 tc qdisc replace dev eth0 root {a.qdisc} || echo "FAIL qdisc {a.qdisc}"
@@ -157,7 +169,7 @@ echo done
 SNAP = [  # (key, remote command); every command stderr merged; output compared as text
     ("uname_r", "uname -r"), ("uname_v", "uname -v"), ("uname_a", "uname -a"), ("cmdline", "cat /proc/cmdline"),
     ("config_gz_sha256", "[ -e /proc/config.gz ] && zcat /proc/config.gz | sha256sum || echo absent"),
-    ("kconfig_debug", "[ -e /proc/config.gz ] && zcat /proc/config.gz | grep -E '^(# )?CONFIG_(DEBUG_KERNEL|DEBUG_FS|DEBUG_INFO|FTRACE|FUNCTION_TRACER|FUNCTION_GRAPH_TRACER|DYNAMIC_FTRACE|PERF_EVENTS|PROFILING|DYNAMIC_DEBUG|KPROBES|UPROBES|LOCKDEP|PROVE_LOCKING|KALLSYMS|KALLSYMS_ALL|SCHEDSTATS|SLUB_DEBUG|DEBUG_LIST|DEBUG_VM|NET_DROP_MONITOR|HZ|STACKPROTECTOR|HARDENED_USERCOPY|MEMCG|IP_MULTIPLE_TABLES|DEFAULT_NET_SCH|NETFILTER_EGRESS|PREEMPT[A-Z_]*|CC_OPTIMIZE[A-Z_]*)[= ]' || echo absent"),
+    ("kconfig_debug", "[ -e /proc/config.gz ] && zcat /proc/config.gz | grep -E '^(# )?CONFIG_(DEBUG_KERNEL|DEBUG_FS|DEBUG_INFO|FTRACE|FUNCTION_TRACER|FUNCTION_GRAPH_TRACER|DYNAMIC_FTRACE|PERF_EVENTS|PROFILING|DYNAMIC_DEBUG|KPROBES|UPROBES|LOCKDEP|PROVE_LOCKING|KALLSYMS|KALLSYMS_ALL|SCHEDSTATS|NETPOLL|NETCONSOLE|NET_RX_BUSY_POLL|GRO_CELLS|DEBUG_NET|PAGE_POOL_STATS|SLUB_DEBUG|DEBUG_LIST|DEBUG_VM|NET_DROP_MONITOR|HZ|STACKPROTECTOR|HARDENED_USERCOPY|MEMCG|IP_MULTIPLE_TABLES|DEFAULT_NET_SCH|NETFILTER_EGRESS|PREEMPT[A-Z_]*|CC_OPTIMIZE[A-Z_]*)[= ]' || echo absent"),
     ("rt_perf", "[ -e /proc/sys/kernel/perf_event_paranoid ] && echo y || echo n"),
     ("rt_ftrace", "[ -d /sys/kernel/tracing/events ] || [ -d /sys/kernel/debug/tracing/events ] && echo y || echo n"),
     ("rt_current_tracer", "cat /sys/kernel/tracing/current_tracer /sys/kernel/debug/tracing/current_tracer 2>/dev/null | head -1; true"),
@@ -293,7 +305,9 @@ def main():
     ap = argparse.ArgumentParser(description=__doc__.split("\n")[0])
     ap.add_argument("--stack", choices=["A", "B", "C"], help="which stack is booted (selects services/firewall steps)")
     ap.add_argument("--ip", default=BENCH_IP)
-    ap.add_argument("--napi", choices=["irq1", "default"], default="irq1", help="NIC irq on VPE1 (smp_affinity 2, as the --napi irq1 cells) or both (3)")
+    ap.add_argument("--napi", choices=["irq0", "irq1", "default"], default="irq1", help="NIC IRQ: VPE0 (1), VPE1 (2, default) or both (3)")
+    ap.add_argument("--rps-mask", choices=["0", "1", "2", "3"], default="0", help="#149: RX CPU mask on all netdevs; XPS/RFS remain off")
+    ap.add_argument("--gro-mode", choices=["on", "list-off", "off"], default="on", help="#149: independent fraglist and all-GRO bypass arms")
     ap.add_argument("--qdisc", default="noqueue", help="eth0 root qdisc on every stack (default noqueue: no queueing, one less variable; plain kernel gave 544 vs 528 with it)")
     ap.add_argument("--snap-dir", default=str(ROOT / "tmp/logs"), help="where the snapshot json is written")
     ap.add_argument("--tag", default="", help="snapshot file suffix (e.g. post)")
@@ -322,6 +336,7 @@ def main():
         return 0
     snap = parse_snapshot(out)
     snap.update({"stack": a.stack, "when": time.strftime("%Y-%m-%dT%H:%M:%S%z"), "napi": a.napi, "qdisc_requested": a.qdisc,
+                 "rps_requested": a.rps_mask, "gro_requested": a.gro_mode,
                  "normalise_failures": "\n".join(bad), "flavour_expected": FLAVOUR[a.stack]})
     p = Path(a.snap_dir) / f"stack_snapshot-{a.stack}{'-' + a.tag if a.tag else ''}.json"
     p.parent.mkdir(parents=True, exist_ok=True)
