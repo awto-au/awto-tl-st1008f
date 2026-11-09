@@ -161,9 +161,15 @@ index d11a6fd..dbad530 100644
  			gpio-controller;
  			#gpio-cells = <2>;
  		};
-@@ -154,0 +182,2 @@
+@@ -152,6 +179,8 @@
+ 		hw_algo = "toggle";
+ 		hw_margin_ms = <1200>;
+ 		always-running;
 +		/* GPIO21 low = board reset (#18): unfed after open_timeout, it reset the board at ~94 s (#166) */
 +		status = "disabled";
+ 	};
+ };
+ 
 @@ -185,11 +214,25 @@
  	};
  };
