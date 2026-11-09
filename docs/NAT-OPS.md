@@ -4,22 +4,27 @@ Facts and results: [NAT.md](NAT.md). Everything runs through `./dev.py nat-bench
 
 ## Preconditions
 
-- Board runs OpenWrt reachable at `192.168.25.48`, with SSH as root and no password. This is either the flash OpenWrt (normal power-up) or `./dev.py ramload openwrt` plus a static IP.
-  - Or the mainline 7.3 initramfs: `./dev.py ramload uboot-mainline --then mainline-kernel --cage 1`, then `port-up 1 192.168.25.48/24` on the console (dropbear, tools and pktgen built in; [MAINLINE-NET-OPS.md](MAINLINE-NET-OPS.md)). The script detects it: SVIs `lan1.99x`, no fw4.
+- sw2 runs OpenWrt reachable at `192.168.25.56`, with SSH as root and no password. This is either the flash OpenWrt (normal power-up) or `./dev.py ramload openwrt` plus a static IP.
+  - Or the mainline 7.3 initramfs: `./dev.py ramload uboot-mainline --then mainline-kernel --cage 1`, then `port-up 1 192.168.25.56/24` on the console (dropbear, tools and pktgen built in; [MAINLINE-NET-OPS.md](MAINLINE-NET-OPS.md)). The script detects it: SVIs `lan1.99x`, no fw4.
 - Packages installed in the switch overlay: `iperf3 ip-full ip-bridge tcpdump-mini kmod-pktgen`.
   - Install: `apk update && apk add ...`. This writes to the flash overlay, which is allowed.
   - `kmod-pktgen` must match the kernel's kmods hash in `/etc/apk/repositories.d`.
-- Host side: `enp7s0` (10G), `sudo -n`, `iperf3`.
-- Run `./dev.py storm-watch --duration 3600` alongside any test that changes switching.
+- Load generator: TrueNAS `enp7s0f0` (10G, `192.168.25.71`), controlled via its management address `192.168.25.64`. The privileged `nat-bench` app owns `natlan`/`natwan` and runs `iperf3`/`iproute2`; port 1 of the NIC stays unbound.
+- The app definition is [nat-bench-app.json](../truenas/nat-bench-app.json). `./dev.py nat-bench link-check` performs one short TrueNAS-to-dev-host 10G check via sw1 only; sw2 stays idle.
+- The link check is only a path sanity check; controlled measurements run entirely on the TrueNAS app, never on the shared dev host.
+- UDP tests upload `udpblast` as a static-musl executable for the app's runtime; the benchmark builds it automatically, or run `./dev.py nat-bench build-udpblast` explicitly.
+- `./dev.py` starts the storm guard automatically for hardware commands; do not start `storm_watch.py` by hand.
 
 ## Topology and safety
 
-- Host netns `natlan` uses `enp7s0.991` (10.99.1.2, fd99:1::2). Host netns `natwan` uses `enp7s0.992` (10.99.2.2, fd99:2::2).
+- TrueNAS app netns `natlan` uses `enp7s0f0.991` (10.99.1.2, fd99:1::2). App netns `natwan` uses `enp7s0f0.992` (10.99.2.2, fd99:2::2).
 - Switch SVIs are `switch.991` (10.99.1.1) and `switch.992` (10.99.2.1).
-- Bench path from 2026-10-12 (sw2): host `enp7s0` → sw1 lan5 → sw1 lan4 → sw2 cage 1. sw1 carries 991/992 tagged on lan4 + lan5 only (`./dev.py switch-vlan add 991,992 --ports lan4,lan5 --ip 192.168.25.48`, #96; uci saved, runtime-applied, no reload).
+- Bench path: TrueNAS `enp7s0f0` → sw1 lan6 → sw1 lan4 → sw2 cage 1. The old dev-host path through sw1 lan5 remains available. sw1 carries 991/992 tagged on lan4 + lan5 + lan6 (`./dev.py switch-vlan add 991,992 --ports lan4,lan5,lan6 --ip 192.168.25.48`; UCI saved and runtime-applied, no reload).
   - netifd re-applies its loaded config when lan4 re-joins (every sw2 power cycle), so runtime-only VLANs are dropped. Fixed by one owner-approved `./dev.py switch-vlan reload --ip 192.168.25.48` (2026-10-12T15:06+11:00: mgmt back 0.6 s after, switch-check PASS before/after); netifd now holds 991/992.
-- VLANs 991/992 are tagged on lan1 only. They are never in VLAN 1, there is no DHCP, and masquerade applies only out `switch.992`.
+- On sw2, VLANs 991/992 are tagged on lan1; sw1 passes them tagged on lan4/lan5/lan6. There is no DHCP, and masquerade applies only out `switch.992`.
 - All switch config is runtime only (bridge/ip/nft), with no `uci commit`. A reboot or `teardown` removes it.
+- Setup and teardown refuse to replace a TrueNAS benchmark namespace while it contains running processes. TrueNAS IPv4 and IPv6 forwarding-test servers are one-shot and bounded to the current run; if the idle check reports PIDs, wait for their processes to exit rather than killing by name. The IPv6 change has host-only tests, not a hardware run.
+- Do not use `rxdrop --xdp` in a shared environment: its cleanup still terminates processes by name. The stack comparison does not use that path.
 - The test subifs get MTU 1500 and their own MACs (`02:99:00:00:09:9x`):
   - The host NIC runs MTU 9000. Jumbo frames land in lan1 `ParserErrors`/`rx_MacDiscards` and TCP stalls silently.
   - With a shared MAC and link-local address, v6 ND towards natwan failed.
@@ -30,7 +35,9 @@ Facts and results: [NAT.md](NAT.md). Everything runs through `./dev.py nat-bench
 ## Commands
 
 ```
-./dev.py nat-bench setup                     # SVIs + host netns, ping check
+./dev.py nat-bench link-check                # short TrueNAS 10G check through sw1, sw2 idle
+./dev.py nat-bench generator-check           # confirm the TrueNAS benchmark namespaces are idle
+./dev.py nat-bench setup                     # SVIs + TrueNAS app netns, ping check
 ./dev.py nat-bench mode nat|nat-ft|route|route-ft
 ./dev.py nat-bench run --secs 10 -P 4 [--reverse]               # TCP natlan -> natwan
 ./dev.py nat-bench run --secs 10 -P 1 --udp 250 --len 1400      # UDP, loss %
@@ -40,6 +47,7 @@ Facts and results: [NAT.md](NAT.md). Everything runs through `./dev.py nat-bench
 ./dev.py nat-bench v6-setup                                     # gateway-routed v6 far /64s
 ./dev.py nat-bench v6-run --secs 10 -P 4 [--onlink] [--dst 2001:db8:22::5]
 ./dev.py nat-bench teardown
+./dev.py nat-bench teardown --generator-only  # remove only the idle TrueNAS namespaces; switch unchanged
 ```
 
 - L3 offload knobs and default-route topology (`offload`, `dflt-setup`, `routes`, `run --dst`): [ROUTING-OFFLOAD-OPS.md](ROUTING-OFFLOAD-OPS.md).
@@ -50,7 +58,7 @@ Facts and results: [NAT.md](NAT.md). Everything runs through `./dev.py nat-bench
   - `route` = no NAT, and natwan gets a route back to 10.99.1.0/24.
 - Testing the v6 default-route workaround:
   - On the switch: `ip -6 route replace 2000::/3 via fd99:2::2 dev switch.992`.
-  - Host: `ip -n natwan -6 addr add 2001:db8:22::5/128 dev enp7s0.992 nodad`.
+  - TrueNAS app: `ip -n natwan -6 addr add 2001:db8:22::5/128 dev enp7s0f0.992 nodad`.
   - Then `v6-run --dst 2001:db8:22::5`. `teardown` removes the route.
 - Runtime knobs tested:
   - RPS: `echo 2 > /sys/class/net/eth0/queues/rx-{0,1}/rps_cpus`; `0` restores. It measured worse.
@@ -117,4 +125,4 @@ Bench first: `nat-bench setup`, `v6-setup`, `dflt-setup`, `offload --onlink 0 --
 ## Recover
 
 - `./dev.py nat-bench teardown`.
-- If SSH is lost: reboot via the console (`./dev.py send "reboot"`) or run `./dev.py uboot-chain-env boot`. The flash OpenWrt comes back clean at `.48` with STP on.
+- If SSH is lost: reboot via the console (`./dev.py send "reboot"`) or run `./dev.py uboot-chain-env boot`. Verify `.56`, STP, and the boot log; a repeated-reset incident after a warm restore is tracked in #166.

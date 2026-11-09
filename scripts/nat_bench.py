@@ -1,9 +1,9 @@
 #!/usr/bin/env python3
 """nat_bench — CPU-path NAT / routing throughput through the ST1008F (docs/NAT.md, docs/NAT-OPS.md).
 
-Topology (one-armed, all over the single 10G host link; lan1 reaches the host via the house switch):
-  host netns natlan  enp7s0.991  10.99.1.2/24 gw 10.99.1.1  --VLAN 991-->  switch.991 10.99.1.1
-  host netns natwan  enp7s0.992  10.99.2.2/24               <--VLAN 992--  switch.992 10.99.2.1
+Topology (one-armed, all over TrueNAS's single 10G link; sw2 lan1 reaches sw1 via the house switch):
+  TrueNAS app netns natlan  enp7s0f0.991  10.99.1.2/24 gw 10.99.1.1  --VLAN 991-->  switch.991 10.99.1.1
+  TrueNAS app netns natwan  enp7s0f0.992  10.99.2.2/24                   <--VLAN 992--  switch.992 10.99.2.1
 - Both test subnets are on-link at the switch -> the ASIC traps every packet to the CPU (l3.c design),
   so each forwarded packet crosses the CPU port twice (RX + TX).
 - Test VLANs are tagged on lan1 only, never bridged to VLAN 1; no DHCP; NAT only out switch.992.
@@ -12,17 +12,19 @@ Topology (one-armed, all over the single 10G host link; lan1 reaches the host vi
   mainline 7.3 initramfs (no bridge, no fw4: SVIs are lan1.99x VLAN subifs, ip_forward set here).
 
 Usage (via ./dev.py nat-bench ...):
-  setup                              switch SVIs + host netns
+  link-check [--secs N]              short TrueNAS-to-host 10G check through sw1 only; sw2 idle
+  generator-check                    refuse if the benchmark namespaces contain active processes
+  setup                              switch SVIs + TrueNAS app netns
   mode nat|nat-ft|nat-hw|route|route-ft|route-hw   nft: masquerade and/or flowtable (-hw = flags offload, 300-39)
   run [--secs N] [-P N] [--reverse] [--udp MBPS --len B]   iperf3 natlan -> natwan + switch CPU stats
   local [--secs N] [-P N] [--reverse] host <-> switch iperf3 (CPU terminates; NIC/stack ceiling)
   pktgen [--count N --size B]       TX-only driver cost (in-kernel pktgen, kmod-pktgen)
-  rxdrop [--secs N --size B]        RX-only driver cost (host UDP flood, dropped at lan1 ingress)
+  rxdrop [--secs N --size B]        RX-only driver cost (TrueNAS UDP flood, dropped at lan1 ingress)
   v6-setup | v6-run [--onlink] [--dst A]   IPv6 routed through the ASIC (gateway-routed far /64s)
   offload [--onlink 0|1] [--default-v4 0|1] [--default-v6 0|1]   l3.c module parameters (300-17, #59); prints the tables
   dflt-setup                         switch default routes (v4+v6) via natwan + far /128 and /32 on natwan
   routes                             realtek_otto_l3 routes + nexthops (test rows only)
-  status | teardown
+  status | teardown [--generator-only]
 Log: tmp/logs/nat_bench.log (one JSON line per run: tmp/logs/nat_bench.jsonl)
 """
 
@@ -31,6 +33,7 @@ from __future__ import annotations
 import argparse
 import json
 import os
+import shlex
 import subprocess
 import sys
 import time
@@ -42,13 +45,18 @@ JSONL = ROOT / "tmp/logs/nat_bench.jsonl"
 
 sys.path.insert(0, str(Path(__file__).resolve().parent))  # `python -I ... _flood` drops the script dir from sys.path
 from boards import BENCH_IP, bench_nic  # noqa: E402
-HOST_NIC = bench_nic()         # host 10G (mlx4), found by MAC; also house mgmt, untouched
+HOST_NIC = "enp7s0f0"          # TrueNAS 10G NIC; port 1 stays unbound
+GENERATOR_IP = "192.168.25.64"  # TrueNAS management interface; not on the measured 10G path
+GENERATOR_10G_IP = "192.168.25.71"
+GENERATOR_CONTAINER = "ix-nat-bench-nat-bench-1"
+LOCAL_10G_NIC = bench_nic()
 SW_IP = BENCH_IP               # sw2 bench unit (scripts/boards.py)
 SW_PORT = "lan1"
 LAN_VID, WAN_VID = 991, 992    # test-only VIDs, tagged on lan1 only
 SW_LAN, SW_WAN = "10.99.1.1", "10.99.2.1"
 H_LAN, H_WAN = "10.99.1.2", "10.99.2.2"
 NS_LAN, NS_WAN = "natlan", "natwan"
+LOCAL_IPERF_PID = "/tmp/nat-bench-iperf3.pid"
 L3_PARAMS = "/sys/module/rtl_otto_dsa/parameters"   # l3_onlink, l3_default_v4/_v6 (300-17, #59)
 L3_DBG = "/sys/kernel/debug/realtek_otto_l3"
 # Reached only through the switch's default route (dflt-setup): TEST-NET-2, documentation v6
@@ -60,6 +68,11 @@ SSH = ["ssh", "-o", "StrictHostKeyChecking=no", "-o", "UserKnownHostsFile=/dev/n
        "-o", "LogLevel=ERROR", "-o", "BatchMode=yes", "-o", "ConnectTimeout=5",
        "-o", "ControlMaster=auto", "-o", f"ControlPath={ROOT}/tmp/nat_bench.ssh",
        "-o", "ControlPersist=120", f"root@{SW_IP}"]
+GENERATOR_SSH = ["ssh", "-o", "StrictHostKeyChecking=yes", "-o", "IdentitiesOnly=yes",
+                 "-i", str(Path.home() / ".ssh/id_ed25519"), "-o", "BatchMode=yes",
+                 "-o", "ConnectTimeout=8", "-o", "ControlMaster=auto",
+                 "-o", f"ControlPath={ROOT}/tmp/nat_bench.truenas.ssh",
+                 "-o", "ControlPersist=120", f"root@{GENERATOR_IP}"]
 # ssh command: LAN login + small /proc reads ~0.3 s; a CPU saturated by softirq stretches it to a few s.
 # 20 s = ~1.25x the slowest seen under full load; expiry raises naming the command.
 SSH_TMO_S = 20
@@ -110,16 +123,135 @@ def sw(cmd: str, check: bool = True, tmo: float = SSH_TMO_S) -> str:
     return r.stdout
 
 
-def host(cmd: list[str], check: bool = True) -> str:
-    # local ip/netns commands: instant; 10 s names a hang
-    r = subprocess.run(["sudo", "-n", *cmd], capture_output=True, text=True, timeout=10)
+def host_run(cmd: list[str], check: bool = True, timeout: float = 10) -> subprocess.CompletedProcess:
+    remote = shlex.join(["docker", "exec", GENERATOR_CONTAINER, *cmd])
+    try:
+        r = subprocess.run(GENERATOR_SSH + [remote], capture_output=True, text=True, timeout=timeout)
+    except subprocess.TimeoutExpired:
+        raise SystemExit(f"TrueNAS generator command timed out after {timeout}s: {' '.join(cmd)}")
     if check and r.returncode != 0:
-        raise SystemExit(f"host cmd failed ({r.returncode}): {' '.join(cmd)}\n{r.stderr.strip()}")
-    return r.stdout
+        raise SystemExit(f"TrueNAS generator cmd failed ({r.returncode}): {' '.join(cmd)}\n{r.stderr.strip()}")
+    return r
+
+
+def host(cmd: list[str], check: bool = True, timeout: float = 10) -> str:
+    return host_run(cmd, check=check, timeout=timeout).stdout
+
+
+def _static_elf(path: Path) -> bool:
+    if not path.is_file() or path.read_bytes()[:4] != b"\x7fELF":
+        return False
+    try:
+        r = subprocess.run(["readelf", "-l", str(path)], capture_output=True, text=True, timeout=10)
+    except FileNotFoundError:
+        raise SystemExit("readelf is required to verify the TrueNAS UDP helper")
+    if r.returncode:
+        raise SystemExit(f"cannot inspect ELF program headers for {path}: {r.stderr.strip()}")
+    return "Requesting program interpreter:" not in r.stdout
+
+
+def ensure_udpblast() -> Path:
+    source = ROOT / "scripts/tools/udpblast.c"
+    binary = ROOT / "tmp/udpblast"
+    if _static_elf(binary):
+        return binary
+    if not source.is_file():
+        raise SystemExit(f"UDP helper source missing: {source}")
+    tmp = binary.with_name(binary.name + ".tmp")
+    tmp.unlink(missing_ok=True)
+    try:
+        r = subprocess.run(["musl-gcc", "-static", "-O2", "-o", str(tmp), str(source)],
+                           capture_output=True, text=True, timeout=60)
+    except FileNotFoundError:
+        tmp.unlink(missing_ok=True)
+        raise SystemExit("musl-gcc is required to build the TrueNAS UDP helper")
+    except subprocess.TimeoutExpired:
+        tmp.unlink(missing_ok=True)
+        raise SystemExit("musl-gcc timed out building the TrueNAS UDP helper")
+    if r.returncode:
+        tmp.unlink(missing_ok=True)
+        raise SystemExit(f"musl-gcc failed building {binary}: {r.stderr.strip()}")
+    if not _static_elf(tmp):
+        tmp.unlink(missing_ok=True)
+        raise SystemExit(f"built UDP helper is not a static ELF: {tmp}")
+    tmp.replace(binary)
+    log(f"built static-musl UDP helper: {binary} ({binary.stat().st_size} B)")
+    return binary
+
+
+def generator_upload(source: Path, destination: str, mode: str = "755") -> None:
+    if not source.is_file():
+        raise SystemExit(f"generator upload source missing: {source}")
+    if destination == "/tmp/udpblast" and not _static_elf(source):
+        raise SystemExit("TrueNAS UDP helper must be statically linked; run ./dev.py nat-bench build-udpblast")
+    remote_script = f"cat > {shlex.quote(destination)} && chmod {mode} {shlex.quote(destination)}"
+    remote = shlex.join(["docker", "exec", "-i", GENERATOR_CONTAINER, "sh", "-c", remote_script])
+    try:
+        r = subprocess.run(GENERATOR_SSH + [remote], input=source.read_bytes(), capture_output=True, timeout=30)
+    except subprocess.TimeoutExpired:
+        raise SystemExit(f"TrueNAS generator upload timed out: {source}")
+    if r.returncode:
+        raise SystemExit(f"TrueNAS generator upload failed ({r.returncode}): {source}: "
+                         f"{r.stderr.decode(errors='replace').strip()}")
+
+
+def generator_link_check(secs: int = 3) -> int:
+    """Measure the TrueNAS 10G link across sw1 only; sw2 stays idle."""
+    out = subprocess.run(["ip", "-o", "-4", "addr", "show", "dev", LOCAL_10G_NIC],
+                         capture_output=True, text=True, timeout=5, check=True).stdout
+    local_ip = next((part.split("/")[0] for part in out.split() if part.startswith("192.168.25.")), None)
+    if not local_ip:
+        raise SystemExit(f"no 192.168.25.x address on local 10G NIC {LOCAL_10G_NIC}")
+    try:
+        server = subprocess.Popen(["iperf3", "-s", "-1", "-B", local_ip],
+                                  stdout=subprocess.DEVNULL, stderr=subprocess.PIPE, text=True)
+    except OSError as e:
+        raise SystemExit(f"cannot start local iperf3 server: {e}")
+    try:
+        time.sleep(0.5)
+        if server.poll() is not None:
+            err = server.stderr.read().strip() if server.stderr else ""
+            raise SystemExit(f"local iperf3 server exited early: {err}")
+        r = host_run(["iperf3", "-c", local_ip, "-B", GENERATOR_10G_IP,
+                      "-t", str(secs), "-P", "4", "-J", "-O", "1"], timeout=secs + 20)
+        res = json.loads(r.stdout)
+    finally:
+        if server.poll() is None:
+            server.terminate()
+            try:
+                server.wait(timeout=3)
+            except subprocess.TimeoutExpired:
+                server.kill()
+                server.wait()
+    if "error" in res:
+        log(f"GENERATOR 10G LINK CHECK FAIL: {res['error']}")
+        return 1
+    mbps = res.get("end", {}).get("sum_received", {}).get("bits_per_second", 0) / 1e6
+    log(f"GENERATOR 10G LINK CHECK: TrueNAS {GENERATOR_10G_IP} via sw1 only, sw2 idle; "
+        f"{mbps:.1f} Mbit/s ({secs}s, 4 streams)")
+    return 0
 
 
 # ---- setup / teardown --------------------------------------------------------
+def generator_idle() -> bool:
+    present = {line.split()[0] for line in host(["ip", "netns", "list"]).splitlines() if line.split()}
+    for ns in (NS_LAN, NS_WAN):
+        if ns in present:
+            pids = host(["ip", "netns", "pids", ns]).split()
+            if pids:
+                log(f"refusing to alter TrueNAS namespace {ns}: active PIDs {', '.join(pids)}")
+                return False
+    return True
+
+
 def setup() -> int:
+    host(["ip", "link", "show", HOST_NIC])
+    if not generator_idle():
+        return 2
+    tools = "command -v ip >/dev/null || { echo missing iproute2 >&2; exit 1; }; "
+    if not mainline():
+        tools += "command -v bridge >/dev/null || { echo missing ip-bridge >&2; exit 1; }; "
+    sw(tools)
     log(f"setup: switch VLAN {LAN_VID}/{WAN_VID} tagged on {SW_PORT} + SVIs (runtime only)")
     cmds = ["echo 1 > /proc/sys/net/ipv4/ip_forward", "echo 1 > /proc/sys/net/ipv6/conf/all/forwarding"] \
         if mainline() else []
@@ -131,8 +263,7 @@ def setup() -> int:
                  f"ip addr replace {ip}/24 dev {svi(vid)}",
                  f"ip link set {svi(vid)} up"]
     sw(" && ".join(cmds))
-    log(f"setup: host netns {NS_LAN}/{NS_WAN} on {HOST_NIC}.{LAN_VID}/.{WAN_VID}")
-    host(["modprobe", "8021q"])
+    log(f"setup: TrueNAS app netns {NS_LAN}/{NS_WAN} on {HOST_NIC}.{LAN_VID}/.{WAN_VID}")
     for ns, vid, ip in ((NS_LAN, LAN_VID, H_LAN), (NS_WAN, WAN_VID, H_WAN)):
         sub = f"{HOST_NIC}.{vid}"
         host(["ip", "netns", "del", ns], check=False)
@@ -142,14 +273,14 @@ def setup() -> int:
         host(["ip", "link", "set", sub, "netns", ns])
         host(["ip", "-n", ns, "addr", "add", f"{ip}/24", "dev", sub])
         host(["ip", "-n", ns, "link", "set", "lo", "up"])
-        # host enp7s0 runs MTU 9000; the switch ports are 1500 (jumbo -> lan1 ParserErrors, silent loss)
+        # TrueNAS enp7s0f0 runs MTU 9000; switch ports are 1500 (jumbo -> lan1 ParserErrors, silent loss)
         # own MAC per test netns: both subifs otherwise share enp7s0's MAC + link-local (v6 ND to natwan failed)
         host(["ip", "-n", ns, "link", "set", sub, "address", f"02:99:00:00:{vid // 100:02d}:{vid % 100:02d}"])
         host(["ip", "-n", ns, "link", "set", sub, "mtu", "1500", "up"])
     host(["ip", "-n", NS_LAN, "route", "add", "default", "via", SW_LAN])
     status()  # natwan has no return route until `mode`: the end-to-end ping cannot pass here (#159)
-    r = subprocess.run(["sudo", "-n", "ip", "netns", "exec", NS_LAN, "ping", "-c", "2", "-W", "1", SW_LAN],
-                       capture_output=True, text=True, timeout=10)  # 2 pings x 1 s wait + margin
+    r = host_run(["ip", "netns", "exec", NS_LAN, "ping", "-c", "2", "-W", "1", SW_LAN],
+                 check=False, timeout=10)  # 2 pings x 1 s wait + margin
     log(f"ping {NS_LAN} -> {SW_LAN} (switch SVI): {'OK' if r.returncode == 0 else 'FAIL'}")
     return 0 if r.returncode == 0 else 1
 
@@ -195,22 +326,59 @@ def set_mode(mode: str) -> int:
     return 0
 
 
-def teardown() -> int:
-    log("teardown: nattest table, fw4 reload, SVIs, bridge VLANs, host netns")
-    sw("nft delete table inet nattest 2>/dev/null; nft delete table netdev rxdrop 2>/dev/null; "
-       "killall iperf3 2>/dev/null; ip -6 route del 2000::/3 2>/dev/null; "
-       f"ip route del default via {H_WAN} 2>/dev/null; ip -6 route del default via {V6[WAN_VID][1]} 2>/dev/null; "
-       f"for p in l3_onlink l3_default_v4 l3_default_v6; do echo 0 > {L3_PARAMS}/$p 2>/dev/null; done; "
-       + ("echo 0 > /proc/sys/net/ipv4/ip_forward; echo rem_device_all > /proc/net/pktgen/kpktgend_0 2>/dev/null; "
-          if mainline() else "rmmod pktgen 2>/dev/null; /etc/init.d/firewall reload; ")
-       + f"ip link del {svi(LAN_VID)}; ip link del {svi(WAN_VID)}; "
-       + ("true" if mainline() else
-          f"bridge vlan del dev {SW_PORT} vid {LAN_VID}; bridge vlan del dev {SW_PORT} vid {WAN_VID}; "
-          f"bridge vlan del dev switch vid {LAN_VID} self; bridge vlan del dev switch vid {WAN_VID} self; true"),
-       check=False)
+def stop_local_iperf() -> None:
+    pid = sw(f"cat {LOCAL_IPERF_PID} 2>/dev/null || true").strip()
+    if not pid:
+        return
+    if not pid.isdecimal() or int(pid) <= 1:
+        raise SystemExit(f"invalid local iperf3 PID file {LOCAL_IPERF_PID}: {pid!r}")
+    sw(f"if [ -r /proc/{pid}/cmdline ]; then "
+       f"tr '\\0' '\\n' < /proc/{pid}/cmdline | grep -Fxq {LOCAL_IPERF_PID} || "
+       f"{{ echo 'refusing to stop unowned PID {pid}' >&2; exit 1; }}; kill {pid} || exit 1; fi; "
+       f"rm -f {LOCAL_IPERF_PID}")
+
+
+def stop_pktgen() -> None:
+    if sw("grep -q '^pktgen ' /proc/modules && echo loaded || true").strip() == "loaded":
+        sw("rmmod pktgen")
+
+
+def teardown(generator_only: bool = False) -> int:
+    if not generator_idle():
+        return 2
+    if generator_only:
+        log("teardown: TrueNAS app netns only; switch state unchanged")
+    else:
+        stop_local_iperf()
+        log("teardown: nattest table, fw4 reload, SVIs, bridge VLANs, TrueNAS app netns")
+        is_mainline = mainline()
+        if not is_mainline:
+            stop_pktgen()
+        sw("nft delete table inet nattest 2>/dev/null; nft delete table netdev rxdrop 2>/dev/null; "
+           "ip -6 route del 2000::/3 2>/dev/null; "
+           f"ip route del default via {H_WAN} 2>/dev/null; ip -6 route del default via {V6[WAN_VID][1]} 2>/dev/null; "
+           f"for p in l3_onlink l3_default_v4 l3_default_v6; do echo 0 > {L3_PARAMS}/$p 2>/dev/null; done; "
+           + ("echo 0 > /proc/sys/net/ipv4/ip_forward; echo rem_device_all > /proc/net/pktgen/kpktgend_0 2>/dev/null; "
+              if is_mainline else "/etc/init.d/firewall reload; ")
+           + f"ip link del {svi(LAN_VID)}; ip link del {svi(WAN_VID)}; "
+           + ("true" if is_mainline else
+              f"bridge vlan del dev {SW_PORT} vid {LAN_VID}; bridge vlan del dev {SW_PORT} vid {WAN_VID}; "
+              f"bridge vlan del dev switch vid {LAN_VID} self; bridge vlan del dev switch vid {WAN_VID} self; true"),
+           check=False)
     for ns, vid in ((NS_LAN, LAN_VID), (NS_WAN, WAN_VID)):
         host(["ip", "netns", "del", ns], check=False)
         host(["ip", "link", "del", f"{HOST_NIC}.{vid}"], check=False)
+    namespaces = {line.split()[0] for line in host(["ip", "netns", "list"]).splitlines() if line.split()}
+    links = set()
+    for line in host(["ip", "-o", "link", "show"]).splitlines():
+        parts = line.split(": ", 2)
+        if len(parts) >= 2:
+            links.add(parts[1].split("@", 1)[0])
+    remaining = (namespaces & {NS_LAN, NS_WAN}) | (links & {f"{HOST_NIC}.{LAN_VID}", f"{HOST_NIC}.{WAN_VID}"})
+    if remaining:
+        log(f"FAIL teardown: TrueNAS benchmark state remains: {', '.join(sorted(remaining))}")
+        return 1
+    log("teardown: TrueNAS benchmark namespaces and VLAN interfaces removed")
     return 0
 
 
@@ -219,8 +387,8 @@ def status() -> int:
              "nft list table inet nattest 2>/dev/null | head -20; "
              "grep -E 'nattest|99[12]' /sys/kernel/debug/realtek_otto_l3/routes; true", check=False)
     log(out.strip())
-    r = subprocess.run(["sudo", "-n", "ip", "netns", "exec", NS_LAN, "ping", "-c", "2", "-W", "1", H_WAN],
-                       capture_output=True, text=True, timeout=10)  # 2 pings x 1 s wait + margin
+    r = host_run(["ip", "netns", "exec", NS_LAN, "ping", "-c", "2", "-W", "1", H_WAN],
+                 check=False, timeout=10)  # 2 pings x 1 s wait + margin
     log(f"ping {NS_LAN} -> {H_WAN}: {'OK' if r.returncode == 0 else 'FAIL'}")
     return 0 if r.returncode == 0 else 1
 
@@ -260,38 +428,43 @@ def cpu_report(a: dict, b: dict) -> dict:
     return out
 
 
-def stop_srv(p: subprocess.Popen) -> None:
-    """Stop our own iperf3 server child. SIGTERM: sudo relays it; SIGKILL on sudo would orphan iperf3 in the netns."""
-    if p.poll() is None:
-        p.terminate()
-        try:
-            p.wait(timeout=3)  # relay + exit < 0.1 s
-        except subprocess.TimeoutExpired:
-            log("iperf3 server ignored SIGTERM for 3 s: SIGKILL (may orphan it in the netns)")
-            p.kill()
-
-
 def iperf(ns_srv: str, srv_ip: str, ns_cli: str | None, secs: int, streams: int, reverse: bool,
-          udp: int | None, length: int | None) -> dict:
-    srv = (["sudo", "-n", "nice", "-n", "19", "ip", "netns", "exec", ns_srv] if ns_srv else []) + \
-        ["iperf3", "-s", "-1", "-B", srv_ip]
-    p = subprocess.Popen(srv, stdout=subprocess.DEVNULL, stderr=subprocess.DEVNULL)
-    time.sleep(0.5)  # iperf3 -s binds in <50 ms; 0.5 s keeps the client from racing it
-    cli = (["sudo", "-n", "nice", "-n", "19", "ip", "netns", "exec", ns_cli] if ns_cli else []) + \
-        ["iperf3", "-c", srv_ip, "-t", str(secs), "-P", str(streams), "-J", "-O", "2"]
+          udp: int | None, length: int | None, *, ipv6: bool = False, src_ip: str | None = None) -> dict:
+    tmo = int((secs + 2) * 1.25) + 5  # run + 2 s omit, 1.25x, + connect
+    srv = (["nice", "-n", "19", "ip", "netns", "exec", ns_srv] if ns_srv else []) + \
+        ["timeout", str(tmo + 5), "iperf3"] + (["-6"] if ipv6 else []) + ["-s", "-1", "-B", srv_ip]
+    remote = shlex.join(["docker", "exec", GENERATOR_CONTAINER, *srv])
+    server = subprocess.Popen(GENERATOR_SSH + [remote], stdout=subprocess.DEVNULL, stderr=subprocess.PIPE, text=True)
+    cli = (["nice", "-n", "19", "ip", "netns", "exec", ns_cli] if ns_cli else []) + \
+        ["iperf3"] + (["-6"] if ipv6 else []) + ["-c", srv_ip] + \
+        (["-B", src_ip] if src_ip else []) + ["-t", str(secs), "-P", str(streams), "-J", "-O", "2"]
     if reverse:
         cli.append("-R")
     if udp:
         cli += ["-u", "-b", f"{udp}M"]
     if length:
         cli += ["-l", str(length)]
-    tmo = int((secs + 2) * 1.25) + 5  # run + 2 s omit, 1.25x, + connect
+    server_output = None
     try:
-        r = subprocess.run(cli, capture_output=True, text=True, timeout=tmo)
-    except subprocess.TimeoutExpired:
-        stop_srv(p)
-        raise SystemExit(f"iperf3 timed out after {tmo}s (secs={secs})")
-    stop_srv(p)  # also when the client could not connect: -1 server would stay and pin the netns
+        time.sleep(0.5)  # iperf3 -s binds in <50 ms; 0.5 s keeps the client from racing it
+        if server.poll() is not None:
+            server_output = server.communicate()
+            raise SystemExit(f"TrueNAS iperf3 server exited early: {server_output[1].strip()}")
+        r = host_run(cli, timeout=tmo)
+    finally:
+        if server_output is None:
+            try:
+                server_output = server.communicate(timeout=tmo + 10)
+            except subprocess.TimeoutExpired:
+                server.terminate()
+                try:
+                    server.wait(timeout=3)
+                except subprocess.TimeoutExpired:
+                    server.kill()
+                    server.wait()
+                raise SystemExit("TrueNAS iperf3 SSH session did not exit after its server timeout")
+    if server.returncode:
+        raise SystemExit(f"TrueNAS iperf3 server failed rc {server.returncode}: {server_output[1].strip()}")
     try:
         return json.loads(r.stdout)
     except json.JSONDecodeError:
@@ -337,14 +510,18 @@ def run(args, local: bool) -> int:
     if local:
         sw(("" if mainline() or not has_nft() else "nft list chain inet fw4 input | grep -q nattest || "
             f"nft insert rule inet fw4 input iifname switch.{LAN_VID} accept comment nattest; ")
-           + f"pidof iperf3 >/dev/null || iperf3 -s -D -B {SW_LAN}")
+           + f"p=$(cat {LOCAL_IPERF_PID} 2>/dev/null); case \"$p\" in ''|*[!0-9]*) p=;; esac; "
+           + f"if [ -n \"$p\" ] && [ -r /proc/$p/cmdline ] && "
+             f"tr '\\0' '\\n' < /proc/$p/cmdline | grep -Fxq {LOCAL_IPERF_PID}; then :; "
+             "elif pidof iperf3 >/dev/null; then echo 'unowned iperf3 is already running' >&2; exit 1; "
+           + f"else iperf3 -s -D -B {SW_LAN} --pidfile {LOCAL_IPERF_PID}; fi")
     a = snap()
     if local:
-        cli = ["sudo", "-n", "nice", "-n", "19", "ip", "netns", "exec", NS_LAN, "iperf3", "-c", SW_LAN, "-t", str(args.secs),
+        cli = ["nice", "-n", "19", "ip", "netns", "exec", NS_LAN, "iperf3", "-c", SW_LAN, "-t", str(args.secs),
                "-P", str(args.P), "-J", "-O", "2"] + (["-R"] if args.reverse else []) + \
             (["-u", "-b", f"{args.udp}M", "-l", str(args.len)] if args.udp else [])
         tmo = int((args.secs + 2) * 1.25) + 5
-        r = subprocess.run(cli, capture_output=True, text=True, timeout=tmo)
+        r = host_run(cli, timeout=tmo)
         res = json.loads(r.stdout)
     else:
         sw(f"echo 1 > {L3_DBG}/clear_route_hits 2>/dev/null; true")
@@ -410,15 +587,15 @@ def dflt_setup() -> int:
     host(["ip", "-n", NS_WAN, "addr", "replace", f"{FAR4}/32", "dev", sub])
     host(["ip", "-n", NS_WAN, "-6", "addr", "replace", f"{FAR6}/128", "dev", sub, "nodad"])
     host(["ip", "-n", NS_WAN, "route", "replace", "10.99.1.0/24", "via", SW_WAN])
-    r = subprocess.run(["sudo", "-n", "ip", "netns", "exec", NS_LAN, "ping", "-c", "2", "-W", "1", FAR4],
-                       capture_output=True, text=True, timeout=10)  # 2 pings x 1 s wait + margin
+    r = host_run(["ip", "netns", "exec", NS_LAN, "ping", "-c", "2", "-W", "1", FAR4],
+                 check=False, timeout=10)  # 2 pings x 1 s wait + margin
     log(f"ping {NS_LAN} -> {FAR4} (switch default route): {'OK' if r.returncode == 0 else 'FAIL'}")
     routes()
     return 0 if r.returncode == 0 else 1
 
 
 def pktgen(count: int, size: int) -> int:
-    """TX-only cost: in-kernel pktgen on the switch, lan1 -> VLAN 992 -> natwan (host)."""
+    """TX-only cost: in-kernel pktgen on the switch, lan1 -> VLAN 992 -> TrueNAS natwan."""
     mac = host(["ip", "netns", "exec", NS_WAN, "cat", f"/sys/class/net/{HOST_NIC}.{WAN_VID}/address"]).strip()
     pg = "/proc/net/pktgen"
     cfg = ([] if mainline() else ["modprobe pktgen"]) + [f"echo rem_device_all > {pg}/kpktgend_0", f"echo add_device {SW_PORT} > {pg}/kpktgend_0"]
@@ -442,7 +619,7 @@ def pktgen(count: int, size: int) -> int:
 
 
 def flood(dst: str, secs: float, size: int) -> int:
-    """Host-side UDP blaster (runs inside a netns via `_flood`); prints packets sent."""
+    """TrueNAS-side UDP blaster (runs inside a netns via `_flood`); prints packets sent."""
     import socket
     s = socket.socket(socket.AF_INET, socket.SOCK_DGRAM)
     payload = b"x" * size
@@ -489,8 +666,10 @@ def rxdrop(secs: int, size: int, xdp: str | None = None) -> int:
        # match the source MAC: the frame may still carry its VLAN tag here, so `ip daddr` misses it
        f"  ether saddr {mac} counter drop\n  }}\n}}\nEOF")
     a = snap()
-    r = subprocess.run(["sudo", "-n", "nice", "-n", "19", "ip", "netns", "exec", NS_LAN, sys.executable, "-I", __file__, "_flood",
-                        SW_LAN, str(secs), str(size)], capture_output=True, text=True, timeout=secs * 1.25 + 5)
+    generator_upload(Path(__file__), "/tmp/nat_bench.py")
+    generator_upload(Path(__file__).with_name("boards.py"), "/tmp/boards.py")
+    r = host_run(["nice", "-n", "19", "ip", "netns", "exec", NS_LAN, "python3", "-I", "/tmp/nat_bench.py", "_flood",
+                  SW_LAN, str(secs), str(size)], timeout=secs * 1.25 + 5)
     b = snap()
     cnt = sw("nft list table netdev rxdrop | grep counter")
     sw("nft delete table netdev rxdrop")
@@ -532,8 +711,8 @@ def v6_setup() -> int:
         host(["ip", "-n", ns, "-6", "addr", "replace", f"{hip}/64", "dev", sub, "nodad"])
         host(["ip", "-n", ns, "-6", "addr", "replace", f"{far}/128", "dev", sub, "nodad"])
         host(["ip", "-n", ns, "-6", "route", "replace", "default", "via", svi6])
-    r = subprocess.run(["sudo", "-n", "ip", "netns", "exec", NS_LAN, "ping", "-6", "-c", "3", "-W", "1",
-                        "-I", V6[LAN_VID][3], V6[WAN_VID][3]], capture_output=True, text=True, timeout=10)
+    r = host_run(["ip", "netns", "exec", NS_LAN, "ping", "-6", "-c", "3", "-W", "1",
+                  "-I", V6[LAN_VID][3], V6[WAN_VID][3]], check=False, timeout=10)
     log(f"v6 ping far->far: {'OK' if r.returncode == 0 else 'FAIL'}")
     log(sw("grep fd99 /sys/kernel/debug/realtek_otto_l3/routes; true"))
     return 0 if r.returncode == 0 else 1
@@ -543,19 +722,12 @@ def v6_run(secs: int, streams: int, onlink: bool, dst: str | None = None, revers
     src = V6[LAN_VID][1] if onlink else V6[LAN_VID][3]
     dst = dst or (V6[WAN_VID][1] if onlink else V6[WAN_VID][3])
     sw("echo 1 > /sys/kernel/debug/realtek_otto_l3/clear_route_hits; true")
-    srv = subprocess.Popen(["sudo", "-n", "nice", "-n", "19", "ip", "netns", "exec", NS_WAN, "iperf3", "-s", "-1",
-                            "-B", dst], stdout=subprocess.DEVNULL, stderr=subprocess.DEVNULL)
-    time.sleep(0.5)  # iperf3 -s binds in <50 ms
     a = snap()
-    tmo = int((secs + 2) * 1.25) + 5
-    try:
-        r = subprocess.run(["sudo", "-n", "nice", "-n", "19", "ip", "netns", "exec", NS_LAN, "iperf3", "-6", "-c", dst,
-                            "-B", src, "-t", str(secs), "-P", str(streams), "-J", "-O", "2"] + (["-R"] if reverse else []),
-                           capture_output=True, text=True, timeout=tmo)
-    finally:
-        stop_srv(srv)
+    res = iperf(NS_WAN, dst, NS_LAN, secs, streams, reverse, None, None, ipv6=True, src_ip=src)
     b = snap()
-    res = json.loads(r.stdout)
+    if "error" in res:
+        log(f"iperf3 error: {res['error']}")
+        return 1
     summarize(f"v6-{'onlink' if onlink else 'gw'}-{dst}-tcp-P{streams}-{secs}s{'-R' if reverse else ''}", res, a, b, None)
     log(sw("grep fd99 /sys/kernel/debug/realtek_otto_l3/routes; true"))
     return 0
@@ -564,6 +736,10 @@ def v6_run(secs: int, streams: int, onlink: bool, dst: str | None = None, revers
 def main() -> int:
     ap = argparse.ArgumentParser()
     sub = ap.add_subparsers(dest="cmd", required=True)
+    l = sub.add_parser("link-check", help="short TrueNAS-to-host 10G iperf3 check; sw2 stays idle")
+    l.add_argument("--secs", type=int, default=3)
+    sub.add_parser("generator-check", help="check the TrueNAS benchmark namespaces for active processes")
+    sub.add_parser("build-udpblast", help="build the static-musl UDP helper used by the TrueNAS generator")
     sub.add_parser("setup")
     m = sub.add_parser("mode")
     m.add_argument("mode", choices=["nat", "nat-ft", "nat-hw", "route", "route-ft", "route-hw"])
@@ -602,11 +778,22 @@ def main() -> int:
     v.add_argument("--dst", default=None, help="far v6 address on natwan (e.g. one behind 2000::/3)")
     v.add_argument("--reverse", action="store_true")
     sub.add_parser("status")
-    sub.add_parser("teardown")
+    t = sub.add_parser("teardown")
+    t.add_argument("--generator-only", action="store_true", help="remove idle TrueNAS benchmark namespaces without touching the switch")
     a = ap.parse_args()
     if a.cmd == "_flood":
         return flood(a.dst, a.secs, a.size)
     log(f"=== nat_bench {' '.join(sys.argv[1:])} ===")
+    if a.cmd == "link-check":
+        return generator_link_check(a.secs)
+    if a.cmd == "generator-check":
+        idle = generator_idle()
+        if idle:
+            log("TrueNAS benchmark namespaces are idle")
+        return 0 if idle else 2
+    if a.cmd == "build-udpblast":
+        ensure_udpblast()
+        return 0
     if a.cmd == "setup":
         return setup()
     if a.cmd == "mode":
@@ -630,7 +817,7 @@ def main() -> int:
         return 0
     if a.cmd == "status":
         return status()
-    return teardown()
+    return teardown(a.generator_only)
 
 
 if __name__ == "__main__":

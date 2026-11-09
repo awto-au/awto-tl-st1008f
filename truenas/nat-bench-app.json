@@ -1,0 +1,19 @@
+{
+  "custom_app": true,
+  "app_name": "nat-bench",
+  "custom_compose_config": {
+    "services": {
+      "nat-bench": {
+        "image": "alpine:3.22",
+        "privileged": true,
+        "network_mode": "host",
+        "restart": "unless-stopped",
+        "command": [
+          "/bin/sh",
+          "-c",
+          "set -eu; apk add --no-cache iperf3 iproute2 tcpdump python3 ethtool; exec sleep infinity"
+        ]
+      }
+    }
+  }
+}

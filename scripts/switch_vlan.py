@@ -4,11 +4,12 @@
 - `show`: uci bridge-vlan sections + `bridge vlan show`.
 - `add VIDS --ports P,Q`: runtime `bridge vlan add dev P vid V` (tagged, no pvid) + one uci
   `bridge-vlan` section per VID (device switch, ports P:t Q:t), `uci commit network`. No network
-  reload (a reload drops every port for seconds: sw1 2026-10-12 at uptime 438 s). Idempotent.
+  reload (a reload drops every port for seconds: sw1 2026-10-12 at uptime 438 s). Adds missing
+  tagged ports to an existing section; idempotent.
 - `remove VIDS --ports P,Q`: the reverse.
 - `reload`: `ubus call network reload` (ports drop seconds) so netifd holds the saved VLANs; one-off (#96).
 - Mgmt ping after each step; lost -> runtime revert of this call, exit 1. VLAN 1 never touched.
-- Owner approval for sw1: 991/992 on lan4 + lan5 (#96). Log: tmp/logs/switch_vlan.log
+- Owner approval for sw1: 991/992 on lan4 + lan5 (#96); lan6 added for the TrueNAS generator (2026-11-09). Log: tmp/logs/switch_vlan.log
 """
 
 import argparse
@@ -129,8 +130,19 @@ def main() -> int:
             log(f"FAIL: mgmt {a.ip} lost after runtime add; reverted")
             return 1
         for v in vids:
-            if sections(a.ip, v):
-                log(f"uci bridge-vlan {v}: present")
+            found = sections(a.ip, v)
+            if found:
+                configured = set()
+                for section in found:
+                    configured.update(ssh(a.ip, f"uci -q get 'network.{section}.ports' || true").split())
+                missing = [p for p in ports if f"{p}:t" not in configured]
+                if missing:
+                    section = found[0]
+                    for p in missing:
+                        ssh(a.ip, f"uci add_list 'network.{section}.ports'='{p}:t'")
+                    log(f"uci bridge-vlan {v}: added missing ports {','.join(p + ':t' for p in missing)}")
+                else:
+                    log(f"uci bridge-vlan {v}: present")
                 continue
             plist = " ".join(f"add_list network.@bridge-vlan[-1].ports='{p}:t';" for p in ports)
             ssh(a.ip, f"uci add network bridge-vlan >/dev/null; uci set network.@bridge-vlan[-1].device='switch'; "

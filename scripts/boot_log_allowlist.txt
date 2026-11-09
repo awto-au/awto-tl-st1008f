@@ -134,8 +134,19 @@ SoC Type: Realtek RTL9303 rev B \(6487\)  # SoC id pinned
 Found SoC ID: 9303: RTL9303, family 9300  # SoC id pinned
 Using appended Device Tree\.  # DTB appended to the uImage
 Kernel command line: earlycon  # command line pinned
+st1008f-blackbox: (previous boot #\d+ ended .* after \d+ s, msg ".*"|no valid previous record \(cold boot\))  # kernel reset record, docs/RESET-REASON.md (#144)
+\s+Actions configured  # traffic-control action infrastructure (#16)
+\s+input device check on  # traffic-control action infrastructure (#16)
+GACT probability on  # traffic-control GACT init (#16)
+Mirror/redirect action on  # traffic-control mirred init (#16)
+u32 classifier  # traffic-control classifier init (#16)
+netconsole: network logging started  # OpenWrt hotplug netconsole, docs/RESET-REASON.md
 Built 1 zonelists, mobility grouping on\.  Total pages: 131072  # 512 MB
 Memory: 493232K/524288K available \(7788K kernel code, 722K rwdata, 972K rodata, 12848K init, 254K bss, 29880K reserved, 0K cma-reserved, 262144K highmem\)  # 512 MB incl. 256 MB highmem
+\s+node   0: \[mem 0x0000000000000000-0x000000000dffffff\]  # RAM bank below boot-attempt record (#73)
+\s+node   0: \[mem 0x000000000e000000-0x000000000e000fff\]  # boot-attempt record page (#73)
+\s+node   0: \[mem 0x000000000e001000-0x000000000fffffff\]  # RAM bank above boot-attempt record (#73)
+OF: reserved mem: 0x0e000000\.\.0x0e000fff \(4 KiB\) nomap non-reusable bootrec@e000000  # boot-attempt record reservation (#73)
 \s+Normal   \[mem 0x0000000000000000-0x000000001fffffff\]  # lowmem 512 MB
 \s+HighMem  \[mem 0x0000000020000000-0x000000002fffffff\]  # highmem 256 MB
 \s+node   0: \[mem 0x0000000000000000-0x000000000fffffff\]  # RAM bank 0 (256 MB)
@@ -279,7 +290,7 @@ fuse: init \(API version 7\.\d+\)  # FUSE init
 9pnet: Installing 9P2000 support  # 9P init
 io scheduler (mq-deadline|kyber|bfq) registered  # block IO schedulers
 Serial: 8250/16550 driver, 4 ports, IRQ sharing disabled  # serial driver
-18002000\.serial: ttyS0 MMIO:0x18002000 \(irq = 30, base_baud = (10937500|19140625|19010375)\) is a 16550A  # console UART: LX 175, 306 or 304 (swcore 608) MHz / 16 (300-23, #103, #159)
+18002000\.serial: ttyS0 MMIO:0x18002000 \(irq = 30, base_baud = (10937500|19140625|19062500|19010375)\) is a 16550A  # console UART: LX 175, 306, 305 (common clocks) or 304 (swcore 608) MHz / 16 (300-23, #103, #159)
 printk: console \[ttyS0\] enabled  # console hand-over
 loop: module loaded  # loop driver
 input: keys as /devices/platform/keys/input/input0  # gpio-keys input device registered
@@ -390,6 +401,7 @@ led: fallback latched \((unconfirmed|trial-bad|good-bad)\): `rtk led clear` or `
 Working FDT set to 0  # bootm: no separate FDT (DTB appended to the kernel)
 Starting kernel \.\.\.  # bootm handoff
 U-Boot 2026\.07(-st1008f-[0-9a-f]+(-mod)?)?(-dirty)? \([A-Z][a-z]{2} +\d+ 20\d\d - \d\d:\d\d:\d\d [+-]\d{4}\)  # mainline U-Boot banner, pinned to v2026.07 (uboot-port/); -st1008f-<hash> = source stamp (#130)
+Last:  (no valid black-box record \(power-up\)|(unclean|clean|panic|unknown), boot #\d+, up \d+ s, hb \d+, msg ".*")  # U-Boot reset record, docs/RESET-REASON.md (#144)
 Model: TP-Link TL-ST1008F v2\.0  # DTS model pinned
 DRAM:  256 MiB  # stage 0 maps 256 MiB (second bank not linear); pinned
 Core:  24 devices, 11 uclasses, devicetree: separate  # DM: root, clock provider, 2 simple-bus, serial, gpio, gpio-keys+3, i2c master+8 SFP buses, i2c-gpio+expander, spi+nor flash, CPU-port NIC (#80); a change shows up here
@@ -445,7 +457,9 @@ realtek-otto-watchdog \S+: running at probe: kept, \d+ s timeout  # 300-15: watc
 [openwrt]
 highmem kernel with > 256 MB RAM, adapt SoC memory mapping  # 6.18 realtek prom: highmem on 512 MiB
 Realtek RTL9303 rev B \(6487\) SoC with 512 MB  # SoC id + RAM pinned
-Adding initrd info from environment  # prom reads rd_start/rd_size env (none set)
+Adding initrd info(?: f| from env(?:ironment)?)?  # 6.18 prom info; the 200000-baud handoff can split the line
+ICMPv6: process `sysctl' is using deprecated sysctl \(syscall\) net\.ipv6\.neigh\.default\.base_reachable_time - use net\.ipv6\.neigh\.default\.base_reachable_time_ms instead  # old all-sysctl snapshot; known #161
+rtl83xx-switch 1b000000\.ethernet-switch: clear_route_hits: cleared \d+ entries  # dev_info from the NAT benchmark's route-hit reset
 printk: log buffer data \+ meta data: 131072 \+ 409600 = 540672 bytes  # printk ring size
 Memory: \d+K/524288K available \(.*262144K highmem\)  # 512 MiB total, 256 MiB highmem pinned
 posixtimers hash table entries: \d+ \(order: \d+, \d+ bytes, linear\)  # 6.18 core init

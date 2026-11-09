@@ -3,8 +3,8 @@
 in everything except the kernel / OpenWrt stack under test; run BEFORE every bench. NAT-STACK-TESTS.md.
 
 Steps (ssh to the switch, nothing on the host except the push):
-  1. push the pinned tools to /tmp/stack-tools: static iperf3 (build_iperf3_static.py), ip-full + tc-full + libs
-     (--pack copies them from B's root-realtek); symlinks /usr/bin/iperf3, /sbin/ip, /sbin/tc point at them.
+  1. push the pinned tools to /tmp/stack-tools: static iperf3 (build_iperf3_static.py), ip-full, tc-full,
+     bridge, ethtool-full + libs (--pack copies them from B's root-realtek); symlinks point at them.
   2. stop non-essential services (OpenWrt only): collectd lldpd uhttpd sysntpd dnsmasq odhcpd snmpd metricsd rpcd cron irqbalance.
      Kept: dropbear, network, procd/ubusd/netifd, logd, urngd, fan/led/gpio/poe, st1008f-linkwatch (loop guard).
   3. firewall stop, `nft flush ruleset`, load mainline/fw4-b.nft; one `stack-mgmt` accept for the mgmt interface (C's is lan1, not switch.1).
@@ -36,7 +36,7 @@ FLAVOUR = {"A": "owrt", "B": "owrt", "C": "mainline"}
 # net.* values: B image's measured values where it had one (nat161_openwrt_settings.txt), else the kernel default.
 SYSCTLS = [
     ("net.ipv4.ip_forward", "1"), ("net.ipv6.conf.all.forwarding", "1"),
-    ("net.netfilter.nf_conntrack_max", "8192"),         # B and C measured 8192
+    ("net.netfilter.nf_conntrack_max", "8192"), ("net.netfilter.nf_conntrack_buckets", "8192"),  # B and C measured 8192
     ("net.netfilter.nf_conntrack_acct", "1"),           # nat_bench.py sets 1 per run
     ("net.netfilter.nf_conntrack_checksum", "0"),       # B 0 (OpenWrt sysctl.conf), plain kernel default 1: differed in #161 dumps
     ("net.netfilter.nf_conntrack_tcp_loose", "1"), ("net.netfilter.nf_conntrack_tcp_be_liberal", "0"),
@@ -44,13 +44,13 @@ SYSCTLS = [
     ("net.netfilter.nf_conntrack_tcp_timeout_established", "7440"), ("net.netfilter.nf_conntrack_udp_timeout", "60"),
     ("net.netfilter.nf_conntrack_udp_timeout_stream", "180"),
     ("net.core.netdev_budget", "300"), ("net.core.netdev_budget_usecs", "20000"),  # 2 s/HZ at HZ 100; plain HZ 250 gave 8000
-    ("net.core.netdev_max_backlog", "1000"), ("net.core.rps_sock_flow_entries", "0"),
+    ("net.core.netdev_max_backlog", "1000"), ("net.core.rps_sock_flow_entries", "0"), ("net.core.skb_defer_max", "128"),
     ("net.core.rmem_default", "212992"), ("net.core.wmem_default", "212992"),
     ("net.core.rmem_max", "4194304"), ("net.core.wmem_max", "4194304"),
     ("net.ipv4.tcp_rmem", "4096 131072 4194304"), ("net.ipv4.tcp_wmem", "4096 16384 4194304"),
     ("net.ipv4.tcp_congestion_control", "cubic"), ("net.ipv4.tcp_sack", "1"), ("net.ipv4.tcp_timestamps", "1"),
     ("net.ipv4.tcp_window_scaling", "1"), ("net.ipv4.tcp_ecn", "0"), ("net.ipv4.tcp_syncookies", "1"),
-    ("net.ipv4.tcp_fin_timeout", "30"),
+    ("net.ipv4.tcp_fin_timeout", "30"), ("net.ipv4.tcp_comp_sack_slack_ns", "10000"),
     ("net.ipv4.conf.all.rp_filter", "0"), ("net.ipv4.conf.default.rp_filter", "0"),  # strict rpf = extra fib lookup per packet; OpenWrt sets 1
     ("net.core.bpf_jit_enable", "1"), ("net.ipv4.tcp_keepalive_time", "120"),  # OpenWrt defaults; plain kernel 0 / 7200
     ("kernel.printk", "1 4 1 7"),                       # no console spam during a run (115200 serial)
@@ -59,10 +59,11 @@ OFFLOADS = {  # ethtool -K on eth0 and lan1; every stack showed these defaults a
     "gro": "on", "gso": "on", "rx-gro-list": "on", "rx-udp-gro-forwarding": "off", "tx-nocache-copy": "off",
 }
 STOP_SERVICES = "collectd luci_statistics lldpd uhttpd sysntpd dnsmasq odhcpd snmpd st1008f-metricsd st1008f-selftest rpcd cron irqbalance"
-KILL_PROCS = "collectd lldpd uhttpd ntpd dnsmasq odhcpd snmpd crond rpcd irqbalance"
 PINNED = [  # (local relative to TOOLS, remote name, mode)
     ("iperf3", "iperf3", "755"), ("ip-full", "ip-full", "755"), ("tc-full", "tc-full", "755"),
-    ("ip", "ip", "755"), ("tc", "tc", "755"), ("fw4-b.nft", "fw4-b.nft", "644"),
+    ("ethtool-full", "ethtool-full", "755"), ("bridge-full", "bridge-full", "755"),
+    ("ip", "ip", "755"), ("tc", "tc", "755"), ("ethtool", "ethtool", "755"),
+    ("bridge", "bridge", "755"), ("fw4-b.nft", "fw4-b.nft", "644"),
 ]
 WRAP = '#!/bin/sh\nLD_LIBRARY_PATH=%s/lib exec %s/%s-full "$@"\n'
 
@@ -85,22 +86,26 @@ def sha256(p):
     return hashlib.sha256(Path(p).read_bytes()).hexdigest()
 
 
-# ---- host side: pack ip-full / tc-full + libs ----------------------------------------------------------------------
+# ---- host side: pack full tools + libs -----------------------------------------------------------------------------
 def pack():
-    """Copy ip-full, tc-full and their DT_NEEDED libs (not musl) from B's root-realtek into tmp/stack-tools; write wrappers + MANIFEST."""
+    """Copy B's full tools and DT_NEEDED libs (not musl) into tmp/stack-tools; write wrappers + MANIFEST."""
     TOOLS.mkdir(parents=True, exist_ok=True)
     (TOOLS / "lib").mkdir(exist_ok=True)
-    todo, seen = [OWRT_ROOT / "usr/libexec/ip-full", OWRT_ROOT / "usr/libexec/tc-full"], set()
-    for exe in todo[:2]:
-        (TOOLS / exe.name).write_bytes(exe.read_bytes())
-        (TOOLS / exe.name).chmod(0o755)
+    sources = [(OWRT_ROOT / "usr/libexec/ip-full", "ip-full"), (OWRT_ROOT / "usr/libexec/tc-full", "tc-full"),
+               (OWRT_ROOT / "usr/sbin/ethtool", "ethtool-full"), (OWRT_ROOT / "usr/sbin/bridge", "bridge-full")]
+    todo, seen = [exe for exe, _ in sources], set()
+    for exe, name in sources:
+        (TOOLS / name).write_bytes(exe.read_bytes())
+        (TOOLS / name).chmod(0o755)
     while todo:
         f = todo.pop()
         if f in seen:
             continue
         seen.add(f)
-        out = subprocess.run(["readelf", "-d", str(f)], capture_output=True, text=True).stdout
-        for need in re.findall(r"\(NEEDED\)\s+Shared library: \[(.+?)\]", out):
+        result = subprocess.run(["readelf", "-d", str(f)], capture_output=True, text=True)
+        if result.returncode:
+            sys.exit(f"pack: cannot inspect {f.name}: {result.stderr.strip()}")
+        for need in re.findall(r"\(NEEDED\)\s+Shared library: \[(.+?)\]", result.stdout):
             if need.startswith("libc.so"):
                 continue  # musl stays stack-native (same 1.2.6 on A, B, C: recorded in the snapshot)
             hit = next((OWRT_ROOT / d / need for d in ("lib", "usr/lib") if (OWRT_ROOT / d / need).exists()), None)
@@ -109,7 +114,7 @@ def pack():
             (TOOLS / "lib" / need).write_bytes(hit.resolve().read_bytes())
             (TOOLS / "lib" / need).chmod(0o755)
             todo.append(hit.resolve())
-    for n in ("ip", "tc"):
+    for n in ("ip", "tc", "ethtool", "bridge"):
         (TOOLS / n).write_text(WRAP % (REMOTE, REMOTE, n))
         (TOOLS / n).chmod(0o755)
     (TOOLS / "fw4-b.nft").write_bytes(FW4.read_bytes())
@@ -121,14 +126,16 @@ def pack():
 # ---- remote scripts ---------------------------------------------------------------------------------------------------
 def normalize_script(a):
     sysctl = "\n".join(f"{k} {v}" for k, v in SYSCTLS)
-    offl = " ".join(f"{k} {v}" for k, v in OFFLOADS.items())
-    aff = "2" if a.napi == "irq1" else "3"
+    offl = " ".join(f"{k} {v}" for k, v in {**OFFLOADS, **dict(o.split("=", 1) for o in a.offload)}.items())
+    aff = {"irq1": "2", "irq0": "1"}.get(a.napi, "3")
+    rps = ":" if a.rps == "keep" else """echo 0 > $q 2>/dev/null; v=$(cat $q 2>/dev/null) && ! echo "$v" | grep -qE '^[0,]*$' && echo "FAIL $q" """
     return f"""#!/bin/sh
 # stack_normalize remote part: stack {a.stack} napi {a.napi} qdisc {a.qdisc}
 T={REMOTE}
-ln -sf $T/iperf3 /usr/bin/iperf3; ln -sf $T/ip /sbin/ip; ln -sf $T/tc /sbin/tc
-for s in {STOP_SERVICES}; do [ -x /etc/init.d/$s ] && /etc/init.d/$s stop >/dev/null 2>&1; done
-killall {KILL_PROCS} 2>/dev/null
+ln -sf $T/iperf3 /usr/bin/iperf3; ln -sf $T/ip /sbin/ip; ln -sf $T/tc /sbin/tc; ln -sf $T/ethtool /usr/sbin/ethtool; ln -sf $T/bridge /usr/sbin/bridge
+for s in {STOP_SERVICES}; do
+  if [ -x /etc/init.d/$s ]; then /etc/init.d/$s stop >/dev/null 2>&1 || echo "FAIL stopping service $s"; fi
+done
 [ -x /etc/init.d/firewall ] && /etc/init.d/firewall stop >/dev/null 2>&1
 nft flush ruleset
 nft -f $T/fw4-b.nft || echo "FAIL nft load"
@@ -143,16 +150,32 @@ done <<'EOF'
 EOF
 for f in /proc/sys/net/ipv4/conf/*/rp_filter; do echo 0 > $f; done
 for q in /sys/class/net/*/queues/rx-*/rps_cpus /sys/class/net/*/queues/rx-*/rps_flow_cnt /sys/class/net/*/queues/tx-*/xps_cpus; do
-  [ -e $q ] && {{ echo 0 > $q 2>/dev/null; v=$(cat $q 2>/dev/null) && ! echo "$v" | grep -qE '^[0,]*$' && echo "FAIL $q"; }}
+  [ -e $q ] && {{ {rps}; }}
 done
 for n in threaded gro_flush_timeout napi_defer_hard_irqs; do echo 0 > /sys/class/net/eth0/$n 2>/dev/null; done
 tc qdisc replace dev eth0 root {a.qdisc} || echo "FAIL qdisc {a.qdisc}"
-for d in eth0 lan1; do ethtool -K $d {offl} >/dev/null 2>&1 || echo "FAIL ethtool -K $d"; done
+for d in eth0 lan1; do
+  out=$(ethtool -K $d {offl} 2>&1) || printf 'FAIL ethtool -K %s: %s\\n' "$d" "$(printf '%s' "$out" | tr '\\n' ' ')"
+done
 IRQ=$(awk '/eth0/{{print +$1}}' /proc/interrupts)
 echo {aff} > /proc/irq/$IRQ/smp_affinity || echo "FAIL irq affinity"
 echo done
 """
 
+
+SNAP_SYSCTL = (
+    "for f in /proc/sys/net/core/* /proc/sys/net/ipv4/tcp_* /proc/sys/net/ipv4/ip_forward* "
+    "/proc/sys/net/ipv4/conf/all/rp_filter /proc/sys/net/ipv4/conf/default/rp_filter "
+    "/proc/sys/net/ipv4/conf/all/forwarding /proc/sys/net/ipv4/conf/default/forwarding "
+    "/proc/sys/net/ipv4/conf/all/send_redirects /proc/sys/net/ipv4/conf/default/send_redirects "
+    "/proc/sys/net/ipv6/conf/all/forwarding /proc/sys/net/netfilter/nf_conntrack_max "
+    "/proc/sys/net/netfilter/nf_conntrack_acct /proc/sys/net/netfilter/nf_conntrack_checksum "
+    "/proc/sys/net/netfilter/nf_conntrack_buckets /proc/sys/net/netfilter/nf_conntrack_tcp_* "
+    "/proc/sys/net/netfilter/nf_conntrack_udp_* /proc/sys/net/netfilter/nf_flowtable* "
+    "/proc/sys/kernel/printk*; do [ -f \"$f\" ] || continue; "
+    "k=${f#/proc/sys/}; v=$(cat \"$f\" 2>&1) || { printf 'FAIL sysctl read %s: %s\\n' \"$k\" \"$v\"; continue; }; "
+    "printf '%s = %s\\n' \"$(echo \"$k\" | tr / .)\" \"$v\"; done | sort"
+)
 
 SNAP = [  # (key, remote command); every command stderr merged; output compared as text
     ("uname_r", "uname -r"), ("uname_v", "uname -v"), ("uname_a", "uname -a"), ("cmdline", "cat /proc/cmdline"),
@@ -167,7 +190,7 @@ SNAP = [  # (key, remote command); every command stderr merged; output compared 
     ("rt_kallsyms", "[ -r /proc/kallsyms ] && echo y || echo n"),
     ("rt_debugfs_mounted", "grep -q ' debugfs ' /proc/mounts && echo y || echo n"),
     ("rt_perf_processes", "pidof perf trace-cmd 2>/dev/null || echo none"),
-    ("sysctl", "sysctl -a 2>/dev/null | grep -E '^(net\\.core\\.|net\\.ipv4\\.(tcp_|ip_forward|conf\\.(all|default)\\.(rp_filter|forwarding|send_redirects))|net\\.ipv6\\.conf\\.all\\.forwarding|net\\.netfilter\\.nf_(conntrack_(max|acct|checksum|tcp_|udp_|buckets)|flowtable)|kernel\\.printk)' | sort"),
+    ("sysctl", SNAP_SYSCTL),
     ("ethtool_k_eth0", "ethtool -k eth0 2>&1"), ("ethtool_k_lan1", "ethtool -k lan1 2>&1"), ("ethtool_g_eth0", "ethtool -g eth0 2>&1"),
     ("ethtool_c_eth0", "ethtool -c eth0 2>&1"), ("ethtool_i_eth0", "ethtool -i eth0 2>&1 | grep -v -E '^(bus-info|firmware-version|expansion)'"),
     ("tc_qdisc_eth0", "tc qdisc show dev eth0 2>&1"), ("tc_qdisc_lan1", "tc qdisc show dev lan1 2>&1"),
@@ -186,7 +209,7 @@ SNAP = [  # (key, remote command); every command stderr merged; output compared 
     ("v_busybox", "busybox 2>&1 | head -1"), ("v_nft", "nft -v 2>&1 | head -1"),
     ("v_ethtool", "ethtool --version 2>&1 | head -1"), ("v_ip", "ip -V 2>&1 | head -1"), ("v_tc", "tc -V 2>&1 | head -1"),
     ("v_iperf3", "iperf3 --version 2>&1 | head -1"), ("v_dropbear", "dropbear -V 2>&1 | head -1"),
-    ("v_musl", "/lib/ld-musl-mips-sf.so.1 2>&1 | head -2 | tr '\\n' ' '"),
+    ("v_musl", "/lib/ld-musl-mips-sf.so.1 2>&1 | head -2 | tr '\\n' ' '; echo"),
     ("sha_pinned", f"cd {REMOTE} && sha256sum iperf3 ip-full tc-full fw4-b.nft 2>&1"),
     ("sha_native", "sha256sum /bin/busybox /usr/sbin/nft /usr/sbin/ethtool /usr/sbin/dropbear 2>&1 | sed 's/  / /'"),
     ("bootloader_clock", "grep -r . /sys/kernel/debug/realtek_otto_clk 2>/dev/null | head -5; true"),
@@ -208,24 +231,28 @@ def run_remote(a, script, tmo, what):
         return ""
     t0 = time.time()
     try:
-        subprocess.run(up, input=script, capture_output=True, text=True, timeout=15, check=True)  # tiny file, LAN login ~0.3 s
+        subprocess.run(up, input=script, capture_output=True, text=True, timeout=15, check=True)  # tiny file
+    except subprocess.TimeoutExpired:
+        sys.exit(f"TIMEOUT upload {what} script: 15 s limit, {time.time() - t0:.1f} s elapsed")
+    try:
         r = subprocess.run(go, capture_output=True, text=True, timeout=tmo)
     except subprocess.TimeoutExpired:
         sys.exit(f"TIMEOUT {what}: {tmo} s limit, {time.time() - t0:.1f} s elapsed")
     log(f"{what}: rc {r.returncode} in {time.time() - t0:.1f} s")
+    if r.returncode:
+        sys.exit(f"{what} failed rc {r.returncode}: {(r.stdout + r.stderr)[-400:]}")
     return r.stdout + r.stderr
 
 
 def push(a):
-    """cat over ssh stdin, skipped when the remote sha256 already matches. Limit per file: 10 s + size / 256 KiB/s
-    (assumed floor for dropbear on the 34Kc, NOT measured; a hit names file and size)."""
+    """Copy the pinned files over SSH, with a size-dependent timeout per file."""
     for local, remote, mode in PINNED:
         p = TOOLS / local
         if not p.exists():
             sys.exit(f"missing {p.relative_to(ROOT)}: python3 scripts/build_iperf3_static.py ; python3 scripts/stack_normalize.py --pack")
     files = [(TOOLS / n, n, m) for _, n, m in PINNED] + [(f, f"lib/{f.name}", "755") for f in sorted((TOOLS / "lib").glob("*"))]
     for p, rem, mode in files:
-        tmo = int(10 + p.stat().st_size / (256 * 1024))
+        tmo = max(30, int(10 + p.stat().st_size / (256 * 1024)))
         cmd = ssh_cmd(a.ip) + [f"mkdir -p {REMOTE}/lib && cat > {REMOTE}/{rem}.part && chmod {mode} {REMOTE}/{rem}.part && mv {REMOTE}/{rem}.part {REMOTE}/{rem}"]
         if a.dry_run:
             log(f"[dry-run] push {p.relative_to(ROOT)} ({p.stat().st_size} B, sha256 {sha256(p)[:16]}): {' '.join(cmd[-1:])}  (timeout {tmo} s)")
@@ -251,15 +278,53 @@ def parse_snapshot(text):
     return {k: "\n".join(v).strip() for k, v in out.items()}
 
 
+def irq_readback_failure(snap, napi):
+    value = snap.get("irq_affinity", "")
+    match = re.fullmatch(r"irq\d+\s+([0-9a-fA-F,]+)", value)
+    expected = {"irq0": 1, "irq1": 2, "default": 3}[napi]
+    if not match or int(match.group(1).replace(",", ""), 16) != expected:
+        return f"FAIL irq affinity readback: expected {expected:x}, got {value!r}"
+    return None
+
+
+def settings_readback_failures(snap, overrides):
+    failures = []
+    sysctls = dict(line.split(" = ", 1) for line in snap.get("sysctl", "").splitlines() if " = " in line)
+    for key, expected in SYSCTLS:
+        actual = sysctls.get(key, "")
+        if actual.split() != expected.split():
+            failures.append(f"FAIL sysctl readback {key}: expected {expected!r}, got {actual!r}")
+    names = {"rx": "rx-checksumming", "tx": "tx-checksumming", "sg": "scatter-gather",
+             "tso": "tcp-segmentation-offload", "ufo": "udp-fragmentation-offload",
+             "gso": "generic-segmentation-offload", "gro": "generic-receive-offload",
+             "lro": "large-receive-offload", "rxvlan": "rx-vlan-offload", "txvlan": "tx-vlan-offload",
+             "ntuple": "ntuple-filters", "rxhash": "receive-hashing"}
+    wanted = {**OFFLOADS, **dict(item.split("=", 1) for item in overrides)}
+    for device in ("eth0", "lan1"):
+        features = {}
+        for line in snap.get(f"ethtool_k_{device}", "").splitlines():
+            if match := re.match(r"\s*([^\s:]+):\s*(on|off)(.*)", line):
+                features[match.group(1)] = (match.group(2), match.group(3))
+        for key, expected in wanted.items():
+            state = features.get(names.get(key, key))
+            requested = re.search(r"\[requested (on|off)\]", state[1]) if state else None
+            # B/C also report GSO off [requested on]; the gate compares effective states.
+            valid = (state and (requested.group(1) if requested else state[0]) == expected
+                     and (state[0] == expected or key == "gso" and expected == "on"))
+            if not valid:
+                failures.append(f"FAIL offload readback {device} {key}: expected {expected}, got {state}")
+    return failures
+
+
 # ---- diff (also used by stack_compare.py's gate) ----------------------------------------------------------------------
 IGNORE = re.compile(r"^(stack|when|flavour_expected|normalise_failures|qdisc_requested|uname_v|uname_a|loadavg|meminfo|cpuinfo|bootloader_clock|rt_perf_processes)$")
 # the stack under test, by construction: key regex -> reason. Anything else that differs = NOT CONTROLLED.
 KNOWN = [
     (r"uname_r", "kernel under test (A 6.18.60 vs B/C 7.4-rc1)"),
-    (r"rteth_params|l3_params", "A has no 300-xx rteth/l3 module parameters (patch set under test)"),
+    (r"rteth_params|l3_params", "A lacks configuration options for this project's switch-driver and on-link/default-route offload changes"),
     (r"config_gz_sha256|kconfig_debug", "only C ships /proc/config.gz (IKCONFIG); A and B: build-time config in NAT-STACK-TESTS.md"),
-    (r"processes", "OpenWrt base system (procd, ubusd, netifd, logd, urngd, hotplug, linkwatch) runs on A/B, not C"),
-    (r"sha_native", "native tool binaries are separate builds (same versions, see v_*)"),
+    (r"processes", "OpenWrt base system on A/B, not C; local linkwatch is B-only"),
+    (r"sha_native", "native tool binaries are separate builds (versions recorded where available)"),
     (r"ethtool_i_eth0", "driver version string follows the kernel"),
 ]
 
@@ -269,7 +334,7 @@ def _norm(key, val):
         names = sorted({os.path.basename(ln.split()[0]) for ln in val.splitlines() if ln.split()} - {"sh", "ash", "tr", "cat", "sleep", "dropbear"})
         return "\n".join(names)
     if key == "sysctl":  # volatile counters
-        return "\n".join(ln for ln in val.splitlines() if not re.search(r"nf_conntrack_count|netdev_rss_key|nf_conntrack_buckets|tcp_fastopen_key|tcp_mem|tcp_available_ulp|tcp_l3mdev_accept|bpf_jit_kallsyms", ln))  # random / RAM-size / config-dependent, not on the path
+        return "\n".join(ln for ln in val.splitlines() if not re.search(r"nf_conntrack_count|netdev_rss_key|tcp_fastopen_key|tcp_mem|tcp_available_ulp|tcp_l3mdev_accept|bpf_jit_kallsyms", ln))  # random / RAM-size / config-dependent, not on the path
     if key == "ethtool_i_eth0":
         return val
     return val
@@ -293,12 +358,14 @@ def main():
     ap = argparse.ArgumentParser(description=__doc__.split("\n")[0])
     ap.add_argument("--stack", choices=["A", "B", "C"], help="which stack is booted (selects services/firewall steps)")
     ap.add_argument("--ip", default=BENCH_IP)
-    ap.add_argument("--napi", choices=["irq1", "default"], default="irq1", help="NIC irq on VPE1 (smp_affinity 2, as the --napi irq1 cells) or both (3)")
+    ap.add_argument("--napi", choices=["irq1", "irq0", "default"], default="irq1", help="NIC irq on VPE1 (smp_affinity 2, as the --napi irq1 cells), VPE0 (1) or both (3)")
+    ap.add_argument("--rps", choices=["zero", "keep"], default="zero", help="zero = pin RPS/XPS to 0 (default); keep = leave the stack's own value (#149 V3)")
+    ap.add_argument("--offload", action="append", default=[], metavar="K=V", help="override one OFFLOADS entry, e.g. gro=off (#149)")
     ap.add_argument("--qdisc", default="noqueue", help="eth0 root qdisc on every stack (default noqueue: no queueing, one less variable; plain kernel gave 544 vs 528 with it)")
     ap.add_argument("--snap-dir", default=str(ROOT / "tmp/logs"), help="where the snapshot json is written")
     ap.add_argument("--tag", default="", help="snapshot file suffix (e.g. post)")
     ap.add_argument("--snapshot-only", action="store_true", help="skip push and normalisation; snapshot only (drift check after a bench)")
-    ap.add_argument("--pack", action="store_true", help="host only: build tmp/stack-tools ip/tc/libs/wrappers/fw4 + MANIFEST")
+    ap.add_argument("--pack", action="store_true", help="host only: pack ip/tc/bridge/ethtool, libs, wrappers and fw4 + MANIFEST")
     ap.add_argument("--dry-run", action="store_true", help="print every ssh command and remote script; send nothing")
     a = ap.parse_args()
     if a.pack:
@@ -306,6 +373,8 @@ def main():
         return 0
     if not a.stack:
         ap.error("--stack required")
+    if a.stack == "A" and a.napi == "irq1" and not a.snapshot_only:
+        ap.error("A lacks the 300-18 IRQ fix: irq1 can disable networking; use --napi irq0 instead")
     log(f"=== stack_normalize stack {a.stack} ip {a.ip} napi {a.napi} qdisc {a.qdisc} tag '{a.tag}' dry-run {a.dry_run}")
     if not a.snapshot_only:
         push(a)
@@ -321,6 +390,20 @@ def main():
     if a.dry_run:
         return 0
     snap = parse_snapshot(out)
+    if "sysctl" not in snap:
+        bad.append("FAIL snapshot: missing sysctl section")
+    else:
+        bad.extend(line for line in snap["sysctl"].splitlines() if line.startswith("FAIL sysctl read "))
+    for failure in bad:
+        if failure.startswith(("FAIL snapshot:", "FAIL sysctl read ")):
+            log(f"  {failure}")
+    if not a.snapshot_only and (failure := irq_readback_failure(snap, a.napi)):
+        bad.append(failure)
+        log(f"  {failure}")
+    if not a.snapshot_only:
+        for failure in settings_readback_failures(snap, a.offload):
+            bad.append(failure)
+            log(f"  {failure}")
     snap.update({"stack": a.stack, "when": time.strftime("%Y-%m-%dT%H:%M:%S%z"), "napi": a.napi, "qdisc_requested": a.qdisc,
                  "normalise_failures": "\n".join(bad), "flavour_expected": FLAVOUR[a.stack]})
     p = Path(a.snap_dir) / f"stack_snapshot-{a.stack}{'-' + a.tag if a.tag else ''}.json"

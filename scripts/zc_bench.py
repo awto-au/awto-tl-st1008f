@@ -4,7 +4,7 @@
 - Needs the 7.3 image with 300-39 (RAM boot, picks clocks) and the nat-bench setup (`nat-bench setup`, `mode route`).
 - Receiver truth = rx_packets of the natwan interface (iperf's loss figure is not used), per run:
   forwarded kpps, the driver's zc counters, CPU busy.
-- Traffic: tmp/udpblast (scripts/tools/udpblast.c, `gcc -O2 -o tmp/udpblast scripts/tools/udpblast.c`), no handshake (NAT-safe).
+- Traffic: `tmp/udpblast` (scripts/tools/udpblast.c), rebuilt as static-musl before upload to the TrueNAS generator; no handshake (NAT-safe).
 - `zc_bench.py [--secs N] [--flows N] [--len B] [--nat] [--perf]`. Log tmp/logs/zc_bench.log
 - `--perf`: perf record on VPE1 during the fast run (needs `perf_push.py` first) -> tmp/logs/perf_<len>.txt
 """
@@ -33,9 +33,7 @@ def log(msg):
 
 
 def rx(dev):
-    r = subprocess.run(["sudo", "-n", "ip", "netns", "exec", "natwan", "cat", f"/sys/class/net/{dev}/statistics/rx_packets"],
-                       capture_output=True, text=True, timeout=10)
-    return int(r.stdout.strip() or 0)
+    return int(nb.host(["ip", "netns", "exec", "natwan", "cat", f"/sys/class/net/{dev}/statistics/rx_packets"]).strip() or 0)
 
 
 def zc():
@@ -81,12 +79,12 @@ def perf_report(p, ln, label="zc"):
 
 def run(label, secs, flows, ln):
     dev = f"{nb.HOST_NIC}.992"
+    nb.generator_upload(nb.ensure_udpblast(), "/tmp/udpblast")
     a, za, c0 = rx(dev), zc(), cpu_stat()
     pp = perf_start(secs) if PERF else None
     t = time.time()
-    r = subprocess.run(["sudo", "-n", "ip", "netns", "exec", "natlan", str(ROOT / "tmp/udpblast"), "10.99.1.2", "10.99.2.2",
-                        "5201", str(ln), str(secs), str(flows)], capture_output=True, text=True,
-                       timeout=secs * 3 + 30)  # the sender stops itself at `secs`; x3 for a slow start
+    r = nb.host_run(["ip", "netns", "exec", "natlan", "/tmp/udpblast", "10.99.1.2", "10.99.2.2",
+                     "5201", str(ln), str(secs), str(flows)], timeout=secs * 3 + 30)
     wall = time.time() - t
     if pp:
         perf_report(pp, ln, label)
@@ -117,11 +115,15 @@ def run_tcp(label, secs, reverse):
 
 def verify_nat(dev_nic, secs=4):
     """Capture a few forwarded data frames on the host NIC and let tcpdump verify the checksums."""
-    cap = subprocess.Popen(["sudo", "-n", "timeout", "12", "tcpdump", "-n", "-vv", "-i", dev_nic, "-c", "3", "-s", "1600",
-                            "udp and greater 1000 and src host 10.99.2.1"], stdout=subprocess.PIPE, stderr=subprocess.DEVNULL, text=True)
-    subprocess.run(["sudo", "-n", "ip", "netns", "exec", "natlan", str(ROOT / "tmp/udpblast"), "10.99.1.2", "10.99.2.2", "5201",
-                    "1400", str(secs), "1"], capture_output=True, text=True, timeout=60)  # short run: only the capture matters
-    out = cap.communicate(timeout=30)[0]
+    nb.generator_upload(nb.ensure_udpblast(), "/tmp/udpblast")
+    nic = f"{dev_nic}.{nb.WAN_VID}"
+    command = (
+        f"ip netns exec natwan timeout 12 tcpdump -n -vv -i {nic} -c 3 -s 1600 "
+        "'udp and greater 1000 and src host 10.99.2.1' >/tmp/zc-tcpdump.log 2>&1 & cap=$!; "
+        f"ip netns exec natlan /tmp/udpblast 10.99.1.2 10.99.2.2 5201 1400 {secs} 1; "
+        "wait $cap || true; cat /tmp/zc-tcpdump.log"
+    )
+    out = nb.host(["sh", "-c", command], timeout=30)
     for ln in out.splitlines():
         if "UDP" in ln or "cksum" in ln:
             log("  wire: " + ln.strip()[:200])
@@ -130,13 +132,18 @@ def verify_nat(dev_nic, secs=4):
 
 def verify_payload(ln, secs=2):
     """Pattern payload (udpblast PATTERN=1) forwarded by zc, checked per packet at the receiver (udpcheck): a missed cache writeback/invalidate shows up as bad."""
-    chk = subprocess.Popen(["sudo", "-n", "ip", "netns", "exec", "natwan", str(ROOT / "tmp/udpcheck"), "5201", str(secs + 1), str(ln)],
-                           stdout=subprocess.PIPE, stderr=subprocess.PIPE, text=True)
-    chk.stdout.readline()  # "ready" after bind
-    subprocess.run(["sudo", "-n", "ip", "netns", "exec", "natlan", str(ROOT / "tmp/udpblast"), "10.99.1.2", "10.99.2.2", "5201",
-                    str(ln), str(secs), "4", "1"], capture_output=True, text=True, timeout=secs * 3 + 30)
-    out, err = chk.communicate(timeout=30)
-    log(f"integrity len {ln}: {out.strip()} {err.strip()[:120]}")
+    nb.generator_upload(nb.ensure_udpblast(), "/tmp/udpblast")
+    nb.generator_upload(ROOT / "tmp/udpcheck", "/tmp/udpcheck")
+    command = (
+        f"ip netns exec natwan /tmp/udpcheck 5201 {secs + 1} {ln} >/tmp/udpcheck.out 2>/tmp/udpcheck.err & check=$!; "
+        "i=0; while [ $i -lt 50 ] && ! grep -q '^ready' /tmp/udpcheck.out; do sleep 0.1; i=$((i+1)); done; "
+        "grep -q '^ready' /tmp/udpcheck.out || { cat /tmp/udpcheck.err; kill $check 2>/dev/null || true; exit 1; }; "
+        f"ip netns exec natlan /tmp/udpblast 10.99.1.2 10.99.2.2 5201 {ln} {secs} 4 1; "
+        "wait $check; cat /tmp/udpcheck.out; cat /tmp/udpcheck.err"
+    )
+    result = nb.host_run(["sh", "-c", command], timeout=secs * 3 + 30)
+    out = result.stdout
+    log(f"integrity len {ln}: {out.strip()[:200]}")
     m = re.search(r"good (\d+) bad (\d+)", out)
     return (int(m.group(1)), int(m.group(2))) if m else (0, -1)
 

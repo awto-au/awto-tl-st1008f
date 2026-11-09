@@ -524,12 +524,35 @@ def cmd_console_window(_extra: list[str]) -> int:
 
 
 @command("CPU-path NAT/routing throughput, one-armed over lan1 VLANs 991/992 (docs/NAT-OPS.md)",
-         args="setup | mode nat|nat-ft|nat-hw|route|route-ft|route-hw | run|local [--secs N] [-P N] [--reverse] "
+         args="link-check [--secs N] | generator-check | build-udpblast | setup | mode nat|nat-ft|nat-hw|route|route-ft|route-hw | run|local [--secs N] [-P N] [--reverse] "
               "[--udp MBPS --len B] [--dst A] | pktgen | rxdrop | v6-setup | v6-run [--onlink] [--dst A] | "
-              "offload [--onlink 0|1] [--default-v4 0|1] [--default-v6 0|1] | dflt-setup | routes | status | teardown",
+              "offload [--onlink 0|1] [--default-v4 0|1] [--default-v6 0|1] | dflt-setup | routes | status | teardown [--generator-only]",
          kind="hardware")
 def cmd_nat_bench(extra: list[str]) -> int:
     return _script("nat_bench.py", extra)
+
+
+@command("normalise a booted stack before the controlled NAT comparison",
+         args="--pack | --stack A|B|C [--ip A.B.C.D] [--napi irq1|irq0|default] [--rps zero|keep] [--offload K=V] "
+              "[--qdisc Q] [--snapshot-only] [--tag TAG] [--snap-dir DIR] [--dry-run]",
+         kind="hardware")
+def cmd_stack_normalize(extra: list[str]) -> int:
+    return _script("stack_normalize.py", extra)
+
+
+@command("multi-stack NAT comparison on sw2 (A CPU0, B/C CPU1; A requires cages 3, 4, 7, 8 unplugged)",
+         args="[--run] [--stacks A,B,C] [--clocks common,final] [--profile clean|profile|both] [--no-boot] "
+              "[--gate-only --snapshot-dir DIR]",
+         kind="hardware")
+def cmd_stack_compare(extra: list[str]) -> int:
+    return _script("stack_compare.py", extra)
+
+
+@command("#149 panic-trigger search on sw2: N boots of stack B per one-factor variant, panic count per variant",
+         args="V0..V8 [--boots N] [--first N]",
+         kind="hardware")
+def cmd_panic_trigger(extra: list[str]) -> int:
+    return _script("panic_trigger.py", extra)
 
 
 @command("NAT-speed ideas as live switches: list | set k=v | reset | matrix [--pairs] [--combo n=k=v,k=v] (#65, #60)",

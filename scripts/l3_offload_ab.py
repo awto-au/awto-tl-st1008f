@@ -250,8 +250,8 @@ def ping_ns(ns: str, dst: str) -> bool:
     if DRY:
         host(["ip", "netns", "exec", ns, "ping", "-c", "1", "-W", "1", dst])
         return True
-    r = subprocess.run(["sudo", "-n", "ip", "netns", "exec", ns, "ping", "-c", "1", "-W", "1", dst],
-                       capture_output=True, text=True, timeout=10)  # 1 ping, 1 s wait + margin
+    r = nb.host_run(["ip", "netns", "exec", ns, "ping", "-c", "1", "-W", "1", dst],
+                    check=False, timeout=10)  # 1 ping, 1 s wait + margin
     return r.returncode == 0
 
 
@@ -422,8 +422,10 @@ def context(clocks: str, image: Path) -> dict:
     c = {"date": time.strftime("%Y-%m-%dT%H:%M:%S%z"), "bench_ip": BENCH_IP, "clocks_ramload": clocks,
          "repo_head": local(["git", "-C", str(ROOT), "rev-parse", "--short", "HEAD"]),
          "repo_dirty": bool(local(["git", "-C", str(ROOT), "status", "--porcelain", "openwrt/", "scripts/"])),
-         "host_kernel": local(["uname", "-r"]), "host_iperf3": local(["iperf3", "--version"]).splitlines()[0:1],
-         "host_nic": nb.HOST_NIC, "host_nic_driver": local(["ethtool", "-i", nb.HOST_NIC]).replace("\n", "; ")[:160]}
+         "host_kernel": nb.host(["uname", "-r"]).strip(),
+         "host_iperf3": nb.host(["iperf3", "--version"]).splitlines()[0:1],
+         "host_nic": nb.HOST_NIC,
+         "host_nic_driver": nb.host(["ethtool", "-i", nb.HOST_NIC]).replace("\n", "; ")[:160]}
     p = sorted((ROOT / "openwrt/patches").glob("300-17*"))
     c["patch_300_17"] = f"{p[0].name} sha256 {hashlib.sha256(p[0].read_bytes()).hexdigest()[:12]}" if p else "missing"
     c["image_file"] = (f"{image.name} {image.stat().st_size} B mtime "

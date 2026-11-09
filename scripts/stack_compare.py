@@ -1,8 +1,8 @@
 #!/usr/bin/env python3
-"""stack_compare — identical NAT bench on three stacks (A upstream OpenWrt, B ours OpenWrt, C plain kernel); DRY-RUN ONLY.
+"""stack_compare — identical NAT bench on three stacks (A upstream OpenWrt, B ours OpenWrt, C plain kernel).
 
-- Plan: docs/NAT-STACK-TESTS.md. Prints every command per stack x clock set; `--run` is refused until the owner releases it.
-- Stacks: A = `openwrt-upstream` (r38178 built from upstream, zero patches), B = `openwrt-ours-clean` (profile runs: `openwrt-ours-l3fix2`), C = `mainline-kernel --kernel mainline-7.4-rc1-clean3.bin`. A7 (upstream + 7.4) cannot be built: NAT-STACK-TESTS.md.
+- Plan: docs/NAT-STACK-TESTS.md. `--run` executes on sw2 after the owner release (2026-11-08).
+- Stacks: A = `openwrt-upstream` (r38178, no local patches), B = `openwrt-ours-clean` (profile runs: `openwrt-ours-l3fix2`), C = `mainline-kernel --kernel mainline-7.4-rc1-clean3.bin`. A7 (upstream + 7.4) cannot be built: NAT-STACK-TESTS.md.
 - Clock sets: common = core 508 / CPU 1350 / DDR 662 / LX 306 / SRAM 500; final = core 608 / CPU 1325 (LX 304-306).
 - Profile `clean`: tracing off (numbers). Profile `profile`: perf (+ ftrace on C) on, one diagnosis run per stack.
 - Per boot: `stack_normalize.py` runs BEFORE the cells (pinned tools, services, ruleset, sysctls, RPS/XPS, qdisc, offloads, IRQ), a
@@ -29,20 +29,31 @@ import stack_normalize as sn  # noqa: E402
 ROOT = Path(__file__).resolve().parent.parent
 LOG = ROOT / "tmp/logs/stack_compare.log"
 PY = "python3"
-TURBO = {"common": "turbo cpu=1350,ddr=662,lx=306,sram=500", "final": "turbo cpu=1325,ddr=662,lx=306,sram=500"}
+TURBO = {"common": "turbo cpu=1350,ddr=662,lx=306,sram=500", "final": "turbo cpu=1325,ddr=662,lx=306,sram=500",
+         "v7": "turbo cpu=1325,ddr=662,lx=306,sram=500", "v8": "turbo cpu=1350,ddr=662,sram=500"}  # v7/v8: #149 trigger search
 RAW = {  # core 508 (nat161_compare.py RAW) and core 608 (openwrt_core_stability.py c608_cpu1325: e220 0x36826)
     "common": "mw.l 0xbb00e220 0x30626; mw.l 0xbb00e214 0x3b8; mw.l 0xbb00e200 0x0001c0ff; mw.l 0xbb00e200 0x4001c0ff",
     "final": "mw.l 0xbb00e220 0x36826; mw.l 0xbb00e214 0x478; mw.l 0xbb00e200 0x0001c0ff; mw.l 0xbb00e200 0x4001c0ff",
 }
-# key: (label, ramload --then, extra ramload args, zc fast path present, L3 offload (300-17) present, tracing in the image)
+RAW["v7"], RAW["v8"] = RAW["common"], ""  # v8: stock core 408, no raw pre
+# key: (label, ramload --then, extra ramload args, zc fast path present, on-link offload extension present, tracing in the image)
 STACKS = {
-    "A": ("OpenWrt r38178 (upstream, zero patches) + Linux 6.18.x", "openwrt-upstream", ["--no-linkcheck"], False, False, "none (no PERF, no FTRACE)"),
-    "B": ("ours: OpenWrt main r38178 + 7.4-rc1 + series, clean profile", "openwrt-ours-clean", ["--no-linkcheck"], True, True, "none (no PERF, PROFILING, DYNAMIC_DEBUG, FTRACE)"),
-    "C": ("plain Linux 7.4-rc1 + series, bench initramfs", "mainline-kernel", ["--kernel", "mainline-7.4-rc1-clean3.bin", "--mgmt"], True, True, "clean image (C-clean3: B's BusyBox/musl/dropbear/nft/ip/tc/ethtool + fw4 ruleset): none"),
+    "A": ("OpenWrt r38178, Linux 6.18.60, no project changes", "openwrt-upstream",
+          ["--no-linkcheck", "--linux-console-baud", "200000"], False, False, "none (no PERF, no FTRACE)"),
+    "B": ("OpenWrt r38178, Linux 7.4-rc1, project changes, clean profile", "openwrt-ours-clean", ["--no-linkcheck"], True, True, "none (no PERF, PROFILING, DYNAMIC_DEBUG, FTRACE)"),
+    "C": ("plain Linux 7.4-rc1 + series, bench initramfs", "mainline-kernel", ["--kernel", "mainline-7.4-rc1-clean3.bin", "--mgmt"], True, True, "clean image (C-clean3: OpenWrt-derived userland + fw4 ruleset): none"),
 }
 PROFILE_IMG = {"C": ["--kernel", "mainline-7.4-rc1.bin", "--mgmt"]}  # existing image: PERF + FTRACE + function_graph compiled in
 PROFILE_THEN = {"B": "openwrt-ours-l3fix2"}  # perf-enabled image (PERF_EVENTS + PROFILING + DYNAMIC_DEBUG)
 SECS = 15
+
+
+def napi_for(stack):
+    return "irq0" if stack == "A" else "irq1"
+
+
+def onlink_tests_enabled(stack):
+    return STACKS[stack][4] and stack == "B"
 
 
 def log(msg):
@@ -71,9 +82,11 @@ def matrix(stack, with_zc, with_l3):
     for ln in (500,):  # 64 and 1400 are the two UDP cells above
         cells.append((27, nb("run", "--secs", 10, "--udp", 900, "--len", ln, "--label", f"{stack}-stack-udp{ln}")))
     if with_l3:
-        cells.append((300, f"{PY} scripts/l3_offload_ab.py -n 1 --only v4-onlink,v4-default --secs 10 --clocks \"<clock line>\"  # off then on; l3.c module params"))
+        cells.append((300, f"# {stack}: on-link routing cells l3on-udp1400, l3on-tcp-P4-fwd, l3off-tcp-P4-fwd (3 runs each)"))
+    elif STACKS[stack][4]:
+        cells.append((0, f"# {stack}: on-link hardware routing tests not scheduled (B only)"))
     else:
-        cells.append((0, f"# {stack}: no L3 offload module (not in this build): routed L3 off only, covered by the route cells above"))
+        cells.append((0, f"# {stack}: automatic on-link hardware routing unavailable; eligible gateway routes can still be hardware routed"))
     if with_zc:
         cells.append((5, nb("mode", "nat-ft")))
         cells.append((150, f"{PY} scripts/zc_bench.py --tcp --nat --napi irq1 --secs {SECS}  # zc+nat TCP P4 fwd/rev"))
@@ -90,7 +103,7 @@ def boot_argv(stack, clk, profile, stock=False):
         extra = PROFILE_IMG.get(stack, extra)
         then = PROFILE_THEN.get(stack, then)
     argv = [PY, "dev.py", "ramload", "uboot-mainline", "--stock-clocks", "--then", then, *extra, "--cage", "1"]
-    return argv if stock else argv + ["--pre", TURBO[clk], "--pre", RAW[clk]]
+    return argv if stock else argv + ["--pre", TURBO[clk]] + (["--pre", RAW[clk], "--pre", "md.l 0xbb00e220 1"] if RAW[clk] else [])
 
 
 def plan(stack, clk, profile):
@@ -99,9 +112,9 @@ def plan(stack, clk, profile):
         return 0, [f"# A has no PERF/FTRACE compiled in: no profile run"]
     img = extra if not (profile == "profile" and stack in PROFILE_IMG) else PROFILE_IMG[stack]
     boot = shlex.join(boot_argv(stack, clk, profile))
-    cmds = [(95, boot), (60, f"{PY} scripts/stack_normalize.py --stack {stack} --napi irq1  # BEFORE every bench: pins tools, settings; writes tmp/logs/stack_snapshot-{stack}.json")]
+    cmds = [(95, boot), (60, f"{PY} scripts/stack_normalize.py --stack {stack} --napi {napi_for(stack)}  # BEFORE every bench: pins tools, settings; writes tmp/logs/stack_snapshot-{stack}.json")]
     if profile == "clean":
-        cmds += matrix(stack, zc, l3)
+        cmds += matrix(stack, zc, onlink_tests_enabled(stack))
         cmds.append((5, f"{PY} scripts/stack_normalize.py --stack {stack} --snapshot-only --tag post  # drift check after the cells"))
     else:  # one diagnosis run per stack: perf on the stack path (nat-ft P4) and, on C, function_graph of rteth
         cmds += [(20, nb("setup")), (5, nb("mode", "nat-ft")),
@@ -118,10 +131,10 @@ def plan(stack, clk, profile):
 BY_DESIGN = [
     "kernel generation: A Linux 6.18.60 (upstream main has no 7.4: A7 not buildable) vs B/C 7.4-rc1",
     "PREEMPT: A NONE (6.18), B/C VOLUNTARY (7.x MIPS has no NONE choice)",
-    "patch set: A has none of 300-xx (rteth TX ring / BQL xmit_more / SRAM rings / DRAM prefetch / L3 offload / zc / CP0 timer from PLL)",
-    "A CP0 timer rate from DT (no 300-05): host-timed Mbit/s valid, switch-side CPU % not comparable",
+    "driver and platform changes: A uses OpenWrt's driver, including gateway-route hardware offload; B/C add this project's packet-ring and memory tuning, on-link/default-route offload, zero-copy forwarding and CPU-timer correction",
+    "A's CPU timer does not adjust to the chosen CPU speed: host-timed throughput is valid, switch-side CPU % is not comparable",
     "compiler: A = B (OpenWrt GCC 14.4.0); C kernel by host GCC 16.2.1 (mips64-linux-gnu); userland all OpenWrt GCC 14.4.0",
-    "OpenWrt base system (procd/ubusd/netifd/logd/urngd/hotplug/st1008f-linkwatch) on A and B, not C; OpenWrt base r38178 on A and B",
+    "OpenWrt base system on A and B, not C; local linkwatch only on B; OpenWrt base r38178 on A and B",
     "free memory (initramfs size, kernel size)",
 ]
 
@@ -131,7 +144,11 @@ def load_snaps(stacks, d, tag=""):
     for s_ in stacks:
         p = d / f"stack_snapshot-{s_}{'-' + tag if tag else ''}.json"
         if p.exists():
-            out[s_] = json.loads(p.read_text())
+            snap = json.loads(p.read_text())
+            musl, marker, hashes = snap.get("v_musl", "").partition("@@sha_pinned\n")
+            if marker and "sha_pinned" not in snap:
+                snap["v_musl"], snap["sha_pinned"] = musl.strip(), hashes.strip()
+            out[s_] = snap
     return out
 
 
@@ -159,19 +176,30 @@ def gate(stacks, snapdir, write=True, out_dir=None):
     else:
         diffs = sn.diff_snapshots(snaps)
         unlisted = [d for d in diffs if d[2] is None]
-        controlled = not unlisted
-        verdict = "CONTROLLED (all remaining differences listed)" if controlled else f"NOT CONTROLLED ({len(unlisted)} unlisted difference(s))"
+        failures = [s_ for s_, snap in snaps.items() if snap.get("normalise_failures")]
+        controlled = not unlisted and not failures
+        verdict = ("CONTROLLED (all remaining differences listed)" if controlled else
+                   f"NOT CONTROLLED ({len(unlisted)} unlisted difference(s); normalisation failures: {','.join(failures) or 'none'})")
     hdr.append(f"# GATE {time.strftime('%Y-%m-%dT%H:%M:%S%z')} stacks {','.join(stacks)}: {verdict}")
     hdr.append("# by design (never aligned):")
     hdr += [f"#   - {t}" for t in BY_DESIGN]
     hdr.append("# debug / perf / trace state per stack:")
     hdr += ["# " + ln for ln in trace_state(stacks, snaps)]
-    hdr.append("# pinned (identical bytes pushed to every stack): " + ("; ".join(
+    hdr.append("# pinned tool hashes (iperf3/ip/tc/fw4): " + ("; ".join(
         f"{s_}: {snaps[s_].get('sha_pinned', '?').replace(chr(10), ' ')[:400]}" for s_ in stacks[:1] if s_ in snaps) or "tmp/stack-tools/MANIFEST.txt"))
     hdr.append("# snapshot differences after normalisation:")
     for k, vals, why in diffs:
         short = {lab: (v if len(v) < 90 else v[:87] + "...").replace("\n", " | ") for lab, v in vals.items()}
         hdr.append(f"#   [{'listed: ' + why if why else 'UNLISTED'}] {k}: {short}")
+        if k == "sysctl" or k.startswith("ethtool_k_"):
+            separator = " = " if k == "sysctl" else ": "
+            settings = {lab: {name.strip(): value.strip() for name, value in
+                              (line.split(separator, 1) for line in v.splitlines() if separator in line)}
+                        for lab, v in vals.items()}
+            for name in sorted(set().union(*(set(values) for values in settings.values()))):
+                values = {lab: props.get(name, "<missing>") for lab, props in settings.items()}
+                if len(set(values.values())) > 1:
+                    hdr.append(f"#     {name}: {values}")
     if not diffs and not missing:
         hdr.append("#   none")
     for s_, sn_ in snaps.items():
@@ -194,14 +222,14 @@ def gate(stacks, snapdir, write=True, out_dir=None):
 
 
 # ---- RUN ENGINE (owner released hardware runs 2026-11-08; sw2 only) -----------------------------------------------------
-CTRL = ROOT / "tmp/controlled"
+CTRL = ROOT / "tmp/controlled/truenas-static"
 ROWS, BOOTS = CTRL / "rows.jsonl", CTRL / "boots.jsonl"
 NB_JSONL = ROOT / "tmp/logs/nat_bench.jsonl"
 CONSOLE = ROOT / "private/serial/st1008-console.log"
 BAD = re.compile(rb"Oops|\bBUG\b|Kernel panic|gro_list_prepare|Unhandled|rcu.*stall|Call Trace")
 SSHB = ["ssh", "-q", "-o", "ConnectTimeout=6", "-o", "StrictHostKeyChecking=no", "-o", "UserKnownHostsFile=/dev/null", "-o", "BatchMode=yes"]
 NREP = 3
-EXPECT_E220 = {"common": 0x30626, "final": 0x36826}
+EXPECT_E220 = {"common": 0x30626, "final": 0x36826, "v7": 0x30626}
 
 
 class Hang(Exception):
@@ -223,7 +251,7 @@ def sh(argv, stall, total, tag=""):
             buf += chunk
             last = now
         if now - last > stall or now - t0 > total:
-            os.killpg(p.pid, signal.SIGKILL)  # our own child group
+            stop_session(p.pid)
             p.wait()
             tail = buf.decode(errors="replace").strip().splitlines()[-1:] or [""]
             why = f"STALL {now - last:.0f} s silent (limit {stall})" if now - last > stall else f"TOTAL {now - t0:.0f} s (limit {total})"
@@ -231,6 +259,28 @@ def sh(argv, stall, total, tag=""):
             return 124, buf.decode(errors="replace") + f"\n[killed: {why}]\n"
     p.wait()
     return p.returncode, buf.decode(errors="replace")
+
+
+def stop_session(session):
+    """Signal only processes still belonging to the session started by sh()."""
+    r = subprocess.run(["ps", "-s", str(session), "-o", "pid="], capture_output=True, text=True, timeout=5)
+    if r.returncode not in (0, 1):
+        raise SystemExit(f"cannot identify session {session} processes: {r.stderr.strip()}")
+    for pid in (int(value) for value in r.stdout.split()):
+        try:
+            fd = os.pidfd_open(pid)
+        except ProcessLookupError:
+            continue
+        try:
+            if os.getsid(pid) == session:
+                try:
+                    signal.pidfd_send_signal(fd, signal.SIGKILL)
+                except PermissionError:
+                    subprocess.run(["sudo", "-n", "kill", "-KILL", str(pid)], check=True, timeout=5)
+        except ProcessLookupError:
+            pass
+        finally:
+            os.close(fd)
 
 
 def ssh(cmd, tmo=20):
@@ -269,7 +319,7 @@ def console_tail(mark, n=60):
 
 
 def boot(stack, clk, profile, stock=False):
-    """One ramload attempt; success = ssh answers (ramload rc is 1 on any UNKNOWN boot-log line, also for good boots)."""
+    """One ramload attempt; require a clean boot log, management, and clock readback."""
     mark = CONSOLE.stat().st_size
     t0 = time.time()
     for sock in ("tmp/nat_bench.ssh", "tmp/stack_normalize.ssh"):
@@ -280,7 +330,7 @@ def boot(stack, clk, profile, stock=False):
     up = any(subprocess.run(["ping", "-c", "3", "-i", "1", "-W", "1", sn.BENCH_IP], capture_output=True).returncode == 0 for _ in range(10))
     if up and "root" not in ssh("echo root", 10):
         sh([PY, "scripts/switch_console.py", "send", "dropbear -R -B", "--secs", "4"], 30, 40, "dropbear")
-    ok = up and any(alive() for _ in range(5))
+    ok = rc == 0 and up and any(alive() for _ in range(5))
     info = {}
     if ok:
         while True:  # uptime >= 25 s: ports and daemons settled
@@ -291,10 +341,14 @@ def boot(stack, clk, profile, stock=False):
                 break
         raw = ssh("uname -r; grep -i bogomips /proc/cpuinfo | head -1; for a in 0x1b00e200 0x1b00e214 0x1b00e220 0x18001200; do devmem $a 32 2>&1; done; cat /sys/class/thermal/thermal_zone0/temp").splitlines()
         info = {"uname_r": raw[0] if raw else "", "regs": raw[2:6], "bogomips": raw[1] if len(raw) > 1 else "", "temp_mC": raw[-1] if raw else ""}
-        try:
-            info["e220_ok"] = (not stock) and int(raw[4], 16) == EXPECT_E220[clk]
-        except (IndexError, ValueError):
-            info["e220_ok"] = None
+        with CONSOLE.open("rb") as fh:
+            fh.seek(mark)
+            clock_output = fh.read().decode(errors="replace")
+        matches = re.findall(r"bb00e220:\s*([0-9a-fA-F]{8})", clock_output)
+        info["e220_uboot"] = f"0x{matches[-1]}" if matches else None
+        info["e220_ok"] = int(matches[-1], 16) == EXPECT_E220[clk] if matches and not stock and clk in EXPECT_E220 else None
+        if not stock and clk in EXPECT_E220 and info["e220_ok"] is not True:
+            ok = False
     row = {"when": time.strftime("%Y-%m-%dT%H:%M:%S%z"), "stack": stack, "clk": clk, "profile": profile, "stock": stock, "ok": ok,
            "ramload_rc": rc, "secs": round(time.time() - t0), "bad_console": bad_console(mark), **info}
     if not ok:
@@ -312,7 +366,7 @@ def done_cells(stack, clk, profile):
     if ROWS.exists():
         for ln in ROWS.read_text().splitlines():
             r = json.loads(ln)
-            if (r["stack"], r["clk"], r["profile"]) == (stack, clk, profile):
+            if r.get("ok") and (r["stack"], r["clk"], r["profile"]) == (stack, clk, profile):
                 cnt[r["cell"]] = cnt.get(r["cell"], 0) + 1
     return cnt
 
@@ -327,9 +381,11 @@ class Session:
     def __init__(self, stack, clk, profile):
         self.stack, self.clk, self.profile = stack, clk, profile
         self.done = done_cells(stack, clk, profile)
+        self.failed = False
 
     def finish_row(self, cell, rep, row, mark, ok):
-        row.update({"stack": self.stack, "clk": self.clk, "profile": self.profile, "cell": cell, "rep": rep, "ok": ok,
+        self.failed |= not ok
+        row.update({"stack": self.stack, "clk": self.clk, "profile": self.profile, "napi": napi_for(self.stack), "cell": cell, "rep": rep, "ok": ok,
                     "when": time.strftime("%Y-%m-%dT%H:%M:%S%z"), "bad_console": bad_console(mark)})
         t = ssh("cat /sys/class/thermal/thermal_zone0/temp", 10).split()
         row["temp_mC"] = int(t[0]) if t and t[0].isdigit() else None
@@ -375,16 +431,19 @@ class Session:
             if zc_on:
                 nb.sw(f"echo 1 > {zb.P}/zc")
             try:
+                nb.generator_upload(nb.ensure_udpblast(), "/tmp/udpblast")
                 a, c0 = zb.rx(dev), zb.cpu_stat()
                 z0 = zb.zc() if zc_on else {}
-                r = subprocess.run(["sudo", "-n", "ip", "netns", "exec", "natlan", str(ROOT / "tmp/udpblast"), "10.99.1.2", "10.99.2.2", "5201", str(ln), str(secs), str(flows)],
-                                   capture_output=True, text=True, timeout=secs * 3 + 30)  # sender stops itself at secs
+                r = nb.host_run(["ip", "netns", "exec", "natlan", "/tmp/udpblast", "10.99.1.2", "10.99.2.2",
+                                 "5201", str(ln), str(secs), str(flows)], timeout=secs * 3 + 30)
                 b, c1 = zb.rx(dev), zb.cpu_stat()
                 z1 = zb.zc() if zc_on else {}
             finally:
                 if zc_on:
                     nb.sw(f"echo 0 > {zb.P}/zc", check=False)
             sent = re.search(r"sent (\d+)", r.stdout)
+            if not sent or int(sent.group(1)) == 0 or b <= a:
+                raise SystemExit(f"UDP run did not send and receive packets: {r.stdout[-300:]}")
             row = {"kpps": round((b - a) / secs / 1000, 2), "busy": zb.busy(c0, c1), "sent": int(sent.group(1)) if sent else None}
             if zc_on:
                 row["zc"] = {k: z1[k] - z0[k] for k in z1 if k in z0}
@@ -424,23 +483,29 @@ class Session:
 
     def matrix(self):
         S = self.stack
-        zc, l3 = STACKS[S][3], S == "B"  # routed L3 off/on: B only (C n/m, owner)
+        zc, l3 = STACKS[S][3], onlink_tests_enabled(S)  # on-link off/on: B only (C not measured, owner)
         for attempt in range(10):  # a panicked board leaves TCP sockets that pin the old natlan netns (and enp8s0.991) ~1-3 min
             if attempt:
                 hold(15)
             rc, _ = nbcmd("setup", tmo=120)  # rc 1 = SVI ping, dropped by fw4 input until `mode` adds nattest: not fatal
-            nbcmd("mode", "nat")
-            rc, _ = nbcmd("status")  # ping natlan -> natwan through the switch: the real check
-            if rc == 0:
+            if rc not in (0, 1):
+                raise Hang(f"nat_bench setup refused or failed rc {rc}")
+            mode_rc, _ = nbcmd("mode", "nat")
+            status_rc, _ = nbcmd("status")  # ping natlan -> natwan through the switch: the real check
+            if mode_rc == 0 and status_rc == 0:
                 break
         else:
             raise Hang("nat_bench: natlan cannot reach natwan after 10 x (setup + mode nat), 15 s apart")
         for mode in ("nat", "nat-ft"):
-            nbcmd("mode", mode)
+            rc, _ = nbcmd("mode", mode)
+            if rc:
+                raise Hang(f"nat_bench mode {mode} failed rc {rc}")
             for p in (1, 2, 4):
                 for rev in (False, True):
                     self.cell(f"{mode}-P{p}-{'rev' if rev else 'fwd'}", self.tcp(mode, p, rev))
-        nbcmd("mode", "route")
+        rc, _ = nbcmd("mode", "route")
+        if rc:
+            raise Hang(f"nat_bench mode route failed rc {rc}")
         if zc:
             nbcmd("offload", "--onlink", 0, "--default-v4", 0, "--default-v6", 0)
         for ln in (1400, 500, 64):
@@ -463,7 +528,7 @@ class Session:
 
 
 def normalise(stack, snapdir, tag=""):
-    argv = [PY, "scripts/stack_normalize.py", "--stack", stack, "--napi", "irq1", "--snap-dir", str(snapdir)]
+    argv = [PY, "scripts/stack_normalize.py", "--stack", stack, "--napi", napi_for(stack), "--snap-dir", str(snapdir)]
     if tag:
         argv += ["--snapshot-only", "--tag", tag]
     for _ in range(2):  # one retry: a stale ssh mux or a slow first login made "normalise did not finish" once
@@ -490,30 +555,38 @@ def run_stack(stack, clk, profile, a):
             log(f"STACK {stack} {clk}: no boot in {tries} tries: recorded, moving on")
             return False
     rc = normalise(stack, snapdir)
-    if rc and rc != 1:  # 1 = normalise FAIL lines (listed by the gate); other = tool failure
-        log(f"STACK {stack} {clk}: normalise tool failure rc {rc}")
+    if rc:
+        log(f"STACK {stack} {clk}: normalisation failed rc {rc}; benchmarks not run")
         return False
+    session = None
     if profile == "clean":
         try:
-            Session(stack, clk, profile).matrix()
+            session = Session(stack, clk, profile)
+            session.matrix()
         except Hang as e:
             log(f"HANG {stack} {clk}: {e}")
             return False
-    normalise(stack, snapdir, "post")
-    return True
+    if normalise(stack, snapdir, "post"):
+        log(f"STACK {stack} {clk}: post-benchmark snapshot failed")
+        return False
+    return not session or not session.failed
 
 
 def run_all(a):
     if sn.BENCH_IP != "192.168.25.56" or sn.BENCH_IP == "192.168.25.48":
         sys.exit("refused: sw2 (192.168.25.56) only")
+    if "A" in a.stacks.split(","):
+        log("A uses eth0 IRQ CPU0; existing B/C results use CPU1. A versus those results is NOT CONTROLLED.")
     CTRL.mkdir(parents=True, exist_ok=True)
+    ok = True
     for prof in (["clean", "profile"] if a.profile == "both" else [a.profile]):
         for clk in a.clocks.split(","):
             for s in a.stacks.split(","):
                 if prof == "profile" and clk == "final":
                     continue
                 log(f"=== RUN stack {s} clocks {clk} profile {prof}")
-                run_stack(s, clk, prof, a)
+                ok = run_stack(s, clk, prof, a) and ok
+    return 0 if ok else 1
 
 
 def main():
@@ -524,13 +597,15 @@ def main():
     ap.add_argument("--dry-run", action="store_true", default=True, help="always on: this script prints the plan only")
     ap.add_argument("--snapshot-dir", default=str(ROOT / "tmp/logs"), help="where stack_snapshot-<S>[-post].json live (gate input)")
     ap.add_argument("--gate-only", action="store_true", help="evaluate the gate from existing snapshots, print no plan")
-    ap.add_argument("--run", action="store_true", help="execute on sw2 (owner release 2026-11-08); rows -> tmp/controlled/")
+    ap.add_argument("--run", action="store_true", help="execute on sw2 (owner release 2026-11-08); rows -> tmp/controlled/truenas-static/")
     ap.add_argument("--no-boot", action="store_true", help="--run: the stack is already booted (resume after a script fix)")
     a = ap.parse_args()
     if a.run:
         return run_all(a)
     if a.gate_only:
-        ok, _ = gate(a.stacks.split(","), Path(a.snapshot_dir), out_dir=CTRL if a.snapshot_dir.startswith(str(CTRL)) else None)
+        snapdir = Path(a.snapshot_dir).resolve()
+        out_dir = CTRL if snapdir.is_relative_to(CTRL.resolve()) else None
+        ok, _ = gate(a.stacks.split(","), snapdir, out_dir=out_dir)
         sys.exit(0 if ok else 3)
     total, boots = 0, 0
     for prof in (["clean", "profile"] if a.profile == "both" else [a.profile]):
@@ -549,4 +624,4 @@ def main():
 
 
 if __name__ == "__main__":
-    main()
+    sys.exit(main())
