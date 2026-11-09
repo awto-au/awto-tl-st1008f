@@ -16,6 +16,7 @@ import base64
 import json
 import os
 import re
+import socket
 import subprocess
 import sys
 import time
@@ -28,6 +29,7 @@ ROOT = Path(__file__).resolve().parent.parent
 LOG = ROOT / "tmp/logs/st1008_ramload.log"
 CONSOLE = ROOT / "private/serial/st1008-console.log"
 SOCK = Path(os.environ.get("XDG_RUNTIME_DIR", f"/run/user/{os.getuid()}")) / "tio-st1008.daemon.sock"
+DAEMON_PID = SOCK.with_name("tio-st1008.daemon.pid")
 from boards import BENCH_CONSOLE  # noqa: E402
 DEV = BENCH_CONSOLE
 TFTP_ROOT = ROOT / "tmp/tftp"
@@ -61,11 +63,13 @@ IMAGES = {
                           OW_READY, 40),
     # DEBUG kernel (build_openwrt.py --debug) and the preserved 7.3 + GDMA image for A/B (docs/OPENWRT-BUMP.md)
     "openwrt-ours-debug": ("openwrt-ours-debug-initramfs.bin", 0x84f00000, "bootm", OW_READY, 40),
+    "openwrt-ours-6.18-debug": ("openwrt-ours-6.18-debug-initramfs.bin", 0x84f00000, "bootm",
+                              OW_READY, 40),
     "openwrt-ours-l3fix": ("openwrt-ours-l3fix-initramfs.bin", 0x84f00000, "bootm", OW_READY, 40),  # 7.4 + 300-17 fixes (#59)
     "openwrt-ours-l3fix2": ("openwrt-ours-l3fix2-initramfs.bin", 0x84f00000, "bootm", OW_READY, 40),  # same, with st1008f-stx (#163)
     "openwrt-7.4-sw": ("openwrt-7.4-sw-initramfs.bin", 0x84f00000, "bootm", OW_READY, 40),  # 7.4 without the 300-17 fixes? (#59)
     "openwrt-ours-clean": ("openwrt-ours-clean-initramfs.bin", 0x84f00000, "bootm", OW_READY, 40),  # l3fix2 tree, no PERF/PROFILING/DYNAMIC_DEBUG (NAT-STACK-TESTS.md)
-    "openwrt-upstream": ("openwrt-upstream-r38178-initramfs.bin", 0x84f00000, "bootm", OW_READY, 40),  # A: upstream r38178, zero patches, built (NAT-STACK-TESTS.md)
+    "openwrt-upstream": ("openwrt-upstream-r38178-initramfs.bin", 0x84f00000, "bootm", OW_READY, 40),  # A: upstream r38178, no local patches (NAT-STACK-TESTS.md)
     "openwrt-upstream-snapshot": ("openwrt-upstream-r38188-initramfs.bin", 0x84f00000, "bootm", OW_READY, 40),  # downloaded snapshot r38188, kept as a note
     "openwrt-ours-7.3": ("openwrt-ours-7.3-gdma-initramfs.bin", 0x84f00000, "bootm", OW_READY, 40),
     "mainline-kernel": ("mainline.bin", 0x84f00000, "bootm",
@@ -165,12 +169,25 @@ class Console:
             time.sleep(0.05)
 
     def run(self, cmd: str, pattern: str, cap: float, what: str, checked: bool = False) -> tuple[re.Match, str]:
+        if OW_PROMPT in pattern and len(cmd) > OW_LINE_MAX:
+            # fail before sending: BusyBox ash wraps the echo and the line arrives garbled (2026-11-09: 223 chars)
+            raise ValueError(f"{what}: OpenWrt shell line {len(cmd)} > {OW_LINE_MAX} chars; use Console.ow_script")
         mark = self.size()
         if checked or len(cmd) > 60:  # long lines lose chars (#31): a lost digit once sent crc32 to kuseg -> trap
             self.send_checked(cmd)
         else:
             self.send(cmd)
         return self.expect(pattern, cap, mark, what)
+
+    def ow_script(self, path: str, script: str, what: str) -> None:
+        """Write a multi-line shell script on the OpenWrt console via a here-doc, one short line at a time."""
+        lines = script.strip("\n").splitlines()
+        if any(len(ln) > OW_LINE_MAX or ln == "E" for ln in lines):
+            raise ValueError(f"{what}: script line > {OW_LINE_MAX} chars or a bare 'E' (here-doc end)")
+        self.run(f"cat >{path} <<'E'", r"\n> ", 1, f"{what}: open")
+        for ln in lines:
+            self.run(ln, r"\n> ", 1, f"{what}: line")
+        self.run("E", OW_PROMPT, 1, f"{what}: written")
 
 
 def power(op: str) -> None:
@@ -199,14 +216,28 @@ def console_view() -> None:
 
 
 def restart_daemon(policy: str = "hold") -> None:
-    subprocess.run(["pkill", "-f", "scripts/switch_console_daemon.py"], check=False)
-    t0 = time.monotonic()
-    while SOCK.exists() and time.monotonic() - t0 < 3:  # daemon unlinks its socket on SIGTERM
-        time.sleep(0.05)
-    out = open(ROOT / "tmp/logs/switch_console_daemon.out", "a")
-    subprocess.Popen([sys.executable, str(ROOT / "scripts/switch_console_daemon.py"), "--dev", DEV,
-                      "--baud", "115200", "--policy", policy], cwd=ROOT, stdout=out,
-                     stderr=subprocess.STDOUT, start_new_session=True)
+    if SOCK.exists():
+        try:
+            with socket.socket(socket.AF_UNIX) as s:
+                s.settimeout(5)
+                s.connect(str(SOCK))
+                s.sendall(b'{"op":"quit"}\n')
+                reply = json.loads(s.recv(65536))
+        except (OSError, ValueError) as e:
+            raise SystemExit(f"cannot stop console daemon through its socket: {e}")
+        if not reply.get("ok"):
+            raise SystemExit(f"console daemon refused shutdown: {reply}")
+        t0 = time.monotonic()
+        while (SOCK.exists() or DAEMON_PID.exists()) and time.monotonic() - t0 < 3:
+            time.sleep(0.05)
+        if SOCK.exists() or DAEMON_PID.exists():
+            raise SystemExit("console daemon did not remove its socket and pid file after shutdown")
+    elif DAEMON_PID.exists():
+        raise SystemExit("console daemon pid file exists without its socket; refusing to start another daemon")
+    with (ROOT / "tmp/logs/switch_console_daemon.out").open("a") as out:
+        subprocess.Popen([sys.executable, str(ROOT / "scripts/switch_console_daemon.py"), "--dev", DEV,
+                          "--baud", "115200", "--policy", policy], cwd=ROOT, stdout=out,
+                         stderr=subprocess.STDOUT, start_new_session=True)
     t0 = time.monotonic()
     while not SOCK.exists():  # daemon binds within ~0.3 s
         if time.monotonic() - t0 > 3:
@@ -329,17 +360,38 @@ def tftp(con: Console, fname: str, addr: int, retransmits: int = 1) -> None:
         if int(m.group(1)) != size:
             raise SystemExit(f"tftp size {m.group(1)} != file {size}")
     finally:
+        handling_error = sys.exc_info()[0] is not None
         try:
-            srv.wait(timeout=3)  # --once exits after the transfer
-        except subprocess.TimeoutExpired:  # killing sudo would orphan the root tftpd on :69
-            subprocess.run(["sudo", "-n", "pkill", "-f", "scripts/tftpd.py"], check=False)
+            rc = srv.wait(timeout=3)  # --once exits after the transfer
+        except subprocess.TimeoutExpired:
+            subprocess.run(["sudo", "-n", "kill", "-TERM", str(srv.pid)], check=True, timeout=5)
             srv.wait(timeout=3)
+            log(f"  stopped timed-out TFTP server (sudo PID {srv.pid})")
+            if not handling_error:
+                raise SystemExit("TFTP server did not exit after the transfer")
+        else:
+            if rc and not handling_error:
+                raise SystemExit(f"TFTP server failed rc {rc}; see tmp/logs/tftpd.log")
 
 
 OW_PROMPT = r"root@[^:\s]*:[^#]*# "  # hostname is "(none)" early in boot
+OW_LINE_MAX = 64  # BusyBox ash wraps longer lines (80 cols - prompt) and the echo check fails
 
 
-def openwrt_stp(con: Console, persist_cap: float = 2, mgmt_ip: str = "") -> None:
+# #166: procd feeds /dev/watchdog every 5 s (30 s timeout); one stalled procd = reset 30 s later.
+# 1 s sampler: procd not in epoll -> wchan + kernel stack at KERN_EMERG (on the console at loglevel 1).
+PROCD_WATCH = """
+while :;do w=$(cat /proc/1/wchan)
+case $w in *ep*poll*);;*)
+s=$(tr '\\n' ' '</proc/1/stack)
+u=$(cut -d' ' -f1 /proc/uptime)
+echo "<0>procd-watch $u $w: $s">/dev/kmsg;;
+esac;sleep 1;done
+"""
+
+
+def openwrt_stp(con: Console, persist_cap: float = 2, mgmt_ip: str = "",
+                verbose_console: bool = False, bridge_cap: float = 45, procd_watch: bool = False) -> None:
     """Bridge STP on as soon as the shell is up: the initramfs bridges every port with every
     laser lit, no STP (#19). A loop ramps slowly (~13k pps at +80 s), so this is in time.
     persist_cap: `uci commit; sync` bound; 2 s on a RAM boot, 90 s on the first flash boot (#113).
@@ -348,12 +400,17 @@ def openwrt_stp(con: Console, persist_cap: float = 2, mgmt_ip: str = "") -> None
     # kernel lines (SerDes calibration) interleave with replies and broke the check 2026-10-10
     # checked: right after the login banner the first char was dropped ('mesg: not found', 2026-10-11)
     con.run("dmesg -n 1", OW_PROMPT, 1, "console loglevel 1", checked=True)
+    if procd_watch:
+        con.ow_script("/tmp/pw", PROCD_WATCH, "procd watch")
+        con.run("sh /tmp/pw >/dev/null 2>&1 &", OW_PROMPT, 1, "procd watch")
     # bridge appears when netifd runs (~27 s uptime; shell is up at ~14 s): wait ON the board,
     # set STP within 1 s of it existing. First-boot dropbear keygen delays rc S19/S20 (network): bridge seen
     # 14-35 s after the shell (2026-10-12, #73); cap 45 s = 35 s x 1.25. No bridge = no loop while waiting.
+    # -debug images (lockdep, SLUB poison) passed 35 s and missed 45 s (2026-11-09): callers pass 90 s.
     con.run("B=/sys/class/net/switch/bridge", OW_PROMPT, 1, "bridge path")
     try:
-        con.run("until [ -d $B ];do sleep 1;done;echo 1 >$B/stp_state", OW_PROMPT, 45, "stp on")
+        con.run("until [ -d $B ];do sleep 1;done;echo 1 >$B/stp_state",
+                OW_PROMPT, bridge_cap, "stp on", checked=True)
         con.run("cat $B/stp_state", r"\n1\r?\n" + OW_PROMPT, 1, "stp_state = 1")
     except SystemExit:
         con.send("\x03")
@@ -366,7 +423,7 @@ def openwrt_stp(con: Console, persist_cap: float = 2, mgmt_ip: str = "") -> None
             except SystemExit:
                 break
         power("off")
-        raise SystemExit("FAIL: bridge STP not enabled in 45 s: lan* down + relay off (#19)")
+        raise SystemExit(f"FAIL: bridge STP not enabled in {bridge_cap:g} s: lan* down + relay off (#19)")
     # 2 s (sysfs unit 1/100 s) = bridge minimum: ports forward ~4 s after STP on, not 2 x 8 s.
     # The write waits for RTNL, held by phylink SerDes calibration at boot (8 ports x ~0.3 s, #131); x1.25.
     # STP is already on, so a miss only slows forwarding: warn, no kill.
@@ -381,6 +438,9 @@ def openwrt_stp(con: Console, persist_cap: float = 2, mgmt_ip: str = "") -> None
     log("  OpenWrt bridge STP on")
     if mgmt_ip:
         set_mgmt_ip(con, mgmt_ip)
+    # last: debug-kernel lines interleaving the echo-checked uci/ip lines failed 4 of 10 boots (2026-11-09)
+    if verbose_console:
+        con.run("dmesg -n 8", OW_PROMPT, 3, "console loglevel 8")
 
 
 def set_mgmt_ip(con: Console, ip: str) -> None:
@@ -389,7 +449,8 @@ def set_mgmt_ip(con: Console, ip: str) -> None:
     con.run("uci commit network", OW_PROMPT, 2, "uci commit lan", checked=True)  # RAM overlay: ms
     con.run(f"ip addr replace {ip}/24 dev switch.1", OW_PROMPT, 1, f"mgmt {ip}", checked=True)
     # OpenWrt's dropbear is bound to the old lan address (refuses on the bench IP): restart it open, blank root
-    con.run("killall dropbear; dropbear -R -B; pidof dropbear", OW_PROMPT, 3, "dropbear up")
+    con.run("/etc/init.d/dropbear stop && dropbear -R -B && echo DROPBEAR_OK",
+            r"\r?\nDROPBEAR_OK\r?\n" + OW_PROMPT, 60, "dropbear up")  # -R keygen is slow on debug kernels
     (ROOT / "tmp/nat_bench.ssh").unlink(missing_ok=True)  # stale ssh mux from the previous boot hangs scripts 20 s
     # STP forwards ~4 s after it is on (forward_delay 2 s); unreachable replies return at once, so pace with -i 1:
     # 4 x 3 pings = 12 s = 3x that
@@ -486,9 +547,11 @@ def main() -> int:
                     help="uboot-mainline: keep stock CPU 800 MHz + SPI 25.5 MHz (default: 1 GHz + SPI 122.5 MHz)")
     ap.add_argument("--spi", metavar="D:CODE",
                     help="with --then: SPI before bootm, SFCR D (0 = /2) and NOR code e220[16:13] (6 = stock)")
-    ap.add_argument("--then", choices=["openwrt", "openwrt-ours", "openwrt-ours-6.18", "openwrt-ours-l3fix", "openwrt-ours-l3fix2", "openwrt-ours-clean", "openwrt-7.4-sw", "openwrt-upstream", "openwrt-upstream-snapshot", "mainline-kernel"],
+    ap.add_argument("--then", choices=["openwrt", "openwrt-ours", "openwrt-ours-6.18", "openwrt-ours-6.18-debug", "openwrt-ours-l3fix", "openwrt-ours-l3fix2", "openwrt-ours-clean", "openwrt-7.4-sw", "openwrt-upstream", "openwrt-upstream-snapshot", "mainline-kernel"],
                     help="uboot-mainline: also TFTP that image (std magic) to 0x84f00000, bootm it from ours "
                          "(after `clocks fast`)")
+    ap.add_argument("--linux-console-baud", type=int,
+                    help="after the U-Boot 'Starting kernel ...' marker, set the host UART rate for the Linux image")
     ap.add_argument("--cpu", metavar="E208",
                     help="uboot-mainline: CPU e208 for /3 (default 0x3a8 = 1000 MHz; docs/CLOCKS.md)")
     ap.add_argument("--no-network", action="store_true", help="rtk network on already done this boot")
@@ -500,9 +563,21 @@ def main() -> int:
                     help="mainline-kernel (direct or --then): port-up the --cage with BENCH_IP after boot (ssh for bench scripts)")
     ap.add_argument("--bootargs", metavar="ARGS",
                     help="with --then: U-Boot bootargs before bootm, e.g. 'st1008f.mode=m2 st1008f.boot=primary'")
+    ap.add_argument("--verbose-console", action="store_true",
+                    help="after OpenWrt STP + management setup, restore full kernel console logging")
     ap.add_argument("--kernel", metavar="FILE",
                     help="mainline-kernel: TFTP-root file name instead of mainline-<base>.bin (e.g. mainline-7.4-rc1-ring.bin)")
+    ap.add_argument("--procd-watch", action="store_true",
+                    help="OpenWrt: log procd (watchdog feeder) state + kernel stack whenever it is not idle (#166)")
     a = ap.parse_args()
+    if a.linux_console_baud is not None and not a.then:
+        ap.error("--linux-console-baud requires --then")
+    if a.linux_console_baud is not None and a.linux_console_baud <= 0:
+        ap.error("--linux-console-baud must be positive")
+    if a.verbose_console and not (a.image.startswith("openwrt") or (a.then or "").startswith("openwrt")):
+        ap.error("--verbose-console requires an OpenWrt RAM image")
+    if a.procd_watch and not (a.image.startswith("openwrt") or (a.then or "").startswith("openwrt")):
+        ap.error("--procd-watch requires an OpenWrt RAM image")
     if a.kernel:
         IMAGES["mainline-kernel"] = (a.kernel,) + IMAGES["mainline-kernel"][1:]
 
@@ -554,7 +629,8 @@ def main() -> int:
     if a.mgmt and a.image == "mainline-kernel":
         plain_mgmt(con, SWITCH_IP, a.cage)
     if a.image.startswith("openwrt"):
-        openwrt_stp(con, mgmt_ip=SWITCH_IP)  # direct RAM boot needs the bench IP too, as the --then path
+        openwrt_stp(con, mgmt_ip=SWITCH_IP, verbose_console=a.verbose_console,
+                    bridge_cap=90 if a.image.endswith("-debug") else 45, procd_watch=a.procd_watch)
     r = subprocess.run([sys.executable, str(ROOT / "scripts/boot_log_check.py"), "--boot", "-1"],
                        capture_output=True, text=True, timeout=30)  # local file scan, <2 s
     sys.stdout.write(r.stdout)
@@ -584,9 +660,20 @@ def main() -> int:
         # memtest=N: kernel early pattern test of lowmem, ~2.2 s per pattern at stock (#103); x1.25 + boot cap
         mt = re.search(r"\bmemtest=(\d+)", a.bootargs or "")
         cap = ow[4] + (3 * int(mt[1]) if mt else 0)
-        con.run(f"bootm 0x{ow[1]:08x}", ow[3], cap, f"{a.then} via mainline bootm")
+        mark = con.size()
+        bootm = f"bootm 0x{ow[1]:08x}"
+        if a.linux_console_baud is None:
+            con.run(bootm, ow[3], cap, f"{a.then} via mainline bootm")
+        else:
+            con.send(bootm)
+            con.expect(r"Starting kernel \.\.\.", 5, mark, "Linux kernel handoff")
+            _daemon_baud(a.linux_console_baud)
+            (ROOT / "tmp/console-speed.json").write_text(json.dumps({"host": a.linux_console_baud, "rate": a.linux_console_baud}))
+            log(f"  host console baud -> {a.linux_console_baud}")
+            con.expect(ow[3], cap, mark, f"{a.then} via mainline bootm")
         if a.then.startswith("openwrt"):
-            openwrt_stp(con, mgmt_ip=SWITCH_IP)
+            openwrt_stp(con, mgmt_ip=SWITCH_IP, verbose_console=a.verbose_console,
+                        bridge_cap=90 if a.then.endswith("-debug") else 45, procd_watch=a.procd_watch)
         if a.mgmt and a.then == "mainline-kernel":
             plain_mgmt(con, SWITCH_IP, a.cage)
         r = subprocess.run([sys.executable, str(ROOT / "scripts/boot_log_check.py"), "--boot", "-1"],

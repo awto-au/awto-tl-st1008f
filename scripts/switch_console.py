@@ -29,13 +29,16 @@ import argparse
 import base64
 import json
 import os
+import re
 import socket
 import sys
+import time
 from pathlib import Path
 
 RUNTIME = Path(os.environ.get("XDG_RUNTIME_DIR", "/run/user/%d" % os.getuid()))
 SOCK = RUNTIME / "tio-st1008.daemon.sock"
 LOG = "private/serial/st1008-console.log"
+LOG_OUT = Path(__file__).resolve().parent.parent / "tmp/switch-logs"
 ESC = b"\x1b"
 
 
@@ -78,6 +81,40 @@ def _print_capture(reply: dict):
         print("(no output captured)")
 
 
+def capture_logs() -> int:
+    from st1008_ramload import Console, OW_PROMPT
+
+    out = LOG_OUT / f"console-{time.strftime('%Y%m%d-%H%M%S')}"
+    out.mkdir(parents=True, exist_ok=True)
+    con = Console()
+    mark = con.size()
+    con.send("\x03", cr=False)
+    con.expect(OW_PROMPT, 5, mark, "shell after interrupt")
+    for command in ("dmesg", "logread"):
+        marker = f"__CAPTURE_{command.upper()}_DONE__"
+        mark = con.size()
+        try:
+            con.send_checked(f"{command} && echo {marker}")
+            deadline = time.monotonic() + 45
+            while time.monotonic() < deadline:
+                text = con.echo_since(mark)
+                end = re.search(rf"\r?\n{marker}\r?\n{OW_PROMPT}", text)
+                if end:
+                    start = text.find("\n") + 1
+                    (out / f"{command}.txt").write_text(text[start:end.start()] + "\n")
+                    print(f"captured {command} over console -> {out / (command + '.txt')}", flush=True)
+                    break
+                if "U-Boot 2011.12" in text:
+                    raise SystemExit(f"FAIL: switch reset while capturing {command}; partial output in {out}")
+                time.sleep(0.05)
+            else:
+                raise SystemExit(f"TIMEOUT capturing {command}; partial output in {out}")
+        finally:
+            (out / f"{command}-serial-raw.txt").write_text(con.echo_since(mark))
+    con.run("dmesg -n 8", OW_PROMPT, 3, "console loglevel 8", checked=True)
+    return 0
+
+
 def main() -> int:
     ap = argparse.ArgumentParser(description=__doc__,
                                  formatter_class=argparse.RawDescriptionHelpFormatter)
@@ -106,6 +143,10 @@ def main() -> int:
 
     sr = sub.add_parser("read")
     sr.add_argument("--secs", type=float, default=3.0)
+
+    sc = sub.add_parser("capture-logs", help="capture dmesg and logread over the sw2 console")
+    sc.add_argument("--interrupt", action="store_true", required=True,
+                    help="interrupt the foreground console command before capturing")
 
     args = ap.parse_args()
 
@@ -142,6 +183,8 @@ def main() -> int:
         _print_capture(_request({"op": "read", "secs": args.secs},
                                 read_timeout=args.secs + 10))
         return 0
+    if args.cmd == "capture-logs":
+        return capture_logs()
     return 1
 
 

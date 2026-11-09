@@ -115,14 +115,36 @@ CONFIG_MTD_SPLIT_FIRMWARE_NAME="firmware"
 CONFIG_MTD_SPLIT_UIMAGE_FW=y
 """  # as OpenWrt's generic + rtl930x config-6.18; config-7.x was regenerated on a tree without mtdsplit
 DEBUG73 = False  # --debug
-# --debug: allocator/list/net/VM checks; image goes to openwrt-ours-debug-initramfs*.bin (docs/OPENWRT-BUILD.md)
+# --debug: allocator/list/net/VM/locking checks, separate from performance images.
 # SLUB_DEBUG(_ON) and DEBUG_VM are OpenWrt-owned (config/Config-kernel.in): they must be set in the buildroot .config
-DEBUG_OWRT_CFG = "CONFIG_KERNEL_SLUB_DEBUG=y\nCONFIG_KERNEL_SLUB_DEBUG_ON=y\nCONFIG_KERNEL_DEBUG_VM=y\n"
+DEBUG_OWRT_CFG = """CONFIG_KERNEL_DEBUG_KERNEL=y
+CONFIG_KERNEL_KALLSYMS=y
+CONFIG_KERNEL_DEBUG_INFO=y
+CONFIG_KERNEL_SLUB_DEBUG=y
+CONFIG_KERNEL_SLUB_DEBUG_ON=y
+CONFIG_KERNEL_DEBUG_VM=y
+CONFIG_KERNEL_PROVE_LOCKING=y
+CONFIG_KERNEL_DEBUG_ATOMIC_SLEEP=y
+CONFIG_KERNEL_SOFTLOCKUP_DETECTOR=y
+CONFIG_KERNEL_DETECT_HUNG_TASK=y
+CONFIG_KERNEL_WQ_WATCHDOG=y
+CONFIG_KERNEL_CC_STACKPROTECTOR_STRONG=y
+"""
 TAG = ""  # --tag: output name suffix
 DEBUG_CFG = """CONFIG_DEBUG_LIST=y
 CONFIG_DEBUG_NET=y
 CONFIG_PAGE_POOL_STATS=y
 CONFIG_PAGE_POISONING=y
+CONFIG_DEBUG_SPINLOCK=y
+CONFIG_DEBUG_MUTEXES=y
+CONFIG_DEBUG_OBJECTS=y
+# CONFIG_DEBUG_OBJECTS_SELFTEST is not set
+CONFIG_DEBUG_OBJECTS_FREE=y
+CONFIG_DEBUG_OBJECTS_TIMERS=y
+CONFIG_DEBUG_OBJECTS_WORK=y
+CONFIG_DEBUG_OBJECTS_RCU_HEAD=y
+CONFIG_DEBUG_OBJECTS_PERCPU_COUNTER=y
+CONFIG_DEBUG_OBJECTS_ENABLE_DEFAULT=1
 """  # MIPS has no KASAN, KFENCE or DEBUG_PAGEALLOC (arch/mips/Kconfig)
 
 
@@ -284,6 +306,8 @@ def feeds() -> int:
 
 def run(cmd: list, timeout: float, cwd: Path = TREE, comment: bool = True) -> int:
     """Run under nice/ionice; output -> MAKE_LOG (+ tail into LOG on failure). 124 = timeout, 3 = disk."""
+    if cmd[0] == "make":
+        cmd = [cmd[0], "V=s", *cmd[1:]]
     cmd = NICE + [str(c) for c in cmd]
     log("run: " + " ".join(cmd))
     t0 = time.time()
@@ -465,8 +489,6 @@ def overlay_73() -> None:
     cfg73 = config73()
     if cfg73.exists():
         cfg = cfg73.read_text()
-        if DEBUG73:
-            cfg = override(cfg, DEBUG_CFG)
         if FLASH73:
             cfg = override(cfg, FLASH_CFG)
         if UP73:  # one VPE, as `./dev.py build-kernel --up`
@@ -508,10 +530,14 @@ def overlay(kernel: str, none: bool, parked: list[str]) -> None:
     reset_overlay()
     if none:
         log("overlay: none (--no-overlay): stock OpenWrt main")
-        return
-    if parked and kernel == "mainline":
-        sys.exit("--parked is for --kernel 6.18 only")
-    overlay_73() if kernel == "mainline" else overlay_618(parked)
+    else:
+        if parked and kernel == "mainline":
+            sys.exit("--parked is for --kernel 6.18 only")
+        overlay_73() if kernel == "mainline" else overlay_618(parked)
+    if DEBUG73:
+        cfg = TREE / RT / f"rtl930x/config-{PV if kernel == 'mainline' else '6.18'}"
+        cfg.write_text(override(cfg.read_text(), DEBUG_CFG))
+        log(f"debug: allocator/list/net/VM/locking checks in {cfg.relative_to(TREE)}")
 
 
 DEFAULT_BOOT = ROOT / "openwrt/default-boot"
@@ -737,9 +763,34 @@ def outputs(kernel: str) -> int:
         return 1
     TFTP.mkdir(parents=True, exist_ok=True)
     # openwrt-ours = mainline (default-boot RAM test, docs/DEFAULT-BOOT.md); openwrt-ours-6.18 = step 1
-    name = "openwrt-ours" + (("-debug" if DEBUG73 else "") if kernel == "mainline" else "-6.18") + TAG
+    name = "openwrt-ours" + ("" if kernel == "mainline" else "-6.18") + ("-debug" if DEBUG73 else "") + TAG
     if FLASH73:
         name = f"openwrt-{PV}{TAG}"  # A/B flash image: tmp/openwrt-<PV>-sysupgrade.bin
+        if DEBUG73:
+            name += "-debug"
+    if DEBUG73:
+        version = VER if kernel == "mainline" else "6.18.*"
+        kernels = list((TREE / "build_dir").glob(f"target-*/linux-realtek_rtl930x/linux-{version}/.config"))
+        if len(kernels) != 1:
+            log(f"FAIL: expected one built debug kernel config, found {kernels}")
+            return 1
+        kconfig = kernels[0]
+        required = (DEBUG_CFG + DEBUG_OWRT_CFG.replace("CONFIG_KERNEL_", "CONFIG_")).splitlines()
+        # Page-pool statistics are not a corruption check and depend on OpenWrt's package selection.
+        required = [line for line in required if "CC_STACKPROTECTOR" not in line and "PAGE_POOL_STATS" not in line]
+        required += ["CONFIG_STACKPROTECTOR_STRONG=y", "CONFIG_LOCKDEP=y"]
+        missing = [line for line in required if line not in kconfig.read_text().splitlines()]
+        if missing:
+            log(f"FAIL: debug kernel dropped required checks: {missing}")
+            return 1
+        log("debug: PAGE_POOL_STATS=" + ("y" if "CONFIG_PAGE_POOL_STATS=y" in kconfig.read_text().splitlines() else "n"))
+        debug_dir = TFTP.parent / "debug" / name
+        debug_dir.mkdir(parents=True, exist_ok=True)
+        shutil.copy2(kconfig, debug_dir / "kernel.config")
+        shutil.copy2(TREE / ".config", debug_dir / "openwrt.config")
+        for image in ("vmlinux", "vmlinux-initramfs"):
+            shutil.copy2(kconfig.parent.parent / f"{image}.debug", debug_dir / image)
+        log(f"debug: verified {len(required)} checks; configs and unstripped kernels in {debug_dir.relative_to(ROOT)}")
     for su in sorted((TREE / OUT_DIR).glob("*sysupgrade.bin")):  # A/B image, compat 2.0
         shutil.copy2(su, TFTP.parent / f"{name}-sysupgrade.bin")
         log(f"sysupgrade: tmp/{name}-sysupgrade.bin {su.stat().st_size} B")
@@ -773,8 +824,8 @@ def main() -> int:
                     help="mainline: A/B flash image layer (mtdsplit, uimage slots, compat 2.0, 14.5 MiB slots); "
                          "output tmp/openwrt-<PV>[tag]-sysupgrade.bin")
     ap.add_argument("--debug", action="store_true",
-                    help="mainline: kernel DEBUG_LIST, SLUB_DEBUG_ON, DEBUG_NET, PAGE_POOL_STATS, DEBUG_VM; "
-                         "output openwrt-ours-debug-initramfs*.bin")
+                    help="6.18 or mainline: allocator/list/net/VM checks, lockdep, atomic-sleep checks, "
+                         "lockup detectors and strong stack protection; separate -debug images and saved vmlinux")
     ap.add_argument("--clean", action="store_true",
                     help="clean profile: seed omits KERNEL_DYNAMIC_DEBUG / PERF_EVENTS / KALLSYMS / PROFILING "
                          "(upstream defaults); output tag gets -clean")
@@ -786,6 +837,8 @@ def main() -> int:
     a = ap.parse_args()
     if a.kernel == "7.3":
         a.kernel = "mainline"
+    if a.debug and a.clean:
+        ap.error("--debug and --clean are incompatible")
     comment = not a.no_comment
     global UP73, DEBUG73, TAG, FLASH73, CLEAN
     CLEAN = a.clean
@@ -828,9 +881,9 @@ def main() -> int:
         selftest_files(TREE / "files", strict=True)  # toolchain exists now; files/ is read by world
         disk_check("world", comment)
         rc = run(["make", j, "world"], T_WORLD, comment=comment)
-        prune()
         if rc:
             return 1
+        prune()
     else:
         disk_check("kernel", comment)
         if run(["make", j, "target/linux/clean", "target/linux/compile", "target/linux/install"], T_KERNEL,

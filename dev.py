@@ -82,10 +82,17 @@ def _script(rel: str, extra: list[str], sudo: bool = False) -> int:
 
 # ---- hardware: power, console, RAM loads ---------------------------------
 @command("RAM-load and run an image from stock U-Boot, then check the boot log",
-         args="uboot-mainline|openwrt|openwrt-ours|openwrt-ours-6.18|mainline-kernel|stock [--cage N] [--no-cycle] [--no-network]",
+         args="uboot-mainline|openwrt|openwrt-ours|openwrt-ours-6.18|openwrt-ours-6.18-debug|mainline-kernel|stock [--cage N] [--no-cycle] [--no-network] [--then IMG] [--linux-console-baud N] [--verbose-console] [--procd-watch]",
          kind="hardware")
 def cmd_ramload(extra: list[str]) -> int:
     return _script("st1008_ramload.py", extra)
+
+
+@command("repeat OpenWrt RAM boots on sw2; classify each as held / reset (+ uptime) / setup fail (#166)",
+         args="[--runs N] [--hold S] [--image IMG] [--bootargs ARGS] [--verbose-console] [--procd-watch] [--stop-on-reset] [--tag T]",
+         kind="hardware")
+def cmd_debug_soak(extra: list[str]) -> int:
+    return _script("debug_soak.py", extra)
 
 
 @command("get to a caught stock U-Boot prompt with networking on (power-cycle + catch)",
@@ -370,10 +377,16 @@ def cmd_selftest(extra: list[str]) -> int:
     return _script("selftest.py", extra)
 
 
-@command("full dmesg + logread of a running OpenWrt over SSH, classified vs the boot allowlist; read-only",
-         args="[--ip A.B.C.D] [--show-ok]  (default sw1 .48)", kind="check")
+@command("full dmesg + logread of a running OpenWrt over SSH, classified vs the boot allowlist",
+         args="[--ip A.B.C.D] [--show-ok] [--ephemeral-host-key] [--logs-only] [--follow SECONDS]  (default sw1 .48)", kind="check")
 def cmd_switch_logs(extra: list[str]) -> int:
     return _script("switch_logs.py", extra)
+
+
+@command("capture dmesg and logread on sw2 over serial, interrupting the foreground command",
+         args="--interrupt", kind="hardware")
+def cmd_console_logs(extra: list[str]) -> int:
+    return _script("switch_console.py", ["capture-logs", *extra])
 
 
 @command("boot stage table of a running OpenWrt's last boot over SSH (dmesg + logread), gaps flagged; compare two runs (#114)",
@@ -667,7 +680,7 @@ def cmd_kernel_base(extra: list[str]) -> int:
 
 
 @command("local OpenWrt main buildroot (rtl930x, TL-ST1008F v2): 6.18 + backports or our mainline port -> tmp/tftp/openwrt-ours*.bin (#73)",
-         args="[--kernel 6.18|mainline] [--kernel-only] [--jobs N] [--update] [--no-overlay] [--default-boot]  (docs/OPENWRT-BUILD.md)",
+         args="[--kernel 6.18|mainline] [--debug] [--kernel-only] [--jobs N] [--update] [--no-overlay] [--default-boot]  (docs/OPENWRT-BUILD.md)",
          kind="build")
 def cmd_build_openwrt(extra: list[str]) -> int:
     return _script("build_openwrt.py", extra)

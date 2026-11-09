@@ -87,6 +87,9 @@ End-to-end workflow: [../README.md#workflow](../README.md#workflow).
 ### st1008_ramload.py
 - Purpose: one-shot RAM load: relay off → daemon restart → relay on → catch stock prompt → `rtk network on` → light one cage → TFTP (byte count checked) → `go`/`bootm` → wait for the image's done marker → `boot_log_check`.
 - Run via `./dev.py ramload uboot-mainline|openwrt|openwrt-ours|openwrt-ours-6.18|mainline-kernel|stock [--cage N] [--no-cycle] [--no-network]`.
+- `--verbose-console` restores kernel console logging after STP and management setup (earlier, debug-kernel lines garbled the echo-checked `uci`/`ip` commands).
+- `--procd-watch` (OpenWrt only) starts a 1 s on-board sampler that logs procd's wait channel and stack to the kernel log whenever procd is not idle in `ep_poll`.
+- `debug_soak.py` (`./dev.py debug-soak`) repeats an OpenWrt RAM boot N times and summarises held / reset / setup-fail per run, including the black-box record and watchdog devices (#166).
 - `openwrt-ours` (7.3 kernel) / `openwrt-ours-6.18`: local builds from `build_openwrt.py`; bridge STP enforced as for `openwrt`.
 - `ramload uboot-mainline --then openwrt|openwrt-ours[-6.18]|mainline-kernel`: ours runs `clocks fast` (CPU 1 GHz, SPI stock), then `bootm` of the std-magic copy of that image.
 - Log: `tmp/logs/st1008_ramload.log`. Every wait has a console marker + stated cap; a stock banner mid-run = unexpected reset = FAIL.
@@ -106,8 +109,9 @@ End-to-end workflow: [../README.md#workflow](../README.md#workflow).
 - sw1 tripwire: `off`/`cycle` ping sw1 before and after; sw1 lost → relay on, exit 4 (#91).
 
 ### switch_logs.py
-- Purpose: full `dmesg` + `logread` of a running OpenWrt over SSH, read-only; dmesg classified against `boot_log_allowlist.txt` ([linux] + [openwrt]), logread warn/err lines listed; grouped by message.
-- Run: `./dev.py switch-logs [--ip A.B.C.D] [--show-ok]` (default sw1 .48). Raw copies: `tmp/switch-logs/<ip>-<ts>/`. Log: `tmp/logs/switch_logs.log`.
+- Purpose: full `dmesg` + `logread` of a running OpenWrt over SSH; dmesg classified against `boot_log_allowlist.txt` ([linux] + [openwrt]), logread warn/err lines listed; grouped by message.
+- Run: `./dev.py switch-logs [--ip A.B.C.D] [--show-ok] [--ephemeral-host-key] [--logs-only] [--follow SECONDS]` (default sw1 .48). Raw copies: `tmp/switch-logs/<ip>-<ts>/`; `--logs-only` skips ancillary environment queries. `--follow` also saves a live `logread` stream and writes one readiness message to the switch's system log. Log: `tmp/logs/switch_logs.log`.
+- If SSH is unavailable on sw2, `./dev.py console-logs --interrupt` interrupts the foreground console command, captures both buffers through the daemon, and restores kernel console logging. Files are saved under `tmp/switch-logs/console-<ts>/`.
 
 ### openwrt_metrics.py
 - Purpose: install + start `st1008f-metricsd` (1 s SoC/SFP DDM gauges to Netdata statsd on TrueNAS) on a running OpenWrt (docs/MONITORING.md). Any unit.
@@ -364,8 +368,9 @@ End-to-end workflow: [../README.md#workflow](../README.md#workflow).
 
 ### build_openwrt.py
 - Purpose: local OpenWrt main buildroot (`tmp/openwrt-build`, realtek/rtl930x, TL-ST1008F v2 only) with our kernel work: `--kernel 6.18` = OpenWrt kernel + backports (`openwrt/backport-6.18/`), `--kernel mainline` (old name `7.3`) = our mainline port on the `kernel_base.py` base as OpenWrt testing kernel (`openwrt/kernel-<PV>/`) (#73).
-- Run via `./dev.py build-openwrt [--kernel 6.18|mainline] [--kernel-only] [--jobs N] [--update] [--no-overlay] [--prepare-only] [--regen-config]`. `--regen-config` leaves the buildroot untouched (falls back to the patched `kernel_base` tree when OpenWrt has none prepared).
+- Run via `./dev.py build-openwrt [--kernel 6.18|mainline] [--debug] [--kernel-only] [--jobs N] [--update] [--no-overlay] [--prepare-only] [--regen-config]`. `--regen-config` leaves the buildroot untouched (falls back to the patched `kernel_base` tree when OpenWrt has none prepared).
 - Output: `tmp/tftp/openwrt-ours[-6.18]-initramfs.bin` (Realtek magic) + `-std.bin`. Log: `tmp/logs/build_openwrt.log`, make output `tmp/logs/build_openwrt-make.log`.
+- `--debug`: separate `-debug` images for either kernel, with memory/list/object checks, lockdep, atomic-sleep checks, lockup detectors and strong stack protection. Required checks are verified in the final kernel config; configs and unstripped `vmlinux` / `vmlinux-initramfs` are saved under `tmp/debug/<image-name>/`. Diagnostic images are not performance baselines; page poisoning additionally needs the `page_poison=1` boot argument.
 - Notes: nice 19 / ionice idle, -j8; aborts below 4 GB free (before each phase + every 30 s in make) with a #73 comment. Docs: [../docs/OPENWRT-BUILD.md](../docs/OPENWRT-BUILD.md).
 
 ## Repo maintenance
