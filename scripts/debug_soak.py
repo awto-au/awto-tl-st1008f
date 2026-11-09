@@ -48,9 +48,17 @@ def ssh_uptime() -> int | None:
     return int(r.stdout) if r.returncode == 0 and r.stdout.strip().isdigit() else None
 
 
+def linux_after_bootm(buf: bytes) -> re.Match | None:
+    bootm = BOOTM_TX.search(buf)
+    if not bootm:
+        return None
+    lx = LINUX.search(buf, bootm.end())
+    return lx if lx and not BANNER.search(buf, bootm.end(), lx.start()) else None
+
+
 def reset_in(buf: bytes) -> re.Match | None:
-    """Stock U-Boot banner after the debug kernel's 'Linux version' = the board reset."""
-    lx = LINUX.search(buf)
+    """Stock U-Boot banner after the RAM-loaded Linux boot = the board reset."""
+    lx = linux_after_bootm(buf)
     return BANNER.search(buf, lx.end()) if lx else None
 
 
@@ -76,6 +84,10 @@ def one_run(a, n: int, out: Path) -> dict:
     # restart_board can also power-cycle after a missed software-reboot banner.
     if stp_guard_power_cut(rl):
         res["result"] = "SETUP-FAIL (power cut by guard)"
+    elif not linux_after_bootm(serial_since(off)):
+        res["result"] = "SETUP-FAIL (RAM Linux not observed)"
+        if not res["setup_error"]:
+            res["setup_error"] = "no Linux version after RAM bootm"
     else:
         last, t0 = 0, time.monotonic()
         while True:
@@ -114,13 +126,19 @@ def one_run(a, n: int, out: Path) -> dict:
                                       " $(readlink $w/device | sed 's|.*/||') $(cat $w/state 2>/dev/null); done"],
                                capture_output=True, text=True, timeout=10)  # two sysfs reads
             res["watchdogs"] = r.stdout.strip().replace("\n", "; ")
+            if r.returncode:
+                res["watchdogs_error"] = f"watchdog query failed rc {r.returncode}: {r.stderr.strip()}"
+            elif not re.search(r"(?:^|; )watchdog\d+\b", res["watchdogs"]):
+                res["watchdogs_error"] = "watchdog query returned no devices"
         except subprocess.TimeoutExpired:
             res["watchdogs"] = "?"
+            res["watchdogs_error"] = "watchdog query timed out"
     if res["result"] in ("HELD", "NO-SSH"):
         with (d / "switch-logs.txt").open("w") as f:
-            subprocess.run([sys.executable, str(ROOT / "dev.py"), "switch-logs", "--ip", IP, "--ephemeral-host-key",
-                            "--logs-only"], cwd=ROOT, stdout=f, stderr=subprocess.STDOUT,
-                           timeout=120)  # dmesg + logread over ssh, <30 s
+            res["switch_logs_rc"] = subprocess.run(
+                [sys.executable, str(ROOT / "dev.py"), "switch-logs", "--ip", IP, "--ephemeral-host-key",
+                 "--logs-only"], cwd=ROOT, stdout=f, stderr=subprocess.STDOUT,
+                timeout=120).returncode  # dmesg + logread over ssh, <30 s
     bb = BLACKBOX.findall(buf)
     res["blackbox_at_boot"] = bb[-1].decode(errors="replace") if bb else ""
     (d / "serial.log").write_bytes(serial_since(off))
@@ -140,6 +158,8 @@ def main() -> int:
     a = ap.parse_args()
     if not a.image.startswith("openwrt"):
         ap.error("--image must be an OpenWrt RAM image")
+    if a.runs < 1 or a.hold < 1:
+        ap.error("--runs and --hold must be positive")
     out = ROOT / "tmp/debug-soak" / f"{a.tag}-{dt.datetime.now():%Y%m%d-%H%M%S}"
     out.mkdir(parents=True)
     log(f"soak {a.runs} x {a.image} '{a.bootargs}', hold {a.hold} s -> {out.relative_to(ROOT)}")
@@ -149,6 +169,9 @@ def main() -> int:
         runs.append(r)
         log(f"run {n}: {r['result']}" + (f" by {r['reset_by_s']} s after bootm" if "reset_by_s" in r else "")
             + (f", ssh uptime {r.get('last_ssh_uptime')}" if r.get("last_ssh_uptime") else "")
+            + (f", ramload rc {r['ramload_rc']}" if r["ramload_rc"] else "")
+            + (f", switch-logs rc {r['switch_logs_rc']}" if r.get("switch_logs_rc") else "")
+            + (f" [{r['watchdogs_error']}]" if r.get("watchdogs_error") else "")
             + (f" [{r['setup_error']}]" if r["setup_error"] else ""))
         (out / "summary.json").write_text(json.dumps(runs, indent=1))
         if a.stop_on_reset and r["result"] == "RESET":
@@ -157,16 +180,23 @@ def main() -> int:
     for prev, cur in zip(runs, runs[1:]):
         prev["blackbox"] = cur["blackbox_at_boot"]
     (out / "summary.json").write_text(json.dumps(runs, indent=1))
-    rows = ["| Run | Result | Reset by (s after bootm) | Black box (next boot) | Setup error |", "|---|---|---|---|---|"]
+    rows = ["| Run | Result | RAM-load rc | Logs rc | Watchdogs | Reset by (s after bootm) | Black box (next boot) | Setup error |",
+            "|---|---|---|---|---|---|---|---|"]
     for r in runs:
-        rows.append(f"| {r['run']} | {r['result']} | {r.get('reset_by_s', '')} | {r.get('blackbox', '')} "
-                    f"| {r['setup_error'][:70]} |")
+        watchdogs = (r.get("watchdogs_error") or r.get("watchdogs", "")).replace("|", r"\|")
+        setup_error = r["setup_error"][:70].replace("|", r"\|")
+        rows.append(f"| {r['run']} | {r['result']} | {r['ramload_rc']} | {r.get('switch_logs_rc', '')} "
+                    f"| {watchdogs} | {r.get('reset_by_s', '')} | {r.get('blackbox', '')} "
+                    f"| {setup_error} |")
     held = sum(r["result"] == "HELD" for r in runs)
     reset = sum(r["result"] == "RESET" for r in runs)
-    rows.append(f"\n{held} held, {reset} reset, {len(runs) - held - reset} other, of {len(runs)}")
+    failed = sum(r["result"] != "HELD" or r["ramload_rc"] != 0 or r.get("switch_logs_rc", 0) != 0
+                 or bool(r["setup_error"]) or bool(r.get("watchdogs_error")) for r in runs)
+    rows.append(f"\n{held} held, {reset} reset, {len(runs) - held - reset} other, of {len(runs)}; "
+                f"{failed} with failures")
     (out / "summary.md").write_text("\n".join(rows) + "\n")
     print("\n".join(rows))
-    return 0 if reset == 0 else 3
+    return 3 if reset else 1 if failed else 0
 
 
 if __name__ == "__main__":

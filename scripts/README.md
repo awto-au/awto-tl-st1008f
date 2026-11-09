@@ -89,7 +89,7 @@ End-to-end workflow: [../README.md#workflow](../README.md#workflow).
 - Run via `./dev.py ramload uboot-mainline|openwrt|openwrt-ours|openwrt-ours-6.18|mainline-kernel|stock [--cage N] [--no-cycle] [--no-network]`.
 - `--verbose-console` restores kernel console logging after STP and management setup (earlier, debug-kernel lines garbled the echo-checked `uci`/`ip` commands).
 - `--procd-watch` (OpenWrt only) starts a 1 s on-board sampler that logs procd's wait channel and stack to the kernel log whenever procd is not idle in `ep_poll`.
-- `debug_soak.py` (`./dev.py debug-soak`) repeats an OpenWrt RAM boot N times and summarises held / reset / setup-fail per run, including the black-box record and watchdog devices (#166).
+- `debug_soak.py` (`./dev.py debug-soak`) repeats an OpenWrt RAM boot N times and summarises held / reset / setup-fail per run, including the black-box record and watchdog devices (#166). Exit 1 reports an incomplete run or failed checks; exit 3 reports a reset.
 - `openwrt-ours` (7.3 kernel) / `openwrt-ours-6.18`: local builds from `build_openwrt.py`; bridge STP enforced as for `openwrt`.
 - `ramload uboot-mainline --then openwrt|openwrt-ours[-6.18]|mainline-kernel`: ours runs `clocks fast` (CPU 1 GHz, SPI stock), then `bootm` of the std-magic copy of that image.
 - Log: `tmp/logs/st1008_ramload.log`. Every wait has a console marker + stated cap; a stock banner mid-run = unexpected reset = FAIL.
