@@ -127,7 +127,7 @@
 
 ## Not covered
 
-- Optics, DDM, cage links beyond lan1: #135 `cabling_map.py`, #127.
+- Optics, DDM, cage links beyond lan1: #135 `scripts/cabling_map.py` in awto-au/awto-terminal, #127.
 - Cage loop protection (`st1008f-linkcheck`, STP) beyond boot-link's lan1 check: #110.
 - Stock-clock plain run, ceilings (`ceiling_rxtx`, #148), NAT bench rates, mem-stress, DSS soak, SPI/flash speed (#50).
 - sysupgrade, A/B slot logic and trial boots (#117), sw1.
