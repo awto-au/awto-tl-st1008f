@@ -33,7 +33,7 @@ enum { M_OFF, M_B32, M_B64, M_B128, M_B256, M_B512, M_B1024, M_ON };	/* SW_*_LED
 /* boot snake self-stop if `led boot-end` never comes (countdown aborted): bootdelay x 1.25 */
 #define BOOT_WIN_PCT	125
 
-/* matrix -> hardware; SPEC until checked on the front panel. Env led_cols / led_rows override. */
+/* matrix -> hardware; env led_cols / led_rows override. */
 static u8 col_cage[COLS] = { 1, 2, 3, 4, 5, 6, 7, 8 };
 static u8 row_led[ROWS] = { 0, 1, 2 };
 static u8 fb[ROWS][COLS];

@@ -213,7 +213,7 @@ Source: SDK `dal_construct.c`, `dal_longan_mapper.c`, `rtk/init.c` (bootloader b
 
 ### Matrix mapping
 
-Rows = LED index, columns = cages. Physical front-panel order SPEC (unchecked); flip without a rebuild via env:
+Rows = LED index, columns = cages. Default order matches the front panel (owner 2026-11-14); flip without a rebuild via env:
 
 | Matrix | Default | Env override |
 |---|---|---|
