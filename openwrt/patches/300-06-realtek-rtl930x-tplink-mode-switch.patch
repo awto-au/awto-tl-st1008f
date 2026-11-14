@@ -117,7 +117,7 @@ new file mode 100644
 index 000000000..131e3e101
 --- /dev/null
 +++ b/drivers/platform/mips/tplink-st1008f-mode.c
-@@ -0,0 +1,940 @@
+@@ -0,0 +1,968 @@
 +// SPDX-License-Identifier: GPL-2.0-only
 +/*
 + * TP-Link TL-ST1008F v2: 3-position mode switch, ported from the stock rtk.ko
@@ -183,8 +183,12 @@ index 000000000..131e3e101
 +	ST_CLS_OUT = 10,	/* "port %d outsert" */
 +};
 +
++/* port LED hook (tplink-st1008f-leds.c, optional; values match its MOD_*) */
++enum { ST_LED_EMPTY, ST_LED_SENSED, ST_LED_KNOWN };
++void st1008f_led_module(int cage, int state, unsigned int max_mbps) __weak;
++
 +enum st_action {
-+	ST_ACT_NONE,		/* no module, read error, or a class the pattern ignores */
++	ST_ACT_NONE,	/* no module, read error, or a class the pattern ignores */
 +	ST_ACT_1000X_AN,	/* media 2: 1000BASE-X, in-band AN on */
 +	ST_ACT_2500X_FORCED,	/* media 3: 2500BASE-X, AN off */
 +	ST_ACT_DOWN,		/* unmatched pattern: vendor leaves the port at media NONE */
@@ -207,7 +211,8 @@ index 000000000..131e3e101
 +	unsigned int power_mw;		/* counted toward the budget; 0 = empty */
 +	const char *power_why;
 +	int cls;			/* class from the last insert */
-+	u8 pat;				/* per-port byte from sfpPatternSet: 1 or 2 */
++	unsigned int max_mbps;		/* module max speed from the ID EEPROM, for the port LEDs */
++	u8 pat;			/* per-port byte from sfpPatternSet: 1 or 2 */
 +	int media;			/* vendor media id logged for the decision */
 +	enum st_action act;
 +	bool down_done;			/* ST_ACT_DOWN applied once for this decision */
@@ -361,6 +366,16 @@ index 000000000..131e3e101
 +	if (p->elec)
 +		dev_info(dev, "port %d: it is also an eletronic port fiber\n", i);
 +	return cls;
++}
++
++/* max speed in Mbit/s: 10G compliance bits or nominal bitrate (byte 12, 100 MBd units) */
++static unsigned int st_max_mbps(const u8 *id)
++{
++	if ((id[3] & 0xf0) || id[12] >= 0x60)
++		return 10000;
++	if (id[12] >= 0x19 && id[12] < 0x21)
++		return 2500;
++	return 1000;
 +}
 +
 +/* tpSfpSetType (rtk.ko 0x0020b07c), fiber path: class x per-port pattern byte */
@@ -623,6 +638,7 @@ index 000000000..131e3e101
 +				p->present = false;
 +				p->elec = false;
 +				p->cls = ST_CLS_OUT;
++				p->max_mbps = 0;
 +				p->act = ST_ACT_NONE;
 +				p->media = 0;
 +				p->power_mw = 0;
@@ -642,8 +658,20 @@ index 000000000..131e3e101
 +		p->unread = false;
 +		p->present = true;
 +		p->cls = st_classify(ms, i, id);
++		p->max_mbps = st_max_mbps(id);
 +		p->power_mw = st_power_mw(id, &p->power_why);
 +		st_decide(ms, i);
++	}
++
++	if (st1008f_led_module) {	/* port LEDs: empty / answers on the bus / type known */
++		for (i = 0; i < ST_NPORTS; i++) {
++			struct st_port *p = &ms->port[i];
++
++			if (p->i2c)
++				st1008f_led_module(i, p->present ? ST_LED_KNOWN :
++						   seen[i] ? ST_LED_SENSED : ST_LED_EMPTY,
++						   p->present ? p->max_mbps : 0);
++		}
 +	}
 +
 +	st_power_check(ms);

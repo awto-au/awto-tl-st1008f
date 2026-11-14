@@ -15,14 +15,23 @@ Use it for status the link LEDs cannot show:
 - error latch: any write to `error` (text = reason, e.g. "storm")
   shows all 24 LEDs blinking 128 ms; only `clear` releases it. An error
   pattern left by the boot loader is taken over as latched at init.
-- booting: the boot loader can leave LED0 of every cage blinking
-  1024 ms (U-Boot env led_boot=latch); it stays until userspace writes
-  `clear`, so a hang between boot loader and userspace is visible.
+- booting: all LEDs blink 512 ms until the mode-switch driver reports
+  the first module state; hardware-held, so a hang before that shows.
 - fallback: U-Boot's bootsel chose the recovery image on a fault
   (unconfirmed primary boots, bad primary image): LED0 on, LED2 blink
   256 ms. Taken over as latched at init, like an error.
-- `pattern`: hw | off | on | booting | error | panic | fallback, or 24 digits 0-7
-  (LED0 cages 1-8, LED1, LED2); refused (-EBUSY) while latched.
+- per-cage policy (default; no timer of ours, hardware blink only):
+  no SFP: all three LEDs blink 32 ms; module answers, type unread: all
+  on; type known: max-speed LED on (LED0 1G, LED1 2.5G, LED2 10G, per
+  the DTS led-set); linked at max speed: back to the hardware link/act
+  engine; linked below max: max-speed LED on, trained-speed LED blinks
+  512 ms. Module state comes from st1008f_led_module() called by the
+  mode-switch driver's media pass; link speed from netdev events (one
+  work item per event, ethtool settings under rtnl).
+- `pattern`: auto | hw | off | on | booting | error | panic | fallback,
+  or 24 digits 0-7 (LED0 cages 1-8, LED1, LED2); refused (-EBUSY) while
+  latched. `auto` and `clear` return to the per-cage policy; `cages`
+  lists module state, max and trained speed per cage.
 - `state`: hw | booting | error | panic | fallback | custom, plus the latch.
 
 sysfs: /sys/devices/platform/st1008f-leds/{state,pattern,error,clear}.
@@ -66,24 +75,30 @@ new file mode 100644
 index 000000000..8a0dbc232
 --- /dev/null
 +++ b/drivers/platform/mips/tplink-st1008f-leds.c
-@@ -0,0 +1,300 @@
+@@ -0,0 +1,504 @@
 +// SPDX-License-Identifier: GPL-2.0-only
 +/*
 + * TP-Link TL-ST1008F v2: the 24 port LEDs (8 cages x 3) under RTL930x software LED control.
-+ * Hardware blink modes only: a pattern keeps showing with the CPU stopped.
++ * Hardware blink modes only: a pattern keeps showing with the CPU stopped; no timer of ours.
 + * Registers: RTL9300 LED application note V1.0, Tables 1-20..1-22 (SW LED control).
-+ * sysfs /sys/devices/platform/st1008f-leds: state, pattern, error, clear. Panic: panic_blink.
++ * sysfs /sys/devices/platform/st1008f-leds: state, pattern, error, clear, cages. Panic: panic_blink.
++ * Per-cage policy (docs/PORT-LEDS.md): event driven, module state from tplink-st1008f-mode.c
++ * (st1008f_led_module), link speed from netdev events (one work item per event).
 + */
 +
 +#include <linux/ctype.h>
++#include <linux/ethtool.h>
 +#include <linux/io.h>
 +#include <linux/module.h>
++#include <linux/netdevice.h>
 +#include <linux/of.h>
 +#include <linux/panic.h>
 +#include <linux/platform_device.h>
++#include <linux/rtnetlink.h>
 +#include <linux/spinlock.h>
 +#include <linux/string.h>
 +#include <linux/sysfs.h>
++#include <linux/workqueue.h>
 +
 +#define LED_BASE	0x1b00cc00		/* switch core LED block (KSEG1 0xbb00cc00) */
 +#define LED_SIZE	0xd4			/* up to SW_CTRL(28) */
@@ -98,21 +113,32 @@ index 000000000..8a0dbc232
 +enum { M_OFF, M_B32, M_B64, M_B128, M_B256, M_B512, M_B1024, M_ON };
 +enum { PAT_BOOTING, PAT_ERROR, PAT_PANIC, PAT_PANIC2, PAT_FALLBACK };
 +
++/* module states reported by tplink-st1008f-mode.c (same values there) */
++enum { MOD_EMPTY, MOD_SENSED, MOD_KNOWN };
++
 +/* cage 1..8 -> SDK port (docs/hardware.md) */
 +static const u8 cage_port[NCAGES] = { 0, 8, 16, 20, 24, 25, 26, 27 };
++
++struct cage_st {
++	bool known;	/* the mode driver has reported at least once */
++	u8 mod;
++	u16 max;	/* module max speed, Mbit/s */
++	u16 link;	/* trained speed, Mbit/s; 0 = down */
++};
 +
 +static void __iomem *base;
 +static struct platform_device *pdev;
 +static DEFINE_SPINLOCK(lock);
-+static bool err_latched;
++static bool err_latched, ready, manual;
 +static char err_why[32];
++static struct cage_st cs[NCAGES];
 +
 +/* cell = led * NCAGES + cage index; same layout as the U-Boot `rtk led` matrix rows */
 +static u8 pat_mode(int which, int led, int c)
 +{
 +	switch (which) {
 +	case PAT_BOOTING:
-+		return led == 0 ? M_B1024 : M_OFF;
++		return M_B512;
 +	case PAT_ERROR:
 +		return M_B128;
 +	case PAT_FALLBACK:	/* U-Boot bootsel fell back to recovery on a fault */
@@ -122,23 +148,29 @@ index 000000000..8a0dbc232
 +	}
 +}
 +
++/* one cage: modes at m[led * lstep], or all off; sw = software control, else hardware engine */
++static void put_cage(int c, const u8 *m, int lstep, bool sw)
++{
++	int p = cage_port[c], l;
++	u32 v, f;
++
++	v = readl(base + SW_CTRL(p)) & ~(GENMASK(8, 0) | GENMASK(20, 12));
++	for (l = 0; l < NLEDS; l++) {
++		f = m ? m[l * lstep] : 0;
++		v |= f << (3 * l) | f << (12 + 3 * l);
++	}
++	writel(v, base + SW_CTRL(p));
++	v = readl(base + SW_EN(p)) & ~(0xfU << ((p & 7) * 4));
++	writel(v | (sw ? 0xfU << ((p & 7) * 4) : 0), base + SW_EN(p));
++}
++
 +/* lock-free: also called from panic_blink with the other CPUs stopped */
 +static void out_modes(const u8 *m, bool sw)
 +{
-+	u32 v, f;
-+	int c, l, p;
++	int c;
 +
-+	for (c = 0; c < NCAGES; c++) {
-+		p = cage_port[c];
-+		v = readl(base + SW_CTRL(p)) & ~(GENMASK(8, 0) | GENMASK(20, 12));
-+		for (l = 0; l < NLEDS; l++) {
-+			f = m ? m[l * NCAGES + c] : 0;
-+			v |= f << (3 * l) | f << (12 + 3 * l);
-+		}
-+		writel(v, base + SW_CTRL(p));
-+		v = readl(base + SW_EN(p)) & ~(0xfU << ((p & 7) * 4));
-+		writel(v | (sw ? 0xfU << ((p & 7) * 4) : 0), base + SW_EN(p));
-+	}
++	for (c = 0; c < NCAGES; c++)
++		put_cage(c, m ? m + c : NULL, NCAGES, sw);
 +	writel(1, base + SW_LOAD);
 +}
 +
@@ -152,6 +184,145 @@ index 000000000..8a0dbc232
 +			m[l * NCAGES + c] = pat_mode(which, l, c);
 +	out_modes(m, true);
 +}
++
++/* DTS led_set0: LED0 1G/100M/10M, LED1 2.5G, LED2 10G; 5G shares the 10G LED */
++static int speed_led(unsigned int mbps)
++{
++	return mbps <= 1000 ? 0 : mbps <= 2500 ? 1 : 2;
++}
++
++/* per-cage LED modes; returns true when the cage goes back to the hardware link/activity engine */
++static bool cage_policy(const struct cage_st *s, u8 *m)
++{
++	int mx, ln;
++
++	memset(m, M_OFF, NLEDS);
++	if (!s->known) {	/* kernel up, no module report yet */
++		memset(m, M_B512, NLEDS);
++		return false;
++	}
++	if (s->mod == MOD_EMPTY) {
++		memset(m, M_B32, NLEDS);
++		return false;
++	}
++	if (s->mod == MOD_SENSED) {	/* answers on the bus, type not read yet */
++		memset(m, M_ON, NLEDS);
++		return false;
++	}
++	if (s->link && s->link >= s->max)
++		return true;
++	mx = speed_led(s->max);
++	m[mx] = M_ON;
++	if (s->link) {	/* linked below the module's max: trained-speed LED blinks */
++		ln = speed_led(s->link);
++		m[ln] = ln == mx ? M_ON : M_B512;
++	}
++	return false;
++}
++
++static bool auto_ok(void)
++{
++	return ready && !manual && !err_latched;
++}
++
++/* lock held */
++static void apply_cage(int c)
++{
++	u8 m[NLEDS];
++	bool hw = cage_policy(&cs[c], m);
++
++	put_cage(c, m, 1, !hw);
++}
++
++/* lock held */
++static void apply_all(void)
++{
++	int c;
++
++	for (c = 0; c < NCAGES; c++)
++		apply_cage(c);
++	writel(1, base + SW_LOAD);
++}
++
++/* called by tplink-st1008f-mode.c from its media pass: no-op until the LED driver is up */
++void st1008f_led_module(int cage, int state, unsigned int max_mbps);
++void st1008f_led_module(int cage, int state, unsigned int max_mbps)
++{
++	unsigned long fl;
++	struct cage_st *s;
++
++	if (cage < 0 || cage >= NCAGES)
++		return;
++	spin_lock_irqsave(&lock, fl);
++	s = &cs[cage];
++	if (!s->known || s->mod != state || s->max != max_mbps) {
++		s->known = true;
++		s->mod = state;
++		s->max = max_mbps;
++		if (auto_ok()) {
++			apply_cage(cage);
++			writel(1, base + SW_LOAD);
++		}
++	}
++	spin_unlock_irqrestore(&lock, fl);
++}
++EXPORT_SYMBOL_GPL(st1008f_led_module);
++
++/* trained speed per cage: process context, rtnl held (the helper takes the netdev ops lock) */
++static void link_work_fn(struct work_struct *w)
++{
++	u16 sp[NCAGES] = {};
++	unsigned long fl;
++	bool changed = false;
++	int c;
++
++	rtnl_lock();
++	for (c = 0; c < NCAGES; c++) {
++		struct ethtool_link_ksettings ks;
++		struct net_device *nd;
++		char nm[IFNAMSIZ];
++
++		snprintf(nm, sizeof(nm), "lan%d", c + 1);
++		nd = __dev_get_by_name(&init_net, nm);
++		if (nd && netif_carrier_ok(nd) && !__ethtool_get_link_ksettings(nd, &ks) &&
++		    ks.base.speed > 0 && ks.base.speed != SPEED_UNKNOWN)
++			sp[c] = min_t(u32, ks.base.speed, U16_MAX);
++	}
++	rtnl_unlock();
++
++	spin_lock_irqsave(&lock, fl);
++	for (c = 0; c < NCAGES; c++) {
++		if (cs[c].link == sp[c])
++			continue;
++		cs[c].link = sp[c];
++		if (auto_ok()) {
++			apply_cage(c);
++			changed = true;
++		}
++	}
++	if (changed)
++		writel(1, base + SW_LOAD);
++	spin_unlock_irqrestore(&lock, fl);
++}
++static DECLARE_WORK(link_work, link_work_fn);
++
++static int st1008f_netdev_event(struct notifier_block *nb, unsigned long ev, void *ptr)
++{
++	struct net_device *nd = netdev_notifier_info_to_dev(ptr);
++
++	switch (ev) {
++	case NETDEV_REGISTER:
++	case NETDEV_CHANGENAME:
++	case NETDEV_UP:
++	case NETDEV_DOWN:
++	case NETDEV_CHANGE:
++		if (!strncmp(nd->name, "lan", 3))
++			schedule_work(&link_work);
++		break;
++	}
++	return NOTIFY_DONE;
++}
++static struct notifier_block st1008f_netdev_nb = { .notifier_call = st1008f_netdev_event };
 +
 +/* -1 = all hardware, else per-cell modes; returns the matching pattern id or -2 (custom) */
 +static int read_state(u8 *m)
@@ -205,7 +376,8 @@ index 000000000..8a0dbc232
 +	spin_lock_irqsave(&lock, fl);
 +	s = read_state(m);
 +	spin_unlock_irqrestore(&lock, fl);
-+	return sysfs_emit(buf, "%s%s\n", state_name(s), err_latched ? " (error latched)" : "");
++	return sysfs_emit(buf, "%s%s%s\n", state_name(s), manual ? " (manual)" : "",
++			  err_latched ? " (error latched)" : "");
 +}
 +static DEVICE_ATTR_RO(state);
 +
@@ -229,7 +401,7 @@ index 000000000..8a0dbc232
 +	return n;
 +}
 +
-+/* "hw", "booting", "error", "panic", "fallback", "off", "on", or 24 digits 0-7 (LED0 cages 1-8, LED1, LED2) */
++/* "auto" (per-cage policy), "hw", "booting", "error", "panic", "fallback", "off", "on", or 24 digits 0-7 (LED0 cages 1-8, LED1, LED2) */
 +static ssize_t pattern_store(struct device *dev, struct device_attribute *a, const char *buf,
 +			     size_t len)
 +{
@@ -241,15 +413,24 @@ index 000000000..8a0dbc232
 +
 +	if (err_latched)
 +		return -EBUSY;
++	if (sysfs_streq(buf, "auto")) {
++		spin_lock_irqsave(&lock, fl);
++		manual = false;
++		apply_all();
++		spin_unlock_irqrestore(&lock, fl);
++		return len;
++	}
 +	for (i = 0; i < ARRAY_SIZE(names); i++)
 +		if (sysfs_streq(buf, names[i])) {
 +			spin_lock_irqsave(&lock, fl);
++			manual = true;
 +			out_pattern(ids[i]);
 +			spin_unlock_irqrestore(&lock, fl);
 +			return len;
 +		}
 +	if (sysfs_streq(buf, "fallback")) {
 +		spin_lock_irqsave(&lock, fl);
++		manual = true;
 +		out_pattern(PAT_FALLBACK);
 +		spin_unlock_irqrestore(&lock, fl);
 +		return len;
@@ -257,6 +438,7 @@ index 000000000..8a0dbc232
 +	if (sysfs_streq(buf, "hw") || sysfs_streq(buf, "off") || sysfs_streq(buf, "on")) {
 +		memset(m, buf[1] == 'n' ? M_ON : M_OFF, sizeof(m));
 +		spin_lock_irqsave(&lock, fl);
++		manual = true;
 +		out_modes(m, buf[0] != 'h');
 +		spin_unlock_irqrestore(&lock, fl);
 +		return len;
@@ -270,6 +452,7 @@ index 000000000..8a0dbc232
 +	if (n != NCELLS)
 +		return -EINVAL;
 +	spin_lock_irqsave(&lock, fl);
++	manual = true;
 +	out_modes(m, true);
 +	spin_unlock_irqrestore(&lock, fl);
 +	return len;
@@ -300,7 +483,7 @@ index 000000000..8a0dbc232
 +}
 +static DEVICE_ATTR_RW(error);
 +
-+/* release the latch and give the LEDs back to the link/activity engine */
++/* release the latch and any manual pattern: back to the per-cage policy */
 +static ssize_t clear_store(struct device *dev, struct device_attribute *a, const char *buf,
 +			   size_t len)
 +{
@@ -309,20 +492,40 @@ index 000000000..8a0dbc232
 +	spin_lock_irqsave(&lock, fl);
 +	err_latched = false;
 +	err_why[0] = 0;
-+	out_modes(NULL, false);
++	manual = false;
++	apply_all();
 +	spin_unlock_irqrestore(&lock, fl);
 +	return len;
 +}
 +static DEVICE_ATTR_WO(clear);
 +
++static ssize_t cages_show(struct device *dev, struct device_attribute *a, char *buf)
++{
++	static const char *const mods[] = { "empty", "sensed", "known" };
++	unsigned long fl;
++	int c, n = 0;
++
++	n += sysfs_emit_at(buf, n, "cage module max_mbps link_mbps\n");
++	spin_lock_irqsave(&lock, fl);
++	for (c = 0; c < NCAGES; c++)
++		n += sysfs_emit_at(buf, n, "%d %s %u %u\n", c + 1,
++				   cs[c].known ? mods[cs[c].mod] : "unreported", cs[c].max,
++				   cs[c].link);
++	spin_unlock_irqrestore(&lock, fl);
++	return n;
++}
++static DEVICE_ATTR_RO(cages);
++
 +static struct attribute *st1008f_leds_attrs[] = {
 +	&dev_attr_state.attr, &dev_attr_pattern.attr, &dev_attr_error.attr, &dev_attr_clear.attr,
++	&dev_attr_cages.attr,
 +	NULL,
 +};
 +ATTRIBUTE_GROUPS(st1008f_leds);
 +
 +static int __init st1008f_leds_init(void)
 +{
++	unsigned long fl;
 +	u8 m[NCELLS];
 +	int s;
 +
@@ -349,6 +552,13 @@ index 000000000..8a0dbc232
 +	}
 +	dev_info(&pdev->dev, "port LEDs: %s (engine %s)\n", state_name(s),
 +		 (readl(base + LED_GLB) & 3) == 1 ? "serial" : "off");
++	spin_lock_irqsave(&lock, fl);
++	ready = true;
++	if (auto_ok())
++		apply_all();
++	spin_unlock_irqrestore(&lock, fl);
++	register_netdevice_notifier(&st1008f_netdev_nb);
++	schedule_work(&link_work);
 +	if (!panic_blink)
 +		panic_blink = st1008f_panic_blink;
 +	return 0;
@@ -359,11 +569,14 @@ index 000000000..8a0dbc232
 +{
 +	if (panic_blink == st1008f_panic_blink)
 +		panic_blink = NULL;
++	unregister_netdevice_notifier(&st1008f_netdev_nb);
++	cancel_work_sync(&link_work);
++	ready = false;
 +	device_remove_groups(&pdev->dev, st1008f_leds_groups);
 +	platform_device_unregister(pdev);
 +	iounmap(base);
 +}
 +module_exit(st1008f_leds_exit);
 +
-+MODULE_DESCRIPTION("TP-Link TL-ST1008F v2 port LED patterns (boot, error, panic)");
++MODULE_DESCRIPTION("TP-Link TL-ST1008F v2 port LEDs (per-cage policy, boot, error, panic)");
 +MODULE_LICENSE("GPL");
