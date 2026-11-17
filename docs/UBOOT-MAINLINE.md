@@ -322,3 +322,13 @@ Owner 2026-10-12: U-Boot drivers reuse Linux/OpenWrt code where possible (one OS
   - `highmem.c` (U-Boot needs a wired TLB entry; only register values common), `rtk_sdstest.c`, crypto, DDR/clock SRAM code (no Linux counterpart), `bootsel.c`, `board.c`, `cmd_rtk.c`, `rtk_stock.c`, `rtk_ours.c`, `bench.c`, `cmd_busscan.c`, `cmd_dt.c` (U-Boot commands / boot policy).
 - **Upstream:** `arch/mips/lib/udivdi3.c` fix ([64-bit divide](#64-bit-divide-__udivdi3-33)).
 - Shared-source rule (with that merge): edit only `shared/`; build scripts copy it into U-Boot, the 7.3 tree and OpenWrt `files-7.3`; Linux `static_assert`s catch drift.
+
+## Power-up network window (#80, 2026-11-17)
+
+Console-less boot control: our U-Boot brings one cage up before the autoboot window and takes ESC over UDP.
+- Gate: stock env `st1008f_netwin=CAGE,IP,HOST` (e.g. `5,192.168.25.56,192.168.25.30`). Set/clear: `./dev.py uboot-chain-env netwin set CAGE,IP,HOST|off|show --ssh --ip A.B.C.D`. Unset = nothing changes.
+- `bootsel.c netwin()`: `rtk network on`, laser mask + `rtk port disable` on the other seven ports (as `st1008_ramload.py laser/ports_only`), `ipaddr`/`serverip`/`ncip`, stdin/stdout/stderr `serial,nc`, then the existing 2 s ESC-only window. ESC datagram to UDP :6666 stops autoboot.
+- Guards: SoC watchdog 22 s during bring-up (network on <= 15 s + 7 commands ~2 s, x1.25); `REC_NETWIN` (RAM, `0x0e000010`) still set at the next boot = bring-up hung, window skipped once; bad value -> LED fallback `netwin`, boot continues.
+- Cost when enabled: bring-up ~10 s (~17 s with a 10GBASE-T module) on every boot. The listening part is only the 2 s window; the host sends ESC every 0.1 s from the reboot, so one datagram lands as soon as the stack is up.
+- Host: `./dev.py netboot IMAGE [--reboot ssh|relay|none] [--turbo PROFILE] [--bootargs ARGS]`: reboot, ESC spam, prompt read off the wire (`tcpdump`, the host firewall drops :6666), optional `turbo`, `setenv bootargs`, one-shot TFTP, `bootm`, wait for ping. No flash write, no trial state: a power cycle without the window boots normally.
+- Status: U-Boot builds (519,737 B, 4,487 B below the slot limit), host parser and dry-run tested. Not run on hardware: the unit is stranded without console (#170). Input over netconsole (stdin `nc`) is untested: `uboot-test net` only covered output.

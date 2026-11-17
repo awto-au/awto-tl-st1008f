@@ -88,6 +88,13 @@ def cmd_ramload(extra: list[str]) -> int:
     return _script("st1008_ramload.py", extra)
 
 
+@command("boot an image from RAM through our U-Boot's power-up network window (UDP ESC, TFTP, bootm): no UART (#80)",
+         args="IMAGE [--ip A.B.C.D] [--reboot ssh|relay|none] [--turbo PROFILE] [--bootargs ARGS] [--no-check] [--dry-run]",
+         kind="hardware")
+def cmd_netboot(extra: list[str]) -> int:
+    return _script("uboot_netboot.py", extra)
+
+
 @command("repeat OpenWrt RAM boots on sw2; classify each as held / reset (+ uptime) / setup fail (#166)",
          args="[--runs N] [--hold S] [--image IMG] [--bootargs ARGS] [--verbose-console] [--procd-watch] [--stop-on-reset] [--tag T]",
          kind="hardware")
@@ -827,6 +834,7 @@ HOST_ONLY = {"storm-watch", "check-log", "flash-guard", "doc-check", "console-wa
              "canary"}  # orchestrator: every board flow it spawns goes through dev.py/board_guard itself
 # Owner-approved management of a running switch over SSH (any unit, sw1 included): no power, console or flash.
 NET_MANAGE = {"openwrt-snmp", "openwrt-luci", "switch-net-clean", "switch-snmp", "switch-vlan",
+              "netboot",  # UDP + TFTP into U-Boot's network window; reboot via ssh/relay only, no flash write (#80)
               "uboot-chain-install-ssh",  # jffs2-log write only (flash_guard), owner OK 2026-10-13
               "openwrt-sysupgrade-ssh",
               "openwrt-syslog", "openwrt-hostname", "openwrt-metrics"}  # uci + exporter packages only  # firmware only (flash_guard), config kept; sw1 on owner request
