@@ -22,6 +22,7 @@ LOG = ROOT / "tmp/logs/mainline_uimage.log"
 MAGIC = 0x93030000
 MAX_RAW = 0x1000000  # bootm decompress limit of our U-Boot; stock's is not recorded
 IH_OS_LINUX, IH_ARCH_MIPS, IH_TYPE_KERNEL, IH_COMP_LZMA = 5, 5, 2, 3
+IH_COMP_NONE = 0
 
 
 def log(msg: str) -> None:
@@ -46,6 +47,9 @@ def main() -> None:
     ap.add_argument("--out", type=Path, default=ROOT / "tmp/tftp/mainline.bin")
     ap.add_argument("--cross", default="mips64-linux-gnu-")
     ap.add_argument("--name", default="mainline ST1008F")
+    ap.add_argument("--no-compress", action="store_true",
+                    help="IH_COMP_NONE: flash slot images only (needs <= slot size); skips U-Boot's slow LZMA decode "
+                         "so bootm fits the 13 s boot watchdog (bootsel.c BOOT_WDT_MS)")
     a = ap.parse_args()
 
     load, entry = elf_load_entry(a.vmlinux, a.cross)
@@ -61,19 +65,22 @@ def main() -> None:
     image = body + dtb
     if len(image) > MAX_RAW:
         raise SystemExit(f"kernel+dtb {len(image)} B > bootm limit {MAX_RAW} B")
-    comp = bytearray(lzma.compress(image, format=lzma.FORMAT_ALONE,
-                                   filters=[{"id": lzma.FILTER_LZMA1, "preset": 9,
-                                             "dict_size": 1 << 23}]))
-    comp[5:13] = struct.pack("<Q", len(image))  # U-Boot 2011 wants the real size, not -1
+    if a.no_compress:
+        comp = bytearray(image)
+    else:
+        comp = bytearray(lzma.compress(image, format=lzma.FORMAT_ALONE,
+                                       filters=[{"id": lzma.FILTER_LZMA1, "preset": 9,
+                                                 "dict_size": 1 << 23}]))
+        comp[5:13] = struct.pack("<Q", len(image))  # U-Boot 2011 wants the real size, not -1
     dcrc = zlib.crc32(comp) & 0xFFFFFFFF
     name = a.name.encode()[:31].ljust(32, b"\0")
     hdr = bytearray(struct.pack(">IIIIIIIBBBB32s", MAGIC, 0, int(time.time()), len(comp), load,
                                 entry, dcrc, IH_OS_LINUX, IH_ARCH_MIPS, IH_TYPE_KERNEL,
-                                IH_COMP_LZMA, name))
+                                IH_COMP_NONE if a.no_compress else IH_COMP_LZMA, name))
     hdr[4:8] = struct.pack(">I", zlib.crc32(hdr) & 0xFFFFFFFF)
     a.out.write_bytes(bytes(hdr) + bytes(comp))
     raw.unlink()
-    log(f"{a.out}: kernel {len(body)} B + dtb {len(dtb)} B -> lzma {len(comp)} B; "
+    log(f"{a.out}: kernel {len(body)} B + dtb {len(dtb)} B -> {'raw' if a.no_compress else 'lzma'} {len(comp)} B; "
         f"load 0x{load:08x} entry 0x{entry:08x}")
 
 

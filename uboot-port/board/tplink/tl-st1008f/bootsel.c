@@ -45,8 +45,9 @@
 #define WDT_PHASE1	GENMASK(26, 22)
 #define WDT_PHASE2	GENMASK(19, 15)
 #define WDT_TICKS_MAX	33	/* phase1 32 + phase2 1 */
-/* clocks fast (< 1 s) + bootm -> kernel wdt probe (~9 s: flash read + LZMA at stock SPI) = 10 s, x1.25 + rounding */
-#define BOOT_WDT_MS	13000
+/* clocks fast + bootm (flash read + LZMA at stock SPI, ~1 s/MB each) -> kernel wdt probe: OpenWrt kernel ~9 s,
+ * plain bench image ~16 s (#120); 30 s = 2x the larger one, a hang still resets to the good slot */
+#define BOOT_WDT_MS	30000
 
 /* led boot-end before the clock switch; led fallback/error only run when a bootm returned (#9).
  * bootargs: Linux reads st1008f.mode (switch position), st1008f.slot (a|b: which slot it splits, 300-33)

@@ -222,6 +222,13 @@ BENCH_INIT = """# bench variant: host key now (ed25519 keygen is fast), dropbear
 (dropbearkey -t ed25519 -f /etc/dropbear/dropbear_ed25519_host_key >/dev/null 2>&1 &)
 """
 BENCH_LD_PATH = b"/tmp\n/lib\n/usr/lib\n"
+# ST1008F_CHAIN_PORTUP="CAGE ADDR/LEN [VID]": a flash-chain boot (bootargs carry st1008f.boot=; console RAM loads do not)
+# has no console flow after it, so /init brings that one uplink up + dropbear itself. Unset: image unchanged.
+CHAIN_INIT = """# flash-chain boot: no console flow follows, bring the uplink up here
+if grep -q 'st1008f[.]boot=' /proc/cmdline && [ -r /etc/st1008f-chain-portup ]; then
+  (port-up $(cat /etc/st1008f-chain-portup) >/dev/console 2>&1 &)
+fi
+"""
 
 
 def build(bench: bool | None = None, owrt: bool = False, owrt_bb: bool = False) -> Path:
@@ -253,6 +260,9 @@ def build(bench: bool | None = None, owrt: bool = False, owrt_bb: bool = False) 
         if owrt:  # the 24.10.7 set minus everything but iperf3 (+ its lib), then the OpenWrt image's own tools
             staged = {k: v for k, v in staged.items() if "iperf" in k or "libatomic" in k}
             staged.update(owrt_staged())
+    chain = os.environ.get("ST1008F_CHAIN_PORTUP", "").strip()
+    if chain:
+        init = init.replace("cd /root\n", CHAIN_INIT + "cd /root\n", 1)
     c.file("init", init.encode())
     for name in TOOL_LINKS:  # written below (ip-full, tc-full), not as the BusyBox applet
         staged.pop(name, None)
@@ -271,6 +281,8 @@ def build(bench: bool | None = None, owrt: bool = False, owrt_bb: bool = False) 
             c.file(name, data, mode)
     c.dir("etc")
     c.dir("etc/dropbear")  # -R writes host keys here on first connect
+    if chain:
+        c.file("etc/st1008f-chain-portup", (chain + "\n").encode(), 0o644)
     c.file("etc/passwd", b"root::0:0:root:/root:/bin/sh\n", 0o644)
     c.file("etc/group", b"root:x:0:\n", 0o644)
     c.file("etc/shells", b"/bin/sh\n", 0o644)
