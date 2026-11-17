@@ -9,9 +9,10 @@ Facts and results: [NAT.md](NAT.md). Everything runs through `./dev.py nat-bench
 - Packages installed in the switch overlay: `iperf3 ip-full ip-bridge tcpdump-mini kmod-pktgen`.
   - Install: `apk update && apk add ...`. This writes to the flash overlay, which is allowed.
   - `kmod-pktgen` must match the kernel's kmods hash in `/etc/apk/repositories.d`.
-- Load generator: TrueNAS `enp7s0f0` (10G, `192.168.25.71`), controlled via its management address `192.168.25.64`. The privileged `nat-bench` app owns `natlan`/`natwan` and runs `iperf3`/`iproute2`; port 1 of the NIC stays unbound.
-- The app definition is [nat-bench-app.json](../truenas/nat-bench-app.json). `./dev.py nat-bench link-check` performs one short TrueNAS-to-dev-host 10G check via sw1 only; sw2 stays idle.
-- The link check is only a path sanity check; controlled measurements run entirely on the TrueNAS app, never on the shared dev host.
+- Load generator (owner 2026-11-17: all NAT testing against selwyn): selwyn's 10G NIC (`boards.BENCH_NIC_MAC`, `enp8s0`, behind sw1 lan5). `natlan`/`natwan` are netns on selwyn, driven with `sudo -n`; `/tmp/<file>` helpers live in `tmp/nat-bench-gen/`. Needs passwordless sudo, `iperf3`, `musl-gcc` (udpblast).
+- `NAT_GENERATOR=truenas` selects the old TrueNAS app instead (`enp7s0f0`, mgmt `192.168.25.64`, [nat-bench-app.json](../truenas/nat-bench-app.json)); `link-check` then measures that 10G link via sw1 only.
+- selwyn is a shared host: every result row in `tmp/logs/nat_bench.jsonl` carries `gen_load1` / `gen_ncpu`, and a run warns when load1 > ncpu/4. A busy host makes a rate uncontrolled (#165); check the warning before quoting a number.
+- Uplink: `NAT_SW_PORT=lanN` names sw2's port cabled to sw1 (default `lan1`). Setup fails fast if it has no carrier and lists the ports with link. 2026-11-17: sw2 lan5 <-> sw1 lan4 (LLDP: `lldpcli show neighbors` on sw2), so use `NAT_SW_PORT=lan5`.
 - UDP tests upload `udpblast` as a static-musl executable for the app's runtime; the benchmark builds it automatically, or run `./dev.py nat-bench build-udpblast` explicitly.
 - `./dev.py` starts the storm guard automatically for hardware commands; do not start `storm_watch.py` by hand.
 
@@ -19,7 +20,7 @@ Facts and results: [NAT.md](NAT.md). Everything runs through `./dev.py nat-bench
 
 - TrueNAS app netns `natlan` uses `enp7s0f0.991` (10.99.1.2, fd99:1::2). App netns `natwan` uses `enp7s0f0.992` (10.99.2.2, fd99:2::2).
 - Switch SVIs are `switch.991` (10.99.1.1) and `switch.992` (10.99.2.1).
-- Bench path: TrueNAS `enp7s0f0` → sw1 lan6 → sw1 lan4 → sw2 cage 1. The old dev-host path through sw1 lan5 remains available. sw1 carries 991/992 tagged on lan4 + lan5 + lan6 (`./dev.py switch-vlan add 991,992 --ports lan4,lan5,lan6 --ip 192.168.25.48`; UCI saved and runtime-applied, no reload).
+- Bench path (default): selwyn `enp8s0` → sw1 lan5 → sw1 lan4 → sw2 uplink (`NAT_SW_PORT`). TrueNAS path: `enp7s0f0` → sw1 lan6 → sw1 lan4 → sw2. sw1 carries 991/992 tagged on lan4 + lan5 + lan6 (`./dev.py switch-vlan add 991,992 --ports lan4,lan5,lan6 --ip 192.168.25.48`; UCI saved and runtime-applied, no reload).
   - netifd re-applies its loaded config when lan4 re-joins (every sw2 power cycle), so runtime-only VLANs are dropped. Fixed by one owner-approved `./dev.py switch-vlan reload --ip 192.168.25.48` (2026-10-12T15:06+11:00: mgmt back 0.6 s after, switch-check PASS before/after); netifd now holds 991/992.
 - On sw2, VLANs 991/992 are tagged on lan1; sw1 passes them tagged on lan4/lan5/lan6. There is no DHCP, and masquerade applies only out `switch.992`.
 - All switch config is runtime only (bridge/ip/nft), with no `uci commit`. A reboot or `teardown` removes it.

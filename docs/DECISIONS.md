@@ -2,6 +2,10 @@
 
 Index of owner decisions, newest first. One line each: date (AEDT), decision, link. Superseded entries stay, marked **superseded by** the newer one. Facts and measurements live in the linked docs and issues.
 
+## 2026-11-17
+
+- **All NAT testing against selwyn** (owner 2026-11-17): the load generator is selwyn's 10G NIC (netns `natlan`/`natwan`), not the TrueNAS app; `NAT_GENERATOR=truenas` keeps the old path. selwyn is shared, so each result row records its load (#165). [NAT-OPS.md](NAT-OPS.md).
+
 ## 2026-11-07
 
 - **Final settings, go with what works** (owner 2026-11-07): switch core 608 MHz (VCO 3650, code 1; 612 / code 0 forbidden), CPU 1325 (owner choice 2026-11-08: highest step stable 5/5 on the OpenWrt image, #160; 1350 passes short plain-kernel runs but fails the image at core 575 / 608), DDR 662, LX ~304, SRAM 500. All DDR and CPU limit testing stops. The flash chain slot safe profile stays cpu=1350, core 408 (#159). Accepted results: 1400 B zc+nat 169-171 kpps, NAT TCP P4 ~1630 Mbit/s; 2.5 Gbit/s is not reachable by clocks. [NAT.md](NAT.md), [FASTEST-SETTINGS.md](FASTEST-SETTINGS.md#final-settings), #148, #103, #65.

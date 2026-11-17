@@ -1070,3 +1070,19 @@ Not isolated:
 ### Script changes
 - `l3_offload_ab.py`: v6 ping before the check preconditions and before f's wait; f no longer toggles `l3_default_v6` (the driver replays by itself).
 - New `scripts/l3_offload_h.py`: raw AF_PACKET UDP frames (no scapy installed) from natlan to the SVI MAC, sniffer in natwan, control DIP.
+
+## Functional check against selwyn (2026-11-17)
+
+Conditions: sw2 flash OpenWrt, Linux 7.4-rc1, slot b, default (stock) clocks, `zc` default 0; generator = selwyn `enp8s0` (load1 3.7-4.8 on 28 CPUs), uplink sw2 lan5 <-> sw1 lan4. One run per row, no repeats: a functional check, not a controlled comparison.
+
+| Row | Result |
+|---|---|
+| nat P4 fwd (stack) | 72.7 Mbit/s, 1248 retrans, VPE0 95 % softirq, VPE1 idle |
+| nat-ft P4 fwd (stack) | 153.7 Mbit/s, 2722 retrans, VPE0 91 % softirq |
+| UDP 2500 Mbit/s offered, 1400 B, nat | selwyn sent 2499.9; delivered ~470 Mbit/s (40.6 kpps), loss 81 % |
+| zc_bench 1400 B, stack | 27.4 kpps (317 Mbit/s on the wire) |
+| zc_bench 1400 B, zc+nat | 126.3 kpps (1461 Mbit/s on the wire), 4.6x the stack, payload checksums ok |
+
+- NAT rewrites verified: payload pattern check passes through zc+nat.
+- Below the final-settings figures in NAT.md (zc+nat 169-171 kpps) as expected: the flash chain runs stock clocks (`mode m1`), not core 608 / CPU 1325.
+- Setup's first end-to-end ping can fail before ARP and STP settle (about 4 s); `status` shows OK afterwards.

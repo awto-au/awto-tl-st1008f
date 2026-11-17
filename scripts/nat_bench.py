@@ -45,14 +45,17 @@ JSONL = ROOT / "tmp/logs/nat_bench.jsonl"
 
 sys.path.insert(0, str(Path(__file__).resolve().parent))  # `python -I ... _flood` drops the script dir from sys.path
 from boards import BENCH_IP, bench_nic  # noqa: E402
-HOST_NIC = "enp7s0f0"          # TrueNAS 10G NIC; port 1 stays unbound
+LOCAL_10G_NIC = bench_nic()    # selwyn 10G NIC behind sw1 lan5 (boards.BENCH_NIC_MAC)
+# Generator = selwyn (owner 2026-11-17: all NAT testing against selwyn); NAT_GENERATOR=truenas selects the TrueNAS app
+GENERATOR_LOCAL = os.environ.get("NAT_GENERATOR", "local") != "truenas"
+HOST_NIC = LOCAL_10G_NIC if GENERATOR_LOCAL else "enp7s0f0"   # TrueNAS 10G NIC; port 1 stays unbound
 GENERATOR_IP = "192.168.25.64"  # TrueNAS management interface; not on the measured 10G path
 GENERATOR_10G_IP = "192.168.25.71"
 GENERATOR_CONTAINER = "ix-nat-bench-nat-bench-1"
-LOCAL_10G_NIC = bench_nic()
+GEN_DIR = Path(__file__).resolve().parent.parent / "tmp/nat-bench-gen"   # local generator's "/tmp/<file>" helpers
 SW_IP = BENCH_IP               # sw2 bench unit (scripts/boards.py)
-SW_PORT = "lan1"
-LAN_VID, WAN_VID = 991, 992    # test-only VIDs, tagged on lan1 only
+SW_PORT = os.environ.get("NAT_SW_PORT", "lan1")   # sw2 uplink toward sw1/selwyn: the cage that is cabled (2026-11-17: lan2)
+LAN_VID, WAN_VID = 991, 992    # test-only VIDs, tagged on SW_PORT only
 SW_LAN, SW_WAN = "10.99.1.1", "10.99.2.1"
 H_LAN, H_WAN = "10.99.1.2", "10.99.2.2"
 NS_LAN, NS_WAN = "natlan", "natwan"
@@ -123,15 +126,39 @@ def sw(cmd: str, check: bool = True, tmo: float = SSH_TMO_S) -> str:
     return r.stdout
 
 
+def gen_path(p: str) -> str:
+    """Local generator: the helpers' '/tmp/<file>' lives under tmp/nat-bench-gen (never the system /tmp)."""
+    return str(GEN_DIR / p[5:]) if GENERATOR_LOCAL and p.startswith("/tmp/") else p
+
+
+def gen_name() -> str:
+    return "selwyn" if GENERATOR_LOCAL else "TrueNAS"
+
+
 def host_run(cmd: list[str], check: bool = True, timeout: float = 10) -> subprocess.CompletedProcess:
-    remote = shlex.join(["docker", "exec", GENERATOR_CONTAINER, *cmd])
     try:
-        r = subprocess.run(GENERATOR_SSH + [remote], capture_output=True, text=True, timeout=timeout)
+        if GENERATOR_LOCAL:
+            r = subprocess.run(["sudo", "-n", *[gen_path(c) for c in cmd]], capture_output=True, text=True,
+                               timeout=timeout)
+        else:
+            remote = shlex.join(["docker", "exec", GENERATOR_CONTAINER, *cmd])
+            r = subprocess.run(GENERATOR_SSH + [remote], capture_output=True, text=True, timeout=timeout)
     except subprocess.TimeoutExpired:
-        raise SystemExit(f"TrueNAS generator command timed out after {timeout}s: {' '.join(cmd)}")
+        raise SystemExit(f"{gen_name()} generator command timed out after {timeout}s: {' '.join(cmd)}")
     if check and r.returncode != 0:
-        raise SystemExit(f"TrueNAS generator cmd failed ({r.returncode}): {' '.join(cmd)}\n{r.stderr.strip()}")
+        raise SystemExit(f"{gen_name()} generator cmd failed ({r.returncode}): {' '.join(cmd)}\n{r.stderr.strip()}")
     return r
+
+
+def gen_load() -> dict:
+    """Generator host load at a run: a busy shared host invalidates a rate (#165)."""
+    if not GENERATOR_LOCAL:
+        return {"gen": "truenas"}
+    n = os.cpu_count() or 1
+    load1 = os.getloadavg()[0]
+    if load1 > n / 4:
+        log(f"WARN generator host selwyn busy: load1 {load1:.1f} on {n} CPUs (> {n / 4:.0f}); treat this rate as uncontrolled")
+    return {"gen": "selwyn", "gen_load1": round(load1, 2), "gen_ncpu": n}
 
 
 def host(cmd: list[str], check: bool = True, timeout: float = 10) -> str:
@@ -184,6 +211,12 @@ def generator_upload(source: Path, destination: str, mode: str = "755") -> None:
         raise SystemExit(f"generator upload source missing: {source}")
     if destination == "/tmp/udpblast" and not _static_elf(source):
         raise SystemExit("TrueNAS UDP helper must be statically linked; run ./dev.py nat-bench build-udpblast")
+    if GENERATOR_LOCAL:
+        dst = Path(gen_path(destination))
+        dst.parent.mkdir(parents=True, exist_ok=True)
+        dst.write_bytes(source.read_bytes())
+        dst.chmod(int(mode, 8))
+        return
     remote_script = f"cat > {shlex.quote(destination)} && chmod {mode} {shlex.quote(destination)}"
     remote = shlex.join(["docker", "exec", "-i", GENERATOR_CONTAINER, "sh", "-c", remote_script])
     try:
@@ -196,7 +229,14 @@ def generator_upload(source: Path, destination: str, mode: str = "755") -> None:
 
 
 def generator_link_check(secs: int = 3) -> int:
-    """Measure the TrueNAS 10G link across sw1 only; sw2 stays idle."""
+    """Measure the TrueNAS 10G link across sw1 only; sw2 stays idle. Local generator: NIC speed only."""
+    if GENERATOR_LOCAL:
+        eth = subprocess.run(["ethtool", LOCAL_10G_NIC], capture_output=True, text=True, timeout=5).stdout
+        speed = next((ln.split(":")[1].strip() for ln in eth.splitlines() if ln.strip().startswith("Speed:")), "?")
+        up = "Link detected: yes" in eth
+        log(f"GENERATOR LINK CHECK: selwyn {LOCAL_10G_NIC} {speed} link {'up' if up else 'DOWN'} (no iperf self-test "
+            "for the local generator; sw1 must tag VLANs 991/992 on lan5: ./dev.py nat-bench setup checks)")
+        return 0 if up and speed.startswith("10000") else 1
     out = subprocess.run(["ip", "-o", "-4", "addr", "show", "dev", LOCAL_10G_NIC],
                          capture_output=True, text=True, timeout=5, check=True).stdout
     local_ip = next((part.split("/")[0] for part in out.split() if part.startswith("192.168.25.")), None)
@@ -252,6 +292,11 @@ def setup() -> int:
     if not mainline():
         tools += "command -v bridge >/dev/null || { echo missing ip-bridge >&2; exit 1; }; "
     sw(tools)
+    if sw(f"cat /sys/class/net/{SW_PORT}/carrier 2>/dev/null || echo 0").strip() != "1":
+        up = sw("for p in /sys/class/net/lan[0-9]*; do [ \"$(cat $p/carrier 2>/dev/null)\" = 1 ] && "
+                "echo \"$(basename $p)=$(cat $p/speed)\"; done; true").split()
+        raise SystemExit(f"FAIL: uplink {SW_PORT} has no carrier; ports with link: {' '.join(up) or 'none'}; "
+                         "rerun with NAT_SW_PORT=lanN for the cabled port")
     log(f"setup: switch VLAN {LAN_VID}/{WAN_VID} tagged on {SW_PORT} + SVIs (runtime only)")
     cmds = ["echo 1 > /proc/sys/net/ipv4/ip_forward", "echo 1 > /proc/sys/net/ipv6/conf/all/forwarding"] \
         if mainline() else []
@@ -433,8 +478,11 @@ def iperf(ns_srv: str, srv_ip: str, ns_cli: str | None, secs: int, streams: int,
     tmo = int((secs + 2) * 1.25) + 5  # run + 2 s omit, 1.25x, + connect
     srv = (["nice", "-n", "19", "ip", "netns", "exec", ns_srv] if ns_srv else []) + \
         ["timeout", str(tmo + 5), "iperf3"] + (["-6"] if ipv6 else []) + ["-s", "-1", "-B", srv_ip]
-    remote = shlex.join(["docker", "exec", GENERATOR_CONTAINER, *srv])
-    server = subprocess.Popen(GENERATOR_SSH + [remote], stdout=subprocess.DEVNULL, stderr=subprocess.PIPE, text=True)
+    if GENERATOR_LOCAL:
+        server = subprocess.Popen(["sudo", "-n", *srv], stdout=subprocess.DEVNULL, stderr=subprocess.PIPE, text=True)
+    else:
+        remote = shlex.join(["docker", "exec", GENERATOR_CONTAINER, *srv])
+        server = subprocess.Popen(GENERATOR_SSH + [remote], stdout=subprocess.DEVNULL, stderr=subprocess.PIPE, text=True)
     cli = (["nice", "-n", "19", "ip", "netns", "exec", ns_cli] if ns_cli else []) + \
         ["iperf3"] + (["-6"] if ipv6 else []) + ["-c", srv_ip] + \
         (["-B", src_ip] if src_ip else []) + ["-t", str(secs), "-P", str(streams), "-J", "-O", "2"]
@@ -488,6 +536,7 @@ def summarize(label: str, res: dict, a: dict, b: dict, udp: int | None) -> dict:
     busy_vpe = sum(cpu[c]["busy"] for c in cpu if c != "cpu") / 100  # VPE-seconds per second
     row = {
         "label": label, "tag": TAG, "when": time.strftime("%Y-%m-%dT%H:%M:%S%z"), "mbps": round(mbps, 1), **extra,
+        **gen_load(),
         "eth0_rx_mbps": round(e["rx_bytes"] * 8 / dt / 1e6, 1), "eth0_tx_mbps": round(e["tx_bytes"] * 8 / dt / 1e6, 1),
         "eth0_rx_pps": int(rx_pps), "eth0_tx_pps": int(tx_pps),
         "eth0_rx_dropped": e["rx_dropped"], "eth0_tx_dropped": e["tx_dropped"],
