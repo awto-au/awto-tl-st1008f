@@ -1,0 +1,174 @@
+Subject: [PATCH] net: rteth: opt-in DEBUG_NET RX/GRO diagnostics for #149
+
+Diagnostic only. Enable at boot with rtl838x_eth.gro_diag=1 on a
+CONFIG_DEBUG_NET image. No change to production layout/code with DEBUG_NET=n.
+The RX overlap probe ends before completion releases NAPI ownership.
+Bucket checks are bounded and reject pointers into ctrl before dereference.
+They locate a detection boundary, not necessarily the corrupting writer.
+---
+--- a/drivers/net/ethernet/realtek/rtl838x_eth.c
++++ b/drivers/net/ethernet/realtek/rtl838x_eth.c
+@@ -46,6 +46,115 @@
+ MODULE_PARM_DESC(sram_rings, "descriptor rings in the DT sram pool: bit 0 RX, bit 1 TX");
+ 
+ /* 1 = TX ring follows the CPU that forwards (each VPE its own ring + reclaim, no shared ring lock) */
++#ifdef CONFIG_DEBUG_NET
++/* Boot-only: changing this during a poll would invalidate the ownership probe. */
++static bool gro_diag;
++module_param(gro_diag, bool, 0444);
++MODULE_PARM_DESC(gro_diag, "fail-stop RX/GRO ownership and bucket checks (#149 diagnostic, not a fix)");
++
++static void rteth_gro_diag_fail(struct rteth_rx_info *ri, const char *phase,
++			       int bucket, const char *why, const void *node)
++{
++	struct napi_struct *napi = &ri->napi;
++
++	panic("rteth-gro-diag: %s ring=%d slot=%d cpu=%d owner=%d phase=%s bucket=%d why=%s node=%px napi=%px poll_list=%px poll_next=%px poll_prev=%px gro=%px state=%lx list_owner=%d bitmask=%lx held=%px polls0=%lu polls1=%lu budget0=%lu",
++	      ri->ctrl->dev->name, ri->id, ri->slot, raw_smp_processor_id(),
++	      atomic_read(&ri->diag_rx_owner), phase, bucket, why, node, napi,
++	      &napi->poll_list, READ_ONCE(napi->poll_list.next), READ_ONCE(napi->poll_list.prev),
++	      &napi->gro, READ_ONCE(napi->state), READ_ONCE(napi->list_owner),
++	      READ_ONCE(napi->gro.bitmask), ri->skb, READ_ONCE(ri->diag_polls[0]),
++	      READ_ONCE(ri->diag_polls[1]), READ_ONCE(ri->diag_zero_budget));
++}
++
++/* Reject the observed poll_list pointer BEFORE dereferencing it as an skb.
++ * This is not a general safe-memory reader: another unmapped address can still
++ * fault. No allocation, list repair, flush, or skb reference changes here.
++ */
++static bool rteth_gro_diag_bad_node(struct rteth_ctrl *ctrl, const void *node)
++{
++	unsigned long p = (unsigned long)node, start = (unsigned long)ctrl;
++
++	return p < PAGE_SIZE || !IS_ALIGNED(p, sizeof(void *)) ||
++	       (p >= start && p - start < sizeof(*ctrl));
++}
++
++/* BEGIN host-checked bucket walk; MAX_GRO_SKBS is 8 in pinned v7.4-rc1 gro.c. */
++static const char *rteth_gro_diag_bucket(struct rteth_ctrl *ctrl, struct gro_list *bucket,
++				       bool bit, const void **bad)
++{
++	struct list_head *head = &bucket->list, *prev = head;
++	struct list_head *node = READ_ONCE(head->next);
++	unsigned int count = 0;
++
++	while (node != head) {
++		*bad = node;
++		if (rteth_gro_diag_bad_node(ctrl, node))
++			return "non-skb-node";
++		if (++count > 8)
++			return "cycle-or-overfull";
++		if (READ_ONCE(node->prev) != prev)
++			return "prev-link";
++		prev = node;
++		node = READ_ONCE(node->next);
++	}
++	*bad = head;
++	if (READ_ONCE(head->prev) != prev)
++		return "tail-link";
++	if (READ_ONCE(bucket->count) != (int)count)
++		return "count";
++	if (bit != !!count)
++		return "bitmask";
++	return NULL;
++}
++/* END host-checked bucket walk */
++
++static void rteth_gro_diag_check(struct rteth_rx_info *ri, const char *phase)
++{
++	struct gro_node *gro = &ri->napi.gro;
++	const void *bad = NULL;
++	const char *why;
++
++	if (!gro_diag)
++		return;
++	for (int b = 0; b < GRO_HASH_BUCKETS; b++) {
++		why = rteth_gro_diag_bucket(ri->ctrl, &gro->hash[b],
++					  !!(gro->bitmask & BIT(b)), &bad);
++		if (why)
++			rteth_gro_diag_fail(ri, phase, b, why, bad);
++	}
++}
++
++static void rteth_gro_diag_enter(struct rteth_rx_info *ri, int budget)
++{
++	if (!gro_diag)
++		return;
++	if (!budget) {
++		ri->diag_zero_budget++;
++		return;
++	}
++	if (atomic_cmpxchg(&ri->diag_rx_owner, 0, raw_smp_processor_id() + 1))
++		rteth_gro_diag_fail(ri, "poll-enter", -1, "overlapping-rx", NULL);
++	ri->diag_polls[raw_smp_processor_id() & 1]++;
++	rteth_gro_diag_check(ri, "poll-enter");
++}
++
++static void rteth_gro_diag_exit(struct rteth_rx_info *ri, int budget)
++{
++	if (!gro_diag || !budget)
++		return;
++	rteth_gro_diag_check(ri, "before-complete");
++	/* Release BEFORE napi_complete_done(): a new CPU may legitimately poll
++	 * after it clears SCHED, even before this callback returns. This probe
++	 * deliberately does not cover the core's GRO flush/completion window.
++	 */
++	atomic_set_release(&ri->diag_rx_owner, 0);
++}
++#else
++static inline void rteth_gro_diag_check(struct rteth_rx_info *ri, const char *phase) {}
++static inline void rteth_gro_diag_enter(struct rteth_rx_info *ri, int budget) {}
++static inline void rteth_gro_diag_exit(struct rteth_rx_info *ri, int budget) {}
++#endif
++
+ static uint tx_by_cpu;
+ module_param(tx_by_cpu, uint, 0644);
+ MODULE_PARM_DESC(tx_by_cpu, "TX ring = CPU number (run time, for NAPI pinned per VPE, #65)");
+@@ -2016,7 +2125,9 @@
+ 				rx_bytes += skb->len;
+ 				rx_packets++;
+ 				skb->protocol = eth_type_trans(skb, dev);
++				rteth_gro_diag_check(rx_info, "before-gro");
+ 				napi_gro_receive(&rx_info->napi, skb);
++				rteth_gro_diag_check(rx_info, "after-gro");
+ 				skb = NULL;
+ 			}
+ 		}
+@@ -2215,10 +2326,14 @@
+ 	int work_done, ring = rx_q->id;
+ 	bool tx_pending;
+ 
++	rteth_gro_diag_enter(rx_q, budget);
+ 	tx_pending = rteth_reclaim_tx_rings(ctrl, budget);
++	if (budget)
++		rteth_gro_diag_check(rx_q, "after-tx-reclaim");
+ 
+ 	work_done = rteth_hw_receive(ctrl->dev, ring, budget);
+ 	rx_q->pkts += work_done;
++	rteth_gro_diag_exit(rx_q, budget);
+ 	if (tx_pending)
+ 		return budget;
+ 	if (work_done < budget && napi_complete_done(napi, work_done))
+@@ -2797,6 +2912,9 @@
+ 	for (int i = 0; i < RTETH_RX_RINGS; i++) {
+ 		ctrl->rx_info[i].id = i;
+ 		ctrl->rx_info[i].ctrl = ctrl;
++#ifdef CONFIG_DEBUG_NET
++		atomic_set(&ctrl->rx_info[i].diag_rx_owner, 0);
++#endif
+ 		netif_napi_add(dev, &ctrl->rx_info[i].napi, rteth_poll_rx);
+ 	}
+ 
+--- a/drivers/net/ethernet/realtek/rtl838x_eth.h
++++ b/drivers/net/ethernet/realtek/rtl838x_eth.h
+@@ -273,6 +273,10 @@
+ 	int			slot;
+ 	struct rteth_ctrl	*ctrl;
+ 	struct napi_struct	napi;
++#ifdef CONFIG_DEBUG_NET
++	atomic_t		diag_rx_owner; /* 0 idle, else CPU+1; RX body only */
++	unsigned long		diag_polls[2], diag_zero_budget;
++#endif
+ 	unsigned long		pkts; /* frames received on this ring (debugfs rxq) */
+ 	unsigned long		zc_fwd, zc_miss, zc_busy, zc_hw; /* in-place forward, written by this ring's NAPI only (#146) */
+ 	unsigned long		qid[32]; /* frames per CPU tag queue id, rx_qid_stats=1 (#146) */
