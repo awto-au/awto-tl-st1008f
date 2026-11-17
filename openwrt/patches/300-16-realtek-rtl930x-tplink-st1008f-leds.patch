@@ -21,11 +21,10 @@ Use it for status the link LEDs cannot show:
   (unconfirmed primary boots, bad primary image): LED0 on, LED2 blink
   256 ms. Taken over as latched at init, like an error.
 - per-cage policy (default; no timer of ours, hardware blink only):
-  no SFP: all three LEDs blink 32 ms; module answers, type unread: all
-  on; type known: max-speed LED on (LED0 1G, LED1 2.5G, LED2 10G, per
-  the DTS led-set); linked at max speed: back to the hardware link/act
-  engine; linked below max: max-speed LED on, trained-speed LED blinks
-  512 ms. Module state comes from st1008f_led_module() called by the
+  no link (no SFP, type unread, or down): all three LEDs on; linked at
+  max speed (LED0 1G, LED1 2.5G, LED2 10G, per the DTS led-set): back to
+  the hardware link/act engine; linked below max: max-speed LED on,
+  trained-speed LED blinks 512 ms. Module state comes from st1008f_led_module() called by the
   mode-switch driver's media pass; link speed from netdev events (one
   work item per event, ethtool settings under rtnl).
 - `pattern`: auto | hw | off | on | booting | error | panic | fallback,
@@ -75,7 +74,7 @@ new file mode 100644
 index 000000000..8a0dbc232
 --- /dev/null
 +++ b/drivers/platform/mips/tplink-st1008f-leds.c
-@@ -0,0 +1,504 @@
+@@ -0,0 +1,498 @@
 +// SPDX-License-Identifier: GPL-2.0-only
 +/*
 + * TP-Link TL-ST1008F v2: the 24 port LEDs (8 cages x 3) under RTL930x software LED control.
@@ -201,22 +200,16 @@ index 000000000..8a0dbc232
 +		memset(m, M_B512, NLEDS);
 +		return false;
 +	}
-+	if (s->mod == MOD_EMPTY) {
-+		memset(m, M_B32, NLEDS);
-+		return false;
-+	}
-+	if (s->mod == MOD_SENSED) {	/* answers on the bus, type not read yet */
++	if (s->mod != MOD_KNOWN || !s->link) {	/* no module, type unread or no link: all three on (owner 2026-11-17) */
 +		memset(m, M_ON, NLEDS);
 +		return false;
 +	}
-+	if (s->link && s->link >= s->max)
++	if (s->link >= s->max)
 +		return true;
-+	mx = speed_led(s->max);
++	mx = speed_led(s->max);	/* linked below the module's max: trained-speed LED blinks */
++	ln = speed_led(s->link);
 +	m[mx] = M_ON;
-+	if (s->link) {	/* linked below the module's max: trained-speed LED blinks */
-+		ln = speed_led(s->link);
-+		m[ln] = ln == mx ? M_ON : M_B512;
-+	}
++	m[ln] = ln == mx ? M_ON : M_B512;
 +	return false;
 +}
 +
