@@ -21,7 +21,8 @@ Use it for status the link LEDs cannot show:
   (unconfirmed primary boots, bad primary image): LED0 on, LED2 blink
   256 ms. Taken over as latched at init, like an error.
 - per-cage policy (default; no timer of ours, hardware blink only):
-  no link (no SFP, type unread, or down): all three LEDs on; linked at
+  no SFP: all LEDs off; module present, type unread or no link: all
+  three LEDs on; linked at
   max speed (LED0 1G, LED1 2.5G, LED2 10G, per the DTS led-set): back to
   the hardware link/act engine; linked below max: max-speed LED on,
   trained-speed LED blinks 512 ms. Module state comes from st1008f_led_module() called by the
@@ -74,7 +75,7 @@ new file mode 100644
 index 000000000..8a0dbc232
 --- /dev/null
 +++ b/drivers/platform/mips/tplink-st1008f-leds.c
-@@ -0,0 +1,498 @@
+@@ -0,0 +1,500 @@
 +// SPDX-License-Identifier: GPL-2.0-only
 +/*
 + * TP-Link TL-ST1008F v2: the 24 port LEDs (8 cages x 3) under RTL930x software LED control.
@@ -200,7 +201,9 @@ index 000000000..8a0dbc232
 +		memset(m, M_B512, NLEDS);
 +		return false;
 +	}
-+	if (s->mod != MOD_KNOWN || !s->link) {	/* no module, type unread or no link: all three on (owner 2026-11-17) */
++	if (s->mod == MOD_EMPTY)	/* no SFP: dark (owner 2026-11-17) */
++		return false;
++	if (s->mod != MOD_KNOWN || !s->link) {	/* module present, type unread or no link: all three on */
 +		memset(m, M_ON, NLEDS);
 +		return false;
 +	}

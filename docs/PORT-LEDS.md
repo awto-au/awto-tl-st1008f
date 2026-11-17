@@ -17,7 +17,8 @@ Reference for the 24 port LEDs (8 cages x 3). Hardware layout and registers: [ha
 | State | LEDs |
 |---|---|
 | Kernel up, no module report yet | all three blink 512 ms |
-| No link (no SFP, type unread, or down) | all three on |
+| No SFP | all three off |
+| SFP present, type unread or no link | all three on |
 | Linked at max speed | released to the hardware link/activity engine |
 | Linked below max (10G module at 2.5G) | max-speed LED on, trained-speed LED blinks 512 ms |
 
