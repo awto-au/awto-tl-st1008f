@@ -20,6 +20,12 @@ Why the last boot ended, kept across panic, watchdog reset and reboot, readable 
 - `unclean` locates a hang to the last heartbeat (`up_s`, about 1 s before the end).
 - The SoC reset-status words `RST_GLB_STS_0/1` (`0xBB000010/14`) read 0 after a panic, a hang reset and a reboot on sw2 (2026-11-06): they do not tell the cases apart, so they are not used.
 
+## Kernel log tail (7.4 DTS only, #120)
+- Upper half of the same page: `ramoops@e000800` (2 KiB, `mem-type = <1>` uncached, console only; `CONFIG_PSTORE_RAM`/`PSTORE_CONSOLE`), mainline DTS. `bootrec@e000000` shrinks to 2 KiB there; the 6.18 DTS reserves the whole page and has no ramoops.
+- Why this page: our U-Boot memtest and the boot selftest skip it; another RAM address held a walking-zero pattern by the time slot a could read it.
+- Read after the next boot (any slot a image with `devmem`): `python3 scripts/ramlog_read.py [--ip A.B.C.D]`, within the first minute; log in `tmp/logs/ramlog_read.log`. Header `DBGC`, big-endian words.
+- First use: slot b flash boot died at 1.0 s (NULL oops in `otto_wdt_probe`, fixed in 300-15), then at 1.5 s (`Unable to mount root fs`, generic hack 420 added to the `--flash` build).
+
 ## Validated on sw2 (2026-11-06, network only, `./dev.py stress-trace --inject ...`)
 - panic injection (`sysrq c`): `lastreset=panic`, `msg=sysrq triggered crash`, up 76 s (last trace sample 0.15 s earlier).
 - clean reboot: `lastreset=clean`, `msg=restart`.

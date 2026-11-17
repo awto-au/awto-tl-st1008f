@@ -479,7 +479,8 @@ def overlay_73() -> None:
         (shutil.copytree if src.is_dir() else shutil.copy2)(src, dst)
     for rel, src in SHARED_FILES.items():  # shared with U-Boot (#83); 300-20 includes it
         shutil.copy2(src, fdir / rel)
-    for kind, names in (("pending", PENDING73), ("hack", HACK73)):
+    # 420: ROOT_DEV = mtd "rootfs" (CONFIG_MTD_ROOTFS_ROOT_DEV); without it a 7.x flash boot has no root device (#120)
+    for kind, names in (("pending", PENDING73), ("hack", HACK73 + (["420"] if FLASH73 else []))):
         gdir = TREE / GEN / f"{kind}-{PV}"
         gdir.mkdir()
         for n in names:

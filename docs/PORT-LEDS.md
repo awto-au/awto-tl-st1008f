@@ -29,4 +29,4 @@ Reference for the 24 port LEDs (8 cages x 3). Hardware layout and registers: [ha
 - Overrides: sysfs `pattern` (manual) or an error latch stop the policy; `auto` / `clear` resume it.
 - sysfs `/sys/devices/platform/st1008f-leds/`: `state`, `pattern`, `error`, `clear`, `cages` (module state, max, trained speed per cage).
 - Config: `CONFIG_TPLINK_ST1008F_LEDS=y` in `mainline/st1008f-v2.config` and `openwrt/kernel-7.4/config-7.4`. The 6.18 OpenWrt build does not carry 300-16.
-- Not yet on hardware: build, boot, front-panel check of the 32 ms blink against "all on".
+- Running on sw2 (7.4-rc1, flash slot b, 2026-11-17): `cages` classifies the modules and the driver applies the policy; `state` reads `custom` while cages are in different states.

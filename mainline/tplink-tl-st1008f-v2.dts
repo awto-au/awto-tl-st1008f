@@ -60,8 +60,18 @@
 		ranges;
 
 		bootrec@e000000 {
-			reg = <0x0e000000 0x1000>;
+			reg = <0x0e000000 0x800>;
 			no-map;
+		};
+
+		/* kernel console tail kept across a reset, same page as bootrec: our U-Boot and the
+		 * selftest skip that page. Read with devmem 0x0e000800 after the next boot (#120). */
+		ramoops@e000800 {
+			compatible = "ramoops";
+			reg = <0x0e000800 0x800>;
+			no-map;
+			mem-type = <1>;		/* unbuffered: a hang loses nothing in write buffers */
+			console-size = <0x800>;
 		};
 	};
 
