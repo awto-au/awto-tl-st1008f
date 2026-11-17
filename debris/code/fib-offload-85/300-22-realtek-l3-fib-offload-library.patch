@@ -1,0 +1,26 @@
+From: Dan <dan@awto.au>
+Subject: [PATCH] realtek: l3: use the fib_offload library
+
+Applied after 300-17 and 300-21. l3.c keeps the RTL93xx table logic
+(row placement, trap and catch-all rows, host slots, DMAC/egress
+allocation, router MACs, debugfs); the kernel-facing plumbing moves to
+net/core/fib_offload.c (docs/UPSTREAM-L3.md, #85):
+
+- FIB/rule notifiers, work items, table filter, dump flush and replay
+  after a lost event: library; l3.c gets ->fib_event / ->flush.
+- Policy rules: evaluated by the library (same algorithm, same log
+  line); ->fwd_suspend does what otto_l3_rules_check() did.
+- netevent: library; ->neigh_update does nexthop + on-link updates.
+- The RTNL poll every DELAY_PROBE_TIME is gone:
+  - stale-neighbour refresh: library ->nh_hit() on NUD_STALE events and
+    while stale (same hit read/clear as the poll);
+  - next hops without an L2 entry: fib_offload_nh_retry() from
+    otto_l3_route_update_hw(), retried every DELAY_PROBE_TIME;
+  - l3_onlink / l3_default_v4 / l3_default_v6: module_param_cb, applied
+    on write (and once at probe for the command line);
+  - default rows also re-checked after each neighbour event.
+- IPv4 routes now report offload / trap / offload_failed through
+  fib_alias_hw_flags_set (was RTNH_F_OFFLOAD on the nexthop); RTL839x
+  keeps RTNH_F_OFFLOAD.
+- Module parameters, log lines and table contents unchanged.
+---

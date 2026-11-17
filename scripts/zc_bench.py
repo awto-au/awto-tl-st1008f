@@ -33,7 +33,10 @@ def log(msg):
 
 
 def rx(dev):
-    return int(nb.host(["ip", "netns", "exec", "natwan", "cat", f"/sys/class/net/{dev}/statistics/rx_packets"]).strip() or 0)
+    out = nb.host(["ip", "netns", "exec", "natwan", "cat", f"/sys/class/net/{dev}/statistics/rx_packets"]).strip()
+    if not out.isdigit():  # empty/garbled counter is not 0 packets (#149 PR 164)
+        raise RuntimeError(f"RX counter unavailable for {dev}: {out[:80]!r}")
+    return int(out)
 
 
 def zc():
@@ -91,6 +94,10 @@ def run(label, secs, flows, ln):
     b, zb, c1 = rx(dev), zc(), cpu_stat()
     m = None
     sent = re.search(r"sent (\d+)", r.stdout)
+    if not sent or int(sent.group(1)) == 0:
+        raise RuntimeError(f"UDP generator sent nothing: {r.stdout[-200:]} {r.stderr[-200:]}")
+    if b <= a:
+        raise RuntimeError("UDP run: no packets received on natwan (invalid run, not 0 kpps)")
     # forwarded rate over the iperf window (secs + 2 s ramp); the dumps after it are idle
     kpps = (b - a) / secs / 1000
     d = {k: zb[k] - za[k] for k in zb}
@@ -107,6 +114,8 @@ def run_tcp(label, secs, reverse):
     r = subprocess.run(cmd, cwd=ROOT, capture_output=True, text=True, timeout=secs * 6 + 60)  # run + ramp + dumps, x6
     zb = zc()
     m = re.search(r"RESULT \S+: ([\d.]+) Mbit/s \{[^}]*\} \| eth0 rx ([\d.]+) Mbit/s (\d+) pps", r.stdout)
+    if r.returncode or not m or float(m.group(1)) <= 0:  # failed/missing measurement is invalid, not 0 Mbit/s
+        raise RuntimeError(f"TCP run failed rc={r.returncode}: {r.stdout[-300:]} {r.stderr[-200:]}")
     d = {k: zb[k] - za[k] for k in zb}
     log(f"{label}{' (reverse)' if reverse else ''}: iperf3 TCP P4 {m.group(1) if m else '?'} Mbit/s | eth0 stack rx {m.group(3) if m else '?'} pps | "
         f"zc_fwd {d['zc_fwd']} miss {d['zc_miss']} busy {d['zc_busy']} ring1 {d['ring1_frames']}")

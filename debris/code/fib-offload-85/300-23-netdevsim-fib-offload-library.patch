@@ -1,0 +1,21 @@
+From: Dan <dan@awto.au>
+Subject: [PATCH] netdevsim: FIB offload through the fib_offload library
+
+A second, hardware-neutral user of net/core/fib_offload.c (#85) and its
+software test. Module parameter fib_offload_lib=1 (read at device
+creation) replaces fib.c by fib_lib.c, which runs the library in
+library-managed mode with software route / next hop tables:
+
+- every device but loopback counts as a switch port;
+- debugfs fib/: fail_route_offload (every add/replace refused ->
+  offload_failed; same path as fib.c, so fib_notifications.sh runs),
+  fail_fwd (forwarding refused -> trap fallback), hit (an address the
+  hardware forwarded to), onlink (host entries for on-link neighbours),
+  routes (dump).
+
+Selftest fib_offload_lib.sh: offload/trap flags for IPv4 and IPv6 over a
+netdevsim link pair, trap fallback, offload_failed, policy-rule
+suspension, hit-driven neighbour refresh, on-link host entries.
+fib.sh's route tests and fib_notifications.sh also pass in this mode
+(scripts/fib_offload_vmtest.py).
+---
