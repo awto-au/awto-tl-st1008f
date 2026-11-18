@@ -281,13 +281,11 @@ Conditions:
 - NAT + flowtable, GRO on. Base = CPU 1000, DDR 650, tREFI 7.1 µs, MCR prefetch on, LX 175.
 - Base spread over 3 boots: TCP 243-248 Mbit/s, UDP 1400 B 38.1-39.7 kpps, UDP 64 B 41.9-44.9 kpps, RX-drop 64 B 110-115 kpps. That is about ±4 %.
 
-| Variant | Change | NAT TCP Mbit/s | µs/pkt | UDP 1400 B fwd kpps | UDP 64 B fwd kpps | RX-drop 1400/64 B kpps | vs base (UDP 64 B) |
-|---|---|---|---|---|---|---|---|
-| base | - | 248.3 | 31.2 | 39.7 | 44.9 | 101.3/114.6 | - |
-| cpu800 | CPU 1000 to 800 (−20 %) | 212.4 | 36.4 | 34.4 | 36.2 | 86.4/96.8 | **−19 %** |
-| ddr600 | DDR 650 to 600 (−8 %) | 239.0 | 32.6 | 37.5 | 41.0 | 94.5/112.6 | −9 % (TCP −4 %) |
-| nopref | MCR ip_ref/dp_ref off | 233.9 | 33.1 | 37.6 | 41.7 | 97.8/109.4 | −7 % (TCP −6 %) |
-| lx204 | LX 175 to 204 (+17 %) | 238.7 | 32.3 | 37.9 | 41.4 | 98.7/112.4 | −8 % (no gain) |
+- **base**: NAT TCP Mbit/s 248.3; µs/pkt 31.2; UDP 1400 B fwd kpps 39.7; UDP 64 B fwd kpps 44.9; RX-drop 1400/64 B kpps 101.3/114.6
+- **cpu800**: Change CPU 1000 to 800 (−20 %); NAT TCP Mbit/s 212.4; µs/pkt 36.4; UDP 1400 B fwd kpps 34.4; UDP 64 B fwd kpps 36.2; RX-drop 1400/64 B kpps 86.4/96.8; vs base (UDP 64 B) **−19 %**
+- **ddr600**: Change DDR 650 to 600 (−8 %); NAT TCP Mbit/s 239.0; µs/pkt 32.6; UDP 1400 B fwd kpps 37.5; UDP 64 B fwd kpps 41.0; RX-drop 1400/64 B kpps 94.5/112.6; vs base (UDP 64 B) −9 % (TCP −4 %)
+- **nopref**: Change MCR ip_ref/dp_ref off; NAT TCP Mbit/s 233.9; µs/pkt 33.1; UDP 1400 B fwd kpps 37.6; UDP 64 B fwd kpps 41.7; RX-drop 1400/64 B kpps 97.8/109.4; vs base (UDP 64 B) −7 % (TCP −6 %)
+- **lx204**: Change LX 175 to 204 (+17 %); NAT TCP Mbit/s 238.7; µs/pkt 32.3; UDP 1400 B fwd kpps 37.9; UDP 64 B fwd kpps 41.4; RX-drop 1400/64 B kpps 98.7/112.4; vs base (UDP 64 B) −8 % (no gain)
 
 - **Compute-bound.** The CPU clock moves forwarding about 1:1: −20 % clock gives −13 to −19 % pps and −15 % RX.
 - DDR clock and controller prefetch matter a little (≤ 9 %, near the run-to-run spread).
@@ -362,15 +360,13 @@ linux-next vs 7.3 on sw2 (2026-10-12): [MAINLINE-PORT.md](MAINLINE-PORT.md#throu
 
 Same boot and topology as above (DDR 600, CPU 1 GHz, HIGHMEM=y). `./dev.py nic-bench run`, 3 runs per step, one boot per step; rows tagged `nic-*` in `tmp/logs/nat_bench.jsonl`. Cells: min-max of 3. `fwd kpps` = eth0 TX. `ns/pkt` = busy VPE time per eth0 RX packet.
 
-| Step | TCP P4 Mbit/s | UDP 1400 @600 kpps | @700 kpps (loss %) | @900 kpps (loss %) | UDP 64 B kpps | ns/pkt UDP 64 B |
-|---|---|---|---|---|---|---|
-| base (`300-11`) | 302-307 | 50.9-51.1 | 45.7-46.8 (21-23) | 31.3-32.1 (58-59) | 55.8-56.6 | 16690-16841 |
-| 1: RTL930x doorbell (cached `writel`, no poll/lock/ktime) | 318-321 | 50.9-51.0 | 47.7-48.1 (19-20) | 32.0-32.3 (58) | 61.0-62.0 | 15366-15407 |
-| 2a: `napi_consume_skb`, reclaim in xmit when full | 347-359 | 50.9-51.1 | 59.4-59.5 (0) | 40.4-44.4 (41-45) | 68.7-69.1 | 13579-13866 |
-| 2b: TX ring 128, kick every 16 of a batch | 351-354 | 50.9-51.0 | 59.4-59.5 (0) | 64.9-65.2 (14-15) | 70.0-70.4 | 13559-13618 |
-| 3: TX from the RX page pool (no `dma_map`) - reverted | 351-360 | 50.9-51.1 | 59.4 (0) | 63.8-65.3 (14-17) | 70.0-70.5 | 13523-13594 |
-| final (`300-12` = 2b) | **348-358** | 50.9 | **59.4-59.6 (0)** | **64.5-65.3 (14-15)** | **69.5-70.5** | 13580-13705 |
-| experiment: final + `HIGHMEM` off (not committed) | 369-380 | 50.9-51.1 | 59.4-59.5 (0) | 70.6-71.1 (7) | 74.5-75.9 | 12558-12700 |
+- **base (`300-11`)**: TCP P4 Mbit/s 302-307; UDP 1400 @600 kpps 50.9-51.1; @700 kpps (loss %) 45.7-46.8 (21-23); @900 kpps (loss %) 31.3-32.1 (58-59); UDP 64 B kpps 55.8-56.6; ns/pkt UDP 64 B 16690-16841
+- **1: RTL930x doorbell (cached `writel`, no poll/lock/ktime)**: TCP P4 Mbit/s 318-321; UDP 1400 @600 kpps 50.9-51.0; @700 kpps (loss %) 47.7-48.1 (19-20); @900 kpps (loss %) 32.0-32.3 (58); UDP 64 B kpps 61.0-62.0; ns/pkt UDP 64 B 15366-15407
+- **2a: `napi_consume_skb`, reclaim in xmit when full**: TCP P4 Mbit/s 347-359; UDP 1400 @600 kpps 50.9-51.1; @700 kpps (loss %) 59.4-59.5 (0); @900 kpps (loss %) 40.4-44.4 (41-45); UDP 64 B kpps 68.7-69.1; ns/pkt UDP 64 B 13579-13866
+- **2b: TX ring 128, kick every 16 of a batch**: TCP P4 Mbit/s 351-354; UDP 1400 @600 kpps 50.9-51.0; @700 kpps (loss %) 59.4-59.5 (0); @900 kpps (loss %) 64.9-65.2 (14-15); UDP 64 B kpps 70.0-70.4; ns/pkt UDP 64 B 13559-13618
+- **3: TX from the RX page pool (no `dma_map`) - reverted**: TCP P4 Mbit/s 351-360; UDP 1400 @600 kpps 50.9-51.1; @700 kpps (loss %) 59.4 (0); @900 kpps (loss %) 63.8-65.3 (14-17); UDP 64 B kpps 70.0-70.5; ns/pkt UDP 64 B 13523-13594
+- **final (`300-12` = 2b)**: TCP P4 Mbit/s **348-358**; UDP 1400 @600 kpps 50.9; @700 kpps (loss %) **59.4-59.6 (0)**; @900 kpps (loss %) **64.5-65.3 (14-15)**; UDP 64 B kpps **69.5-70.5**; ns/pkt UDP 64 B 13580-13705
+- **experiment: final + `HIGHMEM` off (not committed)**: TCP P4 Mbit/s 369-380; UDP 1400 @600 kpps 50.9-51.1; @700 kpps (loss %) 59.4-59.5 (0); @900 kpps (loss %) 70.6-71.1 (7); UDP 64 B kpps 74.5-75.9; ns/pkt UDP 64 B 12558-12700
 
 - UDP 1400 B at 600 offered is offered-limited (51 kpps in = out); 900 offered is the saturated 1400 B number.
 - Overload: eth0 qdisc drops at 900 offered 790-810 k per run (base) -> 0 (2b, final). Excess now drops in the NIC RX ring (no CPU spent), RX pps = TX pps.
@@ -384,11 +380,9 @@ Same boot and topology as above (DDR 600, CPU 1 GHz, HIGHMEM=y). `./dev.py nic-b
 
 Same boot and topology as "NIC path" (DDR 600, CPU 1 GHz, UP, `300-12`). `./dev.py nic-bench run`, 3 runs, one boot per row; tags in `tmp/logs/nat_bench.jsonl`.
 
-| Build | TCP P4 Mbit/s | UDP 1400 @600 kpps | @700 kpps | @900 kpps (loss %) | UDP 64 B kpps | ns/pkt UDP 64 B |
-|---|---|---|---|---|---|---|
-| `hm512-base`: HIGHMEM, 512 MiB DTS | 326-333 | 51.1-51.2 | 59.6 | 60.3-60.9 (20-21) | 69.1-70.2 | 13636-13844 |
-| `hm512-fix`: + `300-13` | **365-370** | 48.7-51.1 | 58.2-59.6 | 61.1-62.3 (19-20) | 69.0-69.9 | 13543-13699 |
-| `nohm256`: HIGHMEM off, 256 MiB (reference) | 358-365 | 51.0-51.1 | 59.4-59.6 | 70.0-71.1 (7-8) | 74.3-75.7 | 12629-12656 |
+- **`hm512-base`: HIGHMEM, 512 MiB DTS**: TCP P4 Mbit/s 326-333; UDP 1400 @600 kpps 51.1-51.2; @700 kpps 59.6; @900 kpps (loss %) 60.3-60.9 (20-21); UDP 64 B kpps 69.1-70.2; ns/pkt UDP 64 B 13636-13844
+- **`hm512-fix`: + `300-13`**: TCP P4 Mbit/s **365-370**; UDP 1400 @600 kpps 48.7-51.1; @700 kpps 58.2-59.6; @900 kpps (loss %) 61.1-62.3 (19-20); UDP 64 B kpps 69.0-69.9; ns/pkt UDP 64 B 13543-13699
+- **`nohm256`: HIGHMEM off, 256 MiB (reference)**: TCP P4 Mbit/s 358-365; UDP 1400 @600 kpps 51.0-51.1; @700 kpps 59.4-59.6; @900 kpps (loss %) 70.0-71.1 (7-8); UDP 64 B kpps 74.3-75.7; ns/pkt UDP 64 B 12629-12656
 
 - `300-13` (lowmem fast paths: `dma_sync_phys` without kmap, inline `page_address`): TCP +11 %, at or above the HIGHMEM-off reference.
 - UDP saturated rows keep a 7-12 % gap: the remaining HIGHMEM cost is on the UDP path and not located yet (next: `./dev.py rteth-ftrace --count` on the highmem-only functions under UDP 64 B load).
@@ -841,16 +835,14 @@ Not isolated:
 - Clocks: `ramload --stock-clocks` + `turbo cpu=1350,ddr=662,sram=500`, no switch-core change (LX stays 175). Core 608 + CPU 1350 + LX 306 panicked 2 of 2 boots on this image (below).
 - Raw rows: `tmp/logs/l3_offload_ab-20261107-181238.csv` / `.txt`.
 
-| Path | Dir | Offload off | Offload on | CPU0 busy off/on % | eth0 pps off/on |
-|---|---|---|---|---|---|
-| v4 on-link | fwd | 86 [84..92] | 9206 [9206..9212] | 98.5 / 36.2 | 21664 / 330 |
-| v4 on-link | rev | 86 [85..86] | 9206 [9184..9216] | 98.7 / 63.6 | 21437 / 333 |
-| v4 default | fwd | 86 [86..89] | 9227 [9212..9235] | 96.3 / 50.7 | 21737 / 340 |
-| v4 default | rev | 88 [86..92] | 9231 [9199..9234] | 97.8 / 66.6 | 22004 / 335 |
-| v6 on-link | fwd | 82 [82..83] | 9130 [9119..9139] | 99.7 / 56.5 | 21663 / 338 |
-| v6 on-link | rev | 82 [81..90] | 9125 [9098..9137] | 99.9 / 55.0 | 21573 / 342 |
-| v6 default | fwd | 165 [164..168] | 9129 [9114..9187] | 99.7 / 59.7 | 29223 / 339 |
-| v6 default | rev | 2284 [2119..2766] | 9140 [9051..9148] | 99.3 / 45.9 | 17670 / 344 |
+- **v4 on-link**: Dir fwd; Offload off 86 [84..92]; Offload on 9206 [9206..9212]; CPU0 busy off/on % 98.5 / 36.2; eth0 pps off/on 21664 / 330
+- **v4 on-link**: Dir rev; Offload off 86 [85..86]; Offload on 9206 [9184..9216]; CPU0 busy off/on % 98.7 / 63.6; eth0 pps off/on 21437 / 333
+- **v4 default**: Dir fwd; Offload off 86 [86..89]; Offload on 9227 [9212..9235]; CPU0 busy off/on % 96.3 / 50.7; eth0 pps off/on 21737 / 340
+- **v4 default**: Dir rev; Offload off 88 [86..92]; Offload on 9231 [9199..9234]; CPU0 busy off/on % 97.8 / 66.6; eth0 pps off/on 22004 / 335
+- **v6 on-link**: Dir fwd; Offload off 82 [82..83]; Offload on 9130 [9119..9139]; CPU0 busy off/on % 99.7 / 56.5; eth0 pps off/on 21663 / 338
+- **v6 on-link**: Dir rev; Offload off 82 [81..90]; Offload on 9125 [9098..9137]; CPU0 busy off/on % 99.9 / 55.0; eth0 pps off/on 21573 / 342
+- **v6 default**: Dir fwd; Offload off 165 [164..168]; Offload on 9129 [9114..9187]; CPU0 busy off/on % 99.7 / 59.7; eth0 pps off/on 29223 / 339
+- **v6 default**: Dir rev; Offload off 2284 [2119..2766]; Offload on 9140 [9051..9148]; CPU0 busy off/on % 99.3 / 45.9; eth0 pps off/on 17670 / 344
 
 - Wire speed holds: 9.1-9.2 Gbit/s with the CPU port nearly idle (eth0 ~340 pps). CPU0 busy of 36-75 % with offload on is unexplained at that packet rate (not investigated).
 - v6 default base: forward 165, reverse 2284 Mbit/s (not investigated).

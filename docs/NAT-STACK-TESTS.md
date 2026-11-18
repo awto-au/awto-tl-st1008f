@@ -257,17 +257,15 @@ Tests per stack and clock set (profile clean, perf/ftrace off):
 
 ## Debug / perf / trace state per stack (from the built `.config`)
 
-| Option | A (built .config) | B-clean | B-profile | C-clean2 | C-profile |
-|---|---|---|---|---|---|
-| PERF_EVENTS | n | n | **y** | n | **y** |
-| PROFILING | n | n | **y** | n | n |
-| DYNAMIC_DEBUG | n | n | **y** | n | n |
-| FTRACE (+ function tracers) | n | n | n | n | **y** |
-| KPROBES | n | n | n | n | n (UPROBES y) |
-| KALLSYMS / _ALL | y / n | y / n | y / n | y / n | y / **y** |
-| LOCKDEP / PROVE_LOCKING | n | n | n | n | n |
-| HZ | 100 | 100 | 100 | 100 | 250 |
-| DEBUG_FS | y | y | y | y | y |
+- **PERF_EVENTS**: A (built .config) n; B-clean n; B-profile **y**; C-clean2 n; C-profile **y**
+- **PROFILING**: A (built .config) n; B-clean n; B-profile **y**; C-clean2 n; C-profile n
+- **DYNAMIC_DEBUG**: A (built .config) n; B-clean n; B-profile **y**; C-clean2 n; C-profile n
+- **FTRACE (+ function tracers)**: A (built .config) n; B-clean n; B-profile n; C-clean2 n; C-profile **y**
+- **KPROBES**: A (built .config) n; B-clean n; B-profile n; C-clean2 n; C-profile n (UPROBES y)
+- **KALLSYMS / _ALL**: A (built .config) y / n; B-clean y / n; B-profile y / n; C-clean2 y / n; C-profile y / **y**
+- **LOCKDEP / PROVE_LOCKING**: A (built .config) n; B-clean n; B-profile n; C-clean2 n; C-profile n
+- **HZ**: A (built .config) 100; B-clean 100; B-profile 100; C-clean2 100; C-profile 250
+- **DEBUG_FS**: A (built .config) y; B-clean y; B-profile y; C-clean2 y; C-profile y
 
 - A from the built r38178 tree `.config` (`tmp/kernel-config-A-upstream-r38178.config`): PERF_EVENTS n, PROFILING n, DYNAMIC_DEBUG n, FTRACE n, KPROBES n, SCHEDSTATS n, KALLSYMS y, HZ 100, DEBUG_INFO y (reduced), DEBUG_FS y, PREEMPT_NONE y; buildroot `KERNEL_DEBUG_FS/KALLSYMS/DEBUG_KERNEL/DEBUG_INFO(_REDUCED)` y, `KERNEL_PERF_EVENTS` and `KERNEL_FTRACE` not set.
 - DEBUG_INFO (reduced, vmlinux only) y in A and B, n in C: no run-time effect.

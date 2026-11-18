@@ -22,17 +22,15 @@ Facts only. How to run the measurements: [CLOCKS-OPS.md](CLOCKS-OPS.md). Registe
 
 ## Measured (U-Boot `bench`, 2026-10-11, heatsink off)
 
-| Test | 800 / DDR 600 | 1000 / DDR 600 | 1000 / DDR 650 | 1000 / DDR 600 + MCR prefetch | % of 2400 MB/s peak (best) |
-|---|---|---|---|---|---|
-| Random cached miss latency | 120 ns | 109 ns | 107 ns | 109 ns | 2.5-3.6x the DRAM's 30-45 ns |
-| Random uncached word latency | 116 ns | 106 ns | 104 ns | 106 ns | |
-| Sequential read (plain loop) | 291.4 | 336.3 | 342.7 | **433.0** | 18 % |
-| Sequential read, `pref 0` 4 lines ahead | 763.3 | **983.5** | 977.2 | 732.7 | 41 % |
-| memset (write-allocate) | 237.6 | 237.7 | 237.0 | **400.1** | 17 % |
-| Store with `pref 30` (no fill) | 1286.6 | **1565.7** | 1562.4 | 1566.5 | **65 %** |
-| Uncached store | 363.5 | 432.6 | 449.1 | 432.6 | 19 % |
-| Uncached read | 53.5 | 60.7 | 63.0 | 60.7 | 2.6 % |
-| memcpy (U-Boot generic C) | 158.2 | 162.4 | 162.4 | 156.3 | |
+- **Random cached miss latency**: 800 / DDR 600 120 ns; 1000 / DDR 600 109 ns; 1000 / DDR 650 107 ns; 1000 / DDR 600 + MCR prefetch 109 ns; % of 2400 MB/s peak (best) 2.5-3.6x the DRAM's 30-45 ns
+- **Random uncached word latency**: 800 / DDR 600 116 ns; 1000 / DDR 600 106 ns; 1000 / DDR 650 104 ns; 1000 / DDR 600 + MCR prefetch 106 ns
+- **Sequential read (plain loop)**: 800 / DDR 600 291.4; 1000 / DDR 600 336.3; 1000 / DDR 650 342.7; 1000 / DDR 600 + MCR prefetch **433.0**; % of 2400 MB/s peak (best) 18 %
+- **Sequential read, `pref 0` 4 lines ahead**: 800 / DDR 600 763.3; 1000 / DDR 600 **983.5**; 1000 / DDR 650 977.2; 1000 / DDR 600 + MCR prefetch 732.7; % of 2400 MB/s peak (best) 41 %
+- **memset (write-allocate)**: 800 / DDR 600 237.6; 1000 / DDR 600 237.7; 1000 / DDR 650 237.0; 1000 / DDR 600 + MCR prefetch **400.1**; % of 2400 MB/s peak (best) 17 %
+- **Store with `pref 30` (no fill)**: 800 / DDR 600 1286.6; 1000 / DDR 600 **1565.7**; 1000 / DDR 650 1562.4; 1000 / DDR 600 + MCR prefetch 1566.5; % of 2400 MB/s peak (best) **65 %**
+- **Uncached store**: 800 / DDR 600 363.5; 1000 / DDR 600 432.6; 1000 / DDR 650 449.1; 1000 / DDR 600 + MCR prefetch 432.6; % of 2400 MB/s peak (best) 19 %
+- **Uncached read**: 800 / DDR 600 53.5; 1000 / DDR 600 60.7; 1000 / DDR 650 63.0; 1000 / DDR 600 + MCR prefetch 60.7; % of 2400 MB/s peak (best) 2.6 %
+- **memcpy (U-Boot generic C)**: 800 / DDR 600 158.2; 1000 / DDR 600 162.4; 1000 / DDR 650 162.4; 1000 / DDR 600 + MCR prefetch 156.3
 
 (MB/s unless marked.)
 

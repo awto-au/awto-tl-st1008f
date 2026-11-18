@@ -146,16 +146,14 @@ Narrative & dead ends: see [HISTORY.md](HISTORY.md). Evidence paths under `priva
 
 From the OpenWrt v2 DTS (`SWITCH_PORT_SFP(p,l,s,c,g)` = SoC port, label, SerDes, LED set, cage); corroborated by the stock loader's packed hardware profile.
 
-| Front cage | SoC/SDK port | SerDes | SFP I2C channel | MOD-DEF0 GPIO (active-low) | PCA9534 tx-disable pin |
-| --- | --- | --- | --- | --- | --- |
-| 1 | 0 | sds2 | i2c0 | gpio0 pin 0 | 0 |
-| 2 | 8 | sds3 | i2c1 | gpio0 pin 1 | 1 |
-| 3 | 16 | sds4 | i2c2 | gpio0 pin 2 | 2 |
-| 4 | 20 | sds5 | i2c3 | gpio0 pin 3 | 3 |
-| 5 | 24 | sds6 | i2c4 | gpio0 pin 4 | 4 |
-| 6 | 25 | sds7 | i2c5 | gpio0 pin 5 | 5 |
-| 7 | 26 | sds8 | i2c6 | gpio0 pin 6 | 6 |
-| 8 | 27 | sds9 | i2c7 | gpio0 pin 7 | 7 |
+- **1**: SoC/SDK port 0; SerDes sds2; SFP I2C channel i2c0; MOD-DEF0 GPIO (active-low) gpio0 pin 0; PCA9534 tx-disable pin 0
+- **2**: SoC/SDK port 8; SerDes sds3; SFP I2C channel i2c1; MOD-DEF0 GPIO (active-low) gpio0 pin 1; PCA9534 tx-disable pin 1
+- **3**: SoC/SDK port 16; SerDes sds4; SFP I2C channel i2c2; MOD-DEF0 GPIO (active-low) gpio0 pin 2; PCA9534 tx-disable pin 2
+- **4**: SoC/SDK port 20; SerDes sds5; SFP I2C channel i2c3; MOD-DEF0 GPIO (active-low) gpio0 pin 3; PCA9534 tx-disable pin 3
+- **5**: SoC/SDK port 24; SerDes sds6; SFP I2C channel i2c4; MOD-DEF0 GPIO (active-low) gpio0 pin 4; PCA9534 tx-disable pin 4
+- **6**: SoC/SDK port 25; SerDes sds7; SFP I2C channel i2c5; MOD-DEF0 GPIO (active-low) gpio0 pin 5; PCA9534 tx-disable pin 5
+- **7**: SoC/SDK port 26; SerDes sds8; SFP I2C channel i2c6; MOD-DEF0 GPIO (active-low) gpio0 pin 6; PCA9534 tx-disable pin 6
+- **8**: SoC/SDK port 27; SerDes sds9; SFP I2C channel i2c7; MOD-DEF0 GPIO (active-low) gpio0 pin 7; PCA9534 tx-disable pin 7
 
 - SoC port 28 (`port@1c`, phy-mode internal, fixed 1G) = internal CPU port, not a cage.
 - All 8 cages are integrated RTL9303 10G SerDes (10GBASE-R); no external PHY (`phy_idx = HWP_NONE`).

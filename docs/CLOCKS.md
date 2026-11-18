@@ -50,13 +50,11 @@ Source tags: **[SRC]** GPL file:line (`dms1250/` = `sources/rtk-dms1250/`, `xgs1
 - Switch-core stable range (2026-11-07, #148; docs/CAMPAIGN-PLAIN-7.4.md 'why 612 fails'): SW VCO = 50 MHz x (e214 NCODE + 2); e214 acts at once, so write e220 (LX/NOR re-coded for the new VCO) and e214 in one U-Boot line, then relock. Passing with code 1 (/6) on 3 boots each: 508 (VCO 3050, e214 `0x3b8`, e220 `0x30626`), 575 (3450, `0x438`, `0x34a26`, LX 246), 608 (3650, `0x478`, `0x36826`, best forwarding), 658 (3950, `0x4d8`, `0x38c26`, LX 247). Code 0 (612 at VCO 2450) wedges the CPU-port DMA under forwarding. Recommended maximum 608 MHz (code 1, VCO 3650); LX stays within 1 % of 306 only for VCO 3050 and 3650.
 - U-Boot points (`swc_pts`, clocks.c; `clocks set swcore N`, turbo `swcore=N`): {MHz, VCO, swcore code, LX code, NOR code}. e214 = (live & ~0xff0) | NCODE << 4; e220 = (live & ~0x1ffe0) | NOR << 13 | LX << 9 | code << 5. Written e220, e214, then the e200 bit 30 relock; read back, old words restored on mismatch.
 
-| MHz | VCO | e214 | e220 | LX | NOR / SPI |
-|---|---|---|---|---|---|
-| 508 | 3050 | `000003b8` | `00030626` | 305 | 152.5 / 25.4 |
-| 575 | 3450 | `00000438` | `00034a26` | 246 | 143.8 / 24.0 |
-| 608 | 3650 | `00000478` | `00036826` | 304 | 140.4 / 23.4 |
-| 658 | 3950 | `000004d8` | `00038c26` | 247 | 141.1 / 23.5 |
-| 245 / 306 / 408 | 2450 | stock | stock + code | 306 (recoded near live LX) | 153.1 / 25.5 |
+- **508**: VCO 3050; e214 `000003b8`; e220 `00030626`; LX 305; NOR / SPI 152.5 / 25.4
+- **575**: VCO 3450; e214 `00000438`; e220 `00034a26`; LX 246; NOR / SPI 143.8 / 24.0
+- **608**: VCO 3650; e214 `00000478`; e220 `00036826`; LX 304; NOR / SPI 140.4 / 23.4
+- **658**: VCO 3950; e214 `000004d8`; e220 `00038c26`; LX 247; NOR / SPI 141.1 / 23.5
+- **245 / 306 / 408**: VCO 2450; e214 stock; e220 stock + code; LX 306 (recoded near live LX); NOR / SPI 153.1 / 25.5
 
   - 575 and 658: LX moves to 246/247 MHz; forwarding depends on LX (153 kpps vs 159-170 at LX 305).
   - Refused in U-Boot: LX outside 175/204/245/306 +-1 %; NOR/SPI above stock 25.52 MHz (Linux must not run fast SPI, #50). 612 (code 0) only with `xp`: wedges forwarding.
@@ -150,15 +148,13 @@ Source tags: **[SRC]** GPL file:line (`dms1250/` = `sources/rtk-dms1250/`, `xgs1
 
 ### DDR timing bins (DTR table @ file `0x3320`; DDR3 select 650->0, 600->1, ... 200->8, other -> 300 bin)
 
-| MEM | DTR0 | DTR1 | DTR2 base | CL/CWL/tWR | tRTP/tWTR | tRP/tRCD | tRAS |
-|---|---|---|---|---|---|---|---|
-| 650 | `99655838` | `0909061f` | `00019000` | 10/7/10 | 6/6 | 10/10 | 26 |
-| **600** | `99644838` | `0808061f` | `00016000` | 10/7/10 | 5/5 | 9/9 | 23 |
-| 550 | `98644738` | `0808051e` | `00014000` | 10/7/9 | 5/5 | 9/9 | 21 |
-| 500 | `77533d26` | `0707031b` | `00013000` | 8/6/8 | 4/4 | 8/8 | 20 |
-| 450 | `67533d26` | `07070418` | `00011000` | 7/6/8 | 4/4 | 8/8 | 18 |
-| 400 | `56433b25` | `05050315` | `0000f000` | 6/5/7 | 4/4 | 6/6 | 16 |
-| 350 / 300 / 200 | see `scripts/clock_calc.py` | | | | | | |
+- **650**: DTR0 `99655838`; DTR1 `0909061f`; DTR2 base `00019000`; CL/CWL/tWR 10/7/10; tRTP/tWTR 6/6; tRP/tRCD 10/10; tRAS 26
+- **600**: DTR0 `99644838`; DTR1 `0808061f`; DTR2 base `00016000`; CL/CWL/tWR 10/7/10; tRTP/tWTR 5/5; tRP/tRCD 9/9; tRAS 23
+- **550**: DTR0 `98644738`; DTR1 `0808051e`; DTR2 base `00014000`; CL/CWL/tWR 10/7/9; tRTP/tWTR 5/5; tRP/tRCD 9/9; tRAS 21
+- **500**: DTR0 `77533d26`; DTR1 `0707031b`; DTR2 base `00013000`; CL/CWL/tWR 8/6/8; tRTP/tWTR 4/4; tRP/tRCD 8/8; tRAS 20
+- **450**: DTR0 `67533d26`; DTR1 `07070418`; DTR2 base `00011000`; CL/CWL/tWR 7/6/8; tRTP/tWTR 4/4; tRP/tRCD 8/8; tRAS 18
+- **400**: DTR0 `56433b25`; DTR1 `05050315`; DTR2 base `0000f000`; CL/CWL/tWR 6/5/7; tRTP/tWTR 4/4; tRP/tRCD 6/6; tRAS 16
+- **350 / 300 / 200**: DTR0 see `scripts/clock_calc.py`
 
 - DTR2 = ((MEM x tRFC_ns / 1000 + 5) << 20) | base. 650 MHz, 4 Gbit: `0x0ae19000` (tRFC 175 clk = 269 ns).
 - The SPL PHY pre-config (`0x9fc02664`) also has a 650 MHz branch: Realtek planned DDR3-1300; only the MEM PLL table stops at 600.
@@ -176,14 +172,12 @@ Source tags: **[SRC]** GPL file:line (`dms1250/` = `sources/rtk-dms1250/`, `xgs1
 - Clocks = SDK `NS2CK2` (round up); tWR > 8 rounded up to even (SDK); tREFI ≤ 3.9 µs (2x rate as stock) by the SDK `max_trefi_ns` rule; tRFC by the SPL rule. Controller CL field = DRAM CL, CAS_PHY = CL - 1 (stock > 533 MHz convention).
 - PLL: MPCR0-2 = 600 row (SPEC), MPCR3 NCODE = 2 x MHz / 25 - 2.
 
-| MHz | MPCR3 | DTR0 | DTR1 | DTR2 (4 Gbit) | tRP/tRCD | tRAS | tRRD | tFAW | tREFI |
-|---|---|---|---|---|---|---|---|---|---|
-| 675 | `340f0000` | `bb75593a` | `0909051a` | `0b416000` | 10 | 23 | 6 | 27 | 2560 |
-| 700 | `360f0000` | `bb75593a` | `0909051b` | `0bb17000` | 10 | 24 | 6 | 28 | 2560 |
-| 725 | `380f0000` | `bb755a3a` | `0a0a051c` | `0c118000` | 11 | 25 | 6 | 29 | 2816 |
-| 750 | `3a0f0000` | `bb755a3a` | `0a0a051d` | `0c819000` | 11 | 26 | 6 | 30 | 2816 |
-| 775 | `3c0f0000` | `bb755a3a` | `0a0a051e` | `0ce1a000` | 11 | 27 | 6 | 31 | 2816 |
-| 800 | `3e0f0000` | `bb755b3a` | `0b0b051f` | `0d51b000` | 12 | 28 | 6 | 32 | 3072 |
+- **675**: MPCR3 `340f0000`; DTR0 `bb75593a`; DTR1 `0909051a`; DTR2 (4 Gbit) `0b416000`; tRP/tRCD 10; tRAS 23; tRRD 6; tFAW 27; tREFI 2560
+- **700**: MPCR3 `360f0000`; DTR0 `bb75593a`; DTR1 `0909051b`; DTR2 (4 Gbit) `0bb17000`; tRP/tRCD 10; tRAS 24; tRRD 6; tFAW 28; tREFI 2560
+- **725**: MPCR3 `380f0000`; DTR0 `bb755a3a`; DTR1 `0a0a051c`; DTR2 (4 Gbit) `0c118000`; tRP/tRCD 11; tRAS 25; tRRD 6; tFAW 29; tREFI 2816
+- **750**: MPCR3 `3a0f0000`; DTR0 `bb755a3a`; DTR1 `0a0a051d`; DTR2 (4 Gbit) `0c819000`; tRP/tRCD 11; tRAS 26; tRRD 6; tFAW 30; tREFI 2816
+- **775**: MPCR3 `3c0f0000`; DTR0 `bb755a3a`; DTR1 `0a0a051e`; DTR2 (4 Gbit) `0ce1a000`; tRP/tRCD 11; tRAS 27; tRRD 6; tFAW 31; tREFI 2816
+- **800**: MPCR3 `3e0f0000`; DTR0 `bb755b3a`; DTR1 `0b0b051f`; DTR2 (4 Gbit) `0d51b000`; tRP/tRCD 12; tRAS 28; tRRD 6; tFAW 32; tREFI 3072
 
 - All bins: DRAM CL 11, CWL 8, WR 12 (DTR0 tWR field 11), tRTP = tWTR 6 clk; MR0 `00101c70`, MR2 `00120018` (SPL rule); MR1, MR3 unchanged.
 - CWL 7 is JEDEC-legal only to tCK 1.5 ns (666 MHz): 662.5 MHz (NCODE 51, MPCR3 `0x330f0000`, tCK 1.509 ns) is the last 12.5 MHz step without MRS. No bin defined for it (#48).

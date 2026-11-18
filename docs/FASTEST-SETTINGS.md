@@ -42,13 +42,11 @@ Owner decision 2026-11-07 (CPU 1325 by owner choice 2026-11-08): go with what wo
 - Time per point ~150 s (estimate: boot ~45 s, setup 8 s, 2 x rx ~12 s, integrity ~25 s, reads ~15 s; replace with `tmp/logs/fastest_search.log` timings).
 
 ## Domains, in order of expected value
-| # | domain | knob | stock | pick | range / steps |
-|---|---|---|---|---|---|
-| 1 | switch-core | SW VCO `e214` NCODE + `e220[8:5]` + relock `e200` b30 | 408 MHz | 408 | 408, 450, 500, 550, 600, 612 |
-| 2 | lx-arb | `LX0..2_ARB_CFG0-3` `0xB8000010-3C` | `0x10101010` | stock | stock, swap, m1, m0 (scan) |
-| 3 | cpu | `turbo cpu=` | 800 | 1350 | 800, 1000, 1050, 1100..1425 step 25 |
-| 4 | ddr | `turbo ddr=` | 600 | 662 | 600, 625, 650, 662, 675 .. 800 |
-| 5 | sram / bridge | `0x40f8`, CMUCR_OC0 `0xb8000388` b9 | 250 | 500 | stock, pulse_dn, pulse_up, oc0_dram_flip (scan) |
+- **1**: domain switch-core; knob SW VCO `e214` NCODE + `e220[8:5]` + relock `e200` b30; stock 408 MHz; pick 408; range / steps 408, 450, 500, 550, 600, 612
+- **2**: domain lx-arb; knob `LX0..2_ARB_CFG0-3` `0xB8000010-3C`; stock `0x10101010`; pick stock; range / steps stock, swap, m1, m0 (scan)
+- **3**: domain cpu; knob `turbo cpu=`; stock 800; pick 1350; range / steps 800, 1000, 1050, 1100..1425 step 25
+- **4**: domain ddr; knob `turbo ddr=`; stock 600; pick 662; range / steps 600, 625, 650, 662, 675 .. 800
+- **5**: domain sram / bridge; knob `0x40f8`, CMUCR_OC0 `0xb8000388` b9; stock 250; pick 500; range / steps stock, pulse_dn, pulse_up, oc0_dram_flip (scan)
 
 1. switch-core (largest measured lever: 1400 B rate scales 1:1 with the clock, CAMPAIGN-PLAIN-7.4.md; #148 findings in docs/CLOCKS.md).
    - Steps = stock 408 (VCO 2450, code 1) then VCO steps with code 1 (/6): 508 (VCO 3050), 575 (3450), 608 (3650), 658 (3950). Each passed 3/3 boots.
@@ -90,28 +88,24 @@ Earlier options lost while the 408 MHz switch-core "door" was the limit. With a 
 - Verdict: wins >= 1.03 x baseline kpps, loses <= 0.97, else ties. Recorded per row: VPE0/VPE1 busy and which VPE saturates (>= 95 %); "neither (door-limited)" = the chip-to-NIC path still limits. VPE1 busy % tells whether the second CPU is useful.
 - Boot/image options reboot with the same settings plus kernel/boot arg, so each gets its own baseline after the boot.
 
-| option | knob / bench | image needed | 408 result | best-core result | verdict | VPE0/VPE1 busy |
-|---|---|---|---|---|---|---|
-| two-ring split | 300-43 rt0/rt1/par/par_acl1, `ring_split_ab.py`, `cpuq0_drop_pages=1024` | `mainline-7.4-rc1-ring.bin` | - | - | - | - |
-| NAPI placement | `zc_bench --napi irq1 / split` (ring per VPE) | plain | - | - | - | - |
-| tx_by_cpu on/off | `/sys/module/rtl838x_eth/parameters/tx_by_cpu` (300-38) | plain | - | - | - | - |
-| noqueue | `tc qdisc replace dev eth0 root noqueue` | plain | - | - | - | - |
-| SRAM rings | boot arg `rtl838x_eth.sram_rings=3` (300-25) | plain | - | - | - | - |
-| cache variants | parked 300-42 `zc_sync_bytes` txfull / `zc_rx_part`, `zc_sync_ab.py` | needs build: 300-42 (skipped with a log line if the params are missing) | - | - | - | - |
-| CPU queue thresholds | `cpuq_drop_pages`, `cpuq0_drop_pages` (300-40; read at open) | plain | - | - | - | - |
-| zc vs stack | `zc_bench` with the stack run | plain | - | - | - | - |
-| GRO fraglist off | `ethtool -K eth0 lan1 rx-gro-list off`, TCP P4 | plain | - | - | - | - |
-| GDMA copy offload | n/a unless a copy exists in the NAT path (`kmod/gdma_bench` is a copy test) | - | n/a | n/a | n/a | n/a |
+- **two-ring split**: knob / bench 300-43 rt0/rt1/par/par_acl1, `ring_split_ab.py`, `cpuq0_drop_pages=1024`; image needed `mainline-7.4-rc1-ring.bin`
+- **NAPI placement**: knob / bench `zc_bench --napi irq1 / split` (ring per VPE); image needed plain
+- **tx_by_cpu on/off**: knob / bench `/sys/module/rtl838x_eth/parameters/tx_by_cpu` (300-38); image needed plain
+- **noqueue**: knob / bench `tc qdisc replace dev eth0 root noqueue`; image needed plain
+- **SRAM rings**: knob / bench boot arg `rtl838x_eth.sram_rings=3` (300-25); image needed plain
+- **cache variants**: knob / bench parked 300-42 `zc_sync_bytes` txfull / `zc_rx_part`, `zc_sync_ab.py`; image needed needs build: 300-42 (skipped with a log line if the params are missing)
+- **CPU queue thresholds**: knob / bench `cpuq_drop_pages`, `cpuq0_drop_pages` (300-40; read at open); image needed plain
+- **zc vs stack**: knob / bench `zc_bench` with the stack run; image needed plain
+- **GRO fraglist off**: knob / bench `ethtool -K eth0 lan1 rx-gro-list off`, TCP P4; image needed plain
+- **GDMA copy offload**: knob / bench n/a unless a copy exists in the NAT path (`kmod/gdma_bench` is a copy test); 408 result n/a; best-core result n/a; verdict n/a; VPE0/VPE1 busy n/a
 
 ## Results (filled by `fastest-search --write-doc`)
 <!-- RESULTS-BEGIN -->
-| domain | knob | stock | pick | max tried | fastest viable | date/conditions |
-|---|---|---|---|---|---|---|
-| switch-core | SW VCO e214 NCODE + DIVN2_SWCORE e220[8: | 408 | 408 | - | - | not run picks, 1 quick test/point |
-| lx-arb | LX0..2_ARB_CFG0-3 0xB8000010-3C (reset 0 | stock | stock | - | - | not run picks, 1 quick test/point |
-| cpu | turbo cpu= | 800 | 1350 | - | - | not run picks, 1 quick test/point |
-| ddr | turbo ddr= | 600 | 662 | - | - | not run picks, 1 quick test/point |
-| sram | CPU_SRAM_ASY_TIMING 0x40f8 | stock | stock | - | - | not run picks, 1 quick test/point |
+- **switch-core**: knob SW VCO e214 NCODE + DIVN2_SWCORE e220[8:; stock 408; pick 408; date/conditions not run picks, 1 quick test/point
+- **lx-arb**: knob LX0..2_ARB_CFG0-3 0xB8000010-3C (reset 0; stock stock; pick stock; date/conditions not run picks, 1 quick test/point
+- **cpu**: knob turbo cpu=; stock 800; pick 1350; date/conditions not run picks, 1 quick test/point
+- **ddr**: knob turbo ddr=; stock 600; pick 662; date/conditions not run picks, 1 quick test/point
+- **sram**: knob CPU_SRAM_ASY_TIMING 0x40f8; stock stock; pick stock; date/conditions not run picks, 1 quick test/point
 <!-- RESULTS-END -->
 
 ## Not covered

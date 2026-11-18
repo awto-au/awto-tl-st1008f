@@ -28,41 +28,39 @@ Goal: every stock `rtk` subcommand (visible and hidden) in our mainline U-Boot, 
 
 Unit = `rtk unit set` value (default 0); a unit >= 6 prints `\nUnit %u invalid unit id \n` after the header line.
 
-| Verb + args | What stock does | Stock output | Flash write | Our status | Parity test |
-|---|---|---|---|---|---|
-| `init` | SDK init, per-port MAC cfg [SRC] uboot_cmd.c:173 | SDK banner | no | needs-eth: prints `not yet`, rc 1 | none (hangs/changes state) |
-| `rtcore-init` | RTCORE module init :180 | `RTCORE Driver Module Initialize`... | no | needs-eth | none |
-| `network on` / `off` | PHY enable/disable per port, SDK init once :187/:197 | `Enable network` / `Disable network` + banner | no | done (stage 4) | harness phase between pre/post |
-| `unit get` | print unit [SRC] :209 | `unit: %u` | no | done | `rtk unit get` |
-| `unit set <n>` | set unit; n>5 prints `Invalid unit: %u` but still sets [BIN] | `Change to unit: %u` | no | done | `rtk unit get; rtk unit set 0; rtk unit get` |
-| `port enable\|disable <p>` | SDK admin state [SRC] :369 ff.; hidden | `Enable port (%d,%d)` / `Disable port (%d,%d)` | no | done: RMW `MAC_L2_PORT_CTRL(p)` bits 1:0 (`0x3268 + p*0x40`, [OWRT] dsa.c:339,407). SPEC: stock may touch more | state: `port disable 8; md.l 0xbb003468 1; port enable 8; md.l ...` (compares register) |
-| `show hw_profile_list` | list profile table [BIN] `0x83f9348c` | `      Available profiles are:` + 25 rows `        NAME (ID)` + `      (uboot: setenv boardmodel 'YOUR_HARDWARE_PROFILE_NAME')` | no | done (table copied from the binary data) | `rtk show hw_profile_list` |
-| `comboport copper\|fiber` | combo media; no combo ports on 8XGE [SRC] :270 | `ComboPort: Copper mode` / `ComboPort: Fiber mode` | no | done (message only) | 3 forms |
-| `port-isolation on\|off` | rewrites per-port forwarding masks via ASIC table [SRC] :353 | `\nUnit 0` + `isolation: %2u <--> %2u` rows | no | done: PORT_ISO_CTRL table; SA-learning change not done | `--state` |
-| `pinGet <n>` | SoC GPIO input read [SRC] :392 | `pin%d:\t%d\n\n` | no | done: driver read, no claim; pins 0-23 (stock usage says 0~7) | `rtk pinGet 7`, `pinGet 0`, bad args |
-| `pinSet <n> <0\|1>` | SoC GPIO output [SRC] :414 | `pin%d:\t%d\n\n` | no | done; GPIO21 low refused without `force` | usage/invalid forms only (hardware pins) |
-| `ext-devInit <addr>` | RTL8231 MDC init; the SDK rejects ext dev 1 (`0xf012`) [BIN] `0x83f1fcd0` | `The generalCtrl GPIO device init failed.` | no | done | `rtk ext-devInit`, `... 1` |
-| `ext-pinGet <n>` / `ext-pinSet <n> <s>` | not initialised -> `0xf00f` | `The pinNum (%d) is invalid.` (`The status (%d) is invalid.` for s>1) | no | done | 5 forms |
-| `i2c init sw ...` | creates a bit-bang I2C id [SRC] :522 | none | no | done: buses fixed by DT; id mapped to cage (sda pin) or expander (sck 22/sda 23) | `rtk i2c init sw 1 2` (param error) |
-| `i2c init hw ...` | creates a HW I2C id | none | no | done (as above, sda pin = cage-1) | param error form |
-| `i2c read <id> <reg>` | one byte [SRC] | `data 0x%x` / `FAIL (%d)`; unknown id `FAIL (61455)` | no | done | `i2c read 0 0`, `0 2`, `7 0`, `8 3`, `9 1` |
-| `i2c write <id> <reg> <d>` | one byte | `OK` / `FAIL (%d)` | no (I2C) | done; module EEPROM ids 0-7 refused | param error form; writes not in list |
-| `ledtest` | all LEDs on 200 ms, off, walking one, restore [SRC] uboot_func.c:1830 ff. | `\n all led on \n`, `\n all led off \n`, `\n walking one \n` | no | done: SW LED regs below; ~10 s | slow: `rtk ledtest` |
-| `ledtest <port> <led>` | one LED on until a key | `\n press any to end.\n`; `The port (%d) is invalid.`; `The led index (%d) is invalid.` | no | done; key wait capped at 30 s | key: `rtk ledtest 0 0`; bad args |
-| `phyreg get\|set <port> <page> <reg> [d]` | PHY page/reg via MIIM [SRC] :652 | `Get Unit %u Port %02d page %02d reg %02d  val: 0x%04X ` | no | no PHY: stock text (get = `0x0000`, as stock prints here) + `note: no PHY` line; nothing written | `rtk phyreg get 0 0 0 0` |
-| `phyreg setbymask <mask> <page> <reg> <d>` | write every port in mask; hidden | `Set Unit %u PortMask %08x page %02d reg %02d val: 0x%04X ` | no | no PHY: stock text + note | none |
-| `phyreg dump-top` | stub, returns 1; hidden | none | no | done: prints the no-PHY note | `rtk phyreg dump-top` |
-| `phymmd get\|set <ignored> <port> <mmd> <reg> [d]` | clause-45 access | `Get Unit %u Port %02d mmd-address %02d mmd-reg %02d  val: ...` ; set seen [LIVE] `Set Unit 0 Port 00 mmd-address 04 mmd-reg 50241 val: 0x0008 ` | no | no PHY: stock text + note; `set` needs 8 args (data = argv[7]) | `rtk phymmd get 0 0 4 0xc441` |
-| `sdsreg get <ignored> <sds> <page> <reg>` | SerDes read [SRC] :691 | `Get unit %u sds %02d page %02d reg %02d  val: 0x%04X ` [LIVE]; error `    Failed!! 0x%x ` | no | done: indirect access (below) | 4 reads + usage forms |
-| `sdsreg set <ignored> <sds> <page> <reg> <d>` | SerDes write | `Set unit %u sds %02d page %02d reg %02d val: 0x%04X ` [LIVE] | no | done | state: rewrite of the value just read |
-| `macsds set <sds> <mode>` | re-construct SerDes in `<mode>` [SRC] :731; 34 names | `sds=%u mode=%s`, `unit %u sds %u mode %u`; bad mode: `sdsmode error` + 44-row list (10 blank) | no | done: SDK `_dal_longan_sds_10gSdsMode_force`; before `network on` prints `Chip not supported` (SPEC) | `macsds set 2`, `... bogus`; `--state`: `2 10gr`, `2 qsgmii` |
-| `phytestmode <m> <p> <ch>` | PHY test mode | `Usage: testmode ...` when no args | no | refused (no PHY) | `rtk phytestmode` (usage) |
-| `boardid` | print env `boardid`; returns 1 | `Board Model ID: %s` (`<NULL>` unset) | no | done | `rtk boardid` |
-| `boardid <id>` | `setenv` + env sector erase/write [BIN] `0x83f19894` | none | **yes** | **REFUSED** | denylist |
-| `boardmodel` | print env `boardmodel`; returns 1 | `Board Model: RTL9303_8XGE` | no | done: default env `boardmodel=RTL9303_8XGE` in the board header | `rtk boardmodel` |
-| `boardmodel <str>` | `setenv` + env sector write [BIN] `0x83f1991c` | none | **yes** | **REFUSED** | denylist |
-| `10g <port> <media>` | per-port media (none, fiber10g, fiber1g, dac50cm, dac100cm, dac300cm) | `FAIL (0xf002)` before SDK init | no | done: `phy_9300_10gMedia_set`; `FAIL (0xf002)` before `network on` [LIVE] | `rtk 10g 0 bogus`; `--state`: ports 8 (pre), 0, 1, 28 |
-| `send` | transmit a fixed 74-byte frame; hidden | none | no | needs-eth; also puts a frame on the wire (storm risk) | denylist |
+- **`init`**: What stock does SDK init, per-port MAC cfg [SRC] uboot_cmd.c:173; Stock output SDK banner; Flash write no; Our status needs-eth: prints `not yet`, rc 1; Parity test none (hangs/changes state)
+- **`rtcore-init`**: What stock does RTCORE module init :180; Stock output `RTCORE Driver Module Initialize`...; Flash write no; Our status needs-eth; Parity test none
+- **`network on` / `off`**: What stock does PHY enable/disable per port, SDK init once :187/:197; Stock output `Enable network` / `Disable network` + banner; Flash write no; Our status done (stage 4); Parity test harness phase between pre/post
+- **`unit get`**: What stock does print unit [SRC] :209; Stock output `unit: %u`; Flash write no; Our status done; Parity test `rtk unit get`
+- **`unit set <n>`**: What stock does set unit; n>5 prints `Invalid unit: %u` but still sets [BIN]; Stock output `Change to unit: %u`; Flash write no; Our status done; Parity test `rtk unit get; rtk unit set 0; rtk unit get`
+- **`port enable\|disable <p>`**: What stock does SDK admin state [SRC] :369 ff.; hidden; Stock output `Enable port (%d,%d)` / `Disable port (%d,%d)`; Flash write no; Our status done: RMW `MAC_L2_PORT_CTRL(p)` bits 1:0 (`0x3268 + p*0x40`, [OWRT] dsa.c:339,407). SPEC: stock may touch more; Parity test state: `port disable 8; md.l 0xbb003468 1; port enable 8; md.l ...` (compares register)
+- **`show hw_profile_list`**: What stock does list profile table [BIN] `0x83f9348c`; Stock output `      Available profiles are:` + 25 rows `        NAME (ID)` + `      (uboot: setenv boardmodel 'YOUR_HARDWARE_PROFILE_NAME')`; Flash write no; Our status done (table copied from the binary data); Parity test `rtk show hw_profile_list`
+- **`comboport copper\|fiber`**: What stock does combo media; no combo ports on 8XGE [SRC] :270; Stock output `ComboPort: Copper mode` / `ComboPort: Fiber mode`; Flash write no; Our status done (message only); Parity test 3 forms
+- **`port-isolation on\|off`**: What stock does rewrites per-port forwarding masks via ASIC table [SRC] :353; Stock output `\nUnit 0` + `isolation: %2u <--> %2u` rows; Flash write no; Our status done: PORT_ISO_CTRL table; SA-learning change not done; Parity test `--state`
+- **`pinGet <n>`**: What stock does SoC GPIO input read [SRC] :392; Stock output `pin%d:\t%d\n\n`; Flash write no; Our status done: driver read, no claim; pins 0-23 (stock usage says 0~7); Parity test `rtk pinGet 7`, `pinGet 0`, bad args
+- **`pinSet <n> <0\|1>`**: What stock does SoC GPIO output [SRC] :414; Stock output `pin%d:\t%d\n\n`; Flash write no; Our status done; GPIO21 low refused without `force`; Parity test usage/invalid forms only (hardware pins)
+- **`ext-devInit <addr>`**: What stock does RTL8231 MDC init; the SDK rejects ext dev 1 (`0xf012`) [BIN] `0x83f1fcd0`; Stock output `The generalCtrl GPIO device init failed.`; Flash write no; Our status done; Parity test `rtk ext-devInit`, `... 1`
+- **`ext-pinGet <n>` / `ext-pinSet <n> <s>`**: What stock does not initialised -> `0xf00f`; Stock output `The pinNum (%d) is invalid.` (`The status (%d) is invalid.` for s>1); Flash write no; Our status done; Parity test 5 forms
+- **`i2c init sw ...`**: What stock does creates a bit-bang I2C id [SRC] :522; Stock output none; Flash write no; Our status done: buses fixed by DT; id mapped to cage (sda pin) or expander (sck 22/sda 23); Parity test `rtk i2c init sw 1 2` (param error)
+- **`i2c init hw ...`**: What stock does creates a HW I2C id; Stock output none; Flash write no; Our status done (as above, sda pin = cage-1); Parity test param error form
+- **`i2c read <id> <reg>`**: What stock does one byte [SRC]; Stock output `data 0x%x` / `FAIL (%d)`; unknown id `FAIL (61455)`; Flash write no; Our status done; Parity test `i2c read 0 0`, `0 2`, `7 0`, `8 3`, `9 1`
+- **`i2c write <id> <reg> <d>`**: What stock does one byte; Stock output `OK` / `FAIL (%d)`; Flash write no (I2C); Our status done; module EEPROM ids 0-7 refused; Parity test param error form; writes not in list
+- **`ledtest`**: What stock does all LEDs on 200 ms, off, walking one, restore [SRC] uboot_func.c:1830 ff.; Stock output `\n all led on \n`, `\n all led off \n`, `\n walking one \n`; Flash write no; Our status done: SW LED regs below; ~10 s; Parity test slow: `rtk ledtest`
+- **`ledtest <port> <led>`**: What stock does one LED on until a key; Stock output `\n press any to end.\n`; `The port (%d) is invalid.`; `The led index (%d) is invalid.`; Flash write no; Our status done; key wait capped at 30 s; Parity test key: `rtk ledtest 0 0`; bad args
+- **`phyreg get\|set <port> <page> <reg> [d]`**: What stock does PHY page/reg via MIIM [SRC] :652; Stock output `Get Unit %u Port %02d page %02d reg %02d  val: 0x%04X `; Flash write no; Our status no PHY: stock text (get = `0x0000`, as stock prints here) + `note: no PHY` line; nothing written; Parity test `rtk phyreg get 0 0 0 0`
+- **`phyreg setbymask <mask> <page> <reg> <d>`**: What stock does write every port in mask; hidden; Stock output `Set Unit %u PortMask %08x page %02d reg %02d val: 0x%04X `; Flash write no; Our status no PHY: stock text + note; Parity test none
+- **`phyreg dump-top`**: What stock does stub, returns 1; hidden; Stock output none; Flash write no; Our status done: prints the no-PHY note; Parity test `rtk phyreg dump-top`
+- **`phymmd get\|set <ignored> <port> <mmd> <reg> [d]`**: What stock does clause-45 access; Stock output `Get Unit %u Port %02d mmd-address %02d mmd-reg %02d  val: ...` ; set seen [LIVE] `Set Unit 0 Port 00 mmd-address 04 mmd-reg 50241 val: 0x0008 `; Flash write no; Our status no PHY: stock text + note; `set` needs 8 args (data = argv[7]); Parity test `rtk phymmd get 0 0 4 0xc441`
+- **`sdsreg get <ignored> <sds> <page> <reg>`**: What stock does SerDes read [SRC] :691; Stock output `Get unit %u sds %02d page %02d reg %02d  val: 0x%04X ` [LIVE]; error `    Failed!! 0x%x `; Flash write no; Our status done: indirect access (below); Parity test 4 reads + usage forms
+- **`sdsreg set <ignored> <sds> <page> <reg> <d>`**: What stock does SerDes write; Stock output `Set unit %u sds %02d page %02d reg %02d val: 0x%04X ` [LIVE]; Flash write no; Our status done; Parity test state: rewrite of the value just read
+- **`macsds set <sds> <mode>`**: What stock does re-construct SerDes in `<mode>` [SRC] :731; 34 names; Stock output `sds=%u mode=%s`, `unit %u sds %u mode %u`; bad mode: `sdsmode error` + 44-row list (10 blank); Flash write no; Our status done: SDK `_dal_longan_sds_10gSdsMode_force`; before `network on` prints `Chip not supported` (SPEC); Parity test `macsds set 2`, `... bogus`; `--state`: `2 10gr`, `2 qsgmii`
+- **`phytestmode <m> <p> <ch>`**: What stock does PHY test mode; Stock output `Usage: testmode ...` when no args; Flash write no; Our status refused (no PHY); Parity test `rtk phytestmode` (usage)
+- **`boardid`**: What stock does print env `boardid`; returns 1; Stock output `Board Model ID: %s` (`<NULL>` unset); Flash write no; Our status done; Parity test `rtk boardid`
+- **`boardid <id>`**: What stock does `setenv` + env sector erase/write [BIN] `0x83f19894`; Stock output none; Flash write **yes**; Our status **REFUSED**; Parity test denylist
+- **`boardmodel`**: What stock does print env `boardmodel`; returns 1; Stock output `Board Model: RTL9303_8XGE`; Flash write no; Our status done: default env `boardmodel=RTL9303_8XGE` in the board header; Parity test `rtk boardmodel`
+- **`boardmodel <str>`**: What stock does `setenv` + env sector write [BIN] `0x83f1991c`; Stock output none; Flash write **yes**; Our status **REFUSED**; Parity test denylist
+- **`10g <port> <media>`**: What stock does per-port media (none, fiber10g, fiber1g, dac50cm, dac100cm, dac300cm); Stock output `FAIL (0xf002)` before SDK init; Flash write no; Our status done: `phy_9300_10gMedia_set`; `FAIL (0xf002)` before `network on` [LIVE]; Parity test `rtk 10g 0 bogus`; `--state`: ports 8 (pre), 0, 1, 28
+- **`send`**: What stock does transmit a fixed 74-byte frame; hidden; Stock output none; Flash write no; Our status needs-eth; also puts a frame on the wire (storm risk); Parity test denylist
 
 ## Registers (all base `0xBB000000` unless noted)
 

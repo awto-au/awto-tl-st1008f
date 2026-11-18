@@ -149,12 +149,10 @@ Contrast — on-link inter-VLAN (no gateway): **trap → CPU**, ~70 Mbit/s, 216 
 
 Mainline 7.3-rc6 SMP (both VPEs, 300-18, eth0 IRQ on CPU0), CPU 1 GHz, `ramload uboot-mainline --then mainline-kernel`, one 10G SR in cage 1, nat-bench one-armed over lan1 VLANs 991/992, host netns, `mode route` (no NAT), TCP `-P 4`, 15 s, one run each.
 
-| Path | Offload off Mbit/s | eth0 pps off | Offload on Mbit/s | eth0 pps on | CPU0 busy off / on |
-|---|---|---|---|---|---|
-| On-link v4 | 355 / 354 (fwd / rev) | 44.4k | 9247 / 9226 | 8-10 | 97 % / 0.5 % |
-| On-link v6 | 332 | 43.2k | 9101 | 6 | 99.6 % / 0.2 % |
-| Default v4 (`--dst 198.51.100.5`) | 563 | 46.9k | 9255 | 7 | 97 % / 0.3 % |
-| Default v6 (`--dst 2001:db8:22::5`) | 534 | 46.6k | 9112-9125 | 5-7 | 99.7 % / 0.1-0.2 % |
+- **On-link v4**: Offload off Mbit/s 355 / 354 (fwd / rev); eth0 pps off 44.4k; Offload on Mbit/s 9247 / 9226; eth0 pps on 8-10; CPU0 busy off / on 97 % / 0.5 %
+- **On-link v6**: Offload off Mbit/s 332; eth0 pps off 43.2k; Offload on Mbit/s 9101; eth0 pps on 6; CPU0 busy off / on 99.6 % / 0.2 %
+- **Default v4 (`--dst 198.51.100.5`)**: Offload off Mbit/s 563; eth0 pps off 46.9k; Offload on Mbit/s 9255; eth0 pps on 7; CPU0 busy off / on 97 % / 0.3 %
+- **Default v6 (`--dst 2001:db8:22::5`)**: Offload off Mbit/s 534; eth0 pps off 46.6k; Offload on Mbit/s 9112-9125; eth0 pps on 5-7; CPU0 busy off / on 99.7 % / 0.1-0.2 %
 
 - `l3_onlink=1`: host rows `10.99.1.2/32`, `10.99.2.2/32` `fwd chk,dec` NH 515/516; v6 `fd99:1::2/128`, `fd99:2::2/128` WIDTH 3 NH 518/517; HIT 1 after traffic. No `fe80::` rows.
 - `l3_default_v6=1`, `l3_default_v4=0`: upper `::/0` `fwd` NH 21, upper `0.0.0.0/0` `trap` (v4 stays on the CPU path at 557 Mbit/s); catch-alls `trap` NH 0 last in both families.

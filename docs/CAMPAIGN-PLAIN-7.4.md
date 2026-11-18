@@ -7,10 +7,8 @@
 
 ## Clock sets
 
-| Set | CPU | LX | DDR | SRAM | BogoMIPS |
-|---|---|---|---|---|---|
-| stock | 800 MHz | 175 MHz | stock | stock | 530.94 |
-| picks | 1350 MHz | 306.25 MHz | 663 MHz | 500 MHz | 897.02 |
+- **stock**: CPU 800 MHz; LX 175 MHz; DDR stock; SRAM stock; BogoMIPS 530.94
+- **picks**: CPU 1350 MHz; LX 306.25 MHz; DDR 663 MHz; SRAM 500 MHz; BogoMIPS 897.02
 
 - Stock = `ramload mainline-kernel` (no `--pre`); picks = `ramload uboot-mainline --then mainline-kernel --pre "turbo cpu=1350,ddr=662,lx=306,sram=500"`.
 - Kernel dmesg picks: `LX frequency from PLL: 306250 kHz, CPU 1350000 kHz`. Selftest clocks line: `cpu=1350,ddr=663,lx=306,sram=500`.
@@ -213,12 +211,10 @@
 - Variants: rt0 / rt1 = `l3_net_route` ring 0 / 1; par = rt1 + PIE `sport 1 0 0` and `sport 1 1 1` (UDP, action = CPU queue id only); par_acl1 = par + `acl_hit` queue 1.
 - Busy % = non-idle jiffies / run wall time (counters read idle before and after: ssh to the board stalls while a loaded ring carries the control plane; a windowed first attempt was discarded). Integrity = udpcheck pattern run per variant and round (bad payloads / reorder per source port).
 
-| Variant | kpps (min-max) | VPE0 / VPE1 busy % | ring0 / ring1 frames (mean per run) | tag QID 0 / 1 | EGR_QUEUE per run | bad / reorder |
-|---|---|---|---|---|---|---|
-| rt0 | 143.3 (142.8-143.5) | 100 / 0 | 1.46 M / 36 | 1.46 M / 36 | 39201 | 0 / 0 |
-| rt1 | 136.7 (136.4-136.9) | 0 / 87 | 58 / 1.44 M | 58 / 1.44 M | 50863 | 0 / 0 |
-| par | 124.0 (115.3-128.5) | 96 / 56 | 0.67 M / 0.65 M | same | 14967 | 0 / 0 |
-| par_acl1 | 128.2 (126.8-128.9) | 100 / 63 (one run 156 / 66: jiffy accounting) | 0.69 M / 0.70 M | same | 33315 | 0 / 0 |
+- **rt0**: kpps (min-max) 143.3 (142.8-143.5); VPE0 / VPE1 busy % 100 / 0; ring0 / ring1 frames (mean per run) 1.46 M / 36; tag QID 0 / 1 1.46 M / 36; EGR_QUEUE per run 39201; bad / reorder 0 / 0
+- **rt1**: kpps (min-max) 136.7 (136.4-136.9); VPE0 / VPE1 busy % 0 / 87; ring0 / ring1 frames (mean per run) 58 / 1.44 M; tag QID 0 / 1 58 / 1.44 M; EGR_QUEUE per run 50863; bad / reorder 0 / 0
+- **par**: kpps (min-max) 124.0 (115.3-128.5); VPE0 / VPE1 busy % 96 / 56; ring0 / ring1 frames (mean per run) 0.67 M / 0.65 M; tag QID 0 / 1 same; EGR_QUEUE per run 14967; bad / reorder 0 / 0
+- **par_acl1**: kpps (min-max) 128.2 (126.8-128.9); VPE0 / VPE1 busy % 100 / 63 (one run 156 / 66: jiffy accounting); ring0 / ring1 frames (mean per run) 0.69 M / 0.70 M; tag QID 0 / 1 same; EGR_QUEUE per run 33315; bad / reorder 0 / 0
 
 - Steering works: the ACL CPU-QID action overrides the reason queue of the L3-trapped frame (ring share 50 / 50 in every par run, tag QID 0 and 1 equal, no forward action needed, route trap kept); `acl_hit` queue is not needed.
 - zc TX ring full on ring 0: `ring0_zc_busy` 78-104 k per run (frames fall back to the skb path), ring 1 0.
@@ -232,12 +228,10 @@
 - Change: after `turbo ...`, `--pre "mw.l 0xbb00e220 <v>"` (DIVN2_SWCORE bits 8:5 only), then relock `mw.l 0xbb00e200 0x0001c0ff` / `0x4001c0ff` (e200 bit 30 0 -> 1; reads back `0001c0ff`). No U-Boot code change.
 - Switch-core clock = SW VCO / (2 x (code + 2)), codes 0..3 tried; Realtek's SPL never writes this field (glb_pll.h default code 1).
 
-| Switch core | e220 | rx-only 1400 B kpps | forwarding zc+nat 1400 B kpps | rx-only 64 B kpps | integrity | notes |
-|---|---|---|---|---|---|---|
-| 245 MHz (code 3) | 0002c466 | 86.6 (0.8 %, n=3) | not obtained | 224.6 (n=1) | - | -39.6 % rate for -40 % clock |
-| 306 MHz (code 2) | 0002c446 | 108.1 (0.5 %, n=3) | 110.0 (n=1) | 231.8 (n=1) | PASS 1400/500/64 | -24.7 % for -25 % |
-| 408 MHz (code 1, stock) | 0002c426 | 143.5 (0.2 %, n=3) | 144.8 (n=1) | 220.9 (n=1) | PASS 1400/500/64 | baseline |
-| 612 MHz (code 0) | 0002c406 | 182.3 (177.2 / 182.8 / 187.0, n=3) | not obtained | 223.3 (n=1) | - | +27 % for +50 % clock; board unreachable after the rx runs |
+- **245 MHz (code 3)**: e220 0002c466; rx-only 1400 B kpps 86.6 (0.8 %, n=3); forwarding zc+nat 1400 B kpps not obtained; rx-only 64 B kpps 224.6 (n=1); notes -39.6 % rate for -40 % clock
+- **306 MHz (code 2)**: e220 0002c446; rx-only 1400 B kpps 108.1 (0.5 %, n=3); forwarding zc+nat 1400 B kpps 110.0 (n=1); rx-only 64 B kpps 231.8 (n=1); integrity PASS 1400/500/64; notes -24.7 % for -25 %
+- **408 MHz (code 1, stock)**: e220 0002c426; rx-only 1400 B kpps 143.5 (0.2 %, n=3); forwarding zc+nat 1400 B kpps 144.8 (n=1); rx-only 64 B kpps 220.9 (n=1); integrity PASS 1400/500/64; notes baseline
+- **612 MHz (code 0)**: e220 0002c406; rx-only 1400 B kpps 182.3 (177.2 / 182.8 / 187.0, n=3); forwarding zc+nat 1400 B kpps not obtained; rx-only 64 B kpps 223.3 (n=1); notes +27 % for +50 % clock; board unreachable after the rx runs
 
 - Verdict: hypothesis confirmed. The 1400 B receive and forwarding ceiling scales 1:1 with the switch-core clock downward (rate ratio 0.753 / 0.603 vs clock ratio 0.75 / 0.60) and the VPE ns per packet follows it (6.9 us at 408, 9.1 us at 306, 5.4-5.6 us at 612). 64 B is not affected (220-232 kpps at every clock: VPE-bound).
 - Upward: +50 % clock gives +27 % (sub-proportional: a second limit enters, VPE1 still 98.9 % busy). Stable for the three rx runs; afterwards sw2 stopped answering on lan1 (ping, ssh dead; console alive, kernel up, NIC IRQ count not rising).
@@ -264,14 +258,12 @@
 
 ### Steps (1400 B, picks, rx-only n=3 per boot; zc+nat forwarding 12 s; integrity 1400/500/64)
 
-| Switch core | SW VCO / code / LX | rx-only kpps | zc+nat fwd kpps | integrity | boots |
-|---|---|---|---|---|---|
-| 408 (stock) | 2450 / 1 / 306 | 143.5 | 144.8 | PASS | 1 |
-| 508 | 3050 / 1 / 305 | 164.0, 171.8, 167.6 | 159.4, 159.2, 158.9 | PASS x3 | 3 |
-| 575 | 3450 / 1 / 246 | 173.5, 145.4 (one 81 run), 168.9 | 153.2, 153.7, 153.4 | PASS x3 | 3 |
-| 608 | 3650 / 1 / 304 | 173.0, 174.6, 175.9 | 170.4, 170.0, 170.3 | PASS x3 | 3 |
-| 658 | 3950 / 1 / 247 | 182.4, 175.7, 155.3 (spread 30 %) | 153.5, 153.3, 153.2 | PASS x3 | 3 |
-| 612 | 2450 / 0 / 306 | 173-182 | wedge | not reached | 4 wedges |
+- **408 (stock)**: SW VCO / code / LX 2450 / 1 / 306; rx-only kpps 143.5; zc+nat fwd kpps 144.8; integrity PASS; boots 1
+- **508**: SW VCO / code / LX 3050 / 1 / 305; rx-only kpps 164.0, 171.8, 167.6; zc+nat fwd kpps 159.4, 159.2, 158.9; integrity PASS x3; boots 3
+- **575**: SW VCO / code / LX 3450 / 1 / 246; rx-only kpps 173.5, 145.4 (one 81 run), 168.9; zc+nat fwd kpps 153.2, 153.7, 153.4; integrity PASS x3; boots 3
+- **608**: SW VCO / code / LX 3650 / 1 / 304; rx-only kpps 173.0, 174.6, 175.9; zc+nat fwd kpps 170.4, 170.0, 170.3; integrity PASS x3; boots 3
+- **658**: SW VCO / code / LX 3950 / 1 / 247; rx-only kpps 182.4, 175.7, 155.3 (spread 30 %); zc+nat fwd kpps 153.5, 153.3, 153.2; integrity PASS x3; boots 3
+- **612**: SW VCO / code / LX 2450 / 0 / 306; rx-only kpps 173-182; zc+nat fwd kpps wedge; integrity not reached; boots 4 wedges
 
 - Conditions: 2026-11-07, sw2, cage 1 to sw1 lan4, host NIC 10G, kernel `7.4.0-rc1-dirty`; rx numbers vary +-5 % with the host flood (sent 430-830 kpps); one 575 rx run (80.9 kpps) coincided with a low host send rate.
 - Forwarding depends on LX as well: 575 and 658 (LX 246) forward 153 kpps, 608 and 508 (LX 305) 159-170, rx-only does not. LX is part of the rate; compare rows with equal LX only.
@@ -393,13 +385,11 @@ Options (kpps = zc+nat fwd 1400 B unless stated):
 - TCP = `nat_bench` NAT mode, iperf3 -P 4, 15 s, boot 1 of each point; zc = `zc_bench --nat` 1400 B UDP (works on the OpenWrt image). 1000-row zc/TCP figures from `tmp/logs/nat_bench.log` / `zc_bench.log` (83.3 / 85.6 Mbit/s, 161.7 kpps).
 - No oops, no wrong decodes, no hangs in any boot; first failure none for all rows.
 
-| core | CPU | boots passed | TCP fwd/rev Mbit/s | zc kpps | first failure |
-|---|---|---|---|---|---|
-| 608 | 1000 | 3/3 | 83.3 / 85.6 | 161.7 | none |
-| 608 | 1200 | 3/3 | 87.9 / 96.7 | 160.4 | none |
-| 608 | 1275 | 3/3 | 90.7 / 99.6 | 160.2 | none |
-| 608 | 1325 | 5/5 | 88.9 / 103.0 | 170.4 | none |
-| 608 | 1350 | 0/2 | n/a | n/a | xz decode wrong / Oops, 32-53 s |
-| 508 | 1350 | 1/1 here (5/5 earlier) | 84.5 / 103.8 | 154.9 | none |
+- **608**: CPU 1000; boots passed 3/3; TCP fwd/rev Mbit/s 83.3 / 85.6; zc kpps 161.7; first failure none
+- **608**: CPU 1200; boots passed 3/3; TCP fwd/rev Mbit/s 87.9 / 96.7; zc kpps 160.4; first failure none
+- **608**: CPU 1275; boots passed 3/3; TCP fwd/rev Mbit/s 90.7 / 99.6; zc kpps 160.2; first failure none
+- **608**: CPU 1325; boots passed 5/5; TCP fwd/rev Mbit/s 88.9 / 103.0; zc kpps 170.4; first failure none
+- **608**: CPU 1350; boots passed 0/2; TCP fwd/rev Mbit/s n/a; zc kpps n/a; first failure xz decode wrong / Oops, 32-53 s
+- **508**: CPU 1350; boots passed 1/1 here (5/5 earlier); TCP fwd/rev Mbit/s 84.5 / 103.8; zc kpps 154.9; first failure none
 
 - Conclusion: best stable combination is core 608 + CPU 1325 (5/5): zc +10% (170.4 vs 154.9 kpps) over core 508 + CPU 1350, TCP within run noise (88.9/103.0 vs 84.5/103.8); CPU 1350 at core 608 is the only failing step.
