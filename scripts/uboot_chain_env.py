@@ -57,6 +57,7 @@ VARS = {  # saved in this order; bootcmd last
 }
 # Turbo profile (#46). Value sets mirror uboot-port clocks.c cpu_code / mem_bins / lx_pts + sram
 TURBO_VAR = "st1008f_turbo"
+NETWIN_ALL_VAR = "st1008f_netwin_all"  # "1": network window in every mode; unset: M2 only (bootsel.c)
 NETWIN_VAR = "st1008f_netwin"  # "CAGE,IP,HOST": power-up network window (bootsel.c netwin, #80); unset = off
 TURBO_ALL_VAR = "st1008f_turbo_all"  # "1": profile also in M1 (bootsel.c); unset: M3 only
 STOCK_NOTE = "NOTE: default = stock clocks (CPU 800, DDR 600, LX 175, SRAM 250, SPI 25.5) in every mode; this unit leaves today's 1000/650 at its next power-up until a profile is written: ./dev.py uboot-chain-env turbo set PROFILE [--ssh --ip IP] + mode switch M3 (#46)"
@@ -242,8 +243,8 @@ def prompt() -> int:
     """Power cycle with the saved chain; ESC in our 2 s window (#46) -> our prompt."""
     con = Console()
     mark = restart_board(con, policy="pass")  # software reboot; relay only as fallback
-    # stock banner ~2.5 s after power-on + 1 s stock window + chain < 1 s + our banner: ~5 s; x1.25 + relay
-    con.expect(ESC_WINDOW, 8, mark, "our 2 s ESC window", boot_ok=True)
+    # ~5 s to our banner (x1.25 -> 8 s) + netwin bring-up when st1008f_netwin is set (U-Boot guards it at 22 s)
+    con.expect(ESC_WINDOW, 8 + 22, mark, "our 2 s ESC window", boot_ok=True)
     con.send("\x1b", cr=False)
     con.expect(OURS_PROMPT, 3, mark, "our prompt after ESC", boot_ok=True)  # window 2 s; x1.25 + echo
     log("PASS prompt: ESC stopped our autoboot")
@@ -370,7 +371,7 @@ def env_ssh(ip: str, mode: str, profile: str | None, allow_fallback: bool, all_m
     elif mode == "revert":
         want = {"bootcmd": "boota", "ub_ld": "", "ub_ck": "", "ub_go": ""}
     elif mode == "netwin":
-        want = {NETWIN_VAR: profile or ""}
+        want = {NETWIN_VAR: profile or "", NETWIN_ALL_VAR: "1" if all_modes and profile else ""}
     else:
         want = {TURBO_VAR: profile, TURBO_ALL_VAR: "1" if all_modes else ""}
     for v in want.values():
@@ -432,7 +433,7 @@ def main() -> int:
                 return 1
         else:
             ap.error("netwin show | netwin set CAGE,IP,HOST | netwin off")
-        return env_ssh(a.ip, "netwin", profile, False)
+        return env_ssh(a.ip, "netwin", profile, False, a.all_modes)
     if a.ssh:
         if not a.ip or a.mode not in ("apply", "revert", "turbo"):
             ap.error("--ssh --ip A.B.C.D: apply | revert | turbo only")

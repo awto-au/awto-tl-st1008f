@@ -187,7 +187,7 @@ Owner decision 2026-10-12 (#73, #46); U-Boot side changed 2026-10-13 (#46): the 
 | M3 | turbo profile | isolated (`st1008f-mode` m3 rule, unchanged) | as M2 |
 | any | recovery (fault fallback) | isolated | as M2 |
 
-- Open (#46): M2 = U-Boot networking on all front ports, waiting for commands; not built yet (M2 autoboots like M1). M3 → Linux `isolated` follows the 2026-10-12 table; owner to confirm for the turbo position.
+- M2 = U-Boot network window (#80, docs/UBOOT-MAINLINE.md): one cage up, ESC over UDP stops autoboot; needs `st1008f_netwin` set. M1/M3 unchanged. M3 → Linux `isolated` follows the 2026-10-12 table; owner to confirm for the turbo position.
 - Management (all modes): bridge `switch` stays one bridge with lan1-lan8, STP on; isolation = per-port `isolated` flag. Plug a host into any cage → management.
 - Fault fallback in M1 = isolated: the recovery image is a management image. One-line change in `st1008f-mode` (`want=` rule) if switching should continue.
 - `/etc/init.d/st1008f-mode` (START=19, before `network` at 20):
