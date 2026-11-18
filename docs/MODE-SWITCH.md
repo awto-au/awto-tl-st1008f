@@ -7,10 +7,11 @@ The 3-position slider on the unit. Read once at power-up by our U-Boot and by Li
 | Position | Clocks (CPU / DDR) | Switching in Linux | U-Boot network window |
 |---|---|---|---|
 | M1 | turbo profile (built-in default) | on: all cages bridged and forwarding, STP on | off |
-| M2 | stock 800 / 600, always | off: every cage reaches only the CPU | on: cage 1, 192.168.1.1 |
+| M2 | stock 800 / 600, always | off: every cage reaches only the CPU (see note) | on: cage 1, 192.168.1.1 |
 | M3 | turbo profile, as M1 | off, as M2 | off |
 | any (fault fallback), invalid slider | stock | off, as M2 | off |
 
+- Note (#173): "off" is applied only by images built with `--default-boot` (`st1008f-mode`). The current sw1/sw2 flash images lack it: M2/M3 stay bridged in Linux. Clocks and the network window are U-Boot-side and work.
 - M2 is the escape position: stock clocks, no switching, network access to U-Boot. Always safe.
 - Turbo default (owner 2026-11-18): `cpu=1350,ddr=662,lx=306,sram=500`, built into U-Boot (`TURBO_DEFAULT` in bootsel.c). No setting needed.
 - Stock clocks = what TP-Link ships: CPU 800, DDR 600, LX 175, SRAM 250, SPI 25.5 MHz. Used in M2 and on any failure.
@@ -43,5 +44,5 @@ The 3-position slider on the unit. Read once at power-up by our U-Boot and by Li
 
 ## Linux side
 
-- `/etc/init.d/st1008f-mode` (before `network`): reads the mode from `st1008f.mode` / `st1008f.boot`, sets uci `isolate` per port, `uci commit` only on a change. Details: docs/DEFAULT-BOOT.md#modes.
+- `/etc/init.d/st1008f-mode` (`--default-boot` images only, #173; before `network`): reads the mode from `st1008f.mode` / `st1008f.boot`, sets uci `isolate` per port, `uci commit` only on a change. Details: docs/DEFAULT-BOOT.md#modes.
 - Clocks, A/B slots, power-up chain: docs/DEFAULT-BOOT.md.
