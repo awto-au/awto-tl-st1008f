@@ -378,12 +378,11 @@ static void bb_read(void)
 }
 
 /* Power-up network window (#80): stock env st1008f_netwin=CAGE,IP,HOST (e.g. 5,192.168.25.56,192.168.25.30).
- * Runs in M2 only (the escape position, #46); st1008f_netwin_all=1 = every mode (bench units). M1/M3: no cost.
+ * Runs in M2 only (the escape position, #46). M1/M3: no cost.
  * Before the 2 s autoboot window: `rtk network on`, light ONE cage (as st1008_ramload.py laser/ports_only),
  * IP, netconsole to HOST on stdin+stdout: an ESC sent to UDP :6666 stops autoboot over the network.
  * Absent/empty = nothing changes. REC_NETWIN still set at the next boot = the bring-up hung: skip once. */
 #define NETWIN_VAR	"st1008f_netwin"
-#define NETWIN_ALL_VAR	"st1008f_netwin_all"
 #define REC_NETWIN	(REC + 4)
 #define REC_NETWIN_MAGIC	0x4e57494e	/* "NWIN" */
 /* rtk network on <= 15 s (host cap, ~8 s typical, st1008_ramload.py) + 7 laser/port commands ~2 s = 17 s, x1.25 */
@@ -409,7 +408,7 @@ static void netwin(void)
 
 	if (!st1008f_stock_env(NETWIN_VAR, val, sizeof(val)) || !val[0])
 		return;
-	if (st1008f_boot_mode(NULL) != 2 && !(st1008f_stock_env(NETWIN_ALL_VAR, cmd, sizeof(cmd)) && !strcmp(cmd, "1")))
+	if (st1008f_boot_mode(NULL) != 2)
 		return;
 	if (__raw_readl(REC_NETWIN) == REC_NETWIN_MAGIC) {
 		__raw_writel(0, REC_NETWIN);
