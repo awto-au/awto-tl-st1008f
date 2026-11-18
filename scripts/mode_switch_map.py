@@ -85,8 +85,8 @@ def boot(expect: int) -> int:
         con.expect(r"U-Boot 2026\.07", 6, mark, "stock -> saved bootcmd -> our U-Boot", boot_ok=True)
         m, _ = con.expect(r"Mode:  (M[123]|invalid)[^\n]*\n", 2, mark, "Mode line", boot_ok=True)
         log(f"  board: {m.group(0).strip()}")
-        # every mode autoboots the flash kernel; the mode picks clocks only (#46): M1/M2 stock, M3 turbo
-        want = r"bootsel: M[12]: stock clocks" if expect in (1, 2) else r"bootsel: M3: [^\n]*"
+        # every mode autoboots the flash kernel; the mode picks clocks (#46): M1/M3 turbo, M2 stock
+        want = r"bootsel: M2: stock clocks" if expect == 2 else r"bootsel: M[13]: [^\n]*turbo[^\n]*"
         m, _ = con.expect(want, 4, mark, f"M{expect} clock policy", boot_ok=True)
         log(f"  {m.group(0).strip()}")
         # 2 s ESC window + bootm from flash + kernel to console ~24 s after ours; x1.25
