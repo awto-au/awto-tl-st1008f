@@ -260,7 +260,7 @@ What each position does (clocks, Linux switching, network window): [MODE-SWITCH.
 - SSH: dropbear defaults, root with blank password = today's flash OpenWrt. fw4: default lan zone.
 - Recovery: same config (tmpfs: uci-defaults every boot = immutable known-good).
 - `99_fwenv-store-ethaddr` (OpenWrt realtek) writes `u-boot-env` when `ethaddr` is empty or `00:e0:4c:00:00:xx`; ours is set (#36), so no write.
-- Build additions (`openwrt/default-boot/diffconfig`): `KERNEL_DEVMEM`, BusyBox `devmem`; files dir `openwrt/default-boot/files/` (uci-defaults, `st1008f-mode`, `st1008f-bootok` + `rc.d` links).
+- Build additions (`openwrt/default-boot/diffconfig`): `KERNEL_DEVMEM`, BusyBox `devmem`; files dir `openwrt/default-boot/files/` (uci-defaults, `st1008f-bootok` + `rc.d` links).
 
 ## Loop safety
 
