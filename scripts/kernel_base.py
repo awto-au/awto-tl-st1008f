@@ -21,7 +21,7 @@ from pathlib import Path
 
 ROOT = Path(__file__).resolve().parent.parent
 LOG = ROOT / "tmp/logs/kernel_base.log"
-PIN = "v7.4-rc1"  # rewritten by `kernel-base update`
+PIN = "v7.4-rc3"  # rewritten by `kernel-base update`
 LINUS_URL = "https://git.kernel.org/pub/scm/linux/kernel/git/torvalds/linux.git"
 REPO = ROOT / "tmp/linux-store"  # symlink -> the machine store (awto-dan#50); no host path in this repo
 OURS = ROOT / "openwrt/patches"

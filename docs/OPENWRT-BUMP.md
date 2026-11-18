@@ -164,3 +164,12 @@ Images (`build_openwrt.py --kernel mainline [--debug]`, rc 0 each):
 - Load: TFTP to `0x84f00000`, `bootm` decompresses to `0x80100000`; limit `SYS_BOOTM_LEN=0x2000000` (32 MiB unpacked). Same load address for both.
 - Debug kernel: `DEBUG_LIST`, `SLUB_DEBUG_ON` (OpenWrt symbol `KERNEL_SLUB_DEBUG_ON`), `DEBUG_NET`, `PAGE_POOL_STATS`, `DEBUG_VM` (`KERNEL_DEBUG_VM`), `PAGE_POISONING`. MIPS has no KASAN, KFENCE, DEBUG_PAGEALLOC.
 - Bench: `./dev.py ramload openwrt-ours`, `./dev.py ramload openwrt-ours-debug`, `./dev.py ramload openwrt-ours-7.3` (old A/B); test list in section 5.
+
+## Bump 2026-11-18: main 7e8bfcfe76 -> 27663a017a, Linux v7.4-rc1 -> v7.4-rc3
+
+- Pins: `OWRT_COMMIT` 27663a017a (2026-11-17, newest main; 282 commits, 73 realtek), feeds packages 3cc304a78e / luci cc975fd147, `kernel_base.PIN` v7.4-rc3. Upstream realtek still has no 7.x kernel: `files-7.4` is our overlay's copy of `files-6.18`.
+- Rebased: `openwrt-tree.patch` (05_compat-version, platform.sh: upstream restructured both); 300-26 (common.c init is now an if/else); 300-17 (upstream landed the IPv6 host hash and entry-width slot search, 63d330d047 / 7edc67adad: our hash6, slot_widths, host_slots bitmap and find_slot hunks removed).
+- New `300-46`: forward-port of upstream `realtek/patches-6.18/744` (phylink passes the physical media to `pcs_config`; the rewritten `pcs-rtl-otto.c` needs it). Drivers that do not apply on rc3 and are not built are dropped (mxl862xx, macb, fbnic, pcs-mtk-lynxi, pcs-mtk-usxgmii). 7.x flows only; the 6.18 build gets 744 from OpenWrt.
+- Built: `./dev.py build-openwrt --kernel mainline --flash --tag rc3` -> `tmp/openwrt-7.4rc3-sysupgrade.bin` (r38460-27663a017a). Flashed to sw2 2026-11-18T15:50+11:00: boots, slot confirmed, PCS driver initialises, SerDes configure, 10G uplink up.
+- Upstream PCS commits newer than sw1's image that bear on its stuck RX calibration (#171): e2ed57b957, 15eb30ddfd.
+- Not done: sw1 flash (owner request), plain-kernel build on the new pin, NAT re-measure.

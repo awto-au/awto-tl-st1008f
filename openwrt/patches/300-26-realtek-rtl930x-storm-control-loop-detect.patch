@@ -28,14 +28,14 @@ Subject: [PATCH] net: dsa: rtl83xx: RTL930x storm control defaults + loop detect
  
  /* Port register accessor functions for the RTL838x and RTL930X SoCs */
  void rtl838x_mask_port_reg(u64 clear, u64 set, int reg)
-@@ -546,6 +547,7 @@
- 	case RTL9300_FAMILY_ID:
- 	case RTL9310_FAMILY_ID:
+@@ -443,6 +444,7 @@
+ 		rtl838x_dbgfs_init(priv);
+ 	} else {
  		rtl930x_dbgfs_init(priv);
 +		rtldsa_930x_storm_init(priv);	/* 930x only; after dbgfs_dir */
- 		break;
  	}
- 
+
+ 	otto_fdb_dbgfs_init(priv);
 @@ -581,6 +583,7 @@
  	 * when they are getting shut down.
  	 */

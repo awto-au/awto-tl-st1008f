@@ -61,6 +61,7 @@ KERNEL_PATCHES = {
     "300-04-realtek-rtl930x-enable-dram-prefetch.patch": OURS,
     "300-05-realtek-rtl930x-hpt-freq-from-pll.patch": OURS,
     "300-06-realtek-rtl930x-tplink-mode-switch.patch": OURS,
+    "300-16-realtek-rtl930x-tplink-st1008f-leds.patch": OURS,  # #120: per-cage port LED policy (needs 300-06's media pass)
     "300-23-realtek-rtl930x-lx-clock-from-pll.patch": OURS,  # #159: UART/timer clock from the PLL (swcore 608: LX 304); needs 300-05, apply untested on 6.18
     "300-24-watchdog-realtek-otto-clamp-hw-timeout.patch": OURS,  # #159: DT timeout-sec 30 > max 29 s at LX 304
     "300-07-realtek-spi-dirmap-read.patch": BACKPORT / "kernel",
@@ -284,9 +285,9 @@ def disk_check(phase: str, comment: bool) -> None:
 
 # Feeds in every image (#129): what sw1 carried as apk installs. Built in, the kmods match our kernel and
 # both A/B slots carry them (per-slot overlays would lose apk installs on the other slot, #117).
-FEEDS = {  # name -> (url, commit); pinned 2026-11-07 for OpenWrt main 7e8bfcfe76; move with OWRT_COMMIT
-    "packages": ("https://git.openwrt.org/feed/packages.git", "1c248d7e25e66304ffe96faba031d14b845d8eaf"),
-    "luci": ("https://git.openwrt.org/project/luci.git", "9a62efcc5a063d43d7871c8e2c5bea2dad83eb47"),
+FEEDS = {  # name -> (url, commit); pinned 2026-11-18 for OpenWrt main 27663a017a; move with OWRT_COMMIT
+    "packages": ("https://git.openwrt.org/feed/packages.git", "3cc304a78e076ca6e09805f707096f0ddc6c9112"),
+    "luci": ("https://git.openwrt.org/project/luci.git", "cc975fd1479fefed56142b3ecefa40e7c9a6c5c8"),
 }
 FEED_PKGS = ["luci", "luci-app-statistics", "luci-app-snmpd", "luci-app-lldpd", "luci-app-package-manager",
              "collectd-mod-cpu", "collectd-mod-interface", "collectd-mod-load", "collectd-mod-memory",

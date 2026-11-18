@@ -4,9 +4,8 @@ Applied after 300-10 on the files-6.18 copy (pinned 53ec2d0). Same change agains
 e5ec5e199f: upstream PR draft, docs/ROUTING-OFFLOAD.md. Both opt-in: HW routing bypasses firewall/NAT.
 - l3_onlink (module param, 0644): resolved neighbour reached on-link through a switch port (kernel
   FIB lookup: unicast main route, no gateway, out of that device, shorter than /32 or /128) gets a
-  host-table entry forwarding to its MAC. v4 and v6 (v6 host hash = SDK hostHash0/1, checked by
-  scripts/l3_hash6_check.py; host slots tracked in a bitmap since a 3-slot v6 entry reads back
-  only at its first slot). Torn down on neighbour invalid/dead, move to another link, a FIB route
+  host-table entry forwarding to its MAC. v4 and v6 (the v6 host hash and the width-aware slot
+  search are upstream since 2026-11-07, 63d330d047 / 7edc67adad). Torn down on neighbour invalid/dead, move to another link, a FIB route
   taking the address, or a covering route change that makes it ineligible; no free slot -> none
   (on-link prefix trap row takes it). Link-local v6 never.
 - l3_default_v4, l3_default_v6 (module params, 0644; per family so v6 can forward while v4 stays
@@ -106,111 +105,6 @@ index 7318a17c7e70..f9250afb2d6e 100644
  struct otto_l3_net_event_work {
  	struct work_struct work;
  	struct otto_l3_ctrl *ctrl;
-@@ -464,6 +503,26 @@
- 	return hash;
- }
- 
-+/* Both SDK algorithms (_dal_longan_l3_hostHash0/1_ret()) fold an IPv6 address
-+ * as the IPv4 hash of its low 32 bits XOR every higher bit i at position i % 9.
-+ * Checked against the SDK formulas by scripts/l3_hash6_check.py.
-+ */
-+static u32 otto_l3_930x_hash6(const struct in6_addr *ip, int algorithm)
-+{
-+	u32 hash = otto_l3_930x_hash4(be32_to_cpu(ip->s6_addr32[3]), algorithm, false);
-+
-+	for (int w = 0; w < 3; w++) {
-+		u32 v = be32_to_cpu(ip->s6_addr32[w]);
-+		int base = 32 * (3 - w);
-+
-+		for (int j = 0; j < 32; j++)
-+			if (v & BIT(j))
-+				hash ^= BIT((base + j) % 9);
-+	}
-+
-+	return hash;
-+}
-+
- /*
-  * Get the Destination-MAC of an L3 egress interface or the Source MAC for routed packets
-  * from the SoC's L3_EGR_INTF_MAC table. Indexes 0-2047 are DMACs, 2048+ are SMACs
-@@ -515,6 +574,12 @@
- 	return otto_l3_930x_set_egress_mac(ctrl, L3_EGRESS_DMACS + idx, mac);
- }
- 
-+/* Slots one entry occupies, by type: IPv4 unicast, IPv4 multicast, IPv6
-+ * unicast, IPv6 multicast. They come from the SDK allocator rather than from
-+ * the entry size, which does not imply them.
-+ */
-+static const u8 otto_l3_930x_slot_widths[] = { 1, 2, 3, 6 };
-+
- /* Decode a host route entry fetched into @data. Returns false unless it is a
-  * valid unicast entry; valid is set for any entry, type for any valid one.
-  */
-@@ -584,8 +649,10 @@
- 					 struct otto_l3_route *rt)
- {
- 	/* Only the unicast layout is handled below */
-+	int slot = idx;
- 	u32 data[5];
- 	u32 v;
-+	int err;
- 
- 	idx = ((idx / 6) * 8) + (idx % 6);
- 
-@@ -626,14 +693,22 @@
- 		return -EOPNOTSUPP;
- 	}
- 
--	return otto_table_write(RTL9300_TBL_L3_HOST_ROUTE_IPUC, idx, &data);
-+	err = otto_table_write(RTL9300_TBL_L3_HOST_ROUTE_IPUC, idx, &data);
-+	if (err)
-+		return err;
-+
-+	if (rt->attr.valid)
-+		bitmap_set(ctrl->host_slots, slot, otto_l3_930x_slot_widths[rt->attr.type & 0x3]);
-+	else
-+		bitmap_clear(ctrl->host_slots, slot, otto_l3_930x_slot_widths[rt->attr.type & 0x3]);
-+
-+	return 0;
- }
- 
--/* Slots one entry occupies, by type: IPv4 unicast, IPv4 multicast, IPv6
-- * unicast, IPv6 multicast. They come from the SDK allocator rather than from
-- * the entry size, which does not imply them.
-- */
--static const u8 otto_l3_930x_slot_widths[] = { 1, 2, 3, 6 };
-+static bool otto_l3_930x_slots_busy(struct otto_l3_ctrl *ctrl, int idx, int width)
-+{
-+	return find_next_bit(ctrl->host_slots, idx + width, idx) < idx + width;
-+}
- 
- /* Return a logical slot, -ENOENT for a missing route, or -ENOSPC if full. */
- static int otto_l3_930x_find_slot(struct otto_l3_ctrl *ctrl, struct otto_l3_route *rt, bool must_exist)
-@@ -650,7 +725,10 @@
- 		if (err)
- 			return err;
- 		algorithm = (v >> (2 + t)) & 0x1;
--		hash = otto_l3_930x_hash4(rt->dst_ip, algorithm, false);
-+		if (rt->attr.type == ROUTE_TYPE_IP6UC)
-+			hash = otto_l3_930x_hash6(&rt->dst_ip6, algorithm);
-+		else
-+			hash = otto_l3_930x_hash4(rt->dst_ip, algorithm, false);
- 
- 		dev_dbg(ctrl->dev, "table %d, algorithm %d, hash %04x\n", t, algorithm, hash);
- 
-@@ -660,6 +738,12 @@
- 			idx = ((addr / 8) * 6) + (addr % 8);
- 			dev_dbg(ctrl->dev, "logical address %d\n", idx);
- 
-+			/* Only the first slot of a wider entry reads back as one,
-+			 * so the slots the others cover are tracked here
-+			 */
-+			if (!must_exist && otto_l3_930x_slots_busy(ctrl, idx, slot_width))
-+				continue;
-+
- 			err = otto_l3_930x_host_route_read(ctrl, idx, &route_entry);
- 			if (err)
- 				return err;
 @@ -887,6 +971,20 @@
  	return entry.dst_ip == rt->dst_ip;
  }
@@ -1062,15 +956,6 @@ diff --git a/drivers/net/dsa/rtl83xx/l3.h b/drivers/net/dsa/rtl83xx/l3.h
 index 2d086dd0b42a..5f2f08271ebb 100644
 --- a/drivers/net/dsa/rtl83xx/l3.h
 +++ b/drivers/net/dsa/rtl83xx/l3.h
-@@ -22,6 +22,8 @@
- #define SWITCH_MAC_FREE 0xfffffffffffeULL
- #define MAX_HOST_ROUTES		1536
- #define MAX_ROUTES		512
-+/* Host table slots: 2 tables x 512 rows x 6 slots */
-+#define MAX_HOST_SLOTS		6144
- 
- #define HASH_PICK(val, lsb, len) ((val & (((1 << len) - 1) << lsb)) >> lsb)
- 
 @@ -94,6 +96,8 @@
  	struct in6_addr dst_ip6;
  	int prefix_len;			/* Network prefix len of the destination net */
@@ -1089,14 +974,13 @@ index 2d086dd0b42a..5f2f08271ebb 100644
  	int (*host_route_write)(struct otto_l3_ctrl *ctrl, int idx, struct otto_l3_route *rt);
  	void (*get_router_mac)(struct otto_l3_ctrl *ctrl, u32 idx, struct otto_l3_router_mac *m);
  	void (*set_router_mac)(struct otto_l3_ctrl *ctrl, u32 idx, struct otto_l3_router_mac *m);
-@@ -180,6 +186,10 @@
+@@ -180,6 +186,9 @@
  	struct delayed_work resync_work;
  	unsigned int resync_delay;
  	bool resync_wanted;
 +	struct delayed_work poll_work;	/* neighbour refresh, see otto_l3_poll() */
 +	bool onlink_on;		/* l3_onlink as the last poll saw it */
 +	bool lost[2];		/* an IPv4 / IPv6 route got no entry and is not tracked */
-+	DECLARE_BITMAP(host_slots, MAX_HOST_SLOTS);	/* host table slots in use */
  	struct list_head routes_list;
  	struct list_head rmac_devs;	/* devices router MACs follow */
  	unsigned long route_use_bm[MAX_ROUTES / 32];

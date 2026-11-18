@@ -8,30 +8,30 @@ OpenWrt-tree overlay for TL-ST1008F v2 (#73), applied by scripts/build_openwrt.p
 - image/rtl930x.mk: IMAGE_SIZE 14848k (one slot), DEVICE_COMPAT_VERSION 2.0 (1.0 = one 29 MiB firmware)
 - base-files platform.sh: tl-st1008f-v2 -> st1008f_ab_upgrade (writes the inactive slot, linkcheck files);
   board.d 05_compat-version: device compat 2.0 (matches the image)
-- rtl930x/config-6.18: MIPS_PLATFORM_DEVICES + TPLINK_ST1008F_MODE_SWITCH built in; MIPS_CMDLINE_DTB_EXTEND;
+- rtl930x/config-6.18: MIPS_PLATFORM_DEVICES + TPLINK_ST1008F_MODE_SWITCH + TPLINK_ST1008F_LEDS (300-16, #120) built in; MIPS_CMDLINE_DTB_EXTEND;
   (DT bootargs + U-Boot bootargs: st1008f.mode/boot from bootsel, #73)
 
 diff --git a/target/linux/realtek/base-files/etc/board.d/05_compat-version b/target/linux/realtek/base-files/etc/board.d/05_compat-version
-index 13c7447..eaa6b5f 100644
+index a390f421d5..b15755b4d0 100644
 --- a/target/linux/realtek/base-files/etc/board.d/05_compat-version
 +++ b/target/linux/realtek/base-files/etc/board.d/05_compat-version
-@@ -13,6 +13,9 @@ case "$(board_name)" in
- 	hpe,1920-24g-poe-370w)
- 		ucidef_set_compat_version "1.1"
+@@ -13,6 +13,9 @@ hpe,1920-24g-poe-180w|\
+ hpe,1920-24g-poe-370w)
+ 	ucidef_set_compat_version "1.1"
  	;;
-+	tplink,tl-st1008f-v2)
-+		ucidef_set_compat_version "2.0"	# A/B slots (#117)
++tplink,tl-st1008f-v2)
++	ucidef_set_compat_version "2.0"	# A/B slots (#117)
 +	;;
- 	zyxel,gs1900-8-a1 | \
- 	zyxel,gs1900-8-b1 | \
- 	zyxel,gs1900-8hp-a1 | \
+ zyxel,gs1900-8-a1|\
+ zyxel,gs1900-8-b1|\
+ zyxel,gs1900-8hp-a1|\
 diff --git a/target/linux/realtek/base-files/lib/upgrade/platform.sh b/target/linux/realtek/base-files/lib/upgrade/platform.sh
-index 5b4468b..5973052 100644
+index 6f25b4e3f3..52d9df9335 100644
 --- a/target/linux/realtek/base-files/lib/upgrade/platform.sh
 +++ b/target/linux/realtek/base-files/lib/upgrade/platform.sh
-@@ -75,6 +75,9 @@ platform_do_upgrade() {
- 	linksys,lgs352c)
- 		nand_do_upgrade "$1"
+@@ -132,6 +132,9 @@ platform_do_upgrade() {
+ 		tplink_sg2xxx_fix_mtdparts
+ 		default_do_upgrade "$1"
  		;;
 +	tplink,tl-st1008f-v2)
 +		st1008f_ab_upgrade "$1"	# /lib/upgrade/st1008f-ab.sh (#117)
@@ -40,7 +40,7 @@ index 5b4468b..5973052 100644
  	zyxel,xgs2220-30hp|\
  	zyxel,xmg1915-10e|\
 diff --git a/target/linux/realtek/dts/rtl9303_tplink_tl-st1008f-v2.dts b/target/linux/realtek/dts/rtl9303_tplink_tl-st1008f-v2.dts
-index d11a6fd..dbad530 100644
+index d11a6fd30a..08afb2be47 100644
 --- a/target/linux/realtek/dts/rtl9303_tplink_tl-st1008f-v2.dts
 +++ b/target/linux/realtek/dts/rtl9303_tplink_tl-st1008f-v2.dts
 @@ -2,7 +2,6 @@
@@ -51,7 +51,7 @@ index d11a6fd..dbad530 100644
  #include <dt-bindings/gpio/gpio.h>
  #include <dt-bindings/leds/common.h>
  
-@@ -10,6 +9,15 @@
+@@ -10,41 +9,80 @@
  	compatible = "tplink,tl-st1008f-v2", "realtek,rtl930x-soc";
  	model = "TP-Link TL-ST1008F v2.0";
  
@@ -67,7 +67,8 @@ index d11a6fd..dbad530 100644
  	memory@0 {
  		device_type = "memory";
  		reg = <0x00000000 0x10000000>, /* first 256 MiB */
-@@ -18,33 +26,63 @@
+ 		      <0x20000000 0x10000000>; /* remaining 256 MiB */
+ 	};
  
 +	/* 4 KiB that survive resets: U-Boot's boot-attempt record at +0, the kernel black box (reset reason) at +0x100 (#144) */
 +	reserved-memory {
@@ -153,7 +154,7 @@ index d11a6fd..dbad530 100644
  		};
  	};
  
-@@ -69,6 +95,7 @@
+@@ -69,6 +107,7 @@
  		gpioexp0: i2c@38 {
  			reg = <0x38>;
  			compatible = "nxp,pca9534";
@@ -161,7 +162,7 @@ index d11a6fd..dbad530 100644
  			gpio-controller;
  			#gpio-cells = <2>;
  		};
-@@ -152,6 +179,8 @@
+@@ -152,6 +191,8 @@
  		hw_algo = "toggle";
  		hw_margin_ms = <1200>;
  		always-running;
@@ -170,7 +171,7 @@ index d11a6fd..dbad530 100644
  	};
  };
  
-@@ -185,11 +214,25 @@
+@@ -185,11 +226,25 @@
  	};
  };
  
@@ -196,7 +197,7 @@ index d11a6fd..dbad530 100644
  		reg = <0>;
  		spi-max-frequency = <100000000>;
  
-@@ -207,6 +250,15 @@
+@@ -207,6 +262,15 @@
  			partition@e0000 {
  				label = "u-boot-env";
  				reg = <0xe0000 0x10000>;
@@ -212,7 +213,7 @@ index d11a6fd..dbad530 100644
  			};
  
  			partition@f0000 {
-@@ -220,16 +272,34 @@
+@@ -220,16 +284,34 @@
  				reg = <0x100000 0x100000>;
  			};
  
@@ -221,14 +222,14 @@ index d11a6fd..dbad530 100644
  				label = "jffs2-log";
 -				reg = <0x200000 0x100000>;
 +				reg = <0x200000 0xf0000>;
-+			};
-+
+ 			};
+ 
 +			/* A/B boot state, written by Linux only (sysupgrade hook, mark-good), read by our U-Boot (#117) */
 +			partition@2f0000 {
 +				label = "bootstate";
 +				reg = <0x2f0000 0x10000>;
- 			};
- 
++			};
++
 +			/* A/B slots (#117): only the booted slot is split into kernel/rootfs/rootfs_data (300-33).
 +			 * A is the default: stock U-Boot's fallback boota passes no slot argument. */
  			partition@300000 {
@@ -250,7 +251,7 @@ index d11a6fd..dbad530 100644
  			};
  		};
  	};
-@@ -276,3 +346,8 @@
+@@ -276,3 +358,8 @@
  		};
  	};
  };
@@ -260,7 +261,7 @@ index d11a6fd..dbad530 100644
 +	nvmem-cell-names = "mac-address";
 +};
 diff --git a/target/linux/realtek/dts/rtl930x.dtsi b/target/linux/realtek/dts/rtl930x.dtsi
-index 660d2f2..0713879 100644
+index 660d2f21a4..0713879fc8 100644
 --- a/target/linux/realtek/dts/rtl930x.dtsi
 +++ b/target/linux/realtek/dts/rtl930x.dtsi
 @@ -448,7 +448,8 @@
@@ -274,10 +275,10 @@ index 660d2f2..0713879 100644
  			trips {
  				critical {
 diff --git a/target/linux/realtek/image/rtl930x.mk b/target/linux/realtek/image/rtl930x.mk
-index dd86ade..07d9d8a 100644
+index db41390ada..de92840b6f 100644
 --- a/target/linux/realtek/image/rtl930x.mk
 +++ b/target/linux/realtek/image/rtl930x.mk
-@@ -283,7 +283,9 @@ define Device/tplink_tl-st1008f-v2
+@@ -350,7 +350,9 @@ define Device/tplink_tl-st1008f-v2
    DEVICE_VARIANT := v2.0
    DEVICE_PACKAGES := kmod-gpio-pca953x
    SUPPORTED_DEVICES += tplink,tl-st1008f,v2
@@ -289,10 +290,10 @@ index dd86ade..07d9d8a 100644
  endef
  TARGET_DEVICES += tplink_tl-st1008f-v2
 diff --git a/target/linux/realtek/rtl930x/config-6.18 b/target/linux/realtek/rtl930x/config-6.18
-index 74f0649..59d94c4 100644
+index 1c47474b23..385b946e8b 100644
 --- a/target/linux/realtek/rtl930x/config-6.18
 +++ b/target/linux/realtek/rtl930x/config-6.18
-@@ -134,8 +134,9 @@ CONFIG_MIGRATION=y
+@@ -135,8 +135,9 @@ CONFIG_MIGRATION=y
  CONFIG_MIPS=y
  CONFIG_MIPS_ASID_BITS=8
  CONFIG_MIPS_ASID_SHIFT=0
@@ -303,7 +304,7 @@ index 74f0649..59d94c4 100644
  CONFIG_MIPS_CPU_SCACHE=y
  CONFIG_MIPS_EXTERNAL_TIMER=y
  CONFIG_MIPS_GENERIC=y
-@@ -145,6 +146,7 @@ CONFIG_MIPS_MT_SMP=y
+@@ -147,6 +148,7 @@ CONFIG_MIPS_MT_SMP=y
  # CONFIG_MIPS_NO_APPENDED_DTB is not set
  CONFIG_MIPS_NR_CPU_NR_MAP=2
  CONFIG_MIPS_PERF_SHARED_TC_COUNTERS=y
@@ -311,10 +312,11 @@ index 74f0649..59d94c4 100644
  CONFIG_MIPS_RAW_APPENDED_DTB=y
  CONFIG_MIPS_SPRAM=y
  CONFIG_MMU_LAZY_TLB_REFCOUNT=y
-@@ -267,6 +269,7 @@ CONFIG_THERMAL_OF=y
+@@ -268,6 +270,8 @@ CONFIG_THERMAL_OF=y
  CONFIG_TICK_CPU_ACCOUNTING=y
  CONFIG_TIMER_OF=y
  CONFIG_TIMER_PROBE=y
++CONFIG_TPLINK_ST1008F_LEDS=y
 +CONFIG_TPLINK_ST1008F_MODE_SWITCH=y
  CONFIG_TREE_RCU=y
  CONFIG_TREE_SRCU=y
