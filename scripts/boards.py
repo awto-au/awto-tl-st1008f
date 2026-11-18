@@ -8,7 +8,7 @@ SW1_IP = "192.168.25.48"     # st1008f-1-mgmt (production)
 SW1_MAC = "16:b0:46:e9:0d:c0"  # sw1 base MAC (u-boot-env ethaddr; docs/hardware.md)
 SW2_MAC = "3a:de:0a:91:10:d0"  # sw2 base MAC (set-mac 2026-10-12)
 BENCH_IP = "192.168.25.56"   # st1008f-2-mgmt (bench: ramload, nat-bench, U-Boot ipaddr)
-BENCH_CONSOLE = "/dev/serial/by-id/usb-Prolific_Technology_Inc._USB-Serial_Controller-if00-port0"  # sw2 UART (PL2303)
+BENCH_CONSOLE = "/dev/serial/by-id/usb-1a86_USB2.0-Serial-if00-port0"  # sw2 UART (CH340 "USB2.0-Serial", 2026-11-18); the Prolific PL2303 is the US-48 bench console
 
 BENCH_NIC_MAC = "00:02:c9:56:ff:e2"  # selwyn 10G NIC (bench cage 1, .30); its enpNs0 name moves between boots
 
