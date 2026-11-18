@@ -147,6 +147,11 @@ Memory: 493232K/524288K available \(7788K kernel code, 722K rwdata, 972K rodata,
 \s+node   0: \[mem 0x000000000e000000-0x000000000e000fff\]  # boot-attempt record page (#73)
 \s+node   0: \[mem 0x000000000e001000-0x000000000fffffff\]  # RAM bank above boot-attempt record (#73)
 OF: reserved mem: 0x0e000000\.\.0x0e000fff \(4 KiB\) nomap non-reusable bootrec@e000000  # boot-attempt record reservation (#73)
+OF: reserved mem: 0x0e000000\.\.0x0e0007ff \(2 KiB\) nomap non-reusable bootrec@e000000  # boot-attempt record reservation, shrunk to 2 KiB (#73, #144)
+OF: reserved mem: 0x0e000800\.\.0x0e000fff \(2 KiB\) nomap non-reusable ramoops@e000800  # pstore console ring (#144)
+printk: legacy console \[ramoops0\] enabled  # pstore console (#144)
+pstore: Registered ramoops as persistent store backend  # pstore (#144)
+ramoops: using 0x800@0xe000800, ecc: 0  # pstore ring geometry (#144)
 \s+Normal   \[mem 0x0000000000000000-0x000000001fffffff\]  # lowmem 512 MB
 \s+HighMem  \[mem 0x0000000020000000-0x000000002fffffff\]  # highmem 256 MB
 \s+node   0: \[mem 0x0000000000000000-0x000000000fffffff\]  # RAM bank 0 (256 MB)
@@ -315,6 +320,11 @@ pktgen: Packet Generator for packet performance testing\. Version: 2\.75  # NET_
 Kernel command line: earlycon  # DTS bootargs
 Kernel command line: earlycon( st1008f\.mode=m[123] st1008f\.slot=[ab] st1008f\.boot=(good|trial|legacy)( st1008f\.lastreset=[a-z]+)?)?  # DTS bootargs + our U-Boot bootsel args: slot a|b (#117) (DTB_EXTEND, #73)
 OF: reserved mem: 0x0e000000\.\.0x0e000fff \(4 KiB\) nomap non-reusable bootrec@e000000  # boot-attempt record (DTS reserved-memory, #73)
+OF: reserved mem: 0x0e000000\.\.0x0e0007ff \(2 KiB\) nomap non-reusable bootrec@e000000  # boot-attempt record reservation, shrunk to 2 KiB (#73, #144)
+OF: reserved mem: 0x0e000800\.\.0x0e000fff \(2 KiB\) nomap non-reusable ramoops@e000800  # pstore console ring (#144)
+printk: legacy console \[ramoops0\] enabled  # pstore console (#144)
+pstore: Registered ramoops as persistent store backend  # pstore (#144)
+ramoops: using 0x800@0xe000800, ecc: 0  # pstore ring geometry (#144)
 \s+node   0: \[mem 0x0000000000000000-0x000000000dffffff\]  # RAM bank 0 below the boot-attempt record (#73)
 \s+node   0: \[mem 0x000000000e000000-0x000000000e000fff\]  # boot-attempt record page, nomap (#73)
 \s+node   0: \[mem 0x000000000e001000-0x000000000fffffff\]  # RAM bank 0 above the boot-attempt record (#73)

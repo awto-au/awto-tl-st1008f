@@ -24,24 +24,29 @@ import time
 from pathlib import Path
 
 sys.path.insert(0, str(Path(__file__).resolve().parent))
+import kernel_base  # noqa: E402
 import stack_normalize as sn  # noqa: E402
 
 ROOT = Path(__file__).resolve().parent.parent
 LOG = ROOT / "tmp/logs/stack_compare.log"
 PY = "python3"
 TURBO = {"common": "turbo cpu=1350,ddr=662,lx=306,sram=500", "final": "turbo cpu=1325,ddr=662,lx=306,sram=500",
+         "max": "turbo cpu=1350,ddr=662,lx=306,sram=500",  # plain kernel maximum: core 608 + CPU 1350 (docs/NAT.md final settings)
          "v7": "turbo cpu=1325,ddr=662,lx=306,sram=500", "v8": "turbo cpu=1350,ddr=662,sram=500"}  # v7/v8: #149 trigger search
 RAW = {  # core 508 (nat161_compare.py RAW) and core 608 (openwrt_core_stability.py c608_cpu1325: e220 0x36826)
     "common": "mw.l 0xbb00e220 0x30626; mw.l 0xbb00e214 0x3b8; mw.l 0xbb00e200 0x0001c0ff; mw.l 0xbb00e200 0x4001c0ff",
     "final": "mw.l 0xbb00e220 0x36826; mw.l 0xbb00e214 0x478; mw.l 0xbb00e200 0x0001c0ff; mw.l 0xbb00e200 0x4001c0ff",
 }
+RAW["max"] = RAW["final"]
 RAW["v7"], RAW["v8"] = RAW["common"], ""  # v8: stock core 408, no raw pre
 # key: (label, ramload --then, extra ramload args, zc fast path present, on-link offload extension present, tracing in the image)
+KERNEL_C = f"mainline-{kernel_base.selected()[1:]}-clean3.bin"   # follows the Linux pin (build-kernel --bench --clean --owrt-userland --owrt-busybox)
+CAGE = os.environ.get("NAT_CAGE") or (os.environ.get("NAT_SW_PORT", "lan1")[3:] or "1")   # the cabled uplink cage (NAT-OPS.md)
 STACKS = {
     "A": ("OpenWrt r38178, Linux 6.18.60, no project changes", "openwrt-upstream",
           ["--no-linkcheck", "--linux-console-baud", "200000"], False, False, "none (no PERF, no FTRACE)"),
     "B": ("OpenWrt r38178, Linux 7.4-rc1, project changes, clean profile", "openwrt-ours-clean", ["--no-linkcheck"], True, True, "none (no PERF, PROFILING, DYNAMIC_DEBUG, FTRACE)"),
-    "C": ("plain Linux 7.4-rc1 + series, bench initramfs", "mainline-kernel", ["--kernel", "mainline-7.4-rc1-clean3.bin", "--mgmt"], True, True, "clean image (C-clean3: OpenWrt-derived userland + fw4 ruleset): none"),
+    "C": ("plain Linux 7.4-rc1 + series, bench initramfs", "mainline-kernel", ["--kernel", KERNEL_C, "--mgmt"], True, True, "clean image (C-clean3: OpenWrt-derived userland + fw4 ruleset): none"),
 }
 PROFILE_IMG = {"C": ["--kernel", "mainline-7.4-rc1.bin", "--mgmt"]}  # existing image: PERF + FTRACE + function_graph compiled in
 PROFILE_THEN = {"B": "openwrt-ours-l3fix2"}  # perf-enabled image (PERF_EVENTS + PROFILING + DYNAMIC_DEBUG)
@@ -102,7 +107,7 @@ def boot_argv(stack, clk, profile, stock=False):
     if profile == "profile":
         extra = PROFILE_IMG.get(stack, extra)
         then = PROFILE_THEN.get(stack, then)
-    argv = [PY, "dev.py", "ramload", "uboot-mainline", "--stock-clocks", "--then", then, *extra, "--cage", "1"]
+    argv = [PY, "dev.py", "ramload", "uboot-mainline", "--stock-clocks", "--then", then, *extra, "--cage", CAGE]
     return argv if stock else argv + ["--pre", TURBO[clk]] + (["--pre", RAW[clk], "--pre", "md.l 0xbb00e220 1"] if RAW[clk] else [])
 
 

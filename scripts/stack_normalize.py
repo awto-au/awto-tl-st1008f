@@ -55,6 +55,7 @@ SYSCTLS = [
     ("net.core.bpf_jit_enable", "1"), ("net.ipv4.tcp_keepalive_time", "120"),  # OpenWrt defaults; plain kernel 0 / 7200
     ("kernel.printk", "1 4 1 7"),                       # no console spam during a run (115200 serial)
 ]
+LAN = os.environ.get("NAT_SW_PORT", "lan1")   # sw2 uplink netdev on the plain kernel (port-up CAGE): cage N = lanN
 OFFLOADS = {  # ethtool -K on eth0 and lan1; every stack showed these defaults already: pinned so a driver change shows up
     "gro": "on", "gso": "on", "rx-gro-list": "on", "rx-udp-gro-forwarding": "off", "tx-nocache-copy": "off",
 }
@@ -154,7 +155,7 @@ for q in /sys/class/net/*/queues/rx-*/rps_cpus /sys/class/net/*/queues/rx-*/rps_
 done
 for n in threaded gro_flush_timeout napi_defer_hard_irqs; do echo 0 > /sys/class/net/eth0/$n 2>/dev/null; done
 tc qdisc replace dev eth0 root {a.qdisc} || echo "FAIL qdisc {a.qdisc}"
-for d in eth0 lan1; do
+for d in eth0 {LAN}; do
   out=$(ethtool -K $d {offl} 2>&1) || printf 'FAIL ethtool -K %s: %s\\n' "$d" "$(printf '%s' "$out" | tr '\\n' ' ')"
 done
 IRQ=$(awk '/eth0/{{print +$1}}' /proc/interrupts)
@@ -191,11 +192,11 @@ SNAP = [  # (key, remote command); every command stderr merged; output compared 
     ("rt_debugfs_mounted", "grep -q ' debugfs ' /proc/mounts && echo y || echo n"),
     ("rt_perf_processes", "pidof perf trace-cmd 2>/dev/null || echo none"),
     ("sysctl", SNAP_SYSCTL),
-    ("ethtool_k_eth0", "ethtool -k eth0 2>&1"), ("ethtool_k_lan1", "ethtool -k lan1 2>&1"), ("ethtool_g_eth0", "ethtool -g eth0 2>&1"),
+    ("ethtool_k_eth0", "ethtool -k eth0 2>&1"), ("ethtool_k_lan1", f"ethtool -k {LAN} 2>&1"), ("ethtool_g_eth0", "ethtool -g eth0 2>&1"),
     ("ethtool_c_eth0", "ethtool -c eth0 2>&1"), ("ethtool_i_eth0", "ethtool -i eth0 2>&1 | grep -v -E '^(bus-info|firmware-version|expansion)'"),
-    ("tc_qdisc_eth0", "tc qdisc show dev eth0 2>&1"), ("tc_qdisc_lan1", "tc qdisc show dev lan1 2>&1"),
-    ("netdev_sysfs", "grep -r . /sys/class/net/eth0/threaded /sys/class/net/eth0/gro_flush_timeout /sys/class/net/eth0/napi_defer_hard_irqs /sys/class/net/eth0/tx_queue_len /sys/class/net/eth0/mtu /sys/class/net/lan1/mtu 2>&1"),
-    ("rps_xps", "grep -r . /sys/class/net/eth0/queues/rx-*/rps_cpus /sys/class/net/eth0/queues/tx-*/xps_cpus /sys/class/net/lan1/queues/*/rps_cpus /sys/class/net/lan1/queues/*/xps_cpus 2>&1; true"),
+    ("tc_qdisc_eth0", "tc qdisc show dev eth0 2>&1"), ("tc_qdisc_lan1", f"tc qdisc show dev {LAN} 2>&1"),
+    ("netdev_sysfs", f"grep -r . /sys/class/net/eth0/threaded /sys/class/net/eth0/gro_flush_timeout /sys/class/net/eth0/napi_defer_hard_irqs /sys/class/net/eth0/tx_queue_len /sys/class/net/eth0/mtu /sys/class/net/{LAN}/mtu 2>&1"),
+    ("rps_xps", f"grep -r . /sys/class/net/eth0/queues/rx-*/rps_cpus /sys/class/net/eth0/queues/tx-*/xps_cpus /sys/class/net/{LAN}/queues/*/rps_cpus /sys/class/net/{LAN}/queues/*/xps_cpus 2>&1; true"),
     ("irq_affinity", "I=$(awk '/eth0/{print +$1}' /proc/interrupts); echo irq$I $(cat /proc/irq/$I/smp_affinity)"),
     ("irqbalance", "pidof irqbalance || echo none"),
     ("nft_file_sha256", f"sha256sum {REMOTE}/fw4-b.nft | cut -d' ' -f1"),
@@ -300,7 +301,7 @@ def settings_readback_failures(snap, overrides):
              "lro": "large-receive-offload", "rxvlan": "rx-vlan-offload", "txvlan": "tx-vlan-offload",
              "ntuple": "ntuple-filters", "rxhash": "receive-hashing"}
     wanted = {**OFFLOADS, **dict(item.split("=", 1) for item in overrides)}
-    for device in ("eth0", "lan1"):
+    for device in ("eth0", LAN):
         features = {}
         for line in snap.get(f"ethtool_k_{device}", "").splitlines():
             if match := re.match(r"\s*([^\s:]+):\s*(on|off)(.*)", line):
