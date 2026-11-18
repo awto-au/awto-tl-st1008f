@@ -17,6 +17,7 @@ firmware/hello/*.bin
 uboot/*.o
 uboot/*.elf
 uboot/*.bin
+sources/photos-own/
 sources/**/*.pdf
 sources/**/*.jpg
 sources/**/*.png

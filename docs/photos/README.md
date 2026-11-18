@@ -19,5 +19,5 @@ are redistributed under the same licence with attribution.
 ## Own photos of this unit ([own/](own/))
 
 - 40 photos, 2026-10-08 and 2026-10-11, mostly heatsink off. Cited in [../BOM.md](../BOM.md) as `[OWN <file>]`.
-- Published copies: max 2000 px, all metadata (EXIF/GPS) stripped and checked: `scripts/photo_crop.py publish private/photos/Photos-1-001.zip docs/photos/own`. Originals stay in `private/photos/`.
+- Published copies: max 2000 px, all metadata (EXIF/GPS) stripped and checked: `scripts/photo_crop.py publish sources/photos-own/Photos-1-001.zip docs/photos/own`. Originals (with EXIF; owner 2026-11-19: photos and EXIF are fine to publish) stay local in `sources/photos-own/`, gitignored for size (91 MB).
 - Licence: CC BY-SA 4.0, same as the copies above.
