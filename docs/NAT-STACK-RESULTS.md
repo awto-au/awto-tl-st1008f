@@ -197,3 +197,29 @@ TCP in Mbit/s, UDP in kpps (received at the host). A = no data.
   - sysctls: pin `net.core.bpf_jit_enable` 1 and `net.ipv4.tcp_keepalive_time` 120; random / RAM-size keys (`tcp_fastopen_key`, `tcp_mem`, `tcp_available_ulp`, `tcp_l3mdev_accept`, `bpf_jit_kallsyms`) excluded from the diff.
 - New `scripts/stack_results.py`: rows.jsonl to the tables above.
 - Unfixed: `v_busybox` probe returns "applet not found" on all stacks (`busybox` with no args); `sha_pinned` key missing; `run_all` does not run the gate by itself (run `./dev.py stack-compare --gate-only --snapshot-dir tmp/controlled/truenas-static/snap-<set>`).
+
+## Run 2026-11-18: stack C, Linux v7.4-rc3, max clocks, local generator
+
+- Config
+  - Stack C (plain kernel `7.4.0-rc3-dirty`, `mainline-7.4-rc3-clean3.bin`), RAM-loaded via `ramload uboot-mainline --then mainline-kernel`.
+  - Clocks `turbo cpu=1350,ddr=662,lx=306,sram=500`; profile clean; NAPI irq1; uplink cage 5 (`NAT_SW_PORT=lan5`).
+  - Generator: Selwyn local netns (`natlan`/`natwan` on enp8s0), not TrueNAS. Not comparable with the 2026-11-09 tables above.
+  - 3 reps per cell; log `tmp/logs/stack-compare-C-max.log`; post-run snapshot identical to pre-run (0 failures).
+- TCP, Mbit/s, median of 3 (min-max)
+
+| cell | P1 fwd | P1 rev | P2 fwd | P2 rev | P4 fwd | P4 rev |
+|---|---|---|---|---|---|---|
+| nat | 322.2 (317.5-324.5) | 378.8 (378.8-381.7) | 344.4 (341.3-345.3) | 362.9 (362.8-370.3) | 322.5 (322.4-324.4) | 347.7 (346.5-350.4) |
+| nat-ft | 505.0 (503.3-508.0) | 598.4 (597.9-601.6) | 561.8 (558.7-561.9) | 589.9 (586.1-592.3) | 559.1 (556.5-559.6) | 577.4 (576.2-582.8) |
+| zc+nat | n/a | n/a | n/a | n/a | 1660.4 (1659.4-1662.5) | 1658.4 (1658.1-1658.5) |
+
+- UDP, kpps, median of 3
+
+| frame | stack (no NAT) | zc+nat |
+|---|---|---|
+| 1400 B | 39.12 | 163.79 |
+| 500 B | 64.47 | 337.49 |
+| 64 B | 81.65 | 423.14 |
+
+- zc+nat P4: CPU1 94 % softirq, CPU0 idle, ~29 k irq/s; retrans 2.7-3.6 k per run.
+- Stack-compare engine fixes made for this run: snapshot sysctl read 31 s to 0.3 s (one grep+awk), snapshot keys follow `NAT_SW_PORT`, allowlist entries for ramoops/pstore (#144).

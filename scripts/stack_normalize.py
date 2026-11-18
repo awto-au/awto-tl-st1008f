@@ -165,7 +165,7 @@ echo done
 
 
 SNAP_SYSCTL = (
-    "for f in /proc/sys/net/core/* /proc/sys/net/ipv4/tcp_* /proc/sys/net/ipv4/ip_forward* "
+    "grep -H '' /proc/sys/net/core/* /proc/sys/net/ipv4/tcp_* /proc/sys/net/ipv4/ip_forward* "
     "/proc/sys/net/ipv4/conf/all/rp_filter /proc/sys/net/ipv4/conf/default/rp_filter "
     "/proc/sys/net/ipv4/conf/all/forwarding /proc/sys/net/ipv4/conf/default/forwarding "
     "/proc/sys/net/ipv4/conf/all/send_redirects /proc/sys/net/ipv4/conf/default/send_redirects "
@@ -173,9 +173,9 @@ SNAP_SYSCTL = (
     "/proc/sys/net/netfilter/nf_conntrack_acct /proc/sys/net/netfilter/nf_conntrack_checksum "
     "/proc/sys/net/netfilter/nf_conntrack_buckets /proc/sys/net/netfilter/nf_conntrack_tcp_* "
     "/proc/sys/net/netfilter/nf_conntrack_udp_* /proc/sys/net/netfilter/nf_flowtable* "
-    "/proc/sys/kernel/printk*; do [ -f \"$f\" ] || continue; "
-    "k=${f#/proc/sys/}; v=$(cat \"$f\" 2>&1) || { printf 'FAIL sysctl read %s: %s\\n' \"$k\" \"$v\"; continue; }; "
-    "printf '%s = %s\\n' \"$(echo \"$k\" | tr / .)\" \"$v\"; done | sort"
+    "/proc/sys/kernel/printk* 2>&1 | awk '/^grep: .*(No such file|Is a directory)/{next} "
+    "/^grep: /{sub(/^grep: /,\"\"); print \"FAIL sysctl read \" $0; next} "
+    "{k=$0; sub(/:.*/,\"\",k); v=$0; sub(/^[^:]*:/,\"\",v); sub(\"/proc/sys/\",\"\",k); gsub(\"/\",\".\",k); print k \" = \" v}' | sort"  # one grep + one awk: per-file forks took 31 s
 )
 
 SNAP = [  # (key, remote command); every command stderr merged; output compared as text
@@ -192,9 +192,9 @@ SNAP = [  # (key, remote command); every command stderr merged; output compared 
     ("rt_debugfs_mounted", "grep -q ' debugfs ' /proc/mounts && echo y || echo n"),
     ("rt_perf_processes", "pidof perf trace-cmd 2>/dev/null || echo none"),
     ("sysctl", SNAP_SYSCTL),
-    ("ethtool_k_eth0", "ethtool -k eth0 2>&1"), ("ethtool_k_lan1", f"ethtool -k {LAN} 2>&1"), ("ethtool_g_eth0", "ethtool -g eth0 2>&1"),
+    ("ethtool_k_eth0", "ethtool -k eth0 2>&1"), (f"ethtool_k_{LAN}", f"ethtool -k {LAN} 2>&1"), ("ethtool_g_eth0", "ethtool -g eth0 2>&1"),
     ("ethtool_c_eth0", "ethtool -c eth0 2>&1"), ("ethtool_i_eth0", "ethtool -i eth0 2>&1 | grep -v -E '^(bus-info|firmware-version|expansion)'"),
-    ("tc_qdisc_eth0", "tc qdisc show dev eth0 2>&1"), ("tc_qdisc_lan1", f"tc qdisc show dev {LAN} 2>&1"),
+    ("tc_qdisc_eth0", "tc qdisc show dev eth0 2>&1"), (f"tc_qdisc_{LAN}", f"tc qdisc show dev {LAN} 2>&1"),
     ("netdev_sysfs", f"grep -r . /sys/class/net/eth0/threaded /sys/class/net/eth0/gro_flush_timeout /sys/class/net/eth0/napi_defer_hard_irqs /sys/class/net/eth0/tx_queue_len /sys/class/net/eth0/mtu /sys/class/net/{LAN}/mtu 2>&1"),
     ("rps_xps", f"grep -r . /sys/class/net/eth0/queues/rx-*/rps_cpus /sys/class/net/eth0/queues/tx-*/xps_cpus /sys/class/net/{LAN}/queues/*/rps_cpus /sys/class/net/{LAN}/queues/*/xps_cpus 2>&1; true"),
     ("irq_affinity", "I=$(awk '/eth0/{print +$1}' /proc/interrupts); echo irq$I $(cat /proc/irq/$I/smp_affinity)"),
