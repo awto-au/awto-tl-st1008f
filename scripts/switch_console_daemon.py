@@ -23,7 +23,7 @@ Each send/break/read reply: {"ok":true,"captured":"<base64 of new log bytes>"}.
 Run (keep it in the background):
     scripts/switch_console_daemon.py --dev /dev/serial/by-id/<adapter> --baud 115200
 --dev defaults to $ST1008_SERIAL, else the generic PL2303 by-id name.
-Log: private/serial/st1008-console.log (--log to change).
+Log: logs/serial/st1008-console.log (--log to change).
 Stop: send {"op":"quit"} or kill the pid in <sockdir>/tio-st1008.daemon.pid.
 """
 
@@ -53,7 +53,7 @@ DEV = os.environ.get(
     "ST1008_SERIAL",
     "/dev/serial/by-id/usb-1a86_USB2.0-Serial-if00-port0",  # sw2 bench UART (CH340); same as scripts/boards.py
 )
-LOG = Path(__file__).resolve().parent.parent / "private/serial/st1008-console.log"
+LOG = Path(__file__).resolve().parent.parent / "logs/serial/st1008-console.log"
 # Held [TX] marker: the rest of a prompt line arrives within ~2 ms at 115200 (16 B);
 # 0.2 s = generous for a 10.94 MBd/115200 mix, short enough that the log stays live. Expiry: write it.
 TX_PENDING_S = 0.2

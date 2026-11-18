@@ -83,7 +83,7 @@ def cycle(step: str, flash: bool, mhz: int) -> dict:
         try:
             _, out = con.run(text, rf"(?s){want}.*?{PROMPT}", STEP_S, f"step {part}")
         except SystemExit as e:
-            log_tail = Path(ROOT / "private/serial/st1008-console.log").read_bytes()[mark:].decode("latin-1")
+            log_tail = Path(ROOT / "logs/serial/st1008-console.log").read_bytes()[mark:].decode("latin-1")
             lines = [ln.strip() for ln in log_tail.splitlines() if ln.strip() and not ln.startswith("[TX")]
             return {"result": "hang" if str(e).startswith("TIMEOUT") else "fail", "detail": [part] + lines[-3:]}
         m = re.search(want, out)
@@ -134,7 +134,7 @@ def point(con, domain: str, v: int) -> dict:
         con.run("bootsel wdt off", PROMPT, 1, "wdt off")
         return {"result": "pass", "detail": [m.group(0), " ".join(re.findall(r"(\d+) ?C\b", t))[:20] + " C"]}
     except SystemExit as e:
-        tail = Path(ROOT / "private/serial/st1008-console.log").read_bytes()[mark:].decode("latin-1")
+        tail = Path(ROOT / "logs/serial/st1008-console.log").read_bytes()[mark:].decode("latin-1")
         lines = [ln.strip() for ln in tail.splitlines() if ln.strip() and not ln.startswith("[TX")]
         return {"result": "hang" if str(e).startswith("TIMEOUT") else "fail", "detail": lines[-3:]}
 

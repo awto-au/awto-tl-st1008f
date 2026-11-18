@@ -123,7 +123,7 @@
 | dss | sensors in reset: `polls=4096`; check clocks/boot order (HIDDEN-FEATURES) |
 | zc | clocks really picks? (BogoMIPS); low rate = regression, check queue/GRO; panic = #149 trace in console log |
 | bootlog | `./dev.py check-log`; new warning needs review + issue |
-| consolescan | the matching lines in `private/serial/st1008-console.log` after the phase B start |
+| consolescan | the matching lines in `logs/serial/st1008-console.log` after the phase B start |
 
 ## Not covered
 

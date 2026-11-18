@@ -6,7 +6,7 @@ Facts (what is built, safety defaults, patch status): [MAINLINE-PORT.md](MAINLIN
 
 - `./dev.py build-kernel` OK (writes `tmp/tftp/mainline.bin`); fibre in cage 1 to the house switch.
 - Host watching for loops: `./dev.py storm-watch --duration 3600` in a second terminal for the whole session.
-- Console log open (`private/serial/st1008-console.log`).
+- Console log open (`logs/serial/st1008-console.log`).
 
 ## Boot
 

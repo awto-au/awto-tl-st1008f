@@ -11,7 +11,7 @@ function requiredEnv(name) {
 }
 
 const port = requiredEnv('SERIAL_PORT');
-const directory = 'private/serial';
+const directory = 'logs/serial';
 fs.mkdirSync(directory, { recursive: true });
 const setFiber10g = process.argv[2] === '--fiber10g-port0';
 if (process.argv.length > 3 || (process.argv[2] && !setFiber10g)) {

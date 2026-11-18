@@ -12,7 +12,7 @@ function requiredEnv(name) {
 
 const port = requiredEnv('SERIAL_PORT');
 const image = process.env.IMAGE || 'private/openwrt/openwrt-25.12.4-realtek-rtl930x-tplink_tl-st1008f-v2-initramfs-kernel.bin';
-const directory = 'private/serial';
+const directory = 'logs/serial';
 fs.mkdirSync(directory, { recursive: true });
 const stamp = new Date().toISOString().replaceAll(/[-:.]/g, '').replace('T', '-').slice(0, 15);
 const log = fs.openSync(`${directory}/ram-transfer-${stamp}.log`, 'wx');

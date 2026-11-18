@@ -15,10 +15,10 @@ const inspect = process.argv[2] === '--inspect-phy';
 const initTest = process.argv[2] === '--init-test';
 const helpOnly = process.argv[2] === '--help-only';
 const log = fs.openSync(inspect
-  ? 'private/serial/tx-completion-20261007.log'
-  : helpOnly ? 'private/serial/rtk-help-20261007.log'
-  : initTest ? 'private/serial/init-ping-test-20261007.log'
-  : 'private/serial/nic-ping-test-20261007.log', 'wx');
+  ? 'logs/serial/tx-completion-20261007.log'
+  : helpOnly ? 'logs/serial/rtk-help-20261007.log'
+  : initTest ? 'logs/serial/init-ping-test-20261007.log'
+  : 'logs/serial/nic-ping-test-20261007.log', 'wx');
 async function command(text) {
   fs.writeSync(log, `\n[TX] ${text}\n`);
   const data = Buffer.from(text + '\r');

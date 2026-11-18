@@ -27,7 +27,7 @@ import flash_guard  # noqa: E402  (#81)
 
 ROOT = Path(__file__).resolve().parent.parent
 LOG = ROOT / "tmp/logs/st1008_ramload.log"
-CONSOLE = ROOT / "private/serial/st1008-console.log"
+CONSOLE = ROOT / "logs/serial/st1008-console.log"
 SOCK = Path(os.environ.get("XDG_RUNTIME_DIR", f"/run/user/{os.getuid()}")) / "tio-st1008.daemon.sock"
 DAEMON_PID = SOCK.with_name("tio-st1008.daemon.pid")
 from boards import BENCH_CONSOLE  # noqa: E402

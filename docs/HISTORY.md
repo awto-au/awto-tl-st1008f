@@ -1,6 +1,6 @@
 # History — how the 10G-in-U-Boot result was reached
 
-Lab notebook. Times are AEDT (+11:00). Sources: the local serial logs (`private/serial/`), dated notes from
+Lab notebook. Times are AEDT (+11:00). Sources: the local serial logs (`logs/serial/`), dated notes from
 earlier versions of the reference docs, and the original tracking issue. Reference facts live in
 [hardware.md](hardware.md), [UBOOT-REFERENCE.md](UBOOT-REFERENCE.md), [FIRMWARE-ANALYSIS.md](FIRMWARE-ANALYSIS.md).
 

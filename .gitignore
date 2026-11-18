@@ -1,5 +1,7 @@
-# Raw binaries, dumps, vendor firmware, serial logs, Ghidra projects (incl. private/README.md)
+# Raw binaries, dumps, vendor firmware, Ghidra projects (incl. private/README.md)
 private/
+# Serial console logs (not private; 36 MB+, not committed)
+logs/
 # Logs, TFTP root, scratch, issue drafts
 tmp/
 __pycache__/

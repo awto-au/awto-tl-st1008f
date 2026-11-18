@@ -11,7 +11,7 @@ function requiredEnv(name) {
 }
 
 const port = requiredEnv('SERIAL_PORT');
-const directory = 'private/serial';
+const directory = 'logs/serial';
 fs.mkdirSync(directory, { recursive: true });
 const baud = Number(process.argv[2] || 115200);
 if (!Number.isInteger(baud) || ![38400, 115200].includes(baud)) {

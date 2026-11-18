@@ -4,7 +4,7 @@
 The daemon (scripts/switch_console_daemon.py) owns the Prolific adapter and
 logs BOTH sides (TX markers + RX) to one file you can `tail -f`:
 
-    private/serial/st1008-console.log
+    logs/serial/st1008-console.log
 
 This client sends one request per invocation over the daemon's unix socket and
 prints whatever the switch emitted in response. tio is not used — it drops this
@@ -37,7 +37,7 @@ from pathlib import Path
 
 RUNTIME = Path(os.environ.get("XDG_RUNTIME_DIR", "/run/user/%d" % os.getuid()))
 SOCK = RUNTIME / "tio-st1008.daemon.sock"
-LOG = "private/serial/st1008-console.log"
+LOG = "logs/serial/st1008-console.log"
 LOG_OUT = Path(__file__).resolve().parent.parent / "tmp/switch-logs"
 ESC = b"\x1b"
 

@@ -22,7 +22,7 @@ PY = sys.executable
 # core -> (e220, e214, LX label): swcore_step recipe, docs/CLOCKS.md
 CORES = {"408": (None, None, "306"), "608": ("0x36826", "0x478", "306")}
 BAD = re.compile(rb"Oops|\bBUG\b|Kernel panic|gro_list_prepare")
-CONSOLE = ROOT / "private/serial/st1008-console.log"
+CONSOLE = ROOT / "logs/serial/st1008-console.log"
 
 
 def log(msg):

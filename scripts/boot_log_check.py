@@ -22,7 +22,7 @@ from pathlib import Path
 
 ROOT = Path(__file__).resolve().parent.parent
 LOG = ROOT / "tmp/logs/boot_log_check.log"
-DEFAULT_CONSOLE = ROOT / "private/serial/st1008-console.log"
+DEFAULT_CONSOLE = ROOT / "logs/serial/st1008-console.log"
 DEFAULT_ALLOW = ROOT / "scripts/boot_log_allowlist.txt"
 
 DENY = re.compile(

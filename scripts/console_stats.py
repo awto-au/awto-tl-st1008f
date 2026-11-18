@@ -20,7 +20,7 @@ from pathlib import Path
 
 ROOT = Path(__file__).resolve().parent.parent
 LOG = ROOT / "tmp/logs/console_stats.log"
-CONSOLE = ROOT / "private/serial/st1008-console.log"
+CONSOLE = ROOT / "logs/serial/st1008-console.log"
 TX = re.compile(r"^\[TX (\d\d:\d\d:\d\d)\]")
 DAEMON_T = re.compile(r"^\[daemon\] .* (\d{4}-\d\d-\d\dT(\d\d:\d\d:\d\d))")
 STOCK = "U-Boot 2011.12"

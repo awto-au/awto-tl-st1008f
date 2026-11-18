@@ -24,7 +24,7 @@ sys.path.insert(0, str(Path(__file__).resolve().parent))
 from boards import BENCH_IP, SW1_IP, SW1_MAC  # noqa: E402
 
 ROOT = Path(__file__).resolve().parent.parent
-CONSOLE_LOG = ROOT / "private/serial/st1008-console.log"
+CONSOLE_LOG = ROOT / "logs/serial/st1008-console.log"
 LOG = ROOT / "tmp/logs/board_guard.log"
 TAIL = 4 << 20  # bytes of console log read; one boot is <1 MiB
 # the boot line only: sw2 logs sw1's bridge id too (STP "neighbor 7000.<mac> lost"), which is not the console

@@ -230,7 +230,7 @@ def gate(stacks, snapdir, write=True, out_dir=None):
 CTRL = ROOT / "tmp/controlled/truenas-static"
 ROWS, BOOTS = CTRL / "rows.jsonl", CTRL / "boots.jsonl"
 NB_JSONL = ROOT / "tmp/logs/nat_bench.jsonl"
-CONSOLE = ROOT / "private/serial/st1008-console.log"
+CONSOLE = ROOT / "logs/serial/st1008-console.log"
 BAD = re.compile(rb"Oops|\bBUG\b|Kernel panic|gro_list_prepare|Unhandled|rcu.*stall|Call Trace")
 SSHB = ["ssh", "-q", "-o", "ConnectTimeout=6", "-o", "StrictHostKeyChecking=no", "-o", "UserKnownHostsFile=/dev/null", "-o", "BatchMode=yes"]
 NREP = 3

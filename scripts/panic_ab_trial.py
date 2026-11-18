@@ -13,7 +13,7 @@ from pathlib import Path
 
 ROOT = Path(__file__).resolve().parent.parent
 LOG = ROOT / "tmp/logs/panic_ab_trial.log"
-CON = ROOT / "private/serial/st1008-console.log"
+CON = ROOT / "logs/serial/st1008-console.log"
 SSH = ["ssh", "-o", "ConnectTimeout=5", "-o", "StrictHostKeyChecking=no", "-o", "UserKnownHostsFile=/dev/null", "-o", "LogLevel=ERROR", "root@192.168.25.56"]
 # step -> cap s: ramload 35-40 s boot + stp ~15 s (x3); nat setup ~10 s; zc 12 s x2 + perf 15 s (x3)
 CAPS = {"ramload": 150, "dropbear": 10, "nat": 40, "perf": 60, "zc": 150}

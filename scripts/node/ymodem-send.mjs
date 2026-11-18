@@ -9,7 +9,7 @@ function requiredEnv(name) {
   return value;
 }
 
-const directory = 'private/serial';
+const directory = 'logs/serial';
 fs.mkdirSync(directory, { recursive: true });
 const log = fs.openSync(`${directory}/ymodem-protocol-20261007.log`, 'wx');
 const fd = fs.openSync(requiredEnv('SERIAL_PORT'),

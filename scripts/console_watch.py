@@ -1,7 +1,7 @@
 #!/usr/bin/env python3
 """console_watch — follow the switch console log live; flag error-looking lines as they arrive.
 
-- Read-only: tails private/serial/st1008-console.log (written by switch_console_daemon.py).
+- Read-only: tails logs/serial/st1008-console.log (written by switch_console_daemon.py).
 - Lines matching boot_log_check DENY (panic, WARNING, fail, -Exxx, …) are shown red; an allowlisted
   `known #NN` (open defect) yellow; `benign #NN` (reviewed harmless) plain; daemon [TX] markers dim. Full verdict: ./dev.py check-log.
 - Log: tmp/logs/console_watch.log (flagged lines only).

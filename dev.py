@@ -11,7 +11,7 @@ flow goes through here so it is scripted, not hand-typed: power, console, RAM
 loads, builds, log checks.
 
 Console model: scripts/switch_console_daemon.py is the ONLY owner of the UART
-(unix socket + private/serial/st1008-console.log). After any power cut it must
+(unix socket + logs/serial/st1008-console.log). After any power cut it must
 be restarted (PL2303 RX stalls) — `power-cycle` and `ramload` do that for you.
 Hazard: light ONE cage only (cage loop, #19); no flash-write commands, ever.
 """
@@ -33,7 +33,7 @@ TMP = REPO / "tmp"
 LOGS = TMP / "logs"
 LOG = LOGS / "dev.log"
 SCRIPTS = REPO / "scripts"
-CONSOLE_LOG = REPO / "private/serial/st1008-console.log"
+CONSOLE_LOG = REPO / "logs/serial/st1008-console.log"
 sys.path.insert(0, str(Path(__file__).resolve().parent / "scripts"))
 from boards import BENCH_CONSOLE  # noqa: E402
 CONSOLE_DEV = BENCH_CONSOLE

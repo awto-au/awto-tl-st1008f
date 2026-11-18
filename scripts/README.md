@@ -17,7 +17,7 @@ End-to-end workflow: [../README.md#workflow](../README.md#workflow).
 - Purpose: single owner of the serial port. Mirrors RX and TX markers to one log; unix-socket control channel; auto-catches the U-Boot autoboot banner and sends Esc.
 - Run: `scripts/switch_console_daemon.py --dev /dev/serial/by-id/<adapter> --baud 115200 [--policy hold|boota|<cmd>]`
   - `--dev` defaults to `$ST1008_SERIAL`, else the generic PL2303 by-id name.
-- Output: `private/serial/st1008-console.log` (`--log` to change); `tail -f` it. Socket and pid in `$XDG_RUNTIME_DIR/tio-st1008.daemon.{sock,pid}`.
+- Output: `logs/serial/st1008-console.log` (`--log` to change); `tail -f` it. Socket and pid in `$XDG_RUNTIME_DIR/tio-st1008.daemon.{sock,pid}`.
 - Ops: `send`, `break` (real UART BREAK), `break_cmd` (BREAK + SysRq byte), `baud`, `read`, `status`, `policy`, `dump_range` (bulk `md.b` parsed inside the daemon), `quit`.
 - Notes: `tio` drops the PL2303 when stdin is not a terminal; pyserial holds it. Policy `hold` stays at `RTL9300#`.
 - Flash gate (#81): `send` (each completed line, chunked typing included) and `policy` pass `flash_guard.check_cmd`; a refused line gets Ctrl-C on the board and an error reply. Takes effect on daemon restart.
@@ -97,7 +97,7 @@ End-to-end workflow: [../README.md#workflow](../README.md#workflow).
 
 ### boot_log_check.py
 - Purpose: strict allowlist check of console boots (U-Boot, OpenWrt, mainline, stock). Every line must match a reviewed regex in `boot_log_allowlist.txt`; DENY-word lines (warning/error/failed/timed out/-Exxx/panic/Call Trace/loop signature …) fail unless the entry cites `known #NN` (open defect) or `benign #NN` (reviewed harmless: a DENY word in a normal line).
-- Run: `scripts/boot_log_check.py [--boot -1 | --all] [--from-line N] [--show-ok]` (default: last boot in `private/serial/st1008-console.log`).
+- Run: `scripts/boot_log_check.py [--boot -1 | --all] [--from-line N] [--show-ok]` (default: last boot in `logs/serial/st1008-console.log`).
 - Exit 0 clean, 1 UNKNOWN lines, 2 ERROR. Log: `tmp/logs/boot_log_check.log`.
 - Notes: after a shell prompt only kernel-timestamped lines are checked (our own command output is skipped); U-Boot replies to `md`/`rtk i2c` skipped; stack-dump lines fold into their WARNING/Oops. Benign DENY lines: #28; OpenWrt driver gaps: #29. `own address as source` (bridge loop) always fails.
 
@@ -393,11 +393,11 @@ Kept as used on 2026-10-07/08. New tooling is Python. Run from the repo root wit
 |---|---|---|
 | `decode_firmware.mjs` | Decode TP-Link SX/ST update BINs (DES-CBC, key/IV read from the GPL `DesDecode.c`); prints hashes and component bounds as JSON. `node --openssl-legacy-provider scripts/node/decode_firmware.mjs <DesDecode.c> <update.bin> <new-output.bin>` | decoded image (refuses to overwrite) |
 | `serial_flash_backup.mjs` | Two complete `md.b` reads of the 32 MiB flash with target/host CRC32, compare, carve 7 partitions. `node scripts/node/serial_flash_backup.mjs <serial-port> <new-dir> [--loader-only]` | the given directory |
-| `serial-live.mjs` | Receive-only capture at 38400 or 115200. `SERIAL_PORT=… node scripts/node/serial-live.mjs 115200` | `private/serial/live.log` |
-| `boot-interrupt.mjs` | Wait for the autoboot prompt, send one Esc; optional `--fiber10g-port0` sends `rtk 10g 0 fiber10g` | `private/serial/live.log` |
-| `serial-network-test.mjs` | Same-subnet ping / NIC-counter / `--init-test` / `--help-only` / `--inspect-phy` U-Boot tests; restores `ipaddr`/`serverip` afterwards. Needs `SWITCH_IP`, `HOST_IP` | `private/serial/*-20261007.log` |
-| `ram-transfer.mjs` | `loady 0x82000000` + `sb --ymodem` of the initramfs (`IMAGE` env). Failed with `NAK on sector`; use TFTP | `private/serial/ram-transfer-<ts>.log` |
-| `ymodem-send.mjs` | In-process YMODEM sender (same goal; same outcome) | `private/serial/ymodem-protocol-20261007.log` |
+| `serial-live.mjs` | Receive-only capture at 38400 or 115200. `SERIAL_PORT=… node scripts/node/serial-live.mjs 115200` | `logs/serial/live.log` |
+| `boot-interrupt.mjs` | Wait for the autoboot prompt, send one Esc; optional `--fiber10g-port0` sends `rtk 10g 0 fiber10g` | `logs/serial/live.log` |
+| `serial-network-test.mjs` | Same-subnet ping / NIC-counter / `--init-test` / `--help-only` / `--inspect-phy` U-Boot tests; restores `ipaddr`/`serverip` afterwards. Needs `SWITCH_IP`, `HOST_IP` | `logs/serial/*-20261007.log` |
+| `ram-transfer.mjs` | `loady 0x82000000` + `sb --ymodem` of the initramfs (`IMAGE` env). Failed with `NAK on sector`; use TFTP | `logs/serial/ram-transfer-<ts>.log` |
+| `ymodem-send.mjs` | In-process YMODEM sender (same goal; same outcome) | `logs/serial/ymodem-protocol-20261007.log` |
 
 - These open the tty directly: stop the console daemon first.
 - Timeouts inside them are the original values (not re-derived).
@@ -597,7 +597,7 @@ Log: `tmp/logs/patch_rebase.log`.
 - `nat_clock_variants.py` (`./dev.py nat-clock-variants base|cpu800|ddr600|nopref|lx204|table`): boot flash OpenWrt from our U-Boot with one clock change vs `clocks fast`, run the nat-bench set; `table` summarises `tmp/logs/nat_bench.jsonl`. Log `tmp/logs/nat_clock_variants.log`. #65.
 - `panic_trigger.py` (`./dev.py panic-trigger V0..V8 [--boots N] [--first N]`): #149 trigger search on sw2. Each variant changes one factor from V0 (stack B, common clocks); every boot runs a fixed nat-ft + zc load and records the oops or a hang. Output `tmp/controlled/149/`; log `tmp/logs/stack_compare.log`. Host test for the shared runner: `scripts/stack_compare_host_test.py`.
 - `mode_watch.py` (`./dev.py mode-watch`, VS Code task "ST1008 mode watch"): SSH to the running OpenWrt, stream gpio 17/18/19 every 1 s, print pins, vendor pattern and position on change. Log `tmp/logs/mode_watch.log`. #8, #64.
-- `console_watch.py` (`./dev.py console-watch`, VS Code task "ST1008 console"): read-only live follow of `private/serial/st1008-console.log`; lines matching the check-log DENY patterns red, allowlisted `known #NN` yellow with the reason, `benign #NN` plain, daemon `[TX]` dim. Flagged lines also to `tmp/logs/console_watch.log`. Full verdict per boot: `./dev.py check-log`.
+- `console_watch.py` (`./dev.py console-watch`, VS Code task "ST1008 console"): read-only live follow of `logs/serial/st1008-console.log`; lines matching the check-log DENY patterns red, allowlisted `known #NN` yellow with the reason, `benign #NN` plain, daemon `[TX]` dim. Flagged lines also to `tmp/logs/console_watch.log`. Full verdict per boot: `./dev.py check-log`.
 - `switch_check.py` (`./dev.py switch-check [--wait S]`): network-only check of the running OpenWrt as a managed switch: ping, SSH, release/kernel, bridge + STP, per-port state, mgmt address, LuCI/uhttpd, sysupgrade, storm/loop state (#111, reported only). PASS = STP on + a port forwarding + mgmt IP. Log `tmp/logs/switch_check.log`. 2026-10-12: power cycle -> PASS at 43 s.
 - `openwrt_sysupgrade_ssh.py` (`./dev.py openwrt-sysupgrade-ssh --ip IP [--force]`): sysupgrade a running OpenWrt over SSH, config kept (backup first, md5 both ends, `sysupgrade -T`, drop off + back, revision + STP + switch-check). Upstream 29 MiB layout or A/B (the box writes its idle slot, #117). `--force` = `-F`, once for the 1.0 -> 2.0 A/B migration. Log `tmp/logs/openwrt_sysupgrade_ssh.log`.
 - `console_stats.py reboot [--last N]`: Linux `reboot` -> stock banner, mined from the console log of normal work (no test loops); relay-cut reboots counted apart. Sizes `st1008_ramload.SOFT_S` (#139). Log `tmp/logs/console_stats.log`.
@@ -609,7 +609,7 @@ Log: `tmp/logs/patch_rebase.log`.
 - `openwrt_snmp.py` (`./dev.py openwrt-snmp [--ip]`): `snmpd` + `luci-app-snmpd` from the internet, v2c community = secrets `omada.snmp_community`, source 192.168.25.0/24; verifies with `snmpget`. Network-only (allowed on sw1).
 - `switch_snmp.py` (`./dev.py switch-snmp [--ip] [--every S] [--count N]`): IF-MIB per port (status, speed, octets, errors, discards), JSONL `tmp/logs/switch_snmp-<ip>.jsonl`, flags growth. Note: DSA port counters are CPU-path only (#94).
 - `vscode_run_task.py install|run <name>|console`: run a VS Code workspace task by name from the shell via our extension `tools/vscode-run-task/` (`vscode-insiders://awto.run-task/run?name=<label>`; runs only tasks in the open workspace's `tasks.json`). `console` starts "ST1008 console" and checks a real `tail -F` appeared. Log `tmp/logs/vscode_run_task.log`.
-  - `.vscode/tasks.json`: "ST1008 console" (`tail -n 200 -F private/serial/st1008-console.log`, runs on folder open; needs "allow automatic tasks" once), "ST1008 ssh" (`ssh root@192.168.25.48`), "ST1008 mode watch".
+  - `.vscode/tasks.json`: "ST1008 console" (`tail -n 200 -F logs/serial/st1008-console.log`, runs on folder open; needs "allow automatic tasks" once), "ST1008 ssh" (`ssh root@192.168.25.48`), "ST1008 mode watch".
   - A "run any command by URI" variant was not built (blocked as an RCE surface); third-party "Commands Executor" rejected for the same reason.
 - `cabling_map.py` moved to awto-au/awto-terminal `scripts/cabling_map.py` (run `python3 scripts/cabling_map.py [--switches sw1,sw2] [--no-omada] [--no-probe] [--no-diff]` there; `./dev.py cabling-map` is gone). Read-only map of every cage on sw1/sw2 (link, speed, module PN/SN, DDM tx/rx power, LLDP neighbour, learned MACs named from the Omada client list via `awto-omada/scripts/omada.py clients`, the other switch recognised by its own MACs, `sfp ... module` kernel lines); a two-way `arping -b` probe per edge IP (reply ratio per MAC) and duplicate-IP detection (Omada list and ARP answers); map in awto-terminal `tmp/cabling/map-latest.md`, snapshot per run and a diff against the previous one shows what was moved (#135, #126, #127). sw1: network reads only.
 - `dss_probe.py` / `dss_soak.py` (die speed sensor counts + temperature, #68/#153), `gdma_probe.py` / `gdma_test.py` (GDMA registers and memcpy test, #62), `plain_campaign.py` (plain-kernel test campaign, docs/PLAIN-KERNEL-TESTS.md).

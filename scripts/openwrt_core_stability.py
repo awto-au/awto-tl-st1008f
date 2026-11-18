@@ -19,7 +19,7 @@ from boards import BENCH_IP as IP  # noqa: E402
 
 LOG = ROOT / "tmp/logs/openwrt_core_stability.log"
 JSONL = ROOT / "tmp/logs/openwrt_core_stability.jsonl"
-CON = ROOT / "private/serial/st1008-console.log"
+CON = ROOT / "logs/serial/st1008-console.log"
 PY = sys.executable
 SSH = ["ssh", "-q", "-o", "ConnectTimeout=6", "-o", "StrictHostKeyChecking=no", "-o", "UserKnownHostsFile=/dev/null",
        "-o", "BatchMode=yes", f"root@{IP}"]

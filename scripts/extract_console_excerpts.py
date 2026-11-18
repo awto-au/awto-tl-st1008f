@@ -1,7 +1,7 @@
 #!/usr/bin/env python3
 """extract_console_excerpts — cut redacted, per-session excerpts from the console log into artifacts/.
 
-Input: the console daemon's raw log (default private/serial/st1008-console.log, local only).
+Input: the console daemon's raw log (default logs/serial/st1008-console.log, local only).
 Output: artifacts/<name> text files. Line ranges below refer to that log as captured 2026-10-08.
 
 Redaction (applied to every excerpt, then checked):
@@ -26,7 +26,7 @@ from pathlib import Path
 
 ROOT = Path(__file__).resolve().parent.parent
 LOG = ROOT / "tmp/logs/extract_console_excerpts.log"
-DEFAULT_SRC = ROOT / "private/serial/st1008-console.log"
+DEFAULT_SRC = ROOT / "logs/serial/st1008-console.log"
 OUT = ROOT / "artifacts"
 
 # Factory defaults that are not host-specific: U-Boot env ipaddr/serverip, OpenWrt LAN.

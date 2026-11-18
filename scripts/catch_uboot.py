@@ -31,7 +31,7 @@ from pathlib import Path
 RUNTIME = Path(os.environ.get("XDG_RUNTIME_DIR", "/run/user/%d" % os.getuid()))
 SOCK = RUNTIME / "tio-st1008.daemon.sock"
 ROOT = Path(__file__).resolve().parent.parent
-LOG = ROOT / "private/serial/st1008-console.log"  # written by switch_console_daemon.py
+LOG = ROOT / "logs/serial/st1008-console.log"  # written by switch_console_daemon.py
 RUN_LOG = ROOT / "tmp/logs/catch_uboot.log"
 PROMPT_MARK = b"Hit Esc key to stop autoboot"
 UBOOT = b"RTL9300#"

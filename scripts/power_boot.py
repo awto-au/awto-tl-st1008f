@@ -2,7 +2,7 @@
 """power_boot — power the bench unit (sw2) via the relay and report how far it boots, from the console log.
 
 - Checks the USB-serial adapter exists, restarts the console daemon (policy pass: no catch),
-  relay on, then follows private/serial/st1008-console.log and reports each stage as it appears:
+  relay on, then follows logs/serial/st1008-console.log and reports each stage as it appears:
   stock banner, our U-Boot banner, Linux banner, userspace prompt.
 - `--off-first`: relay off before on (a real power cycle). Log: tmp/logs/power_boot.log
 """
@@ -15,7 +15,7 @@ from pathlib import Path
 
 ROOT = Path(__file__).resolve().parent.parent
 LOG = ROOT / "tmp/logs/power_boot.log"
-CONSOLE = ROOT / "private/serial/st1008-console.log"
+CONSOLE = ROOT / "logs/serial/st1008-console.log"
 sys.path.insert(0, str(Path(__file__).resolve().parent))
 from boards import BENCH_CONSOLE  # noqa: E402
 DEV = Path(BENCH_CONSOLE)
