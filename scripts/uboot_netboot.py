@@ -1,11 +1,11 @@
 #!/usr/bin/env python3
 """uboot_netboot — stop our U-Boot's power-up network window over UDP and boot an image from RAM, no UART (#80).
 
-Needs the stock env `st1008f_netwin=CAGE,IP,HOST` (`./dev.py uboot-chain-env netwin set CAGE,IP,HOST --ssh --ip IP`)
-and the U-Boot chain slot with bootsel.c `netwin`. Flow:
+Needs the unit's mode slider in M2 and the U-Boot chain slot with bootsel.c `netwin` (no setting): U-Boot lights the
+first cage with a live link on 192.168.1.1; the host answers from a 192.168.1.2/24 alias. Flow:
   reboot (ssh | relay | you) -> ESC datagrams to UDP :6666 every 0.1 s -> prompt seen on the wire
   -> [turbo PROFILE] -> setenv bootargs -> TFTP (tftpd.py --once) -> bootm.
-No flash write, no trial/attempt state: a power cycle returns to the normal boot (window skipped if netwin is unset).
+No flash write, no trial/attempt state: a power cycle returns to the normal boot (the window runs only in M2).
 Log: tmp/logs/uboot_netboot.log
 """
 
@@ -26,13 +26,25 @@ from boards import BENCH_IP  # noqa: E402
 
 LOG = ROOT / "tmp/logs/uboot_netboot.log"
 NC_PORT = 6666                 # U-Boot netconsole in/out port
+UBOOT_IP = "192.168.1.1"       # bootsel.c NETWIN_IP
+HOST_IP = "192.168.1.2"        # host alias on the server NIC, same /24
 PROMPT = "st1008f-mainline # "
 ESC_PERIOD_S = 0.1             # a datagram before U-Boot's stack is up is lost; 10/s lands one within 0.1 s of it
-# reboot -> prompt: ssh shutdown ~6 s + stock U-Boot ~8 s + ours ~2 s + netwin <= 17 s + window 2 s = 35 s, x1.25 + 15
-PROMPT_CAP_S = 60
+# reboot -> prompt: ssh shutdown ~6 s + stock U-Boot ~8 s + ours ~2 s + netwin <= 20 s + window 2 s = 38 s, x1.25 + 15
+PROMPT_CAP_S = 62
 CMD_CAP_S = 5                  # one U-Boot command echo over UDP: ms; 5 s names a lost datagram
 LOAD_ADDR = 0x84F00000         # TFTP area (docs/UBOOT-MAINLINE.md)
 BOOT_CAP_S = 90                # kernel up on the LAN after bootm: ramload caps OpenWrt at 40 s, plain ~3 s + port-up
+
+
+def ensure_host_ip() -> None:
+    """192.168.1.2/24 on the server NIC for U-Boot's fixed 192.168.1.1; a host reboot drops it."""
+    have = subprocess.run(["ip", "-br", "-4", "addr", "show", rl.SERVER_NIC], capture_output=True,
+                          text=True, timeout=2).stdout  # local netlink query, instant
+    if f"{HOST_IP}/" not in have:
+        subprocess.run(["sudo", "-n", "ip", "addr", "add", f"{HOST_IP}/24", "dev", rl.SERVER_NIC],
+                       check=True, timeout=5)  # local netlink; 5 s names a sudo prompt hang
+        log(f"host {rl.SERVER_NIC}: added {HOST_IP}/24")
 
 
 def log(msg: str) -> None:
@@ -119,17 +131,16 @@ def run_cmd(sock, wire: Wire, ip: str, cmd: str, expect: str, cap: float, what: 
 def main() -> int:
     ap = argparse.ArgumentParser(description=__doc__.splitlines()[0])
     ap.add_argument("image", help="file in tmp/tftp (Realtek or std magic; our bootm takes both)")
-    ap.add_argument("--ip", default=BENCH_IP, help="unit IP = the IP in st1008f_netwin")
+    ap.add_argument("--ip", default=BENCH_IP, help="unit IP once Linux is up (reboot over ssh, final ping); U-Boot itself is on " + UBOOT_IP)
     ap.add_argument("--reboot", choices=["ssh", "relay", "none"], default="ssh")
     ap.add_argument("--turbo", help="U-Boot `turbo` args at the prompt, e.g. cpu=1325,ddr=662,sram=500,swcore=608")
     ap.add_argument("--bootargs", default="st1008f.boot=net", help="kernel args (st1008f.boot= triggers the plain init's port-up)")
-    ap.add_argument("--no-check", action="store_true", help="skip the st1008f_netwin read-back over ssh")
     ap.add_argument("--dry-run", action="store_true", help="print the plan; no network or board access")
     a = ap.parse_args()
 
     fname = a.image
     src = rl.TFTP_ROOT / fname
-    plan = [f"reboot via {a.reboot}", f"ESC -> UDP {a.ip}:{NC_PORT} every {ESC_PERIOD_S} s until {PROMPT!r} (cap {PROMPT_CAP_S} s)"]
+    plan = [f"reboot via {a.reboot}", f"ESC -> UDP {UBOOT_IP}:{NC_PORT} every {ESC_PERIOD_S} s until {PROMPT!r} (cap {PROMPT_CAP_S} s)"]
     if a.turbo:
         plan.append(f"turbo {a.turbo}")
     plan += [f"setenv bootargs {a.bootargs}", f"tftpboot 0x{LOAD_ADDR:08x} {fname}", f"bootm 0x{LOAD_ADDR:08x}",
@@ -141,14 +152,9 @@ def main() -> int:
         raise SystemExit(f"{src} missing")
     size = src.stat().st_size
     log(f"=== netboot {fname} ({size} B) -> {a.ip}")
-    if a.reboot == "ssh" and not a.no_check:
-        out = subprocess.run(["ssh", "-o", "ConnectTimeout=5", "-o", "BatchMode=yes", f"root@{a.ip}",
-                              "fw_printenv st1008f_netwin"], capture_output=True, text=True, timeout=15).stdout
-        if "st1008f_netwin=" not in out:
-            raise SystemExit("st1008f_netwin is not set on the unit: ./dev.py uboot-chain-env netwin set CAGE,IP,HOST --ssh --ip IP")
-        log(f"unit env: {out.strip()}")
     rl.ensure_server_ip()
-    wire = Wire(rl.SERVER_NIC, a.ip)
+    ensure_host_ip()
+    wire = Wire(rl.SERVER_NIC, UBOOT_IP)
     sock = socket.socket(socket.AF_INET, socket.SOCK_DGRAM)
     try:
         reboot(a.reboot, a.ip)
@@ -158,22 +164,22 @@ def main() -> int:
         def esc():
             now = time.monotonic()
             if now - last[0] >= ESC_PERIOD_S:
-                send(sock, a.ip, "\x1b")
+                send(sock, UBOOT_IP, "\x1b")
                 last[0] = now
         if not wire.wait(re.escape(PROMPT), PROMPT_CAP_S, 0, on_poll=esc):
             seen = wire.text()
             raise SystemExit(f"no U-Boot prompt in {PROMPT_CAP_S} s; netconsole output seen: {len(seen)} B "
-                             f"({'window up, ESC not accepted: stdin nc?' if seen.strip() else 'nothing: netwin not running / no link'})")
+                             f"({'window up, ESC not accepted: stdin nc?' if seen.strip() else 'nothing: slider not in M2, no cage with a live link, or no link'})")
         log(f"prompt after {time.monotonic() - t0:.1f} s")
         if a.turbo:
-            run_cmd(sock, wire, a.ip, f"turbo {a.turbo}", r"clocks: turbo (OK|reverted)[^\n]*", 30, "turbo")
-        run_cmd(sock, wire, a.ip, f"setenv bootargs {a.bootargs}", re.escape(PROMPT), CMD_CAP_S, "bootargs")
+            run_cmd(sock, wire, UBOOT_IP, f"turbo {a.turbo}", r"clocks: turbo (OK|reverted)[^\n]*", 30, "turbo")
+        run_cmd(sock, wire, UBOOT_IP, f"setenv bootargs {a.bootargs}", re.escape(PROMPT), CMD_CAP_S, "bootargs")
         srv = subprocess.Popen(["sudo", "-n", sys.executable, str(ROOT / "scripts/tftpd.py"), "--once"], cwd=ROOT,
                                stdout=subprocess.DEVNULL, stderr=subprocess.DEVNULL)
         try:
             # first block times out once after link-up (stock TFTP retransmit 5 s), then ~1.2 MB/s (ramload tftp())
             cap = 5 + size / 1.2e6 * 1.25 + 3
-            m = run_cmd(sock, wire, a.ip, f"setenv ipaddr {a.ip}; setenv serverip {rl.SERVER_IP}; "
+            m = run_cmd(sock, wire, UBOOT_IP, f"setenv serverip {HOST_IP}; "
                         f"tftpboot 0x{LOAD_ADDR:08x} {fname}", r"Bytes transferred = (\d+) \(", cap, "tftp")
             if int(m.group(1)) != size:
                 raise SystemExit(f"tftp size {m.group(1)} != file {size}")
@@ -183,7 +189,7 @@ def main() -> int:
             except subprocess.TimeoutExpired:
                 subprocess.run(["sudo", "-n", "kill", "-TERM", str(srv.pid)], check=False, timeout=5)
         log(f"tftp ok {size} B; bootm")
-        send(sock, a.ip, f"bootm 0x{LOAD_ADDR:08x}\n")
+        send(sock, UBOOT_IP, f"bootm 0x{LOAD_ADDR:08x}\n")
         end = time.monotonic() + BOOT_CAP_S
         while time.monotonic() < end:
             if subprocess.run(["ping", "-c1", "-W1", a.ip], capture_output=True).returncode == 0:

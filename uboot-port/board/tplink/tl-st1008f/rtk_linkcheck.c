@@ -151,6 +151,40 @@ static void pr_rx(int rx)
 		printf("%d.%d uW", rx / 10, rx % 10);
 }
 
+/* copper PHY unreadable: TX-disable is often ignored, so a link cannot be ruled out */
+static bool lc_live(const struct lc *c)
+{
+	return c->phy == 1 || (c->copper && c->phy < 0) ||
+	       (!c->copper && !c->dac && (c->rx >= RX_LIVE || c->los == 0)) || c->mac == 1;
+}
+
+/* Lowest cage with a powered far end (lasers off, DAC/copper SerDes up first), 0 = none (#80 netwin). */
+int rtk_first_live_cage(void)
+{
+	struct lc a[NCAGES];
+	int n, m = 0;
+
+	if (lasers(0xff))
+		return 0;
+	mdelay(SETTLE_MS);
+	scan(a, true);
+	for (n = 1; n <= NCAGES; n++)
+		if (a[n - 1].pres && (a[n - 1].dac || a[n - 1].copper) && !a[n - 1].mac) {
+			rtk_cage_up(n);
+			m++;
+		}
+	if (m) {
+		mdelay(LINK_SETTLE_MS);
+		for (n = 1; n <= NCAGES; n++)
+			if (a[n - 1].pres)
+				a[n - 1].mac = mac_up(n);
+	}
+	for (n = 1; n <= NCAGES; n++)
+		if (a[n - 1].pres && lc_live(&a[n - 1]))
+			return n;
+	return 0;
+}
+
 int rtk_linkcheck(int argc, char *const argv[])
 {
 	static const char magic[] = "ST1008F-LINKCHECK";
@@ -189,9 +223,7 @@ int rtk_linkcheck(int argc, char *const argv[])
 
 		if (!c->pres)
 			continue;
-		/* copper PHY unreadable: TX-disable is often ignored, so a link cannot be ruled out */
-		c->live = c->phy == 1 || (c->copper && c->phy < 0) ||
-			  (!c->copper && !c->dac && (c->rx >= RX_LIVE || c->los == 0)) || c->mac == 1;
+		c->live = lc_live(c);
 		live += c->live;
 		printf("linkcheck cage %d: %s, rx ", n, c->pn[0] ? c->pn : "?");
 		pr_rx(c->rx);

@@ -57,7 +57,6 @@ VARS = {  # saved in this order; bootcmd last
 }
 # Turbo profile (#46). Value sets mirror uboot-port clocks.c cpu_code / mem_bins / lx_pts + sram
 TURBO_VAR = "st1008f_turbo"
-NETWIN_VAR = "st1008f_netwin"  # "CAGE,IP,HOST": power-up network window (bootsel.c netwin, #80); unset = off
 TURBO_ALL_VAR = "st1008f_turbo_all"  # "1": profile also in M1 (bootsel.c); unset: M3 only
 STOCK_NOTE = "NOTE: default = stock clocks (CPU 800, DDR 600, LX 175, SRAM 250, SPI 25.5) in every mode; this unit leaves today's 1000/650 at its next power-up until a profile is written: ./dev.py uboot-chain-env turbo set PROFILE [--ssh --ip IP] + mode switch M3 (#46)"
 TURBO_SETS = {"cpu": {800, 1000, 1050} | set(range(1100, 1426, 25)),
@@ -242,8 +241,8 @@ def prompt() -> int:
     """Power cycle with the saved chain; ESC in our 2 s window (#46) -> our prompt."""
     con = Console()
     mark = restart_board(con, policy="pass")  # software reboot; relay only as fallback
-    # ~5 s to our banner (x1.25 -> 8 s) + netwin bring-up when st1008f_netwin is set (U-Boot guards it at 22 s)
-    con.expect(ESC_WINDOW, 8 + 22, mark, "our 2 s ESC window", boot_ok=True)
+    # ~5 s to our banner (x1.25 -> 8 s) + netwin bring-up in M2 (U-Boot guards it at 25 s)
+    con.expect(ESC_WINDOW, 8 + 25, mark, "our 2 s ESC window", boot_ok=True)
     con.send("\x1b", cr=False)
     con.expect(OURS_PROMPT, 3, mark, "our prompt after ESC", boot_ok=True)  # window 2 s; x1.25 + echo
     log("PASS prompt: ESC stopped our autoboot")
@@ -276,19 +275,6 @@ def set_mac(con, mac: str) -> int:
     ok = f"ethaddr={mac}" in out.lower()
     log(f"{'PASS' if ok else 'FAIL'} set-mac: {out.strip()!r}")
     return 0 if ok else 1
-
-
-def netwin_problem(spec: str) -> str | None:
-    """Host copy of bootsel.c netwin parsing: None = our U-Boot accepts it."""
-    parts = spec.split(",")
-    if len(parts) != 3 or not parts[0].isdigit() or not 1 <= int(parts[0]) <= 8:
-        return "want CAGE(1-8),IP,HOST"
-    for item in parts[1:]:
-        if not re.fullmatch(r"[0-9.]+", item) or len(item.split(".")) != 4:
-            return f"{item!r}: not a dotted IPv4 address"
-    if len(spec) > 47:
-        return "longer than 47 chars"
-    return None
 
 
 def turbo_problem(p: str) -> str | None:
@@ -369,8 +355,6 @@ def env_ssh(ip: str, mode: str, profile: str | None, allow_fallback: bool, all_m
             log(STOCK_NOTE)
     elif mode == "revert":
         want = {"bootcmd": "boota", "ub_ld": "", "ub_ck": "", "ub_go": ""}
-    elif mode == "netwin":
-        want = {NETWIN_VAR: profile or ""}
     else:
         want = {TURBO_VAR: profile, TURBO_ALL_VAR: "1" if all_modes else ""}
     for v in want.values():
@@ -388,10 +372,10 @@ def env_ssh(ip: str, mode: str, profile: str | None, allow_fallback: bool, all_m
 
 def main() -> int:
     ap = argparse.ArgumentParser(description=__doc__.splitlines()[0])
-    ap.add_argument("mode", choices=["test", "test-bad", "apply", "revert", "boot", "prompt", "set-mac", "turbo", "netwin", "hang-test", "selftest"])
+    ap.add_argument("mode", choices=["test", "test-bad", "apply", "revert", "boot", "prompt", "set-mac", "turbo", "hang-test", "selftest"])
     ap.add_argument("--slot", choices=["a", "b"], default="b", help="hang-test: slot to boot with init=/bin/sh")
     ap.add_argument("args", nargs="*", help="set-mac: [MAC] (default random, locally administered); "
-                    "turbo: show | set PROFILE; netwin (--ssh only): show | set CAGE,IP,HOST | off")
+                    "turbo: show | set PROFILE")
     ap.add_argument("--probe", help="hang-test: comma list of seconds after /bin/sh to read the SoC wdt (#138)")
     ap.add_argument("--allow-fallback", action="store_true",
                     help="apply: save even if the slot does not verify (boots stock boota until reinstalled)")
@@ -417,22 +401,6 @@ def main() -> int:
                 return 1
         elif a.args != ["show"]:
             ap.error("turbo show | turbo set PROFILE")
-    if a.mode == "netwin":
-        if not a.ssh or not a.ip:
-            ap.error("netwin: --ssh --ip A.B.C.D only (no console path)")
-        if a.args == ["show"]:
-            log(f"{NETWIN_VAR} on {a.ip}: {ssh_env(a.ip).get(NETWIN_VAR, '(unset)')}")
-            return 0
-        if a.args == ["off"]:
-            profile = ""
-        elif a.args[:1] == ["set"] and len(a.args) == 2:
-            profile = a.args[1]
-            if why := netwin_problem(profile):
-                log(f"FAIL netwin set: {why}")
-                return 1
-        else:
-            ap.error("netwin show | netwin set CAGE,IP,HOST | netwin off")
-        return env_ssh(a.ip, "netwin", profile, False)
     if a.ssh:
         if not a.ip or a.mode not in ("apply", "revert", "turbo"):
             ap.error("--ssh --ip A.B.C.D: apply | revert | turbo only")

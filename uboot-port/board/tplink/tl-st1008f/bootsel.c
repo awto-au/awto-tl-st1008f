@@ -377,37 +377,24 @@ static void bb_read(void)
 	printf("Last:  %s, boot #%u, up %u s, hb %u, msg \"%s\"\n", lastreset, w[1], w[3], w[4], msg);
 }
 
-/* Power-up network window (#80): stock env st1008f_netwin=CAGE,IP,HOST (e.g. 5,192.168.25.56,192.168.25.30).
- * Runs in M2 only (the escape position, #46). M1/M3: no cost.
- * Before the 2 s autoboot window: `rtk network on`, light ONE cage (as st1008_ramload.py laser/ports_only),
- * IP, netconsole to HOST on stdin+stdout: an ESC sent to UDP :6666 stops autoboot over the network.
- * Absent/empty = nothing changes. REC_NETWIN still set at the next boot = the bring-up hung: skip once. */
-#define NETWIN_VAR	"st1008f_netwin"
+/* Power-up network window (#80), M2 only (the escape position, #46); M1/M3: no cost, no setting needed.
+ * Before the 2 s autoboot window: `rtk network on`, light the FIRST LIVE cage only (rtk_first_live_cage,
+ * as st1008_ramload.py laser/ports_only), 192.168.1.1, netconsole broadcast on 192.168.1.255: an ESC sent
+ * to UDP :6666 stops autoboot over the network. REC_NETWIN still set at the next boot = the bring-up hung: skip once. */
 #define REC_NETWIN	(REC + 4)
 #define REC_NETWIN_MAGIC	0x4e57494e	/* "NWIN" */
-/* rtk network on <= 15 s (host cap, ~8 s typical, st1008_ramload.py) + 7 laser/port commands ~2 s = 17 s, x1.25 */
-#define NETWIN_WDT_MS	22000
+/* rtk network on <= 15 s (host cap, ~8 s typical, st1008_ramload.py) + cage scan ~2.5 s + 7 port commands ~2 s = 20 s, x1.25 */
+#define NETWIN_WDT_MS	25000
+#define NETWIN_IP	"192.168.1.1"
+#define NETWIN_NC	"192.168.1.255"
 #define NETWIN_STDIO	"serial@2000,nc"	/* stdio name of uart0 (DTS serial@2000); plain "serial" is rejected, errno 22 */
 static const u8 cage_port[8] = { 0, 8, 16, 20, 24, 25, 26, 27 };	/* cage 1-8 -> SDK port (docs/hardware.md) */
 
-static bool netwin_chars(const char *s)
-{
-	if (!*s)
-		return false;
-	for (; *s; s++)
-		if (!(*s >= '0' && *s <= '9') && *s != '.')
-			return false;
-	return true;
-}
-
 static void netwin(void)
 {
-	char val[48] = "", cmd[64], *p = val, *cage_s, *ip, *host;
-	ulong cage;
-	int c;
+	char cmd[64];
+	int cage, c;
 
-	if (!st1008f_stock_env(NETWIN_VAR, val, sizeof(val)) || !val[0])
-		return;
 	if (st1008f_boot_mode(NULL) != 2)
 		return;
 	if (__raw_readl(REC_NETWIN) == REC_NETWIN_MAGIC) {
@@ -416,18 +403,16 @@ static void netwin(void)
 		rtk_led_fallback("netwin");
 		return;
 	}
-	cage_s = strsep(&p, ",");
-	ip = strsep(&p, ",");
-	host = p;
-	cage = cage_s ? dectoul(cage_s, NULL) : 0;
-	if (cage < 1 || cage > 8 || !ip || !host || !netwin_chars(ip) || !netwin_chars(host)) {
-		printf("netwin: bad " NETWIN_VAR "=%s (want CAGE,IP,HOST): skipped\n", val);
-		rtk_led_fallback("netwin");
-		return;
-	}
 	__raw_writel(REC_NETWIN_MAGIC, REC_NETWIN);
 	wdt_on(NETWIN_WDT_MS);
 	run_command("rtk network on", 0);
+	cage = rtk_first_live_cage();
+	if (!cage) {
+		wdt_off();
+		__raw_writel(0, REC_NETWIN);
+		puts("netwin: no cage with a live link: skipped\n");
+		return;
+	}
 	snprintf(cmd, sizeof(cmd), "rtk i2c write 8 1 0x%02x; rtk i2c write 8 3 0", 0xff & ~(1 << (cage - 1)));
 	run_command(cmd, 0);
 	for (c = 1; c <= 8; c++) {	/* copper modules ignore TX-disable: admin-disable the other ports */
@@ -436,15 +421,15 @@ static void netwin(void)
 		snprintf(cmd, sizeof(cmd), "rtk port disable %d", cage_port[c - 1]);
 		run_command(cmd, 0);
 	}
-	env_set("ipaddr", ip);
-	env_set("serverip", host);
-	env_set("ncip", host);
+	env_set("ipaddr", NETWIN_IP);
+	env_set("netmask", "255.255.255.0");
+	env_set("ncip", NETWIN_NC);
 	env_set("stdin", NETWIN_STDIO);
 	env_set("stdout", NETWIN_STDIO);
 	env_set("stderr", NETWIN_STDIO);
 	wdt_off();
 	__raw_writel(0, REC_NETWIN);
-	printf("netwin: cage %lu up, %s, netconsole to %s; ESC to UDP :6666 stops autoboot\n", cage, ip, host);
+	printf("netwin: cage %d up, " NETWIN_IP ", netconsole broadcast " NETWIN_NC "; ESC to UDP :6666 stops autoboot\n", cage);
 }
 
 /* board_late_init, chained boot (mode 1-3, invalid passed as 1): set bootcmd, bootargs, bootdelay */
