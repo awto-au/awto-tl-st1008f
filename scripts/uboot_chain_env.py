@@ -56,8 +56,9 @@ VARS = {  # saved in this order; bootcmd last
     "bootcmd": "run ub_ld ub_ck ub_go; run bootcmd_stock",
 }
 # Turbo profile (#46). Value sets mirror uboot-port clocks.c cpu_code / mem_bins / lx_pts + sram
+OBSOLETE_VARS = ("st1008f_turbo_all", "st1008f_netwin")  # removed 2026-11-18/19 (docs/MODE-SWITCH.md)
 TURBO_VAR = "st1008f_turbo"
-STOCK_NOTE = "NOTE: default = stock clocks (CPU 800, DDR 600, LX 175, SRAM 250, SPI 25.5) in every mode; this unit leaves today's 1000/650 at its next power-up until a profile is written: ./dev.py uboot-chain-env turbo set PROFILE [--ssh --ip IP] + mode switch M3 (#46)"
+STOCK_NOTE = "NOTE: M1 and M3 boot at the built-in turbo profile (cpu 1350, ddr 662, lx 306, sram 500), M2 at stock clocks; override: ./dev.py uboot-chain-env turbo set PROFILE|off [--ssh --ip IP] (#46)"
 TURBO_SETS = {"cpu": {800, 1000, 1050} | set(range(1100, 1426, 25)),
               "ddr": {800, 775, 750, 725, 700, 675, 662, 650, 625, 600, 550, 500, 450, 400, 350, 300},
               "lx": {175, 204, 245, 306}, "sram": {250, 500}, "spi": {25},
@@ -355,7 +356,7 @@ def env_ssh(ip: str, mode: str, profile: str | None, allow_fallback: bool) -> in
     elif mode == "revert":
         want = {"bootcmd": "boota", "ub_ld": "", "ub_ck": "", "ub_go": ""}
     else:
-        want = {TURBO_VAR: profile}
+        want = {TURBO_VAR: profile, **{v: "" for v in OBSOLETE_VARS if v in env}}  # stale settings from removed features
     for v in want.values():
         flash_guard.check_cmd(v)
     script = "".join(f"{k} {v}\n" if v else f"{k}\n" for k, v in want.items()).encode()
@@ -396,8 +397,10 @@ def main() -> int:
             if why := turbo_problem(profile):
                 log(f"FAIL turbo set: {why}")
                 return 1
+        elif a.args == ["off"] and a.ssh:
+            profile = ""  # unset st1008f_turbo: the built-in default applies
         elif a.args != ["show"]:
-            ap.error("turbo show | turbo set PROFILE")
+            ap.error("turbo show | turbo set PROFILE | turbo off (--ssh)")
     if a.ssh:
         if not a.ip or a.mode not in ("apply", "revert", "turbo"):
             ap.error("--ssh --ip A.B.C.D: apply | revert | turbo only")

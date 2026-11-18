@@ -91,9 +91,8 @@ def install_ssh(ip: str, data: bytes, md5: str) -> int:
     return 0 if ok else 1
 
 
-STOCK_NOTE = ("NOTE: this slot boots at stock clocks (CPU 800, DDR 600, LX 175, SRAM 250, SPI 25.5) in every "
-              "mode unless the stock env has st1008f_turbo AND the mode switch is in M3: today's 1000/650 drops "
-              "to stock at the next power-up. Set it: ./dev.py uboot-chain-env turbo set PROFILE [--ssh --ip IP] (#46)")
+STOCK_NOTE = ("NOTE: M1 and M3 boot at the built-in turbo profile (cpu 1350, ddr 662, lx 306, sram 500), M2 at stock clocks "
+              "(CPU 800, DDR 600, LX 175, SRAM 250). Override: ./dev.py uboot-chain-env turbo set PROFILE [--ssh --ip IP] (#46)")
 
 
 def main() -> int:
