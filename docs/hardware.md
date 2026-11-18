@@ -58,27 +58,22 @@ Narrative & dead ends: see [HISTORY.md](HISTORY.md). Evidence paths under `priva
 - **No factory MAC.** Stock `printsys` → `Invalid system information`; stock env `ethaddr` was a Realtek-OUI placeholder (#36).
 - **No per-unit data in flash.** sw2 (st1008f-2) full-flash backup 2026-10-12 is byte-identical to sw1's stock backup of 2026-10-08 (every MTD and `full-flash.bin` sha256 equal; env `ethaddr=00:E0:4C:00:00:00`). Each unit needs its own MAC written at install (#91).
 - **No MAC anywhere else either** (sw2, 2026-10-12, `./dev.py mem-dump` at our prompt after stock `rtk network on`): on-chip SRAM (64 KiB, 64304 non-zero bytes) holds no MAC; RAM-resident stock U-Boot holds only `ethaddr=00:E0:4C:00:00:00` (from the env); its text matches the flash loader for the first `0x922a5` bytes (rest = runtime data). No case-sticker MAC recorded yet.
-- **MACs per unit** (2026-10-12):
-  - sw1 (st1008f-1): base `16:b0:46:e9:0d:c0` = bridge `switch`, `switch.1` (mgmt .48) and lan1; lan2-lan8 = `16:b0:46:e9:0d:c1`-`c7`.
-  - sw2 (st1008f-2): flash OpenWrt (local main 1daf141, 6.18.55, upstream layout) since 2026-10-12T15:49+11:00 (`./dev.py openwrt-install`, #98); our U-Boot chain, STP + forward_delay 2, static .56, LuCI, SNMP; base `3a:de:0a:91:10:d0` (random, locally administered), in `u-boot-env` `ethaddr` since 2026-10-12T14:03+11:00 (`./dev.py uboot-chain-env set-mac`; was the `00:E0:4C:00:00:00` placeholder). Registry: awto-dan `st1008f-2-mgmt` (#91).
-  - Bench relay: `8c:aa:b5:78:31:80` (.49).
-- **Base MAC `16:b0:46:e9:0d:c0` (sw1):** saved in `u-boot-env` `ethaddr` by the 2026-10-08 `sysupgrade`; locally administered (bit 1 of the first byte set) = randomly generated, not TP-Link assigned. Used by flash OpenWrt and our 7.3 kernel (nvmem layout on `u-boot-env`). Stock leaves the switch MAC registers at `00:e0:4c:00:00:00`.
-- **Management address** (owner, 2026-10-12): DHCP client + static fallback `192.168.0.1/24`; house LAN reserves `192.168.25.48` (registry block `st1008f-1` = `.48`-`.55`). Today's flash OpenWrt: static `.48/24` on bridge `switch.1`, gateway/DNS `.254`. [DECISIONS.md](DECISIONS.md).
-- **Lab hosts** (registry): host `enp7s0` TFTP server `192.168.25.30` (static NM entry + DHCP reservation); power relay `192.168.25.49` (DHCP-reserved; [Bench power relay](#bench-power-relay-84)).
+- **Per-unit MACs and addresses are not recorded here.** Tool constants: `scripts/boards.py`; registry boxes `st1008f-1`, `st1008f-2` and the bench relay: awto-dan `docs/network/ip-registry.toml`.
+- Unit MACs are locally administered and stored in `u-boot-env` `ethaddr` (written by `sysupgrade` or `uboot-chain-env set-mac`); the bridge `switch`, `switch.1` and lan1 share the base MAC, lan2-lan8 count up from it.
 
 ## Unit guard (#91)
 
 - `./dev.py` runs `scripts/board_guard.py` before every hardware/check command except host-only and read-only network ones (`switch-check`, `mode-watch`, `check-log`, ...). Exit 5 = refused.
-  - args naming sw1's IP `192.168.25.48` → refused;
-  - console log, last boot (since the last stock `U-Boot 2011.12` banner), contains sw1's MAC `16:b0:46:e9:0d:c0` → refused (the console is on sw1);
-  - ARP cache maps the bench IP `.56` to sw1's MAC → refused.
+  - args naming sw1's IP (`scripts/boards.py`) → refused;
+  - console log, last boot (since the last stock `U-Boot 2011.12` banner), contains sw1's MAC (`scripts/boards.py`) → refused (the console is on sw1);
+  - ARP cache maps the bench IP to sw1's MAC → refused.
 - Relay tripwire (`scripts/switch_power.py off|cycle`): sw1 pinged before and after `off`; answered before, silent after → relay back on at once, exit 4; `ramload` aborts on it.
-- Verified 2026-10-12: `power off` on sw2 kept sw1 answering (rc 0); `switch-net-clean --ip 192.168.25.48` refused; a synthetic console log with sw1's MAC after the banner refused.
-- `switch-net-clean` / `openwrt-luci` default to the bench IP (were `.48`).
+- Verified 2026-10-12: `power off` on sw2 kept sw1 answering (rc 0); `switch-net-clean` with sw1's IP refused; a synthetic console log with sw1's MAC after the banner refused.
+- `switch-net-clean` / `openwrt-luci` default to the bench IP.
 
 ## Bench power relay (#84)
 
-- ESPHome node `office-bench-lights` (ESP8266, HA entity `Office Bench Lights relay`), `192.168.25.49`; switches the board's 12 V supply. No power metering.
+- ESPHome node `office-bench-lights` (ESP8266, HA entity `Office Bench Lights relay`), address in the registry; switches the board's 12 V supply. No power metering.
 - **A relay reboot leaves the board unpowered:** `restore_mode: RESTORE_DEFAULT_OFF` without `esp8266: restore_from_flash: true`.
 - Seen 2026-10-12: relay OFF unprompted at 10:24:30+11:00 and between 10:26:58 and 10:27:42, each 25-60 s after a `dev.py` power-on (10:24:06, 10:26:40). ESPHome `sensor/uptime` read 64 s at ~10:29 = the relay itself had rebooted.
   - Not Home Assistant: no automation references the entity; `light.office_lights` does not include it.
