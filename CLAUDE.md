@@ -5,7 +5,7 @@ Public repo: never commit anything from `private/`; no host paths/secrets in tra
 IP registry blocks (`awto-dan/docs/network/ip-registry.toml`): `st1008f-1`=`.48-.55`, `st1008f-2`=`.56-.63`. Static: `/24`, gw/DNS `.254`, domain `dnt.com.au`.
 
 ## Units (owner 2026-10-12; `scripts/boards.py`)
-- **sw1 = st1008f-1**: in-service house switch, mgmt `.48`, no relay, no serial. Never power-cycle/ramload; network checks only (`./dev.py switch-check`). Reflash only on owner request (2026-10-13): `./dev.py openwrt-sysupgrade-ssh --ip 192.168.25.48` (keeps config, backup first).
+- **sw1 = st1008f-1**: lab switch, mgmt `.48`, no relay, no serial. Not the house LAN (owner 2026-11-18), but Selwyn's route to sw1 and the US-48 bench runs through sw1 lan5 (never touch lan5). Power-cycle/reboot only on owner request (one approved 2026-11-18 for the US-48 10G tests); network checks otherwise (`./dev.py switch-check`). Reflash only on owner request (2026-10-13): `./dev.py openwrt-sysupgrade-ssh --ip 192.168.25.48` (keeps config, backup first).
 - **sw2 = st1008f-2**: bench unit on relay (`.49`) + serial console; all hardware flows target it. Bench mgmt `.56`.
 
 ## Speed sweeps (owner 2026-10-13)
