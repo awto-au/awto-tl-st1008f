@@ -121,11 +121,11 @@ static u32 rec_attempts(void)
 #define REC_CLK		(REC + 3)
 #define REC_CLK_MAGIC	0xc10cfa57
 
-/* Turbo profile (#46): stock env `st1008f_turbo=cpu=1100,ddr=650,lx=175,sram=500,swcore=306` (MHz, any subset;
- * missing = keep/stock); spi accepted at stock 25 only (#50). Autoboot applies it in M3 only; the
- * `turbo` command in any mode. */
+/* Turbo profile (#46): built-in default, overridden by stock env `st1008f_turbo=cpu=1100,ddr=650,lx=175,sram=500,swcore=306`
+ * (MHz, any subset; missing = keep/stock); spi accepted at stock 25 only (#50). Autoboot applies it in M1 and M3;
+ * M2 (escape position) and an invalid slider stay stock. The `turbo` command works in any mode. */
 #define TURBO_VAR	"st1008f_turbo"
-#define TURBO_ALL_VAR	"st1008f_turbo_all"	/* "1" = the profile also applies in M1 (M2 stays stock: escape position) */
+#define TURBO_DEFAULT	"cpu=1350,ddr=662,lx=306,sram=500"	/* max the benches ran (docs/MODE-SWITCH.md) */
 #define TURBO_MAX	64	/* value incl. NUL; longer = refused */
 
 /* NULL = parsed; else why not. Bounded: <= 63 chars, values <= 4 digits */
@@ -185,7 +185,7 @@ static int turbo_run(const struct otto_turbo *t)
 
 static void wdt_on(u32 ms);
 
-/* M3, or M1 with st1008f_turbo_all=1: turbo profile from the stock env; M2/invalid: stock clocks (#46).
+/* M1/M3: turbo profile (stock env override, else the built-in default); M2/invalid: stock clocks (#46).
  * A failure never stops the boot. */
 static int clk_fast(void)
 {
@@ -196,15 +196,13 @@ static int clk_fast(void)
 	int ret;
 
 	wdt_on(BOOT_WDT_MS);	/* every path: covers bootm -> kernel wdt probe */
-	if (mode != 3 && !(mode == 1 && st1008f_stock_env(TURBO_ALL_VAR, val, sizeof(val)) && !strcmp(val, "1"))) {
-		printf("bootsel: M%d: stock clocks (turbo profile in M3, or M1 with " TURBO_ALL_VAR "=1)\n", mode ?: 1);
+	if (mode != 1 && mode != 3) {
+		printf("bootsel: M%d: stock clocks (turbo profile in M1 and M3)\n", mode ?: 1);
 		return 0;
 	}
 	val[0] = 0;
-	if (!st1008f_stock_env(TURBO_VAR, val, sizeof(val))) {
-		printf("bootsel: M%d: no " TURBO_VAR " in the stock env (or env CRC bad): stock clocks\n", mode);
-		return 0;
-	}
+	if (!st1008f_stock_env(TURBO_VAR, val, sizeof(val)) || !val[0])
+		strlcpy(val, TURBO_DEFAULT, sizeof(val));
 	strlcpy(raw, val, sizeof(raw));
 	why = turbo_get(val, &t);
 	if (why) {

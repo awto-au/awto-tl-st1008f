@@ -6,28 +6,27 @@ The 3-position slider on the unit. Read once at power-up by our U-Boot and by Li
 
 | Position | Clocks (CPU / DDR) | Switching in Linux | U-Boot network window |
 |---|---|---|---|
-| M1 | stock 800 / 600; turbo profile only if `st1008f_turbo_all=1` | on: all cages bridged and forwarding, STP on | off |
+| M1 | turbo profile (built-in default) | on: all cages bridged and forwarding, STP on | off |
 | M2 | stock 800 / 600, always | off: every cage reaches only the CPU | on: cage 1, 192.168.1.1 |
-| M3 | the turbo profile in `st1008f_turbo` (stock if none) | off, as M2 | off |
-| any (fault fallback) | stock | off, as M2 | off |
+| M3 | turbo profile, as M1 | off, as M2 | off |
+| any (fault fallback), invalid slider | stock | off, as M2 | off |
 
 - M2 is the escape position: stock clocks, no switching, network access to U-Boot. Always safe.
-- Stock clocks = what TP-Link ships: CPU 800, DDR 600, LX 175, SRAM 250, SPI 25.5 MHz. Default in every position when no profile is stored (owner 2026-10-13).
+- Turbo default (owner 2026-11-18): `cpu=1350,ddr=662,lx=306,sram=500`, built into U-Boot (`TURBO_DEFAULT` in bootsel.c). No setting needed.
+- Stock clocks = what TP-Link ships: CPU 800, DDR 600, LX 175, SRAM 250, SPI 25.5 MHz. Used in M2 and on any failure.
 - "Switching off" = Linux per-port `isolated` flag; the bridge `switch` still holds lan1-lan8 so a host on any cage still manages the unit.
 - Fault fallback = the boot fell back to the recovery path; always isolated.
 
-## The settings
-
-Stored in the stock env (the `u-boot-env` flash area, CRC-checked, read by our U-Boot). Written only through the tool below; `apply` and the installers never write them.
+## The setting (optional override)
 
 | Setting | Meaning | Written by |
 |---|---|---|
-| `st1008f_turbo` | clock profile, e.g. `cpu=1350,ddr=662,lx=306,sram=500`; keys `cpu ddr lx sram swcore`, MHz, any subset | `./dev.py uboot-chain-env turbo set PROFILE [--ssh --ip A.B.C.D]` |
-| `st1008f_turbo_all` | `1` = the profile also applies in M1 (M2 stays stock) | the same command with `--all-modes`; plain `turbo set PROFILE` clears it |
+| `st1008f_turbo` | replaces the built-in profile in M1 and M3, e.g. `cpu=1100,ddr=650`; keys `cpu ddr lx sram swcore`, MHz, any subset | `./dev.py uboot-chain-env turbo set PROFILE [--ssh --ip A.B.C.D]` |
 
-- Profile applies only if valid; missing, bad CRC, unknown key or unsupported value = stock clocks, one `bootsel: M3: ...: stock clocks` console line.
+- Stored in the stock env (`u-boot-env` flash area, CRC-checked). Absent or empty = the built-in default. `apply` and the installers never write it.
+- An invalid override (unknown key, bad number, unsupported value) = stock clocks, one `bootsel: M1: ...: stock clocks` console line, LED latch `turbo`.
 - Supported values and apply order: docs/DEFAULT-BOOT.md#clocks-by-mode-46; limits: docs/OVERCLOCK.md.
-- No setting exists for the network window: M2 turns it on.
+- No setting for the network window: M2 turns it on.
 
 ## M2 network window (#80)
 
