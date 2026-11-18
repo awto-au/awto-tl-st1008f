@@ -12,45 +12,18 @@ Narrative & dead ends: see [HISTORY.md](HISTORY.md). Evidence paths under `priva
 - Saved env: `boardmodel=RTL9303_8XGE`, `bootcmd=boota`, `bootdelay=1`, `baudrate=115200`, `ipaddr=192.168.0.100`, `serverip=192.168.0.145`.
   - `ethaddr` is the Realtek OUI with placeholder NIC bytes (not a unique factory MAC). `printsys` → `Invalid system information`; no unique MAC location found.
 - UART: 115200 8N1, U-Boot and stock Linux alike.
-- SFP modules: no vendor lock found in SDK source, the loader, or the sibling `cli_server`. Fitted set below.
+- SFP modules: no vendor lock found in SDK source, the loader, or the sibling `cli_server`. Which modules are fitted and where they are cabled is not recorded here: live view `rtk sfp` / `ethtool -m`; cabling map `./dev.py cabling-map` (awto-terminal `scripts/cabling_map.py`).
 - Partition map: [stock-flash-layout.json](stock-flash-layout.json); `flshow` output: [../artifacts/uboot-flshow.txt](../artifacts/uboot-flshow.txt).
 - Board photos: [photos/README.md](photos/README.md). Component list (every identified part, rails, markings): [BOM.md](BOM.md).
 
-- **Current (owner, 2026-10-12): only one 10G SR left fitted, for management; the other modules are removed.** The table below is the 2026-10-10 full set (module inventory).
+### Loopback detection and DAC cages (#110, #112)
 
-### sw2 loopbacks (owner fitted 2026-10-13, #110; `./dev.py linkcheck` + `rtk sfp` at 12:58+11:00)
-
-| Cage | Module | Serial | Cabled to |
-|---|---|---|---|
-| 1 | FS SFP-10GSR-85 | F2130412917 | house LAN (fibre to sw1 lan4) |
-| 2 | FS SFP-10G-T (AQR113C, copper) | F2220688305 | nothing seen (RX 0, LOS 1; copper: TX-disable ignored) |
-| 3, 4 | CISCO-JPC P3410UD05000-1 passive DAC, 5 m (one cable, same serial) | JPC223107Q1 | **each other** |
-| 5, 6 | empty | - | - |
-| 7, 8 | FS SFP-10GSR-85 | (7) -, (8) F2130412915 | **each other** (fibre: cage 7 light at cage 8 602 µW and back) |
-
-- `linkcheck` (U-Boot `rtk linkcheck` and Linux `st1008f-linkcheck`) reports both: 7 ↔ 8 by the laser probe, 3 ↔ 4 by the same vendor + serial at two cages (a passive DAC has no DDM and no laser). Verdict LOOP (2026-10-13T13:05).
-- DAC cages (#112): our U-Boot sets the DAC media (A0 byte 18 length: this cable 5 m → `dac500cm`) and unforces the MAC link: 3 ↔ 4 link at 10G; the linkcheck frame probe sees 3→4 and 4→3. As fibre 10G (old mapping) or still MAC-forced: pcs up / mac down.
-
-### sw2 fitted modules (2026-10-12T14:17+11:00, our U-Boot `rtk sfp` / `rtk port`, laser cage 1 only)
-
-| Cage | Module | Serial | RX (laser off) |
-|---|---|---|---|
-| 1 | FS SFP-10GSR-85 | F2130412917 | 0.581 mW, link 10G (fibre to sw1 lan4) |
-| 2 | empty | - | - |
-| 3 | FS SFP-10GSR-85 | F2130412918 | 0.0001 mW |
-| 4 | UBNT UF-SM-10G (10GBASE-LR) | FT17012009663 | 0.0001 mW |
-| 5 | Cisco-NEO PTB3370553CN0CS1 | NDG20040529 | 0.0000 mW |
-| 6 | Cisco-Finisar GLC-T 8.0 | MTC106627 | no DDM; ignores TX-disable |
-| 7 | Cisco-Finisar GLC-SX-MM 6.0 | H33A663 | no DDM |
-| 8 | FS SFP-10GSR-85 | F2130412915 | 0.0001 mW |
-
-- `rtk sfp power`: 7.2 W declared by 7 modules, budget 15.0 W. Temps 12.6-30.8 °C (DDM modules).
-- No AQR113C 10GBASE-T module (FS SFP-10G-T) in sw2: those are in sw1 lan7/lan8 (#90).
-- Cages 3/4/5/8 dark with their lasers off = not cabled to a live LAN port (cabled to each other cannot be ruled out). Cage 6/7 cabling unknown.
+- `linkcheck` (U-Boot `rtk linkcheck` and Linux `st1008f-linkcheck`) finds cage-to-cage loops two ways: fibre by the laser probe (our light seen on another cage), passive DAC by the same vendor + serial at two cages (a DAC has no DDM and no laser). Verdict LOOP.
+- DAC cages: our U-Boot sets the DAC media from A0 byte 18 (length; 5 m → `dac500cm`) and unforces the MAC link, so a DAC loop links at 10G and the frame probe sees it both ways. As fibre 10G (old mapping) or still MAC-forced: pcs up / mac down.
 
 ### 10GBASE-T modules: AQR113C, no 2.5G/5G (#90)
 
-- sw1 lan7/lan8: FS SFP-10G-T (sn G2210210056, F2220688305), PHY `Aquantia AQR113C` over SFP I2C (`smbus:sfp-pN:11`, RollBall), OpenWrt 6.18.55, host side 10GBASE-R; 1G links use pause rate matching (no SerDes change, `flow control rx/tx`).
+- FS SFP-10G-T (sn G2210210056, F2220688305), PHY `Aquantia AQR113C` over SFP I2C (`smbus:sfp-pN:11`, RollBall), OpenWrt 6.18.55, host side 10GBASE-R; 1G links use pause rate matching (no SerDes change, `flow control rx/tx`).
 - `ethtool` (2026-10-12T14:20+11:00, `./dev.py switch-check`, read-only): **Supported** = 100baseT Half/Full, 1000baseT/Full, 10000baseT/Full, 1000baseKX/Full: **no 2500baseT/5000baseT**. Link partners advertise up to 1000baseT.
 - Source audit (6.18 tree): MAC caps include 2500/5000/10000FD + pause; PCS accepts every interface; `aqr_gen2_get_rate_matching(10GBASER)` = PAUSE. So the missing modes come from the PHY's own abilities (PMA 1.11/1.21) or the module firmware's per-speed provisioning words, not from phylink.
 - `aqr_gen1_read_status failed: -145` (-ETIMEDOUT): seen once, sw1 OpenWrt r36962, 2026-10-12. In 6.18.55 the VEND_IF_STATUS wait timeout is tolerated (`aquantia_main.c:650`) and RollBall read failures return 0xffff, so that path no longer yields -145; cause in r36962 unverified (#124). RollBall poll today 11 x `msleep(20)` (220-330 ms at HZ 100) vs 70 ms documented worst case.
@@ -62,24 +35,13 @@ Narrative & dead ends: see [HISTORY.md](HISTORY.md). Evidence paths under `priva
   - iperf3 host ↔ sw2 over IPv6 link-local (`%enp5s0`, no routing change): host→sw2 350 Mbit/s (41 retrans), sw2→host 222 Mbit/s = sw2's CPU path ceiling, not the link. A wire-speed 2.5G test needs a second host behind sw2 (#90).
 - Suspect second defect: `rtldsa_93xx_phylink_mac_link_up` sets `RTL930X_FORCE_EN` only for the CPU port and phy-handle ports, so SFP ports may ignore rate-matching pause at 10G.
 
-### Fitted SFP modules (2026-10-10, all 8 cages; our U-Boot `rtk sfp`)
+### SFP module behaviour (observed 2026-10-10 to 2026-10-13; our U-Boot `rtk sfp`)
 
-| Cage | Module | Serial | Media |
-|---|---|---|---|
-| 1 | FS SFP-10GSR-85 | F2140097682 | 10GBASE-SR, DDM |
-| 2 | FS SFP-10GSR-85 | F2140098879 | 10GBASE-SR, DDM |
-| 3 | Cisco-Finisar GLC-T 8.0 | MTC106630 | 1000BASE-T |
-| 4 | Cisco-Finisar GLC-SX-MM 6.0 | H33A663 | 1000BASE-SX |
-| 5 | Cisco-NEO PTB3370553CN0CS1 | NDG20040529 | 1G 1310 nm SMF, DDM |
-| 6 | FS SFP-10GSR-85 | F2031577643 | 10GBASE-SR, DDM |
-| 7 | Cisco-Finisar GLC-T 8.0 | MTC106627 | 1000BASE-T |
-| 8 | FS SFP-10GSR-85 | F2140097683 | 10GBASE-SR, DDM |
 
 - All 8 pass both EEPROM checksums and declare power level 1 (≤ 1 W).
 - GLC-T: no DDM, no TX-disable (laser bit has no effect), connector byte `0x07` (LC) is wrong for RJ45, made 2007-08-17, Marvell 88E1111 PHY at 0x56; EEPROM emulated by an MCU that stretches the clock → reads need 50 kHz and a few seconds after power-on.
 - GLC-SX-MM: binary fields space-padded (bytes 3-19, 36-39, 64-65); `rtk sfp` zeroes them. Connector byte says "Fibre Channel Style 2 copper" (vendor error, reported as-is).
 - PTB3370553: no compliance code (described from rate/wavelength/reach); vendor `rtk.ko` classes it "unknown media"; on 2026-10-12 it had RX signal, no link, symbol-error counter saturated ([SDS-TOOLS.md](SDS-TOOLS.md)).
-- Cage 1 fibre = house LAN uplink. Cages 3 ↔ 7 copper cable removed 2026-10-11.
 - DDM at the stock U-Boot prompt, lasers off (2026-10-10, `scripts/st1008_sfp_ddm.py`, #11):
 
 | Cage | Temp °C | Vcc V | Bias mA | RX dBm |
