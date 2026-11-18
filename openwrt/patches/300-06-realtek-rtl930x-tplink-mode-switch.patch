@@ -57,7 +57,7 @@ SFP power budget (warn only, never blocks a module):
 - Total of all cages vs power_budget_mw (default 15000 = (24 W input - 6 W measured
   board draw) x 0.85 regulator, in declared module W): dev_warn once when it goes over, info when
   back under, info on every change of the total.
-- sysfs (device): power_total_mw, power_cage_mw (8 values),
+- sysfs (device): position (M1|M2|M3|invalid, pins 18/19), power_total_mw, power_cage_mw (8 values),
   power_budget_mw (rw); module param power_budget_mw.
 
 debugfs: /sys/kernel/debug/st1008f-mode-switch/state (pins, pattern,
@@ -117,7 +117,7 @@ new file mode 100644
 index 000000000..131e3e101
 --- /dev/null
 +++ b/drivers/platform/mips/tplink-st1008f-mode.c
-@@ -0,0 +1,968 @@
+@@ -0,0 +1,988 @@
 +// SPDX-License-Identifier: GPL-2.0-only
 +/*
 + * TP-Link TL-ST1008F v2: 3-position mode switch, ported from the stock rtk.ko
@@ -701,6 +701,13 @@ index 000000000..131e3e101
 +		 ms->pattern, pat, ms->v[0], ms->v[1], ms->v[2], st_position(ms));
 +	ms->pattern = pat;
 +	st_pattern_set(ms, pat);
++	{
++		char env[24];
++		char *envp[] = { env, NULL };
++
++		snprintf(env, sizeof(env), "POSITION=%s", st_position(ms));
++		kobject_uevent_env(&ms->dev->kobj, KOBJ_CHANGE, envp);
++	}
 +	for (i = 0; i < ST_NPORTS; i++) {	/* after its reset, stock re-reads every module */
 +		ms->port[i].present = false;
 +		ms->port[i].misses = 0;
@@ -771,6 +778,18 @@ index 000000000..131e3e101
 +}
 +static DEVICE_ATTR_RO(power_total_mw);
 +
++static ssize_t position_show(struct device *dev, struct device_attribute *attr, char *buf)
++{
++	struct st_ms *ms = dev_get_drvdata(dev);
++	const char *pos;
++
++	mutex_lock(&ms->lock);
++	pos = st_position(ms);
++	mutex_unlock(&ms->lock);
++	return sysfs_emit(buf, "%s\n", pos);
++}
++static DEVICE_ATTR_RO(position);
++
 +/* per cage 1-8, space separated; 0 = empty */
 +static ssize_t power_cage_mw_show(struct device *dev, struct device_attribute *attr, char *buf)
 +{
@@ -809,6 +828,7 @@ index 000000000..131e3e101
 +static DEVICE_ATTR_RW(power_budget_mw);
 +
 +static struct attribute *st_attrs[] = {
++	&dev_attr_position.attr,
 +	&dev_attr_power_total_mw.attr,
 +	&dev_attr_power_cage_mw.attr,
 +	&dev_attr_power_budget_mw.attr,

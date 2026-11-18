@@ -6,7 +6,7 @@
 START=19
 
 STATE=/var/run/st1008f-mode	# "<mode> <image> switch|isolated <source>", read by st1008f-bootok
-DBG=/sys/kernel/debug/st1008f-mode-switch/state	# 300-06 driver
+POS=/sys/bus/platform/devices/mode-switch/position	# 300-06 driver: M1|M2|M3|invalid
 
 arg() { tr ' ' '\n' < /proc/cmdline | sed -n "s/^st1008f\.$1=//p"; }
 
@@ -17,8 +17,7 @@ start() {
 	local mode=$(arg mode) image=$(arg boot) src=cmdline want=isolated iso=1 i sec
 
 	if [ -z "$mode" ]; then	# RAM boot / no bootargs from U-Boot: read the switch itself
-		[ -e $DBG ] || mount -t debugfs debugfs /sys/kernel/debug 2>/dev/null
-		mode=$(sed -n 's/^position .* = M\([123]\)$/m\1/p' $DBG 2>/dev/null)
+		mode=$(sed -n 's/^M\([123]\)$/m\1/p' $POS 2>/dev/null)
 		src=gpio
 	fi
 	[ -n "$mode" ] || mode=unknown

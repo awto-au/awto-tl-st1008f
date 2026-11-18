@@ -38,6 +38,7 @@ The 3-position slider on the unit. Read once at power-up by our U-Boot and by Li
 
 ## How to read the position
 
+- Linux: `cat /sys/bus/platform/devices/mode-switch/position` = `M1`, `M2`, `M3` or `invalid` (driver 300-06). A slider move sends a uevent `change` with `POSITION=M2`. debugfs `/sys/kernel/debug/st1008f-mode-switch/state` is the diagnostic dump only (pins, cage table).
 - Console at power-up: `Mode:  M1 switch, pins 17/18/19 = 0/1/1`.
 - Kernel command line: `st1008f.mode=m1` (`/proc/cmdline`); state file `/var/run/st1008f-mode`.
 - Units: sw2 = M1 (cmdline 2026-11-18). sw1 = not known (no console).
