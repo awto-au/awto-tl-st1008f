@@ -180,14 +180,8 @@ Chained boot only (`ramload` boots never autoboot). First match wins:
 
 Owner decision 2026-10-12 (#73, #46); U-Boot side changed 2026-10-13 (#46): the switch no longer selects the recovery image.
 
-| Switch | U-Boot clocks | Linux mode | Ports |
-|---|---|---|---|
-| M1 | stock | switch | all cages bridged, forwarding, STP on, forward_delay 2 |
-| M2 | stock | isolated | every cage reaches only the CPU; no port-to-port forwarding |
-| M3 | turbo profile | isolated (`st1008f-mode` m3 rule, unchanged) | as M2 |
-| any | recovery (fault fallback) | isolated | as M2 |
+What each position does (clocks, Linux switching, network window): [MODE-SWITCH.md](MODE-SWITCH.md). Implementation below.
 
-- M2 = U-Boot network window (#80, docs/UBOOT-MAINLINE.md): first cage with a live link comes up on 192.168.1.1, ESC over UDP stops autoboot. No setting. M1/M3 unchanged.
 - Management (all modes): bridge `switch` stays one bridge with lan1-lan8, STP on; isolation = per-port `isolated` flag. Plug a host into any cage → management.
 - Fault fallback in M1 = isolated: the recovery image is a management image. One-line change in `st1008f-mode` (`want=` rule) if switching should continue.
 - `/etc/init.d/st1008f-mode` (START=19, before `network` at 20):

@@ -2,7 +2,7 @@
 """uboot_netboot — stop our U-Boot's power-up network window over UDP and boot an image from RAM, no UART (#80).
 
 Needs the unit's mode slider in M2 and the U-Boot chain slot with bootsel.c `netwin` (no setting): U-Boot lights the
-first cage with a live link on 192.168.1.1; the host answers from a 192.168.1.2/24 alias. Flow:
+cage 1 on 192.168.1.1; the host answers from a 192.168.1.2/24 alias. Flow:
   reboot (ssh | relay | you) -> ESC datagrams to UDP :6666 every 0.1 s -> prompt seen on the wire
   -> [turbo PROFILE] -> setenv bootargs -> TFTP (tftpd.py --once) -> bootm.
 No flash write, no trial/attempt state: a power cycle returns to the normal boot (the window runs only in M2).
@@ -30,8 +30,8 @@ UBOOT_IP = "192.168.1.1"       # bootsel.c NETWIN_IP
 HOST_IP = "192.168.1.2"        # host alias on the server NIC, same /24
 PROMPT = "st1008f-mainline # "
 ESC_PERIOD_S = 0.1             # a datagram before U-Boot's stack is up is lost; 10/s lands one within 0.1 s of it
-# reboot -> prompt: ssh shutdown ~6 s + stock U-Boot ~8 s + ours ~2 s + netwin <= 20 s + window 2 s = 38 s, x1.25 + 15
-PROMPT_CAP_S = 62
+# reboot -> prompt: ssh shutdown ~6 s + stock U-Boot ~8 s + ours ~2 s + netwin <= 17 s + window 2 s = 35 s, x1.25 + 15
+PROMPT_CAP_S = 60
 CMD_CAP_S = 5                  # one U-Boot command echo over UDP: ms; 5 s names a lost datagram
 LOAD_ADDR = 0x84F00000         # TFTP area (docs/UBOOT-MAINLINE.md)
 BOOT_CAP_S = 90                # kernel up on the LAN after bootm: ramload caps OpenWrt at 40 s, plain ~3 s + port-up
@@ -169,7 +169,7 @@ def main() -> int:
         if not wire.wait(re.escape(PROMPT), PROMPT_CAP_S, 0, on_poll=esc):
             seen = wire.text()
             raise SystemExit(f"no U-Boot prompt in {PROMPT_CAP_S} s; netconsole output seen: {len(seen)} B "
-                             f"({'window up, ESC not accepted: stdin nc?' if seen.strip() else 'nothing: slider not in M2, no cage with a live link, or no link'})")
+                             f"({'window up, ESC not accepted: stdin nc?' if seen.strip() else 'nothing: slider not in M2, or no link on cage 1'})")
         log(f"prompt after {time.monotonic() - t0:.1f} s")
         if a.turbo:
             run_cmd(sock, wire, UBOOT_IP, f"turbo {a.turbo}", r"clocks: turbo (OK|reverted)[^\n]*", 30, "turbo")

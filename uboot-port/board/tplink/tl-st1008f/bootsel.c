@@ -378,13 +378,13 @@ static void bb_read(void)
 }
 
 /* Power-up network window (#80), M2 only (the escape position, #46); M1/M3: no cost, no setting needed.
- * Before the 2 s autoboot window: `rtk network on`, light the FIRST LIVE cage only (rtk_first_live_cage,
- * as st1008_ramload.py laser/ports_only), 192.168.1.1, netconsole broadcast on 192.168.1.255: an ESC sent
+ * Before the 2 s autoboot window: `rtk network on`, light cage 1 only (as st1008_ramload.py laser/ports_only), 192.168.1.1, netconsole broadcast on 192.168.1.255: an ESC sent
  * to UDP :6666 stops autoboot over the network. REC_NETWIN still set at the next boot = the bring-up hung: skip once. */
 #define REC_NETWIN	(REC + 4)
 #define REC_NETWIN_MAGIC	0x4e57494e	/* "NWIN" */
-/* rtk network on <= 15 s (host cap, ~8 s typical, st1008_ramload.py) + cage scan ~2.5 s + 7 port commands ~2 s = 20 s, x1.25 */
-#define NETWIN_WDT_MS	25000
+/* rtk network on <= 15 s (host cap, ~8 s typical, st1008_ramload.py) + 7 port commands ~2 s = 17 s, x1.25 */
+#define NETWIN_WDT_MS	22000
+#define NETWIN_CAGE	1
 #define NETWIN_IP	"192.168.1.1"
 #define NETWIN_NC	"192.168.1.255"
 #define NETWIN_STDIO	"serial@2000,nc"	/* stdio name of uart0 (DTS serial@2000); plain "serial" is rejected, errno 22 */
@@ -393,7 +393,7 @@ static const u8 cage_port[8] = { 0, 8, 16, 20, 24, 25, 26, 27 };	/* cage 1-8 -> 
 static void netwin(void)
 {
 	char cmd[64];
-	int cage, c;
+	int cage = NETWIN_CAGE, c;
 
 	if (st1008f_boot_mode(NULL) != 2)
 		return;
@@ -406,13 +406,6 @@ static void netwin(void)
 	__raw_writel(REC_NETWIN_MAGIC, REC_NETWIN);
 	wdt_on(NETWIN_WDT_MS);
 	run_command("rtk network on", 0);
-	cage = rtk_first_live_cage();
-	if (!cage) {
-		wdt_off();
-		__raw_writel(0, REC_NETWIN);
-		puts("netwin: no cage with a live link: skipped\n");
-		return;
-	}
 	snprintf(cmd, sizeof(cmd), "rtk i2c write 8 1 0x%02x; rtk i2c write 8 3 0", 0xff & ~(1 << (cage - 1)));
 	run_command(cmd, 0);
 	for (c = 1; c <= 8; c++) {	/* copper modules ignore TX-disable: admin-disable the other ports */

@@ -241,8 +241,8 @@ def prompt() -> int:
     """Power cycle with the saved chain; ESC in our 2 s window (#46) -> our prompt."""
     con = Console()
     mark = restart_board(con, policy="pass")  # software reboot; relay only as fallback
-    # ~5 s to our banner (x1.25 -> 8 s) + netwin bring-up in M2 (U-Boot guards it at 25 s)
-    con.expect(ESC_WINDOW, 8 + 25, mark, "our 2 s ESC window", boot_ok=True)
+    # ~5 s to our banner (x1.25 -> 8 s) + netwin bring-up in M2 (U-Boot guards it at 22 s)
+    con.expect(ESC_WINDOW, 8 + 22, mark, "our 2 s ESC window", boot_ok=True)
     con.send("\x1b", cr=False)
     con.expect(OURS_PROMPT, 3, mark, "our prompt after ESC", boot_ok=True)  # window 2 s; x1.25 + echo
     log("PASS prompt: ESC stopped our autoboot")
