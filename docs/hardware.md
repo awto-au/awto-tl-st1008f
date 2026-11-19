@@ -40,6 +40,7 @@ Narrative & dead ends: see [HISTORY.md](HISTORY.md). Evidence paths under `priva
 
 - All 8 pass both EEPROM checksums and declare power level 1 (≤ 1 W).
 - GLC-T: no DDM, no TX-disable (laser bit has no effect), connector byte `0x07` (LC) is wrong for RJ45, made 2007-08-17, Marvell 88E1111 PHY at 0x56; EEPROM emulated by an MCU that stretches the clock → reads need 50 kHz and a few seconds after power-on.
+- GLC-T-TX (sw2-lan2, sn ZZ170727123, dc 2017-07-26; sold as "TurboX GLC-T-TX", 1 Gbps, no datasheet found): vendor `CISCO-EQUIV` OUI 0, rev 2.0, connector `0x00`, 1000BASE-T 100 m, TX_DISABLE implemented, no DDM/A2 page, power level 1; `0x80` holds a Cisco CLEI + PN `30-1410-04 V04` copy, `0xC0` the string `GLC-T`. Marvell 88E1111 `0x01410cc2` at 0x56 (power-on reg0 `0x0140`, reg `0x1b` `0x9088`); answers I2C only with TX-disable released; a TX-disable cycle resets it (#178).
 - GLC-SX-MM: binary fields space-padded (bytes 3-19, 36-39, 64-65); `rtk sfp` zeroes them. Connector byte says "Fibre Channel Style 2 copper" (vendor error, reported as-is).
 - PTB3370553: no compliance code (described from rate/wavelength/reach); vendor `rtk.ko` classes it "unknown media"; on 2026-10-12 it had RX signal, no link, symbol-error counter saturated ([SDS-TOOLS.md](SDS-TOOLS.md)).
 - DDM at the stock U-Boot prompt, lasers off (2026-10-10, `scripts/st1008_sfp_ddm.py`, #11):
