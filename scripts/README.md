@@ -37,6 +37,10 @@ End-to-end workflow: [../README.md#workflow](../README.md#workflow).
 - Purpose: follow the stamped console log (`logs/serial/st1008-console.ts.log`, `[ ms]` per line) in colour: link up green / down red, errors red, warnings yellow, U-Boot milestones and prompts bold, stamps dim, `[TX]` markers yellow.
 - Run: `scripts/console_view.py [-n 40] [--once] [--no-color] [FILE|-]` (`NO_COLOR` also turns it off). Read-only; the raw log is untouched.
 
+### bounce.py
+- Purpose: sw2 port down, hold 2 s, up, report carrier time and speed (default `lan2`); the kernel SFP code asserts TX-disable on down. No module power rail is switchable (#30); GLC-T ignores TX-disable.
+- Run: `python3 scripts/bounce.py [lan2] [--ip IP]`; refuses lan1 (mgmt uplink). Log `tmp/logs/bounce.log`.
+
 ### catch_uboot.py
 - Purpose: watch the daemon log for `Hit Esc key to stop autoboot`, send Esc + CR, confirm `RTL9300#`. Superseded by the daemon's built-in catch; useful when the daemon runs with a booting policy.
 - Run: `scripts/catch_uboot.py --wait 180`, then power-cycle the switch. `--wait` = time for you to power-cycle.
