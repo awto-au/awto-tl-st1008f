@@ -415,6 +415,9 @@ static bool netwin(void)
 		snprintf(cmd, sizeof(cmd), "rtk port disable %d", cage_port[c - 1]);
 		run_command(cmd, 0);
 	}
+	/* copper module PHY: answers only with TX-disable released, and a port disable resets it; so after the laser step (#178) */
+	snprintf(cmd, sizeof(cmd), "rtk sfp %d phy init", cage);
+	run_command(cmd, 0);
 	/* net.c on_ipaddr/on_netmask skip programmatic env_set(): the live net_ip would stay the stock value */
 	run_command("setenv ipaddr " NETWIN_IP "; setenv netmask 255.255.255.0", 0);
 	env_set("ncip", NETWIN_NC);
