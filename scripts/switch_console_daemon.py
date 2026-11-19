@@ -57,6 +57,54 @@ LOG = Path(__file__).resolve().parent.parent / "logs/serial/st1008-console.log"
 # Held [TX] marker: the rest of a prompt line arrives within ~2 ms at 115200 (16 B);
 # 0.2 s = generous for a 10.94 MBd/115200 mix, short enough that the log stays live. Expiry: write it.
 TX_PENDING_S = 0.2
+# Stamped copy: a partial line (prompt) is stamped after this much RX silence; a prompt's last byte arrives within ms.
+TS_PARTIAL_S = 0.3
+# ms counter restarts at the first line of a boot: stock banner, Linux reboot, U-Boot `reset`.
+TS_RESET_MARKS = (b"U-Boot 2011", b"Restarting system", b"resetting (switch-core")
+
+
+class TeeLog:
+    """Raw log file unchanged (tools match on it) + `<name>.ts.log` with `[ ms]` on every line, ms since the last boot start."""
+
+    def __init__(self, path: Path):
+        self.raw = path.open("ab", buffering=0)
+        self.ts = path.with_suffix(".ts.log").open("ab", buffering=0)
+        self.t0 = time.monotonic()
+        self.buf = b""
+        self.buf_t = 0.0
+        self.cont = False  # the partial line already carries its stamp
+        self.lock = threading.Lock()  # writes come from the reader and from client threads
+
+    def _emit(self, line: bytes, t: float) -> None:
+        if not self.cont:
+            if any(m in line for m in TS_RESET_MARKS):
+                self.t0 = t
+            line = b"[%7d ms] " % int((t - self.t0) * 1000) + line
+        self.ts.write(line)
+        self.cont = not line.endswith(b"\n")
+
+    def write(self, data: bytes) -> int:
+        with self.lock:
+            n = self.raw.write(data)
+            now = time.monotonic()
+            if not self.buf:
+                self.buf_t = now
+            self.buf += data.replace(b"\r", b"")
+            while b"\n" in self.buf:
+                line, self.buf = self.buf.split(b"\n", 1)
+                self._emit(line + b"\n", self.buf_t)
+                self.buf_t = now
+            return n
+
+    def idle(self) -> None:
+        with self.lock:
+            if self.buf and time.monotonic() - self.buf_t > TS_PARTIAL_S:
+                self._emit(self.buf, self.buf_t)
+                self.buf = b""
+
+    def close(self) -> None:
+        self.raw.close()
+        self.ts.close()
 
 
 class Owner:
@@ -67,7 +115,7 @@ class Owner:
         self._ser: serial.Serial | None = None
         self._lock = threading.Lock()  # guards the serial handle across reopen
         self._stop = threading.Event()
-        self._logfh = log.open("ab", buffering=0)
+        self._logfh = TeeLog(log)
         # --- always-on U-Boot autoboot catch ---------------------------
         # The reader thread sees every byte, so banner detection lives here,
         # not in a separate armed script racing the 1 s window. When the
@@ -128,6 +176,8 @@ class Owner:
                     self._watch(data)
                 else:
                     self._flush_tx_pending()
+                    with self._log_lock:
+                        self._logfh.idle()
                     time.sleep(0.01)  # nothing waiting; yield without the lock
             except Exception as exc:
                 # Adapter powered from the switch header re-enumerates on every
