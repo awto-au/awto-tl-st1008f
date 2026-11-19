@@ -33,6 +33,10 @@ End-to-end workflow: [../README.md#workflow](../README.md#workflow).
 - Run: `scripts/switch_console.py status | send "rtk network on" | send --raw $'\r' | esc | break [--dur 0.3] | baud 115200 | policy hold | read --secs 3`
 - Output: stdout; everything is also in the daemon log.
 
+### console_view.py
+- Purpose: follow the stamped console log (`logs/serial/st1008-console.ts.log`, `[ ms]` per line) in colour: link up green / down red, errors red, warnings yellow, U-Boot milestones and prompts bold, stamps dim, `[TX]` markers yellow.
+- Run: `scripts/console_view.py [-n 40] [--once] [--no-color] [FILE|-]` (`NO_COLOR` also turns it off). Read-only; the raw log is untouched.
+
 ### catch_uboot.py
 - Purpose: watch the daemon log for `Hit Esc key to stop autoboot`, send Esc + CR, confirm `RTL9300#`. Superseded by the daemon's built-in catch; useful when the daemon runs with a booting policy.
 - Run: `scripts/catch_uboot.py --wait 180`, then power-cycle the switch. `--wait` = time for you to power-cycle.

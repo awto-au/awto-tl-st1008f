@@ -28,7 +28,7 @@ Addresses, MACs and relay: registry boxes `st1008f-1`, `st1008f-2` (`awto-dan/do
 
 ## Console
 - `scripts/switch_console_daemon.py` is the only UART owner. Drive via `scripts/switch_console.py`; never open the tty with `tio`/`minicom` while the daemon runs.
-- Log `logs/serial/st1008-console.log`; `st1008-console.ts.log` = same stream, every line `[ ms]` since boot start (tail this one). Daemon lets autoboot run (policy `pass`, unattended power-up boots OpenWrt); `ramload`/`stock` restart it with `hold`. `dev.py` resets policy to `pass` after every console flow (#133).
+- Log `logs/serial/st1008-console.log`; `st1008-console.ts.log` = same stream, every line `[ ms]` since boot start (tail this one; in colour: `scripts/console_view.py`). Daemon lets autoboot run (policy `pass`, unattended power-up boots OpenWrt); `ramload`/`stock` restart it with `hold`. `dev.py` resets policy to `pass` after every console flow (#133).
 - Reboot sw2 in software (owner 2026-10-13): `reboot` from Linux, `reset` from U-Boot. Every flow goes through `st1008_ramload.restart_board()`; relay power-cycle is fallback only when no prompt answers / no stock banner follows, or a board doesn't respond within a bounded wait (logged). Warm resets come back by themselves (#105).
 - Power cut stalls PL2303 RX (`urb stopped: -32`): restart daemon before power-on (`restart_board` does it). Manual relay `./dev.py power on|off`.
 - `ramload uboot-mainline --fast` leaves board+daemon at 10.94 MBd; a daemon restart drops host to 115200 (board stays fast until power-off).

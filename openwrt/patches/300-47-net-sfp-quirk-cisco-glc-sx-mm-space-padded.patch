@@ -1,0 +1,35 @@
+net: sfp: quirk for Cisco GLC-SX-MM (space-padded EEPROM)
+
+The module pads unused binary EEPROM fields with ASCII spaces. Byte 3 = 0x20 reads as
+10GBASE-LR, so the host side is set to 10GBASE-R for a 1000BASE-SX module, and connector
+0x03 logs "unknown connector id". Zero the padded fields, set the connector to LC and
+drop the stray extended compliance code, as U-Boot rtk_sfp_read_id does.
+
+---
+--- a/drivers/net/phy/sfp.c
++++ b/drivers/net/phy/sfp.c
+@@ -539,7 +539,24 @@
+ 	{ .vendor = _v, .part = _p, .support = NULL, .fixup = _f, \
+ 	  .part_prefix_match = true }
+ 
++/* Old Cisco EEPROMs pad unused binary fields with ASCII spaces (0x20): byte 3 bit 5 reads as
++ * 10GBASE-LR, connector 0x03 as unknown, byte 36 has a stray 0x01. Byte 6 (1000BASE-SX) is real.
++ */
++static void sfp_fixup_space_padded(struct sfp *sfp)
++{
++	u8 *raw = (u8 *)&sfp->id.base;
++	int i;
++
++	for (i = 3; i <= 13; i++)
++		if (i != 6 && raw[i] == 0x20)
++			raw[i] = 0;
++	raw[2] = SFF8024_CONNECTOR_LC;
++	raw[36] = 0;
++}
++
+ static const struct sfp_quirk sfp_quirks[] = {
++	SFP_QUIRK_F("CISCO-FINISAR", "GLC-SX-MM", sfp_fixup_space_padded),
++
+ 	// Alcatel Lucent G-010S-P can operate at 2500base-X, but incorrectly
+ 	// report 2500MBd NRZ in their EEPROM
+ 	SFP_QUIRK("ALCATELLUCENT", "G010SP", sfp_quirk_2500basex,

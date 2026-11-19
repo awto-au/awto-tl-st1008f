@@ -205,6 +205,7 @@ def main() -> int:
         help="directory to serve/accept into (default tmp/tftp)",
     )
     ap.add_argument("--port", type=int, default=DEFAULT_PORT)
+    ap.add_argument("--bind", default="", help="local address (default all); a specific one beats the system tftp.socket wildcard")
     ap.add_argument("--once", action="store_true", help="exit after one transfer")
     a = ap.parse_args()
 
@@ -214,7 +215,7 @@ def main() -> int:
     sock = socket.socket(socket.AF_INET, socket.SOCK_DGRAM)
     sock.setsockopt(socket.SOL_SOCKET, socket.SO_REUSEADDR, 1)
     try:
-        sock.bind(("", a.port))
+        sock.bind((a.bind, a.port))
     except PermissionError:
         sys.exit(f"cannot bind port {a.port} (needs root for <1024). Use --port 6969.")
     log(f"tftpd on port {a.port}, root {rel(root)}")

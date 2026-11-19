@@ -33,8 +33,10 @@ ESC_PERIOD_S = 0.1             # a datagram before U-Boot's stack is up is lost;
 # reboot -> prompt (#178): peer link up +65 s after an ssh reboot + STP 4 s = ~70 s, x1.25 = 90 s. Expiry: exit 1, bytes seen
 PROMPT_CAP_S = 90
 CMD_CAP_S = 5                  # one U-Boot command echo over UDP: ms; 5 s names a lost datagram
+TFTPD_READY_CAP_S = 3          # sudo + python start ~0.5 s measured 2026-11-19, x6; expiry: exit, log path named
 LOAD_ADDR = 0x84F00000         # TFTP area (docs/UBOOT-MAINLINE.md)
 BOOT_CAP_S = 90                # kernel up on the LAN after bootm: ramload caps OpenWrt at 40 s, plain ~3 s + port-up
+PLAIN_UP_CAP_S = 40            # bootm -> plain kernel prompt: 22 s measured 2026-11-19 (console log), x1.25 + 12
 
 
 def ensure_host_ip() -> None:
@@ -45,6 +47,14 @@ def ensure_host_ip() -> None:
         subprocess.run(["sudo", "-n", "ip", "addr", "add", f"{HOST_IP}/24", "dev", rl.SERVER_NIC],
                        check=True, timeout=5)  # local netlink; 5 s names a sudo prompt hang
         log(f"host {rl.SERVER_NIC}: added {HOST_IP}/24")
+    # enp8s0 is in no zone: default zone drops TFTP :69 from 192.168.1.1; runtime only, gone at firewall reload (owner OK 2026-11-19)
+    net = f"{HOST_IP.rsplit('.', 1)[0]}.0/24"
+    q = subprocess.run(["sudo", "-n", "firewall-cmd", "--zone=trusted", f"--query-source={net}"],
+                       capture_output=True, text=True, timeout=5)  # local dbus call: ms; 5 s names a hang
+    if q.stdout.strip() != "yes":
+        subprocess.run(["sudo", "-n", "firewall-cmd", "--zone=trusted", f"--add-source={net}"],
+                       check=True, timeout=5)
+        log(f"host firewall: {net} added to zone trusted (runtime)")
 
 
 def log(msg: str) -> None:
@@ -134,7 +144,8 @@ def main() -> int:
     ap.add_argument("--ip", default=BENCH_IP, help="unit IP once Linux is up (reboot over ssh, final ping); U-Boot itself is on " + UBOOT_IP)
     ap.add_argument("--reboot", choices=["ssh", "relay", "none"], default="ssh")
     ap.add_argument("--turbo", help="U-Boot `turbo` args at the prompt, e.g. cpu=1325,ddr=662,sram=500,swcore=608")
-    ap.add_argument("--bootargs", default="st1008f.boot=net", help="kernel args (st1008f.boot= triggers the plain init's port-up)")
+    ap.add_argument("--bootargs", default="st1008f.boot=net", help="kernel args")
+    ap.add_argument("--port-up", type=int, metavar="CAGE", help="plain kernel only: after bootm wait for its console prompt and `port-up CAGE IP/24` (needs the console daemon); an OpenWrt image brings its own network up")
     ap.add_argument("--dry-run", action="store_true", help="print the plan; no network or board access")
     a = ap.parse_args()
 
@@ -174,9 +185,18 @@ def main() -> int:
         if a.turbo:
             run_cmd(sock, wire, UBOOT_IP, f"turbo {a.turbo}", r"clocks: turbo (OK|reverted)[^\n]*", 30, "turbo")
         run_cmd(sock, wire, UBOOT_IP, f"setenv bootargs {a.bootargs}", re.escape(PROMPT), CMD_CAP_S, "bootargs")
-        srv = subprocess.Popen(["sudo", "-n", sys.executable, str(ROOT / "scripts/tftpd.py"), "--once"], cwd=ROOT,
-                               stdout=subprocess.DEVNULL, stderr=subprocess.DEVNULL)
+        tlog = ROOT / "tmp/logs/tftpd.log"
+        before = tlog.stat().st_size if tlog.exists() else 0
+        srv = subprocess.Popen(["sudo", "-n", sys.executable, str(ROOT / "scripts/tftpd.py"), "--once", "--bind", HOST_IP],
+                               cwd=ROOT, stdout=subprocess.DEVNULL, stderr=subprocess.DEVNULL)
         try:
+            # sudo + python start ~0.5 s; until bound, the system tftp.socket (wildcard :69, other root) answers "File not found"
+            ready = time.monotonic() + TFTPD_READY_CAP_S
+            while not (tlog.exists() and tlog.stat().st_size > before and "tftpd on port" in tlog.read_text()[before:]):
+                if time.monotonic() > ready:
+                    raise SystemExit(f"tftpd.py not listening on {HOST_IP} in {TFTPD_READY_CAP_S} s; see {tlog}")
+                time.sleep(0.02)  # poll the log: ~25 polls for the 0.5 s start
+            # (the loop below sends the tftpboot only now)
             # first block times out once after link-up (stock TFTP retransmit 5 s), then ~1.2 MB/s (ramload tftp())
             cap = 5 + size / 1.2e6 * 1.25 + 3
             m = run_cmd(sock, wire, UBOOT_IP, f"setenv serverip {HOST_IP}; "
@@ -189,7 +209,14 @@ def main() -> int:
             except subprocess.TimeoutExpired:
                 subprocess.run(["sudo", "-n", "kill", "-TERM", str(srv.pid)], check=False, timeout=5)
         log(f"tftp ok {size} B; bootm")
+        con = mark = None
+        if a.port_up:
+            con = rl.Console()  # the daemon owns the UART; no daemon: this raises, nothing to fall back to
+            mark = con.size()
         send(sock, UBOOT_IP, f"bootm 0x{LOAD_ADDR:08x}\n")
+        if con:
+            con.expect(rl.PLAIN_PROMPT, PLAIN_UP_CAP_S, mark, "plain kernel console prompt")
+            rl.plain_mgmt(con, a.ip, a.port_up)
         end = time.monotonic() + BOOT_CAP_S
         while time.monotonic() < end:
             if subprocess.run(["ping", "-c1", "-W1", a.ip], capture_output=True).returncode == 0:
