@@ -161,6 +161,7 @@ From the OpenWrt v2 DTS (`SWITCH_PORT_SFP(p,l,s,c,g)` = SoC port, label, SerDes,
   - GLC-T (copper): declares level 1, no DDM (no A2 page), so nothing measurable; real 10GBASE-T modules draw 2.5-3 W and commonly still declare level 1.
 - **Counted power per module** (same rules in U-Boot and Linux):
   - A0 byte 64: bit 5 → level 3 = 2.0 W; else bit 1 → level 2 = 1.5 W; else level 1 = 1.0 W. Linux `sfp.c` also gates these on byte 94 (SFF-8472 rev ≥ 10.2 / 11.4) and needs DDM (byte 92 bit 6) to switch levels; the count ignores those gates (a module may draw its declared level regardless).
+  - Space-padded EEPROMs (GLC-SX-MM, byte 64 = `0x20` = ASCII space): not a level bit, counted level 1 (1.0 W) in U-Boot (`rtk_sfp_read_id`) and Linux (`st_space_padded`).
   - Copper modules cannot declare > 2.0 W, so they are raised to a datasheet table (max of declared and table):
 
 | Module (how detected) | Counted | Source |
