@@ -79,14 +79,50 @@ static uint32_t be32(const uint8_t *p)
 	return (uint32_t)p[0] << 24 | p[1] << 16 | p[2] << 8 | p[3];
 }
 
-#define SLOT	0x80000u
-#define TRAILER	(SLOT - 0x40)
+#define SLOT_MAX	0xF0000u	/* 960 KiB chain slot (#155); sw1 stays on SLOT_OLD until migrated */
+#define SLOT_OLD	0x80000u
 static const uint8_t slot_magic[16] = { 'S', 'T', '1', '0', '0', '8', 'F', '-', 'U', 'B', 'O', 'O', 'T', 0, 1, 0 };
+
+/* 0 = slot of size S is valid (printed), 1 = not (reason printed only when verbose) */
+static int slot_check(uint8_t *b, size_t n, uint32_t S, int verbose)
+{
+	uint32_t want, got, size, icrc, tr = S - 0x40;
+	uint8_t *t;
+
+	if (n < S) {
+		if (verbose)
+			printf("slot: FAIL short read %zu B < %u\n", n, S);
+		return 1;
+	}
+	want = be32(b + S - 4);
+	got = crc32z(0, b, S - 4);
+	if (got != want) {
+		if (verbose)
+			printf("slot: FAIL %u KiB slot CRC32 %08x != trailer %08x (no chain image or corrupt)\n", S >> 10, got, want);
+		return 1;
+	}
+	t = b + tr;
+	if (memcmp(t, slot_magic, 16)) {
+		if (verbose)
+			printf("slot: FAIL trailer magic\n");
+		return 1;
+	}
+	size = be32(t + 16);
+	icrc = be32(t + 20);
+	if (size > tr || crc32z(0, b, size) != icrc) {
+		if (verbose)
+			printf("slot: FAIL image size %u / CRC %08x inconsistent\n", size, icrc);
+		return 1;
+	}
+	t[24 + 31] = 0;
+	printf("slot: PASS %u KiB slot CRC32 %08x, image %u B CRC32 %08x, %s\n", S >> 10, want, size, icrc,
+	       (char *)t + 24);
+	return 0;
+}
 
 static int slot(const char *dev)
 {
-	uint8_t *b = malloc(SLOT), *t;
-	uint32_t want, got, size, icrc;
+	uint8_t *b = malloc(SLOT_MAX);
 	size_t n = 0;
 	ssize_t r;
 	int fd = open(dev, O_RDONLY);
@@ -95,34 +131,13 @@ static int slot(const char *dev)
 		printf("slot: FAIL open %s: %s\n", dev, strerror(errno));
 		return 2;
 	}
-	while (n < SLOT && (r = read(fd, b + n, SLOT - n)) > 0)
+	while (n < SLOT_MAX && (r = read(fd, b + n, SLOT_MAX - n)) > 0)
 		n += r;
 	close(fd);
-	if (n < SLOT) {
-		printf("slot: FAIL short read %zu B < %u\n", n, SLOT);
-		return 1;
-	}
-	want = be32(b + SLOT - 4);
-	got = crc32z(0, b, SLOT - 4);
-	if (got != want) {
-		printf("slot: FAIL slot CRC32 %08x != trailer %08x (no chain image or corrupt)\n", got, want);
-		return 1;
-	}
-	t = b + TRAILER;
-	if (memcmp(t, slot_magic, 16)) {
-		printf("slot: FAIL trailer magic\n");
-		return 1;
-	}
-	size = be32(t + 16);
-	icrc = be32(t + 20);
-	if (size > TRAILER || crc32z(0, b, size) != icrc) {
-		printf("slot: FAIL image size %u / CRC %08x inconsistent\n", size, icrc);
-		return 1;
-	}
-	t[24 + 31] = 0;
-	printf("slot: PASS slot CRC32 %08x, image %u B CRC32 %08x, %s\n", want, size, icrc,
-	       (char *)t + 24);
-	return 0;
+	if (!slot_check(b, n, SLOT_MAX, 0) || !slot_check(b, n, SLOT_OLD, 0))
+		return 0;
+	slot_check(b, n, SLOT_MAX, 1);
+	return 1;
 }
 
 /* ---- mem: patterns and decode as uboot-port/.../memtest.c ---- */

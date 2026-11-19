@@ -11,7 +11,8 @@ Operations: [OPENWRT-BUILD-OPS.md](OPENWRT-BUILD-OPS.md). Script: `scripts/build
 | Target | `realtek/rtl930x`, device `tplink_tl-st1008f-v2` only |
 | Toolchain | OpenWrt-built, GCC 14.4.0 + musl 1.2.6 (`mips_24kc`) |
 | Kernel | step 1: OpenWrt 6.18.55 + our backports; step 2: our mainline port on the Linus tag `kernel_base.py` PIN (7.4-rc1; testing kernel) |
-| Packages | target defaults + `ip-full ip-bridge tcpdump-mini kmod-pktgen` (+ feeds luci/packages, pinned in `FEEDS`; no `perf` apk: `7.4-rc1` is an invalid apk version in perf's Makefile and the unpacked image passes the 32 MiB bootm limit, use `scripts/build_perf.py`) (nat-bench switch side, [NAT-OPS.md](NAT-OPS.md): a RAM boot cannot `apk add` kmods matching a local kernel). No feeds. |
+| Packages | target defaults + `ip-full ip-bridge kmod-pktgen` (+ feeds luci/packages, pinned in `FEEDS`; no `perf` apk: `7.4-rc1` is an invalid apk version in perf's Makefile and the unpacked image passes the 32 MiB bootm limit, use `scripts/build_perf.py`) (nat-bench switch side, [NAT-OPS.md](NAT-OPS.md): a RAM boot cannot `apk add` kmods matching a local kernel). No feeds. |
+| Diagnostic tools (every image, 2026-11-20, #178) | PHY/MDIO `phytool` (C22 + C45, SIOCGMIIREG), `i2c-tools`, `tcpdump` (full), `ss`, `strace`, `gdbserver`, `mtr-nojson`, `conntrack`, `iputils-arping`, `iputils-tracepath`, `iftop`, `nload`, `socat`, `htop`, `lsof`, `sysstat`, `nano`, `hexedit`, `jq`, `tmux`, `pv` (`SEED` + `FEED_PKGS`); image 11.3 MB of the 14.5 MiB slot. Not added: `mdio-tools` (out-of-tree kmod), `nmap`, `stress-ng`, `trace-cmd` (no ftrace in the kernel config), `perf` (see Packages) |
 | Config | seed in `SEED` (build_openwrt.py) + `make defconfig`; `CONFIG_AUTOREMOVE=y` |
 | Host prereqs added 2026-10-12 | `perl-IPC-Cmd`, `perl-Time-Piece` (dnf) |
 

@@ -19,6 +19,13 @@ Facts, patch status, sizes: [OPENWRT-BUILD.md](OPENWRT-BUILD.md). Log: `tmp/logs
 - After any kernel config change (PREEMPT, SMP, `--regen-config`): full `./dev.py build-openwrt --kernel mainline`, not `--kernel-only` (stale kmods fail with `section size must match`).
 - A rebased patch that stops applying after `--update`: `--prepare-only` (unpacks + patches the kernel tree, stops), fix in a scratch copy, regenerate with `scripts/patch_from_tree.py`.
 
+## Flash image (A/B, sw1 + sw2)
+
+- Build: `./dev.py build-openwrt --kernel mainline --flash --default-boot --tag diag` -> `tmp/openwrt-7.4diag-sysupgrade.bin`. A change to `openwrt/selftest/` or `files/` needs the full build: `--kernel-only` does not repack the rootfs (same md5 as before the edit).
+- Flash: `python3 scripts/openwrt_sysupgrade_ssh.py --ip IP --image tmp/openwrt-7.4diag-sysupgrade.bin` (backup to `private/sysupgrade-backup/`). It writes the idle slot and reboots into it; the script's 80 s "drop off" wait times out although the upgrade ran.
+- The new slot boots with default config (static address gone, DHCP lease instead): find the unit by MAC (`ip neigh`), copy the backup tar over ssh and `tar -xzf b.tgz -C / -X x` (BusyBox tar has no `--exclude`; exclude `etc/uci-defaults/10_disable_services`), then `/etc/init.d/network restart`.
+- First boot on a fresh slot: selftest steps can hit their 2 s limit (`timeout after 2 s` on mode/sfp/asic); a re-run passes (sw2 asic 1,120 ms). Judge the second run.
+
 ## Board test (step 1 image)
 
 Single cage, storm-watch running, console log open.

@@ -216,7 +216,10 @@ CONFIG_TARGET_ROOTFS_INITRAMFS=y
 CONFIG_AUTOREMOVE=y
 CONFIG_PACKAGE_ip-full=y
 CONFIG_PACKAGE_ip-bridge=y
-CONFIG_PACKAGE_tcpdump-mini=y
+CONFIG_PACKAGE_tcpdump=y
+CONFIG_PACKAGE_ss=y
+CONFIG_PACKAGE_strace=y
+CONFIG_PACKAGE_gdbserver=y
 CONFIG_PACKAGE_kmod-pktgen=y
 CONFIG_PACKAGE_iperf3=y
 CONFIG_PACKAGE_tc-full=y
@@ -291,7 +294,10 @@ FEEDS = {  # name -> (url, commit); pinned 2026-11-18 for OpenWrt main 27663a017
 }
 FEED_PKGS = ["luci", "luci-app-statistics", "luci-app-snmpd", "luci-app-lldpd", "luci-app-package-manager",
              "collectd-mod-cpu", "collectd-mod-interface", "collectd-mod-load", "collectd-mod-memory",
-             "collectd-mod-network", "collectd-mod-rrdtool", "collectd-mod-thermal"]
+             "collectd-mod-network", "collectd-mod-rrdtool", "collectd-mod-thermal",
+             # diagnostics: PHY/MDIO + I2C register access (SFP EEPROM, PCA9534), net + system tracing
+             "phytool", "i2c-tools", "mtr-nojson", "conntrack", "iputils-arping", "iputils-tracepath", "iftop",
+             "nload", "socat", "htop", "lsof", "sysstat", "nano", "hexedit", "jq", "tmux", "pv"]
 
 
 def feeds() -> int:
