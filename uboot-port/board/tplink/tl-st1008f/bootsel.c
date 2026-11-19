@@ -386,20 +386,23 @@ static void bb_read(void)
 #define NETWIN_IP	"192.168.1.1"
 #define NETWIN_NC	"192.168.1.255"
 #define NETWIN_STDIO	"serial@2000,nc"	/* stdio name of uart0 (DTS serial@2000); plain "serial" is rejected, errno 22 */
+/* ESC window with the network up: the far bridge port forwards ~4 s after link-up (2 x forward_delay 2 s, CLAUDE.md)
+ * + ~2 s link-up after laser-on = 6 s, x1.25 -> 8 s. Expiry: autoboot continues. M2 only. */
+#define NETWIN_BOOTDELAY	"8"
 static const u8 cage_port[8] = { 0, 8, 16, 20, 24, 25, 26, 27 };	/* cage 1-8 -> SDK port (docs/hardware.md) */
 
-static void netwin(void)
+static bool netwin(void)
 {
 	char cmd[64];
 	int cage = NETWIN_CAGE, c;
 
 	if (st1008f_boot_mode(NULL) != 2)
-		return;
+		return false;
 	if (__raw_readl(REC_NETWIN) == REC_NETWIN_MAGIC) {
 		__raw_writel(0, REC_NETWIN);
 		puts("netwin: the last bring-up did not finish (reset): skipped this boot\n");
 		rtk_led_fallback("netwin");
-		return;
+		return false;
 	}
 	__raw_writel(REC_NETWIN_MAGIC, REC_NETWIN);
 	wdt_on(NETWIN_WDT_MS);
@@ -421,6 +424,7 @@ static void netwin(void)
 	wdt_off();
 	__raw_writel(0, REC_NETWIN);
 	printf("netwin: cage %d up, " NETWIN_IP ", netconsole broadcast " NETWIN_NC "; ESC to UDP :6666 stops autoboot\n", cage);
+	return true;
 }
 
 /* board_late_init, chained boot (mode 1-3, invalid passed as 1): set bootcmd, bootargs, bootdelay */
@@ -428,12 +432,13 @@ int st1008f_bootsel(int mode)
 {
 	char why[96], cmd[512], slot, other;
 	int s = decide(&slot, &other, why, sizeof(why), true), n;
+	bool nw;
 
 	printf("Boot:  %s (%s)\n", sel_name[s], why);
 	bb_read();
 	if (fb_auto)
 		rtk_led_fallback(fb_auto);
-	netwin();
+	nw = netwin();
 	if (s == SEL_PROMPT)
 		return 0;
 	n = snprintf(cmd, sizeof(cmd), BOOT_HEAD);
@@ -447,7 +452,7 @@ int st1008f_bootsel(int mode)
 	snprintf(cmd + n, sizeof(cmd) - n, BOOT_TAIL);
 	env_set("bootcmd", cmd);
 	/* owner #46: 2 s window, ESC only (CONFIG_AUTOBOOT_STOP_STR); no env key may replace it */
-	env_set("bootdelay", "2");
+	env_set("bootdelay", nw ? NETWIN_BOOTDELAY : "2");
 	env_set("bootstopkey", NULL);
 	env_set("bootdelaykey", NULL);
 	return 0;
