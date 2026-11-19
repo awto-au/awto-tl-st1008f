@@ -421,7 +421,7 @@ def network(con: Console) -> bool:
     return ok
 
 
-GATEWAY = "192.168.25.254"  # house LAN gateway (awto-dan ip-registry.toml)
+GATEWAY = "192.168.25.254"  # house LAN gateway (awto-terminal ip-registry.toml)
 NET_FILE = "uboot-mainline.bin"  # tmp/tftp; any file works, this one always exists after a build
 TFTP_ADDR, WGET_ADDR = 0x84F00000, 0x85F00000
 HTTP_PORT = 8080  # unprivileged host port for wget (env httpdstp)

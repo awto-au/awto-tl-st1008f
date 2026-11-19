@@ -1,7 +1,7 @@
 #!/usr/bin/env python3
 """openwrt_hostname — set a running OpenWrt's hostname to its registry box name over SSH.
 
-- Name from `boards.HOSTNAMES` (= awto-dan ip-registry block names: st1008f-1, st1008f-2).
+- Name from `boards.HOSTNAMES` (= awto-terminal ip-registry block names: st1008f-1, st1008f-2).
 - `system.@system[0].hostname` + `uci commit` + `/etc/init.d/system reload` (persistent; LuCI, the
   shell prompt, LLDP, syslog `HOST` and the snmpd sysName follow). Any unit (NET_MANAGE). Log: tmp/logs/openwrt_hostname.log
 """

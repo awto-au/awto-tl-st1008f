@@ -58,7 +58,7 @@ Narrative & dead ends: see [HISTORY.md](HISTORY.md). Evidence paths under `priva
 - **No factory MAC.** Stock `printsys` → `Invalid system information`; stock env `ethaddr` was a Realtek-OUI placeholder (#36).
 - **No per-unit data in flash.** sw2 (st1008f-2) full-flash backup 2026-10-12 is byte-identical to sw1's stock backup of 2026-10-08 (every MTD and `full-flash.bin` sha256 equal; env `ethaddr=00:E0:4C:00:00:00`). Each unit needs its own MAC written at install (#91).
 - **No MAC anywhere else either** (sw2, 2026-10-12, `./dev.py mem-dump` at our prompt after stock `rtk network on`): on-chip SRAM (64 KiB, 64304 non-zero bytes) holds no MAC; RAM-resident stock U-Boot holds only `ethaddr=00:E0:4C:00:00:00` (from the env); its text matches the flash loader for the first `0x922a5` bytes (rest = runtime data). No case-sticker MAC recorded yet.
-- **Per-unit MACs and addresses are not recorded here.** Tool constants: `scripts/boards.py`; registry boxes `st1008f-1`, `st1008f-2` and the bench relay: awto-dan `docs/network/ip-registry.toml`.
+- **Per-unit MACs and addresses are not recorded here.** Tool constants: `scripts/boards.py`; registry boxes `st1008f-1`, `st1008f-2` and the bench relay: awto-terminal `docs/network/ip-registry.toml`.
 - Unit MACs are locally administered and stored in `u-boot-env` `ethaddr` (written by `sysupgrade` or `uboot-chain-env set-mac`); the bridge `switch`, `switch.1` and lan1 share the base MAC, lan2-lan8 count up from it.
 
 ## Unit guard (#91)

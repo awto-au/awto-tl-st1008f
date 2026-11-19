@@ -86,7 +86,7 @@ Index of owner decisions, newest first. One line each: date (AEDT), decision, li
 - OpenWrt's own config writes (`uci commit`) need no special permission.
 - Mode switch boot policy: M1 normal (ports isolated until OpenWrt), M2 easy mode (DHCP, U-Boot over LAN), M3 undecided → TFTP recovery — **superseded by** 2026-10-12 mode-switch decision. #46.
 - Lock the board at 1 GHz; push CPU, RAM, flash and serial as fast as they go. #32, #38.
-- Static IPs from the house registry (`awto-dan` `docs/network/ip-registry.toml`): switch `.48`, host `enp7s0` `.30`, relay `.49` (claimed; router reservation pending) — switch part **superseded by** 2026-10-12 management-address decision.
+- Static IPs from the house registry (`awto-terminal` `network/ip-registry.toml`): switch `.48`, host `enp7s0` `.30`, relay `.49` (claimed; router reservation pending) — switch part **superseded by** 2026-10-12 management-address decision.
 
 ## 2026-10-10
 

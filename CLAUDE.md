@@ -2,7 +2,7 @@
 
 Public repo: never commit anything from `private/`; no host paths/secrets in tracked files. IPs, MACs, SFP serials OK (owner 2026-10-10: meaningless here) — don't redact.
 
-Addresses, MACs and relay: registry boxes `st1008f-1`, `st1008f-2` (`awto-dan/docs/network/ip-registry.toml`) and `scripts/boards.py`; not repeated here.
+Addresses, MACs and relay: registry boxes `st1008f-1`, `st1008f-2` (`awto-terminal/network/ip-registry.toml`) and `scripts/boards.py`; not repeated here.
 
 ## Units (owner 2026-10-12; `scripts/boards.py`)
 - **sw1 = st1008f-1**: lab switch, no relay, no serial. Not the house LAN (owner 2026-11-18). Cabling moves: never trust a doc for what is on a port, run `cabling_map.py` (awto-terminal, read-only, LLDP per cage). Never touch sw1 lan5 (Selwyn's NIC). Power-cycle/reboot only on owner request (one approved 2026-11-18 for the US-48 10G tests); network checks otherwise (`./dev.py switch-check`). Reflash only on owner request (2026-10-13): `./dev.py openwrt-sysupgrade-ssh --ip <sw1 IP>` (keeps config, backup first).
