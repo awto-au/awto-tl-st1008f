@@ -29,15 +29,15 @@ Chain-load from stock (#47 option A, live since 2026-10-11, fd16464).
 
 - Stock env (`./dev.py uboot-chain-env apply`, one `saveenv`, 0.7 s; #105):
   - `bootcmd_stock=boota` (stock's own flash boot)
-  - `ub_ld=cp.b 0x94200000 0x81000000 0x80000` (512 KiB slot from the mmio window; 960 KiB: `0xf0000`, [growing](#growing-the-chain-slot-155))
-  - `ub_ck=crc32 0x81000000 0x7fffc 0x80ffff00; cmp.l 0x80ffff00 0x8107fffc 1` (slot CRC vs its last word; 960 KiB: `0xefffc`, `cmp.l` at `0x810efffc`)
+  - `ub_ld=cp.b 0x94200000 0x81000000 0xf0000` (960 KiB slot from the mmio window; sw1 still `0x80000`, [growing](#growing-the-chain-slot-155))
+  - `ub_ck=crc32 0x81000000 0xefffc 0x80ffff00; cmp.l 0x80ffff00 0x810efffc 1` (slot CRC vs its last word; sw1 `0x7fffc` / `0x8107fffc`)
   - `ub_go=mw.l 0xa0f80000 0xa5a51008; go 0x81000000` (marker, run)
   - `bootcmd=run ub_ld ub_ck ub_go; run bootcmd_stock`
   - Stock has no hush and no `crc32 -v`: `run` stops at the first var whose last command fails (`cmp.l` rc 1, U-Boot 2011.12 `do_run`), `;` goes on → mismatch = stock `boota` = flash OpenWrt at stock clocks, not a hang. Not yet verified on the board: `uboot-chain-env test-bad` ([OPS](DEFAULT-BOOT-OPS.md#chain-slot-check-105)).
   - Stock `crc32` = zlib CRC32 (whole-flash `dd984f95` matched the host, 2026-10-08).
   - Each var ≤ 14 words (stock `CONFIG_SYS_MAXARGS` 16).
   - `bootdelay=1` kept: stock's 1 s Esc window is the only serial path in if our U-Boot or its env breaks; `bootdelay=0` dropped (owner 2026-10-12, #81; [UBOOT-REFERENCE.md](UBOOT-REFERENCE.md#boot-timing-before-the-countdown-81)).
-- Slot (`tmp/tftp/uboot-mainline-chain.bin`, `scripts/uboot_chain_image.py`): 512 KiB default (`UBOOT_CHAIN_SLOT` / `--chain-slot`, one definition in `scripts/uboot_chain_layout.py`); `u-boot.bin` at 0, 0xff pad, trailer at SLOT-0x40 (0x7ffc0) = magic `ST1008F-UBOOT` + v1, image size, image CRC32, build name; last word = CRC32 of bytes 0..SLOT-5 (0-0x7fffb).
+- Slot (`tmp/tftp/uboot-mainline-chain.bin`, `scripts/uboot_chain_image.py`): 960 KiB default (`UBOOT_CHAIN_SLOT=0x80000` / `--chain-slot` for sw1's 512 KiB, one definition in `scripts/uboot_chain_layout.py`); `u-boot.bin` at 0, 0xff pad, trailer at SLOT-0x40 (0xeffc0) = magic `ST1008F-UBOOT` + v1, image size, image CRC32, build name; last word = CRC32 of bytes 0..SLOT-5 (0-0xefffb).
   - Image ≤ SLOT-0x40 (0x7ffc0) B (build fails above).
   - Code at offset 0: the pre-#105 env (`cp.b …; go`, no check) still boots a new slot; the new env falls back to `boota` on a pre-#105 raw image (its last word is erased flash). Install and env apply work in either order.
 - Our U-Boot: `./dev.py uboot-chain-install` → `jffs2-log` (mtd4, 0x200000-0x2fffff, unmounted by OpenWrt; overlay is `rootfs_data`); host checks the slot CRCs before sending; blank check before the first write; read-back md5 (console) or read-back + CRC re-check on the host (SSH).
@@ -54,7 +54,8 @@ Chain-load from stock (#47 option A, live since 2026-10-11, fd16464).
 ### Growing the chain slot (#155)
 
 - Decision: owner 2026-11-07 ([DECISIONS.md](DECISIONS.md)); 512 KiB -> 960 KiB (`0xF0000`) inside `jffs2-log`, `jffs2-cfg` later if needed. Image 515,769 B vs limit 0x7ffc0 (~8 KB slack) is why.
-- One parameter: `UBOOT_CHAIN_SLOT=0xF0000` or `--chain-slot 0xF0000` (`uboot_chain_layout.py`; used by image builder, env, installer, build, flash guard, `ramload --from-flash`). Default stays 0x80000.
+- One parameter: `UBOOT_CHAIN_SLOT` or `--chain-slot` (`uboot_chain_layout.py`; used by image builder, env, installer, build, flash guard, `ramload --from-flash`). Default 0xF0000 since the sw2 migration; sw1 operations need `UBOOT_CHAIN_SLOT=0x80000` until it is migrated (owner's go).
+- Migrated: sw2 2026-11-20T09:12-09:14+11:00 (backups of u-boot-env, u-boot-env2, jffs2-log in `private/backup-155/`): install over ssh (read-back PASS), `uboot-chain-env apply --ssh`, warm reboot: stock CRC `3b9471ea` over 0x81000000-0x810efffb, our U-Boot ran, kernel started; `test-bad` PASS (check failed -> stock `boota` -> flash OpenWrt). Image 522,569 B, 460,407 B below the 0xeffc0 limit.
 - Refused: not 64 KiB aligned; end past 0x2EFFFF (`bootstate` 0x2F0000); RAM copy past stock U-Boot (0x83f00000); env/image length mismatch (host pre-check in `uboot-chain-env test|test-bad|apply`, before any board contact); `apply --allow-fallback` at a non-default size.
 - 960 KiB env: `ub_ld=cp.b 0x94200000 0x81000000 0xf0000`, `ub_ck=crc32 0x81000000 0xefffc 0x80ffff00; cmp.l 0x80ffff00 0x810efffc 1`.
 - Check: `python3 scripts/uboot_chain_layout.py --selftest` (default strings byte-equal to the live env; default rebuild of the live slots byte-identical; 960 KiB build + cross-length failures).
@@ -64,8 +65,8 @@ Chain-load from stock (#47 option A, live since 2026-10-11, fd16464).
   - 3 `./dev.py uboot-chain-install --overwrite` (or `uboot-chain-install-ssh`): host checks the image at 960 KiB, flash guard 0x200000+0xF0000, read-back.
   - 4 old 512 KiB env + new image: slot CRC fails -> stock `boota` -> OpenWrt (safe window, not a brick).
   - 5 `./dev.py uboot-chain-env apply` (refuses unless the flash slot verifies at 960 KiB), cold power cycle, check banner + `bootm` slot a (`uboot-chain-env boot`).
-  - 6 `uboot-chain-env test-bad` must end in stock `boota` (not yet verified at 512 KiB either).
-- Rollback: ESC in stock's 1 s countdown -> `./dev.py uboot-chain-env revert` (`bootcmd=boota`). To go back to 512 KiB: build + install a 512 KiB slot (default size), then `apply` without the variable.
+  - 6 `uboot-chain-env test-bad` must end in stock `boota` (verified at 960 KiB on sw2, 2026-11-20).
+- Rollback: ESC in stock's 1 s countdown -> `./dev.py uboot-chain-env revert` (`bootcmd=boota`). To go back to 512 KiB: build + install a 512 KiB slot with `UBOOT_CHAIN_SLOT=0x80000`, then `apply` with the same variable.
 - Open: stock use of `jffs2-cfg`/`jffs2-log` (`flerase`); boot-time cost of the 960 KiB `cp.b` at 25.5 MHz SPI.
 
 ## Stock U-Boot area protection (#81)
@@ -91,7 +92,7 @@ Chosen 2026-10-14 (#117, owner): two full slots. Replaces option A (22 MiB prima
 |---|---|---|---|---|
 | u-boot, u-boot-env, u-boot-env2 | 0x0000000 | 1 MiB | stock | - |
 | jffs2-cfg | 0x0100000 | 1 MiB | stock data | - |
-| jffs2-log | 0x0200000 | 960 KiB | our U-Boot (512 KiB slot; 960 KiB after the #155 migration) | `uboot-chain-install` |
+| jffs2-log | 0x0200000 | 960 KiB | our U-Boot (960 KiB slot on sw2; sw1 512 KiB until migrated, #155) | `uboot-chain-install` |
 | bootstate | 0x02f0000 | 64 KiB | good + trial slot | Linux (`st1008f-slot`) |
 | firmware_a | 0x0300000 | 14.5 MiB | uImage + squashfs + overlay | sysupgrade |
 | firmware_b | 0x1180000 | 14.5 MiB | uImage + squashfs + overlay | sysupgrade |

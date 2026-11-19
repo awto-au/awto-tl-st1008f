@@ -1,8 +1,8 @@
 #!/usr/bin/env python3
 """uboot_chain_layout — the ONE definition of our U-Boot chain slot size in flash `jffs2-log` (#155).
 
-- Default 0x80000 (512 KiB). Select 0xF0000 (960 KiB) with env `UBOOT_CHAIN_SLOT=0xF0000` or the
-  flag `--chain-slot 0xF0000` (read from sys.argv at import, so every script that imports this agrees).
+- Default 0xF0000 (960 KiB). Select the old 0x80000 (512 KiB, sw1) with env `UBOOT_CHAIN_SLOT=0x80000` or the
+  flag `--chain-slot 0x80000` (read from sys.argv at import, so every script that imports this agrees).
 - Users: uboot_chain_image (build/check), uboot_chain_env (ub_ld/ub_ck), uboot_chain_install,
   flash_guard (check_chain_slot), build_uboot_mainline, st1008_ramload --from-flash, nat_clock_variants.
 - Hard limits (refused in `validate`): inside 0x200000-0x2EFFFF (bootstate at 0x2F0000 is never
@@ -19,7 +19,8 @@ from pathlib import Path
 ROOT = Path(__file__).resolve().parent.parent
 LOG = ROOT / "tmp/logs/uboot_chain_layout.log"
 
-DEFAULT_SLOT = 0x80000
+DEFAULT_SLOT = 0xF0000       # sw2 live since 2026-11-20; sw1 still LEGACY_SLOT until the owner OKs it
+LEGACY_SLOT = 0x80000
 REGION_START = 0x200000      # flash offset of jffs2-log = slot start
 REGION_END = 0x2F0000        # bootstate (A/B record, Linux-owned): never touched
 ERASE = 0x10000              # W25Q256 64 KiB erase sector (mtd erase block)
@@ -115,8 +116,8 @@ def selftest() -> int:
             return True
         return False
 
-    expect(ld_cmd(DEFAULT_SLOT) == OLD_LD and ck_cmd(DEFAULT_SLOT) == OLD_CK,
-           f"default strings byte-equal to the live env: {ld_cmd(DEFAULT_SLOT)!r} / {ck_cmd(DEFAULT_SLOT)!r}")
+    expect(ld_cmd(LEGACY_SLOT) == OLD_LD and ck_cmd(LEGACY_SLOT) == OLD_CK,
+           f"512 KiB strings byte-equal to sw1's live env: {ld_cmd(LEGACY_SLOT)!r} / {ck_cmd(LEGACY_SLOT)!r}")
     new = 0xF0000
     log(f"960 KiB ub_ld = {ld_cmd(new)}")
     log(f"960 KiB ub_ck = {ck_cmd(new)}")
@@ -143,10 +144,13 @@ def selftest() -> int:
             log(f"skip {name} (absent)")
             continue
         old = p.read_bytes()
+        if len(old) != DEFAULT_SLOT:
+            log(f"skip {name} ({len(old)} B, not a {DEFAULT_SLOT:#x} slot)")
+            continue
         t = old[DEFAULT_SLOT - TRAILER_SIZE:]
         size, = struct.unpack(">I", t[16:20])
         nm = t[24:56].split(b"\x00")[0].decode()
-        expect(img.make(old[:size], nm, DEFAULT_SLOT) == old, f"default 512 KiB rebuild of {name} is byte-identical ({size} B, {nm!r})")
+        expect(img.make(old[:size], nm, DEFAULT_SLOT) == old, f"default 960 KiB rebuild of {name} is byte-identical ({size} B, {nm!r})")
     raw = tftp / "uboot-mainline-b2.bin"
     if raw.exists():
         data = raw.read_bytes()
@@ -154,9 +158,9 @@ def selftest() -> int:
         ok, detail = img.check(s960, new)
         expect(len(s960) == new and ok, f"960 KiB image from {raw.name} ({len(data)} B): {detail}")
         expect(struct.unpack(">I", s960[-4:])[0] == zlib.crc32(s960[:-4]), "960 KiB last word = CRC32 of bytes 0..slot-5")
-        expect(img.check(s960, DEFAULT_SLOT)[0] is False, "960 KiB image fails the 512 KiB check")
-        expect(img.check(s960[:DEFAULT_SLOT], new)[0] is False, "512 KiB truncation fails the 960 KiB check")
-        expect(img.check(img.make(data, "selftest", DEFAULT_SLOT), new)[0] is False, "512 KiB image fails the 960 KiB check")
+        expect(img.check(s960, LEGACY_SLOT)[0] is False, "960 KiB image fails the 512 KiB check")
+        expect(img.check(s960[:LEGACY_SLOT], new)[0] is False, "512 KiB truncation fails the 960 KiB check")
+        expect(img.check(img.make(data, "selftest", LEGACY_SLOT), new)[0] is False, "512 KiB image fails the 960 KiB check")
     else:
         expect(False, f"{raw} missing")
     log(f"{'PASS' if not fails else 'FAIL'} uboot_chain_layout selftest ({fails} failures)")
