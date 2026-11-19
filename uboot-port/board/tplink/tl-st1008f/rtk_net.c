@@ -700,6 +700,8 @@ static void network_on(void)
 		ret = media_set(port, m);
 		if (ret)	/* e.g. 0xf00d: 1G next to a 2.5G pair partner (shared ring PLL) */
 			printf("rtk: cage %d media %d: FAIL (0x%x)\n", c, m, ret);
+		else if (m == MEDIA_SGMII)	/* host side SGMII: the module PHY must match (#178) */
+			rtk_sfp_copper_phy_init(c);
 	}
 	rtk_sfp_power_sum(false);	/* total vs budget, WARNING if over (#30) */
 	rtk_iso_guard();
@@ -717,12 +719,14 @@ static void network_on(void)
 /* linkcheck: power one cage's SerDes with its module's media (a stock flow may have left it off) */
 void rtk_cage_up(int cage)
 {
-	int port = rtk_cage_port[cage - 1];
+	int port = rtk_cage_port[cage - 1], m;
 
 	if (!constructed)
 		construct();
 	phy_enable(port, true);
-	media_set(port, cage_media(cage));
+	m = cage_media(cage);
+	if (!media_set(port, m) && m == MEDIA_SGMII)
+		rtk_sfp_copper_phy_init(cage);
 }
 
 int rtk_network(int argc, char *const argv[])

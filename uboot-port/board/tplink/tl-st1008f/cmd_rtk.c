@@ -522,6 +522,105 @@ static int sfp_phy(int cage, int only)
 	return 0;
 }
 
+/* PHY writes: two 1-byte writes of the same reg, MSB then LSB (Linux mdio-i2c smbus_byte_mii_write_default_c22) */
+static int phy_wbyte(struct udevice *dev, int r, u8 b, int *retries)
+{
+	int tries;
+
+	for (tries = 0; dm_i2c_write(dev, r, &b, 1); tries++) {
+		if (tries == 4)
+			return -EIO;
+		mdelay(1);
+		(*retries)++;
+	}
+	return 0;
+}
+
+static int phy_rd(struct udevice *dev, int r, u16 *v, int *retries)
+{
+	u8 hi, lo;
+
+	if (phy_byte(dev, r, &hi, retries) || phy_byte(dev, r, &lo, retries))
+		return -EIO;
+	*v = hi << 8 | lo;
+	return 0;
+}
+
+static int phy_wr(struct udevice *dev, int r, u16 v, int *retries)
+{
+	return phy_wbyte(dev, r, v >> 8, retries) ?: phy_wbyte(dev, r, v & 0xff, retries);
+}
+
+#define M1111_EXT_SR		0x1b	/* HWCFG mode, as Linux marvell.c MII_M1111_PHY_EXT_SR */
+#define M1111_MODE_MASK		0xf
+#define M1111_MODE_SGMII_NO_CLK	0x4
+#define M1111_FIBER_COPPER_RES	BIT(13)
+#define M1111_FIBER_COPPER_AUTO	BIT(15)
+#define M1111_PAGE		0x16	/* page select; 0 = copper */
+#define PHY_BMCR_RESET		BIT(15)
+#define PHY_BMCR_ANE_RESTART	0x1200	/* AN enable + restart; speed/duplex bits clear */
+#define PHY_ANAR_1000TX_ONLY	0x0c01	/* selector + sym/asym pause, no 10/100: GLC-T module default, Linux sfp advertises 1000baseT/Full only */
+#define PHY_1000CTRL_FULL	0x0200
+/* Linux PHY_RESET_TIMEOUT = 600 ms; the 88E1111 clears BMCR reset in < 1 ms. Expiry: FAIL line, no AN restart */
+#define PHY_RESET_CAP_MS	600
+
+/* Copper module 88E1111 (ID 0x0141 0x0cc?): what Linux marvell.c does for SGMII (m88e1111_config_init_sgmii +
+ * genphy_soft_reset + config_aneg). The module powers up in 1000BASE-X mode with autoneg off (BMCR 0x0140, #178),
+ * so with the host SerDes in SGMII no link forms. Returns 0 also for a module that is not an 88E1111. */
+int rtk_sfp_copper_phy_init(int cage)
+{
+	struct udevice *dev = rtk_chip(cage - 1, SFP_PHY);
+	int retries = 0, ms;
+	u16 id1, id2, v;
+
+	if (!dev || phy_rd(dev, 2, &id1, &retries) || phy_rd(dev, 3, &id2, &retries))
+		return 0;	/* no PHY answer: a fibre or MCU-only module */
+	if (id1 == 0x4101 && phy_rd(dev, 2, &id1, &retries))	/* byte pointer off by one, see sfp_phy() */
+		return 0;
+	if (id1 != 0x0141 || (id2 & 0xfff0) != 0x0cc0)
+		return 0;
+	if (phy_rd(dev, M1111_EXT_SR, &v, &retries))
+		goto fail;
+	v = (v & ~(M1111_MODE_MASK | M1111_FIBER_COPPER_AUTO | M1111_FIBER_COPPER_RES)) |
+	    M1111_MODE_SGMII_NO_CLK | M1111_FIBER_COPPER_AUTO;
+	if (phy_wr(dev, M1111_EXT_SR, v, &retries) || phy_wr(dev, M1111_PAGE, 0, &retries) ||
+	    phy_wr(dev, 0, PHY_BMCR_RESET, &retries))
+		goto fail;
+	for (ms = 0; ms < PHY_RESET_CAP_MS; ms += 5) {	/* 5 ms: one byte pair read costs ~1-2 ms */
+		if (phy_rd(dev, 0, &v, &retries))
+			goto fail;
+		if (!(v & PHY_BMCR_RESET))
+			break;
+		mdelay(5);
+	}
+	if (ms >= PHY_RESET_CAP_MS) {
+		printf("rtk: cage %d: copper PHY reset did not clear in %d ms\n", cage, PHY_RESET_CAP_MS);
+		return -ETIMEDOUT;
+	}
+	if (phy_wr(dev, 4, PHY_ANAR_1000TX_ONLY, &retries) || phy_wr(dev, 9, PHY_1000CTRL_FULL, &retries) ||
+	    phy_wr(dev, 0, PHY_BMCR_ANE_RESTART, &retries))
+		goto fail;
+	printf("rtk: cage %d: copper PHY 88E1111: SGMII, autoneg restarted\n", cage);
+	return 0;
+fail:
+	printf("rtk: cage %d: copper PHY 88E1111 setup failed (I2C)\n", cage);
+	return -EIO;
+}
+
+static int sfp_phy_write(int cage, int reg, int val)
+{
+	struct udevice *dev = rtk_chip(cage - 1, SFP_PHY);
+	int retries = 0;
+	u16 back;
+
+	if (!dev || phy_wr(dev, reg, val, &retries) || phy_rd(dev, reg, &back, &retries)) {
+		printf("cage %d: phy 0x%02x reg 0x%02x: write failed\n", cage, SFP_PHY, reg);
+		return CMD_RET_FAILURE;
+	}
+	printf("cage %d: phy 0x%02x reg 0x%02x <- 0x%04x, reads back 0x%04x\n", cage, SFP_PHY, reg, val, back);
+	return 0;
+}
+
 static int do_rtk_sfp(int argc, char *const argv[])
 {
 	int c;
@@ -530,6 +629,10 @@ static int do_rtk_sfp(int argc, char *const argv[])
 		rtk_sfp_power_sum(true);
 		return 0;
 	}
+	if (argc >= 3 && !strcmp(argv[2], "phy") && argc >= 5)
+		return sfp_phy_write(dectoul(argv[1], NULL), (int)hextoul(argv[3], NULL), (int)hextoul(argv[4], NULL));
+	if (argc >= 3 && !strcmp(argv[2], "phy") && argc == 4 && !strcmp(argv[3], "init"))
+		return rtk_sfp_copper_phy_init(dectoul(argv[1], NULL)) ? CMD_RET_FAILURE : 0;
 	if (argc >= 3 && !strcmp(argv[2], "phy"))
 		return sfp_phy(dectoul(argv[1], NULL), argc >= 4 ? (int)hextoul(argv[3], NULL) : -1);
 	if (argc >= 3 && !strcmp(argv[2], "raw"))
@@ -718,7 +821,8 @@ U_BOOT_CMD(rtk, 16, 0, do_rtk, "rtk     - Realtek commands\n",
 	   "        - declared power per cage + total vs budget (env sfp_budget_mw, default 15000)\n"
 	   "rtk sfp [cage [raw | brief | phy [reg] | mode]]\n"
 	   "        - module EEPROM + DDM: presence, checksums, ethtool-style decode;\n"
-	   "          phy: copper module PHY (0x56) regs 0-3, 0x11;\n"
+	   "          phy [REG [VAL]]: copper module PHY (0x56): regs 0-3, 0x11, or one reg (hex), or write VAL;\n"
+	   "          phy init: set the 88E1111 up for SGMII as Linux does (what network on runs for SGMII cages);\n"
 	   "          mode = SerDes interface Linux would pick (network on uses it; rtk_media=stock: 10G)\n"
 	   "rtk port [status]\n"
 	   "        - per cage: module PN, laser, SerDes mode, PCS link, MAC link + speed, media, LED\n"

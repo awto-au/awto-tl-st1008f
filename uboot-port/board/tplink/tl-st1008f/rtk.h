@@ -115,6 +115,9 @@ int rtk_spg(int argc, char *const argv[]);
 int rtk_cage_lit(int cage, char *why, int n);	/* 1 = lit or unknown (fail-safe), 0 = dark */
 void rtk_cage_up(int cage);	/* rtk_net.c: SerDes on with the module's media (linkcheck) */
 
+/* cmd_rtk.c: 88E1111 copper module PHY as Linux marvell.c sets it for SGMII (mode, soft reset, autoneg restart); 0 = done or not that PHY */
+int rtk_sfp_copper_phy_init(int cage);
+
 /* rtk_sfppower.c: declared module power vs board budget (#30); warn only */
 int rtk_sfp_power_mw(const u8 *id, const char **why);
 int rtk_sfp_budget_mw(void);
