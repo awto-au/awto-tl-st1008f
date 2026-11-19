@@ -33,6 +33,7 @@ ESC_PERIOD_S = 0.1             # a datagram before U-Boot's stack is up is lost;
 # reboot -> prompt (#178): peer link up +65 s after an ssh reboot + STP 4 s = ~70 s, x1.25 = 90 s. Expiry: exit 1, bytes seen
 PROMPT_CAP_S = 90
 CMD_CAP_S = 5                  # one U-Boot command echo over UDP: ms; 5 s names a lost datagram
+SSH_REBOOT_WAIT_S = 6          # ssh ConnectTimeout 5 s + 1: a connect failure shows within this; a live reboot hangs the session
 TFTPD_READY_CAP_S = 3          # sudo + python start ~0.5 s measured 2026-11-19, x6; expiry: exit, log path named
 LOAD_ADDR = 0x84F00000         # TFTP area (docs/UBOOT-MAINLINE.md)
 BOOT_CAP_S = 90                # kernel up on the LAN after bootm: ramload caps OpenWrt at 40 s, plain ~3 s + port-up
@@ -114,8 +115,17 @@ class Wire:
 def reboot(how: str, ip: str) -> None:
     if how == "ssh":
         log(f"reboot: ssh root@{ip} reboot")
-        subprocess.run(["ssh", "-o", "ConnectTimeout=5", "-o", "BatchMode=yes", f"root@{ip}", "reboot"],
-                       timeout=15, check=False)
+        # OpenWrt and the plain kernel have different dropbear keys on the same IP: no host-key check (bench LAN, as the other bench scripts)
+        p = subprocess.Popen(["ssh", "-o", "ConnectTimeout=5", "-o", "BatchMode=yes", "-o", "StrictHostKeyChecking=no",
+                              "-o", "UserKnownHostsFile=/dev/null", "-o", "LogLevel=ERROR", f"root@{ip}",
+                              "sync; reboot -f"],  # the plain kernel ignores a bare `reboot` (no init); sync = flush an OpenWrt overlay first
+                             stdout=subprocess.PIPE, stderr=subprocess.PIPE, text=True, start_new_session=True)
+        try:
+            _, err = p.communicate(timeout=SSH_REBOOT_WAIT_S)
+        except subprocess.TimeoutExpired:
+            return  # connected and the session hangs while the box goes down: rebooting; ESC spam starts now
+        if any(s in err for s in ("timed out", "No route", "refused", "Permission denied")):
+            raise SystemExit(f"ssh reboot of {ip} failed, nothing rebooted: {err.strip()[-200:]}")
     elif how == "relay":
         log("reboot: relay power cycle")
         rc = subprocess.call([sys.executable, str(ROOT / "scripts/switch_power.py"), "cycle"], timeout=60)
