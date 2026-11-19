@@ -30,8 +30,8 @@ UBOOT_IP = "192.168.1.1"       # bootsel.c NETWIN_IP
 HOST_IP = "192.168.1.2"        # host alias on the server NIC, same /24
 PROMPT = "st1008f-mainline # "
 ESC_PERIOD_S = 0.1             # a datagram before U-Boot's stack is up is lost; 10/s lands one within 0.1 s of it
-# reboot -> prompt: ssh shutdown ~6 s + stock U-Boot ~8 s + ours ~2 s + netwin <= 17 s + window 2 s = 35 s, x1.25 + 15
-PROMPT_CAP_S = 60
+# reboot -> prompt (#178): peer link up +65 s after an ssh reboot + STP 4 s = ~70 s, x1.25 = 90 s. Expiry: exit 1, bytes seen
+PROMPT_CAP_S = 90
 CMD_CAP_S = 5                  # one U-Boot command echo over UDP: ms; 5 s names a lost datagram
 LOAD_ADDR = 0x84F00000         # TFTP area (docs/UBOOT-MAINLINE.md)
 BOOT_CAP_S = 90                # kernel up on the LAN after bootm: ramload caps OpenWrt at 40 s, plain ~3 s + port-up

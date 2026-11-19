@@ -376,7 +376,7 @@ static void bb_read(void)
 }
 
 /* Power-up network window (#80), M2 only (the escape position, #46); M1/M3: no cost, no setting needed.
- * Before the 2 s autoboot window: `rtk network on`, light cage 1 only (as st1008_ramload.py laser/ports_only), 192.168.1.1, netconsole broadcast on 192.168.1.255: an ESC sent
+ * Before the autoboot window: `rtk network on`, light cage 1 only (as st1008_ramload.py laser/ports_only), 192.168.1.1, netconsole broadcast (255.255.255.255): an ESC sent
  * to UDP :6666 stops autoboot over the network. REC_NETWIN still set at the next boot = the bring-up hung: skip once. */
 #define REC_NETWIN	(REC + 4)
 #define REC_NETWIN_MAGIC	0x4e57494e	/* "NWIN" */
@@ -384,7 +384,7 @@ static void bb_read(void)
 #define NETWIN_WDT_MS	22000
 #define NETWIN_CAGE	1
 #define NETWIN_IP	"192.168.1.1"
-#define NETWIN_NC	"192.168.1.255"
+#define NETWIN_NC	"255.255.255.255"	/* net.c: only 0xFFFFFFFF skips ARP; a directed .255 waits for an ARP reply nobody sends */
 #define NETWIN_STDIO	"serial@2000,nc"	/* stdio name of uart0 (DTS serial@2000); plain "serial" is rejected, errno 22 */
 /* ESC window with the network up: the far bridge port forwards ~4 s after link-up (2 x forward_delay 2 s, CLAUDE.md)
  * + ~2 s link-up after laser-on = 6 s, x1.25 -> 8 s. Expiry: autoboot continues. M2 only. */
@@ -415,8 +415,8 @@ static bool netwin(void)
 		snprintf(cmd, sizeof(cmd), "rtk port disable %d", cage_port[c - 1]);
 		run_command(cmd, 0);
 	}
-	env_set("ipaddr", NETWIN_IP);
-	env_set("netmask", "255.255.255.0");
+	/* net.c on_ipaddr/on_netmask skip programmatic env_set(): the live net_ip would stay the stock value */
+	run_command("setenv ipaddr " NETWIN_IP "; setenv netmask 255.255.255.0", 0);
 	env_set("ncip", NETWIN_NC);
 	env_set("stdin", NETWIN_STDIO);
 	env_set("stdout", NETWIN_STDIO);
