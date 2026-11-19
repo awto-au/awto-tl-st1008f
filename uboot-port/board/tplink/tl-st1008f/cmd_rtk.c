@@ -715,7 +715,7 @@ U_BOOT_CMD(rtk, 16, 0, do_rtk, "rtk     - Realtek commands\n",
 	   "rtk laser [status | <cage> | none | all force]\n"
 	   "        - SFP TX enable via the TCA9534A; one cage at a time unless forced\n"
 	   "rtk sfp power\n"
-	   "        - declared power per cage + total vs budget (env sfp_budget_mw, default 16000)\n"
+	   "        - declared power per cage + total vs budget (env sfp_budget_mw, default 15000)\n"
 	   "rtk sfp [cage [raw | brief | phy [reg] | mode]]\n"
 	   "        - module EEPROM + DDM: presence, checksums, ethtool-style decode;\n"
 	   "          phy: copper module PHY (0x56) regs 0-3, 0x11;\n"
