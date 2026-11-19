@@ -398,7 +398,7 @@ def network(con: Console) -> bool:
     """Stage 4 (#51 #25): `rtk network on` with no stock help, cage 1 laser only. Pass: cage 1 PCS + MAC up,
     every other cage configured (sds not off) with no link. Not in the default list: changes state."""
     try:
-        _, out = con.run("rtk network on", r"Err:0xf030:FAIL \(0xf030\)" + PROMPT, NET_CAP_S, "rtk network on")
+        _, out = con.run("rtk network on", r"rtk: network on done \(\d+ ms\)\s*\r?\n" + PROMPT, NET_CAP_S, "rtk network on")
         con.run("rtk laser 1", r"OK \(out 0xfe\)" + PROMPT, 1, "laser cage 1 only")
         for i in range(LINK_TRIES):
             _, st = con.run("rtk port", PROMPT, 3, "rtk port")

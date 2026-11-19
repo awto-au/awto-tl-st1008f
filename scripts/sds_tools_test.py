@@ -46,7 +46,7 @@ def run(con: Console, cmd: str, cap: float) -> str:
 
 def net_on(con: Console) -> None:
     if "run `rtk network on` first" in run(con, "rtk sds status 1", STATUS_CAP_S):
-        con.run("rtk network on", r"Err:0xf030:FAIL \(0xf030\)" + PROMPT, NET_CAP_S, "rtk network on")
+        con.run("rtk network on", r"rtk: network on done \(\d+ ms\)\s*\r?\n" + PROMPT, NET_CAP_S, "rtk network on")
     con.run("rtk laser 1", r"OK \(out 0xfe\)" + PROMPT, 1, "laser cage 1 only")
 
 

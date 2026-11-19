@@ -167,7 +167,7 @@ Code `rtk_net.c` (media choice `rtk_sfpmode.c`). Sources: stock loader [BIN] (`t
   - Tail of `mac_led_config` = `mac_park_tx_disable` 0x83f6f710: TX-disable PCA9534 `0x38` reg 3 = `0xff`, reg 1 = `0xff` = all lasers off. Ported (`rtk_net.c` `park_tx_disable()`).
   - once per boot, "Chip Construct" steps (stock table 0x83fa3718) with stock step names: SMI poll mask `0xca90[27:0]` = 0; polarity normal (page 6 reg 2 bits 13/14, page 0 reg 0 bits 8/9); MAC `SDS_MODE_SEL` = `0x1f` all 12; construct lists (`rtk_sds_tables.h`, list `a`, even 120 / odd 106 rows, sds 3 pages 0-3 -> physical 10); WDIG reg 0xb bit 1; `sds_mode_10gr_set` 0x83f90f74 per SerDes 2-9 (LC 10.3125G, ring 1.25G, CMU toggle until 3 ready reads, 10GR FSM/block-lock check); private poll mask 0; poll mask `0x0f110101`; page 0 reg 4 bit 2 (`fiberNwayForceLink`).
   - per cage: `phy_9300_enable_set` (page 2/4 BMCR power-up) -> media set with the current media, then the cage media (stock: `fiber10g` always).
-  - CPU port: `Err:0xf030:FAIL (0xf030)` (stock text, no PHY driver), then 2 s settle.
+  - CPU port: no PHY driver (stock prints `Err:0xf030:FAIL (0xf030)`; ours prints nothing), 2 s settle, then `rtk: network on done (N ms)`.
 - Hardware 2026-10-11 (#51), from flash, no stock network on, `rtk_media=stock`: `rtk network on` 7.1 s; all 8 SerDes `0x1a`; cage 1 `pcs up, mac up 10G`; `uboot-test network` PASS. Stock discriminator `rtk sdsreg get 0 2 46 20` = `0x1311` = list `a` (`0x1179` would be `bT`).
 - Switching-plane defaults: ours writes stock's SDK init too ([stock switch init](#stock-switch-init-what-rtk-network-on-writes-80)).
 

@@ -374,7 +374,7 @@ rtk i2c read 8 1               # readback
 - **GPIO/I2C before SDK init hangs the console.** `rtk pinGet`, `rtk i2c init sw`, `rtk i2c read` wedge U-Boot (power cycle needed) only if run before `rtk network on`. After it they work. Same for `rtk comboport copper|fiber` (#34).
 - **`rtk network on` twice in one boot is unreliable.** One second run returned `0xf030` and then the console went dead (power cycle); another second run returned normally. Run it once per boot.
 - `rtk 10g <port> <media>` before `rtk network on` → `0xf002` (unit not initialised).
-- `rtk network on` always ends `Err:0xf030:FAIL (0xf030)`: `phy_enable_set` returns `RT_ERR_PORT_NOT_SUPPORTED` for every PHY-less port; the loop ignores it. Benign.
+- Stock `rtk network on` always ends `Err:0xf030:FAIL (0xf030)`: `phy_enable_set` returns `RT_ERR_PORT_NOT_SUPPORTED` for every PHY-less port; the loop ignores it. Benign. Our U-Boot does not print it: it ends `rtk: network on done (N ms)`.
 - `rtk boardid <id>`, `rtk boardmodel <str>`, `rtk comboport` are setters, not queries.
 - Flash-writing commands: `saveenv`, `savesys`, `setsys`, `upgrade *`, `*force`, `flerase`, `sf write/erase/update`, `erase`. Never used here.
 - Old `rtk i2c init sw 0 0 8 0 0 ...` "SFP EEPROM reads = 0x0" bit-banged GPIO8/GPIO0 (MOD-DEF0) — wrong pins. Use devices 0-7.

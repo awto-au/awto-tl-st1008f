@@ -701,8 +701,7 @@ static void network_on(void)
 		if (ret)	/* e.g. 0xf00d: 1G next to a 2.5G pair partner (shared ring PLL) */
 			printf("rtk: cage %d media %d: FAIL (0x%x)\n", c, m, ret);
 	}
-	rtk_sfp_power_sum(false);	/* total vs budget, WARNING if over (#30); before Err: scripts wait on it */
-	printf("Err:0x%x:FAIL (0x%x)\n", 0xf030, 0xf030);	/* stock: CPU port has no PHY driver */
+	rtk_sfp_power_sum(false);	/* total vs budget, WARNING if over (#30) */
 	rtk_iso_guard();
 	rtk_storm_defaults();	/* #111 */
 	net_on = true;
@@ -712,6 +711,7 @@ static void network_on(void)
 		       get_timer(t0));
 		rtk_led_error("sds-io");
 	}
+	printf("rtk: network on done (%lu ms)\n", get_timer(t0));	/* the end marker scripts wait on */
 }
 
 /* linkcheck: power one cage's SerDes with its module's media (a stock flow may have left it off) */
