@@ -41,6 +41,18 @@ End-to-end workflow: [../README.md#workflow](../README.md#workflow).
 - Purpose: sw2 port down, hold 2 s, up, report carrier time and speed (default `lan2`); the kernel SFP code asserts TX-disable on down. No module power rail is switchable (#30); GLC-T ignores TX-disable.
 - Run: `python3 scripts/bounce.py [lan2] [--ip IP]`; refuses lan1 (mgmt uplink). Log `tmp/logs/bounce.log`.
 
+### sync_sfp_core.py
+- Purpose: vendor awto-sfp-core `src/sfp_core.[ch]` into `shared/sfp-core/` (+ `MANIFEST.txt` with the source commit and sha256) and check for drift (#181; pattern of awto-dan#109). The U-Boot build copies the two files into the tree (`SHARED` in `build_uboot_mainline.py`).
+- Run: `python3 scripts/sync_sfp_core.py stage|check` (`check` also compares with the checkout at `$SFP_CORE_REPO`, default `/mnt/2tb/git/awto-sfp-core`). Log `tmp/logs/sync_sfp_core.log`.
+
+### uboot_run.py
+- Purpose: run U-Boot commands on sw2 once from a running OpenWrt: requests the one-shot window (devmem), reboots, catches the window, runs the commands at the prompt, boots Linux again.
+- Run: `python3 scripts/uboot_run.py [--stay] "rtk sfp 1" "rtk sfp power"`. Log `tmp/logs/uboot_run.log`.
+
+### copper_ab.py / sds_snap.py
+- `copper_ab.py quick|full`: reboot sw2 and log the 88E1111 state of lan2 at 30 s and 60 s of uptime (#178).
+- `sds_snap.py HH:MM:SS ... [--invert SET RESTORE]`: timed read-only SerDes/optics snapshots of one port (sw1 lan6 default); `--invert` flips the 10GR RX polarity bit for the window and always restores it.
+
 ### catch_uboot.py
 - Purpose: watch the daemon log for `Hit Esc key to stop autoboot`, send Esc + CR, confirm `RTL9300#`. Superseded by the daemon's built-in catch; useful when the daemon runs with a booting policy.
 - Run: `scripts/catch_uboot.py --wait 180`, then power-cycle the switch. `--wait` = time for you to power-cycle.

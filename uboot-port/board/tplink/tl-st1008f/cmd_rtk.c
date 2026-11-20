@@ -14,6 +14,7 @@
 #include <display_options.h>
 #include <vsprintf.h>
 #include "rtk.h"
+#include "sfp_core.h"
 #include "sfp/sfp.h"
 
 #define SFP_A0		0x50
@@ -263,24 +264,6 @@ static int sfp_read(struct udevice *dev, u8 reg, u8 *buf, int len, int *mode)
 /* Some old Cisco EEPROMs pad unused BINARY fields with ASCII spaces (0x20): GLC-SX-MM has
  * 0x20 in bytes 3-5/7-13, OUI 37-39 and options 64-65, plus a stray 0x01 in byte 36.
  * Detect (>=4 of the 8 compliance bytes == 0x20), treat the 0x20 as 0 and drop byte 36. */
-static bool sfp_space_padded(u8 *id)
-{
-	/* incl. lengths 14-19: GLC-SX-MM otherwise decodes as SMF 32 km / copper 32 m */
-	static const u8 fields[] = { 3, 4, 5, 6, 7, 8, 9, 10, 11, 12, 13, 14, 15, 16, 17, 18, 19,
-				     37, 38, 39, 64, 65 };
-	int i, n = 0;
-
-	for (i = 3; i <= 10; i++)
-		n += id[i] == 0x20;
-	if (n < 4)
-		return false;
-	for (i = 0; i < ARRAY_SIZE(fields); i++)
-		if (id[fields[i]] == 0x20)
-			id[fields[i]] = 0;
-	id[36] = 0;
-	return true;
-}
-
 int rtk_sfp_read_id(int cage, u8 *id)
 {
 	struct udevice *a0 = rtk_chip(cage - 1, SFP_A0);
@@ -288,34 +271,14 @@ int rtk_sfp_read_id(int cage, u8 *id)
 
 	if (!a0 || sfp_read(a0, 0, id, 96, &mode))
 		return -1;
-	sfp_space_padded(id);
+	sfp_unpad(id, 96);	/* sfp_core: space-padded fields, then the Linux fixups (FS SFP-10G-T) */
+	sfp_fixup(id, 96);
 	return 0;
 }
 
-static u8 sfp_csum(const u8 *p, int n)
-{
-	u8 s = 0;
-
-	while (n--)
-		s += *p++;
-	return s;
-}
-
-/* Media from SFF-8472 compliance bytes 3-10 (first match wins). */
 static const char *sfp_media(const u8 *id)
 {
-	if (id[3] & 0x10) return "10GBASE-SR";
-	if (id[3] & 0x20) return "10GBASE-LR";
-	if (id[3] & 0x40) return "10GBASE-LRM";
-	if (id[3] & 0x80) return "10GBASE-ER";
-	if (id[8] & 0x04) return "SFP+ DAC (passive)";
-	if (id[8] & 0x08) return "SFP+ DAC (active)";
-	if (id[6] & 0x08) return "1000BASE-T";
-	if (id[6] & 0x01) return "1000BASE-SX";
-	if (id[6] & 0x02) return "1000BASE-LX";
-	if (id[6] & 0x04) return "1000BASE-CX";
-	if (id[6] & 0x40) return "100BASE-FX";
-	return NULL;
+	return sfp_media_name(id, 96);
 }
 
 /* No compliance code set: describe what the module does declare (rate, wavelength, reach). */
@@ -400,7 +363,7 @@ static int sfp_one(int cage, bool full)
 	u8 id[96], dm[128];
 	const char *why;
 	int mode, pres = sfp_present(cage);
-	bool cc_base, cc_ext, padded, ddm_ok = false;
+	bool cc_base, cc_ext, padded, fixed, ddm_ok = false;
 
 	if (!a0 || sfp_read(a0, 0, id, sizeof(id), &mode)) {
 		printf("cage %d: no EEPROM answer, MOD-DEF0 %s%s\n", cage,
@@ -408,9 +371,10 @@ static int sfp_one(int cage, bool full)
 		return 0;
 	}
 	/* checksums over the raw bytes, before any space-padding fix-up */
-	cc_base = sfp_csum(id, 63) == id[63];
-	cc_ext = sfp_csum(id + 64, 31) == id[95];
-	padded = sfp_space_padded(id);
+	cc_base = sfp_cc_base_ok(id, 96) == 1;
+	cc_ext = sfp_cc_ext_ok(id, 96) == 1;
+	padded = sfp_unpad(id, 96);
+	fixed = sfp_fixup(id, 96);
 	printf("cage %d: ", cage);
 	sfp_media_print(id);
 	if (id[12])
@@ -426,7 +390,8 @@ static int sfp_one(int cage, bool full)
 	sfp_str("date  ", id + 84, 6);
 	printf("  eeprom CC_BASE %s, CC_EXT %s%s; compliance %02x %02x %02x %02x %02x %02x %02x %02x\n",
 	       cc_base ? "ok" : "BAD", cc_ext ? "ok" : "BAD",
-	       padded ? ", NON-COMPLIANT (0x20 padding in binary fields, treated as 0)" : "",
+	       padded ? ", NON-COMPLIANT (0x20 padding in binary fields, treated as 0)" :
+	       fixed ? ", quirk fixup applied (copper 10GBASE-T presenting as SR, Linux sfp_fixup_fs_10gt)" : "",
 	       id[3], id[4], id[5], id[6], id[7], id[8], id[9], id[10]);
 	/* SFF-8472 byte 64: bit 1 = power level 2 declared, bit 5 = level 3 (Linux sfp.c) */
 	printf("  power level %s declared, %d mW counted (%s; `rtk sfp power`)\n",

@@ -10,35 +10,14 @@
 #include <asm/gpio.h>
 #include <vsprintf.h>
 #include "rtk.h"
+#include "sfp_core.h"
 
 #define BOARD_INPUT_MW	24000	/* PSU 12 V 2 A */
 #define SFP_BUDGET_MW	15000	/* (24 W input - 6 W measured board) x ~0.85 regulator, as declared module W (#30) */
 
-/* Copper modules cannot declare > 2.0 W; FS datasheet maxima (sources/README.md). */
-#define CU_1G_MW	1200	/* SFP-GE-T: 350 mA x 3.47 V */
-#define CU_2G5_MW	2000	/* SFP-2.5G-T: "< 2 W" */
-#define CU_10G_MW	3000	/* SFP-10G-T-30: 3.0 W max (also used for 5GBASE-T) */
-
 int rtk_sfp_power_mw(const u8 *id, const char **why)
 {
-	/* byte 64 bit 1 = level 2 (1.5 W), bit 5 = level 3 (2.0 W); SFF-8472 / Linux sfp.c */
-	int mw = id[64] & 0x20 ? 2000 : id[64] & 0x02 ? 1500 : 1000, cu = 0;
-	u8 ecc = id[36];
-
-	*why = "declared";
-	if (ecc == 0x16 || ecc == 0x1c || ecc == 0x1d)		/* 10GBASE-T SFI/SR, 5GBASE-T */
-		cu = CU_10G_MW;
-	else if (ecc == 0x1e)					/* 2.5GBASE-T */
-		cu = CU_2G5_MW;
-	else if (id[2] == 0x22)					/* RJ45: size by nominal rate */
-		cu = id[12] >= 100 ? CU_10G_MW : id[12] >= 25 ? CU_2G5_MW : CU_1G_MW;
-	else if (id[6] & 0x08)					/* 1000BASE-T */
-		cu = CU_1G_MW;
-	if (cu > mw) {
-		*why = "copper table";
-		mw = cu;
-	}
-	return mw;
+	return sfp_power_mw(id, 96, why);	/* sfp_core: declared level, copper table for BASE-T */
 }
 
 int rtk_sfp_budget_mw(void)
