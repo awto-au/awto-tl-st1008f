@@ -77,6 +77,28 @@ def neighbour_ip(mac: str, not_ip: str) -> str | None:
     return None
 
 
+SNIFF_S = 4  # one ARP from a booting DHCP unit (announce/probe/flood) arrives within ~1-2 s of link-up; x2
+
+
+def sniff_ip(mac: str, not_ip: str) -> str | None:
+    """Source IPv4 of an ARP frame sent by this MAC, on any NIC (the host has several NICs in the unit's /24 and its
+    neighbour table stays empty for a unit it never talked to: 2026-11-21 sw1 came up on DHCP .118, not found)."""
+    p = subprocess.Popen(["sudo", "-n", "tcpdump", "-nn", "-e", "-p", "-l", "-i", "any", "arp"],
+                         stdout=subprocess.PIPE, stderr=subprocess.DEVNULL, text=True)
+    try:
+        out, _ = p.communicate(timeout=SNIFF_S)
+    except subprocess.TimeoutExpired:
+        subprocess.run(["sudo", "-n", "pkill", "-TERM", "-P", str(p.pid)], check=False, timeout=5)  # sudo's child
+        out = p.communicate(timeout=3)[0]
+    for ln in (out or "").splitlines():
+        if re.search(rf"ifindex \d+ {mac} ", ln.lower()):  # source MAC of the frame
+            m = re.search(r"tell (\d+\.\d+\.\d+\.\d+)|Reply (\d+\.\d+\.\d+\.\d+) is-at", ln)
+            ip = (m.group(1) or m.group(2)) if m else None
+            if ip and ip != not_ip:
+                return ip
+    return None
+
+
 def wait(ip: str, up: bool, cap: float, what: str) -> float:
     t0 = time.monotonic()
     while time.monotonic() - t0 < cap:
@@ -195,7 +217,7 @@ def main() -> int:
         if time.monotonic() - t0 > UP_S:
             raise SystemExit(f"TIMEOUT {UP_S} s waiting for {a.ip} (flash write + boot)")
         if not restored:
-            other = neighbour_ip(mac, a.ip)
+            other = neighbour_ip(mac, a.ip) or sniff_ip(mac, a.ip)
             if other and ping(other):
                 try:
                     ssh(other, "cat > /tmp/b.tgz; echo etc/uci-defaults/10_disable_services > /tmp/x; "
