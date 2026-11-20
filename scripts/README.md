@@ -668,3 +668,9 @@ Log: `tmp/logs/patch_rebase.log`.
 - Run: `python3 scripts/sfp_eeprom_fix.py --sn H33A655 [--dry-run]`.
 - Repairs the space-padded A0h EEPROM of Cisco-clone GLC-SX-MM modules in sw2 cages (connector 0x07, 0x20 padding -> 0x00, checksums). Dump first, read-back verify, restore on mismatch.
 - Dumps: `private/sfp-eeprom/<SN>-{before,after}.hex`. Log: `tmp/logs/sfp_eeprom_fix.log`.
+
+### iperf_hwloop.py
+
+- Run: `python3 scripts/iperf_hwloop.py [--dur 10] [--udp-mbit 1000]`.
+- Line-rate iperf3 from selwyn (netns on VLANs 991/992) through sw2, ASIC-switched out lan3 -> cable -> lan6 and back. Loop detect off on both switches for the run, watchdogs + restore.
+- Log: `tmp/logs/iperf_hwloop.log`.
