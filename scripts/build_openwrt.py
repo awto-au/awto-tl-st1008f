@@ -297,7 +297,7 @@ FEED_PKGS = ["luci", "luci-app-statistics", "luci-app-snmpd", "luci-app-lldpd", 
              "collectd-mod-network", "collectd-mod-rrdtool", "collectd-mod-thermal",
              # diagnostics: PHY/MDIO + I2C register access (SFP EEPROM, PCA9534), net + system tracing
              "phytool", "mdio-tools", "i2c-tools", "mtr-nojson", "conntrack", "iputils-arping", "iputils-tracepath", "iftop",
-             "nload", "socat", "htop", "lsof", "sysstat", "nano", "hexedit", "jq", "tmux", "pv"]
+             "nload", "socat", "htop", "lsof", "sysstat", "nano", "hexedit", "jq", "tmux", "pv", "iperf3"]
 
 
 def feeds() -> int:

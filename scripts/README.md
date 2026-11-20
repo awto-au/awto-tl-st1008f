@@ -656,3 +656,9 @@ Log: `tmp/logs/patch_rebase.log`.
 - Run: `python3 scripts/port_sweep.py [--ports lan3,lan4,lan5,lan6,lan8] [--hold 8] [--start-in 10]`.
 - Lights sw2 cages one at a time (1000BASE-X autoneg on), samples carrier + SerDes 1/29, 2/5, then downs each. Cabling finder against a lit far end. Never touches lan1/lan2/lan7.
 - Log: `tmp/logs/port_sweep.log`.
+
+### iperf_loop.py
+
+- Run: `python3 scripts/iperf_loop.py [--dur 10] [--a lan3] [--b lan6] [--udp-mbit 1000]`.
+- iperf3 over a cable between two ports of the same sw2 (netns a/b); TCP both ways + UDP. Restores bridge membership on exit.
+- Log: `tmp/logs/iperf_loop.log`.
