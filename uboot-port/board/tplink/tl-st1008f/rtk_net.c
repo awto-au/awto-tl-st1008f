@@ -376,6 +376,74 @@ static void rxcal_defaults(unsigned int sds, bool fiber10g)
 	hfw(sds, 0x2f, 0x05, 7, 2, 0x1f);
 }
 
+/* Linux RX calibration (shared/rtl930x-sds-rxcal, #83): glue over the logical field access above */
+#include <linux/bitfield.h>
+#include <linux/errno.h>
+#define msleep(ms)		mdelay(ms)
+#define usleep_range(a, b)	udelay(a)
+#include "rtl930x_sds_rxcal_stub.h"
+
+static int cal_read(struct rtpcs_serdes *s, enum rtpcs_page p, int reg, int hi, int lo)
+{
+	return dfr(s->id, p, reg, hi, lo);
+}
+
+static int cal_write(struct rtpcs_serdes *s, enum rtpcs_page p, int reg, int hi, int lo, u16 v)
+{
+	dfw(s->id, p, reg, hi, lo, v);
+	return 0;
+}
+
+static int cal_write_mask(struct rtpcs_serdes *s, enum rtpcs_page p, int reg, u16 mask, u16 v)
+{
+	int d = dsds(s->id, p);
+
+	wr(d, p, reg, (rd(d, p, reg) & ~mask) | (v & mask));
+	return 0;
+}
+
+static const struct rtpcs_sds_ops cal_ops = { .read = cal_read, .write = cal_write, .write_mask = cal_write_mask };
+
+#include "rtl930x_sds_rxcal.c"
+
+static struct rtpcs_serdes cal_sds[10];
+static struct rtpcs_ctrl cal_ctrl = { .serdes = cal_sds };
+
+/* debug-out 0x35 on the even SerDes of the pair: 0x1f/0x14 bit 0/1 = RX idle (as rtk_sdstest.c dbg35) */
+static bool rx_idle(unsigned int sds)
+{
+	int l0 = sds & ~1;
+
+	wr(l0, 0x1f, 2, 0x35);
+	return rd(l0, 0x1f, 0x14) & BIT(sds & 1);
+}
+
+/* env rtk_rxcal=0 skips it (A/B for #114). Idle RX: skipped, calibrating without signal locks the seeds (#125) */
+static void rx_calibrate(unsigned int sds, bool dac)
+{
+	struct rtpcs_serdes *s = &cal_sds[sds];
+	const char *e = env_get("rtk_rxcal");
+	int i, ret = -1;
+
+	if (e && !strcmp(e, "0"))
+		return;
+	if (rx_idle(sds)) {
+		printf("rtk: sds %u rx cal skipped (no signal)\n", sds);
+		return;
+	}
+	for (i = 0; i < ARRAY_SIZE(cal_sds); i++)
+		cal_sds[i].id = i;
+	s->ctrl = &cal_ctrl;
+	s->ops = &cal_ops;
+	s->hw_mode = RTPCS_SDS_MODE_10GBASER;
+	s->attachment = dac ? RTPCS_SDS_ATTACH_DAC_SHORT : RTPCS_SDS_ATTACH_FIBER;
+	for (i = 1; i <= RTPCS_RXCAL_MAX_TRIES && ret; i++) {
+		s->rxcal_tries = i;
+		ret = rtpcs_930x_sds_rx_calibrate(s);
+	}
+	printf("rtk: sds %u rx cal %s (%d tries)\n", sds, ret ? "FAILED" : "ok", i - 1);
+}
+
 static int sds_mode_set(unsigned int sds, int mode)
 {
 	int port = sds_port(sds);
@@ -418,6 +486,7 @@ static int media_set(int port, int m)
 		dfw(sds, 6, 13, 6, 6, 0);	/* CFG_LINKDW_SEL: DAC */
 		mdelay(50);
 		force_link(port, false, false);	/* as fibre: else a stock-forced MAC stays down (#112) */
+		rx_calibrate(sds, true);
 		return 0;
 	case MEDIA_1G:
 		ret = sds_mode_set(sds, M_1000BX);
@@ -439,6 +508,8 @@ static int media_set(int port, int m)
 	dfw(sds, 6, 13, 6, 6, 1);	/* CFG_LINKDW_SEL: fibre */
 	mdelay(50);
 	force_link(port, false, false);
+	if (m == MEDIA_10G)
+		rx_calibrate(sds, false);
 	return 0;
 }
 

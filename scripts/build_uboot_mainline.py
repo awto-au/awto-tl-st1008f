@@ -68,6 +68,9 @@ SHARED = {
     "shared/rtl930x-sw/rtl930x_sw.h": "board/tplink/tl-st1008f/rtl930x_sw.h",
     "shared/rtl930x-sw/rtl930x_sw_defaults.h": "board/tplink/tl-st1008f/rtl930x_sw_defaults.h",
     "shared/rtl930x-storm/rtl930x_storm.h": "board/tplink/tl-st1008f/rtl930x_storm.h",
+    "shared/rtl930x-sds-rxcal/rtl930x_sds_rxcal.c": "board/tplink/tl-st1008f/rtl930x_sds_rxcal.c",  # #83 #114
+    "shared/rtl930x-sds-rxcal/rtl930x_sds_rxcal_defs.h": "board/tplink/tl-st1008f/rtl930x_sds_rxcal_defs.h",
+    "shared/rtl930x-sds-rxcal/rtl930x_sds_rxcal_stub.h": "board/tplink/tl-st1008f/rtl930x_sds_rxcal_stub.h",
     "shared/sfp-core/sfp_core.c": "board/tplink/tl-st1008f/sfp_core.c",  # vendored from awto-sfp-core (#181), scripts/sync_sfp_core.py
     "shared/sfp-core/sfp_core.h": "board/tplink/tl-st1008f/sfp_core.h",
 }
