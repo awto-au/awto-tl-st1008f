@@ -85,3 +85,12 @@ cat /sys/kernel/debug/sfp-p1/state   # tx_disable: 0 now
 ## Recover
 
 - Power-cycle via the relay: `./dev.py power off`, `./dev.py power on` (flash chain boots OpenWrt with STP). `./dev.py stock` to stop at the stock prompt.
+
+## Line-rate loop test: selwyn -> sw2 lan3 -> cable -> lan6 -> selwyn (#182)
+
+- `python3 scripts/iperf_hwloop.py [--only tcp-bidir,...]`: iperf3 in host netns on VLANs 991/992, ASIC-switched through the lan3 <-> lan6 fibre (1G, GLC-SX-MM). Kernel loop detect off on sw1 and sw2 for the run (sw1 shuts its DAC lan4 otherwise), STP off on sw2, watchdogs revert both switches.
+- Measured 2026-11-21T02:09+11:00, 8 s runs, TCP, selwyn enp8s0 10G -> sw1 10G -> sw2 lan1 10G, sw2 on OpenWrt 7.4-rc3 both CPUs, stock bridge config:
+  - One direction: 941 Mbit/s receiver. Both directions at once, unpaced: 932 Mbit/s one stream, 280-333 Mbit/s the other (which one varies per run), 200-380 retransmits, sw2 lan1 `dot1dTpPortInDiscards` +1300..2700 per run.
+  - Both directions at once, each paced to 900 Mbit/s (`iperf3 --bidir -b 900M`): 900 + 900 Mbit/s, 0 retransmits, 0 discards.
+  - sw2 CPU 1-2 % in every run (eth0 IRQ about 50-80 per 8 s): the path is ASIC only. Selwyn CPU at most 25 % on one core.
+- Cause: unpaced TCP bursts arrive at 10G on lan1 and leave at 1G; the ASIC drops at lan1 ingress when two such streams overlap, one stream loses repeatedly. Pause is off on lan1 (RX/TX off) and on the host NIC/sw1 lan4/lan5.
