@@ -662,3 +662,9 @@ Log: `tmp/logs/patch_rebase.log`.
 - Run: `python3 scripts/iperf_loop.py [--dur 10] [--a lan3] [--b lan6] [--udp-mbit 1000]`.
 - iperf3 over a cable between two ports of the same sw2 (netns a/b); TCP both ways + UDP. Restores bridge membership on exit.
 - Log: `tmp/logs/iperf_loop.log`.
+
+### sfp_eeprom_fix.py
+
+- Run: `python3 scripts/sfp_eeprom_fix.py --sn H33A655 [--dry-run]`.
+- Repairs the space-padded A0h EEPROM of Cisco-clone GLC-SX-MM modules in sw2 cages (connector 0x07, 0x20 padding -> 0x00, checksums). Dump first, read-back verify, restore on mismatch.
+- Dumps: `private/sfp-eeprom/<SN>-{before,after}.hex`. Log: `tmp/logs/sfp_eeprom_fix.log`.
