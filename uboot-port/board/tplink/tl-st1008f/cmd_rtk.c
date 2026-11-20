@@ -763,7 +763,7 @@ static int do_rtk(struct cmd_tbl *cmdtp, int flag, int argc, char *const argv[])
 /* Stock `help rtk` text verbatim (typos included), then our section; rtk_parity drops the
  * section before comparing with stock. */
 U_BOOT_CMD(rtk, 16, 0, do_rtk, "rtk     - Realtek commands\n",
-	   "rtk network on\n"
+	   "rtk network on [quick]\n"
 	   "        - Enable the networking function\n"
 	   "rtk netowkr off\n"
 	   "        - Disable the networking function\n"

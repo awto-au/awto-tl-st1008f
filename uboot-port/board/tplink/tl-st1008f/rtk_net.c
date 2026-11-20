@@ -683,17 +683,21 @@ const char *rtk_media_name(int port)
 
 /* ---- verbs ---- */
 
-static void network_on(void)
+/* quick = M2 window (#114): cage 1 only (Linux configures every SerDes itself), no EEPROM scan of the other
+ * cages, no power sum, link settle ends when cage 1's MAC link is up. Full path = stock parity, flows. */
+#define SETTLE_MS	2000	/* stock fixed link-status settle; the cap when no link comes up */
+
+static void network_on(bool quick)
 {
 	int c, port, m, ret;
-	ulong t0 = get_timer(0);
+	ulong t0 = get_timer(0), t1;
 
 	io_err = 0;
 	if (!constructed)
 		construct();
 	rtk_presence_pins_gpio();	/* before cage_media/power sum read the cages (#29) */
 	printf("Please wait for PHY init-time ...\n\n");
-	for (c = 1; c <= NCAGES; c++) {
+	for (c = 1; c <= (quick ? 1 : NCAGES); c++) {
 		port = rtk_cage_port[c - 1];
 		phy_enable(port, true);
 		m = cage_media(c);
@@ -703,11 +707,22 @@ static void network_on(void)
 		else if (m == MEDIA_SGMII)	/* host side SGMII: the module PHY must match (#178) */
 			rtk_sfp_copper_phy_init(c);
 	}
-	rtk_sfp_power_sum(false);	/* total vs budget, WARNING if over (#30) */
+	if (!quick)
+		rtk_sfp_power_sum(false);	/* total vs budget, WARNING if over (#30) */
 	rtk_iso_guard();
 	rtk_storm_defaults();	/* #111 */
 	net_on = true;
-	mdelay(2000);	/* stock: link-status settle */
+	if (quick) {
+		t1 = get_timer(0);
+		do {
+			sw_r(RTL9300_MAC_LINK_STS);	/* latched low: second read = now */
+			if (sw_r(RTL9300_MAC_LINK_STS) & BIT(rtk_cage_port[0]))
+				break;
+			mdelay(10);
+		} while (get_timer(t1) < SETTLE_MS);
+	} else {
+		mdelay(SETTLE_MS);	/* stock: link-status settle */
+	}
 	if (io_err) {
 		printf("rtk: %d SerDes access errors during network on (%lu ms)\n", io_err,
 		       get_timer(t0));
@@ -735,7 +750,7 @@ int rtk_network(int argc, char *const argv[])
 
 	if (!strcmp(argv[2], "on")) {
 		printf("Enable network\n");
-		network_on();
+		network_on(argc > 3 && !strcmp(argv[3], "quick"));
 		return 0;
 	}
 	printf("Disable network\n");

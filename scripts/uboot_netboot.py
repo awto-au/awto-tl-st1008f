@@ -34,6 +34,8 @@ ESC_PERIOD_S = 0.1             # a datagram before U-Boot's stack is up is lost;
 PROMPT_CAP_S = 90
 CMD_CAP_S = 5                  # one U-Boot command echo over UDP: ms; 5 s names a lost datagram
 SSH_REBOOT_WAIT_S = 6          # ssh ConnectTimeout 5 s + 1: a connect failure shows within this; a live reboot hangs the session
+TFTP_TMO_MS = 500              # U-Boot tftptimeout: one block RTT is ~1 ms; a lost frame waits this long, then the ACK repeats
+TFTP_LOSS = 0.005              # fraction of blocks lost on the DAC under U-Boot (2026-11-20, tmp/tftp-loss.pcap)
 TFTPD_READY_CAP_S = 3          # sudo + python start ~0.5 s measured 2026-11-19, x6; expiry: exit, log path named
 LOAD_ADDR = 0x84F00000         # TFTP area (docs/UBOOT-MAINLINE.md)
 BOOT_CAP_S = 90                # kernel up on the LAN after bootm: ramload caps OpenWrt at 40 s, plain ~3 s + port-up
@@ -208,8 +210,10 @@ def main() -> int:
                 time.sleep(0.02)  # poll the log: ~25 polls for the 0.5 s start
             # (the loop below sends the tftpboot only now)
             # first block times out once after link-up (stock TFTP retransmit 5 s), then ~1.2 MB/s (ramload tftp())
-            cap = 5 + size / 1.2e6 * 1.25 + 3
-            m = run_cmd(sock, wire, UBOOT_IP, f"setenv serverip {HOST_IP}; "
+            # a lost frame costs tftptimeout (U-Boot default 5 s): 0.5 s. Loss measured 0.5 % of 1468 B blocks on the
+            # 10G DAC under U-Boot (RX CRC errors, #114); 1.25 margin
+            cap = 5 + size / 1.2e6 * 1.25 + 3 + size / 1468 * TFTP_LOSS * TFTP_TMO_MS / 1000 * 1.25
+            m = run_cmd(sock, wire, UBOOT_IP, f"setenv serverip {HOST_IP}; setenv tftptimeout {TFTP_TMO_MS}; "
                         f"tftpboot 0x{LOAD_ADDR:08x} {fname}", r"Bytes transferred = (\d+) \(", cap, "tftp")
             if int(m.group(1)) != size:
                 raise SystemExit(f"tftp size {m.group(1)} != file {size}")

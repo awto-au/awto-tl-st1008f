@@ -386,9 +386,9 @@ static void bb_read(void)
 #define NETWIN_IP	"192.168.1.1"
 #define NETWIN_NC	"255.255.255.255"	/* net.c: only 0xFFFFFFFF skips ARP; a directed .255 waits for an ARP reply nobody sends */
 #define NETWIN_STDIO	"serial@2000,nc"	/* stdio name of uart0 (DTS serial@2000); plain "serial" is rejected, errno 22 */
-/* ESC window with the network up: the far bridge port forwards ~4 s after link-up (2 x forward_delay 2 s, CLAUDE.md)
- * + ~2 s link-up after laser-on = 6 s, x1.25 -> 8 s. Expiry: autoboot continues. M2 only. */
-#define NETWIN_BOOTDELAY	"8"
+/* ESC window: the far bridge port forwards 4 s after link-up (2 x forward_delay 2 s, CLAUDE.md), link-up is
+ * ~0.4 s before the window opens, host ESC reaction ~1 s: 4.6 s x1.25 = 6 s (#114). Expiry: autoboot. M2 only. */
+#define NETWIN_BOOTDELAY	"6"
 static const u8 cage_port[8] = { 0, 8, 16, 20, 24, 25, 26, 27 };	/* cage 1-8 -> SDK port (docs/hardware.md) */
 
 static bool netwin(void)
@@ -406,7 +406,7 @@ static bool netwin(void)
 	}
 	__raw_writel(REC_NETWIN_MAGIC, REC_NETWIN);
 	wdt_on(NETWIN_WDT_MS);
-	run_command("rtk network on", 0);
+	run_command("rtk network on quick", 0);
 	snprintf(cmd, sizeof(cmd), "rtk i2c write 8 1 0x%02x; rtk i2c write 8 3 0", 0xff & ~(1 << (cage - 1)));
 	run_command(cmd, 0);
 	for (c = 1; c <= 8; c++) {	/* copper modules ignore TX-disable: admin-disable the other ports */

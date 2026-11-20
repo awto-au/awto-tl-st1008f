@@ -32,7 +32,7 @@ The 3-position slider on the unit. Read once at power-up by our U-Boot and by Li
 
 ## M2 network window (#80)
 
-- Before the 2 s autoboot window U-Boot starts the switch network (about 10 s, 17 s with a 10GBASE-T module), lights cage 1 only, sets 192.168.1.1/24, sends its console text as a broadcast (255.255.255.255) and listens on UDP :6666.
+- Before the autoboot window U-Boot starts the switch network (`rtk network on quick`: cage 1 only, 2.6 s measured 2026-11-20, #114), lights cage 1 only, sets 192.168.1.1/24, sends its console text as a broadcast (255.255.255.255) and listens on UDP :6666 for a 6 s window (far bridge forwards 4 s after link-up + ESC reaction).
 - ESC sent to UDP :6666 stops autoboot; `./dev.py netboot IMAGE` does that from the host and boots an image from RAM, no serial cable.
 - Cost: only in M2. M1 and M3 boots are unchanged.
 - Details, guards, host side: docs/UBOOT-MAINLINE.md#power-up-network-window-80-2026-11-17.
