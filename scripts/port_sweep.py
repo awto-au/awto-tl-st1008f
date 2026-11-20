@@ -7,7 +7,7 @@
 - lan8 (FS SFP-10G-T, copper): admin up only, carrier sampled (no SerDes read: map not verified).
 - Log: tmp/logs/port_sweep.log. Caps: ssh 8 s per call; hold 8 s = US-48 cage_watch window (requested).
 
-Usage: python3 scripts/port_sweep.py [--ports lan3,lan4,lan5,lan6,lan8] [--hold 8] [--step 1] [--start-in 10] [--ip IP]
+Usage: python3 scripts/port_sweep.py [--ports lan3,lan4,lan5,lan6,lan8] [--hold 8] [--down 5] [--step 1] [--start-in 10] [--ip IP]
 """
 
 from __future__ import annotations
@@ -52,6 +52,7 @@ def main() -> int:
     ap.add_argument("--ports", default="lan3,lan4,lan5,lan6,lan8")
     ap.add_argument("--hold", type=float, default=8)
     ap.add_argument("--step", type=float, default=1)
+    ap.add_argument("--down", type=float, default=0, help="minimum seconds each port stays admin down before its slot")
     ap.add_argument("--start-in", type=float, default=0, help="seconds to wait before the first port")
     ap.add_argument("--ip", default="192.168.25.56")
     a = ap.parse_args()
@@ -61,8 +62,10 @@ def main() -> int:
         sys.exit(f"FAIL: refusing ports {sorted(bad)} (allowed {sorted(ALLOWED)})")
     ssh(a.ip, "; ".join(f"ip link set {p} down" for p in ports))
     log(f"all down: {','.join(ports)}; first port in {a.start_in:.0f} s")
+    t_down = time.monotonic()
     time.sleep(a.start_in)  # US-48 asked for the first port 10 s after their start message
     for p in ports:
+        time.sleep(max(0.0, a.down - (time.monotonic() - t_down)))  # --down: minimum admin-down time per port
         ssh(a.ip, f"ip link set {p} up" + (f"; ethtool -s {p} autoneg on" if p in SDS else ""))
         log(f"{p} START")
         t0 = time.monotonic()
@@ -70,6 +73,7 @@ def main() -> int:
             log(f"{p} {sample(a.ip, p)}")
             time.sleep(a.step)  # sampling period
         ssh(a.ip, f"ip link set {p} down")
+        t_down = time.monotonic()
         log(f"{p} END")
     return 0
 
