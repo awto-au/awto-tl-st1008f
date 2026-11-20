@@ -638,3 +638,15 @@ Log: `tmp/logs/patch_rebase.log`.
 ## Docs tooling
 
 - `docs_narrow_tables.py [--apply] FILE...`: finds Markdown tables wider than 5 columns and rewrites each row as a `- **first cell**: header value; ...` block (#89). Dry run by default; log `tmp/logs/docs_narrow_tables.log`.
+
+### port_sample.py
+
+- Run: `python3 scripts/port_sample.py [--ports lan4,lan5] [--every 2] [--for 60]`.
+- Read-only timed samples of sw2 ports: carrier, RX/TX packets+bytes, ParserErrors, MacDiscards, SerDes 1/29 + 2/5.
+- Log: `tmp/logs/port_sample.log`.
+
+### sfp_reattach_test.py
+
+- Run: `python3 scripts/sfp_reattach_test.py [--hold 15] [--watch 12]`.
+- Holds a copper SFP port down, brings it up, logs module PHY BMCR/BMSR changes and sfp kernel messages (#178).
+- Log: `tmp/logs/sfp_reattach_test.log`.
