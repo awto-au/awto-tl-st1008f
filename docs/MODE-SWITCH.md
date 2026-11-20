@@ -17,6 +17,7 @@ The 3-position slider on the unit. Read once at power-up by our U-Boot and by Li
 - Stock clocks = what TP-Link ships: CPU 800, DDR 600, LX 175, SRAM 250, SPI 25.5 MHz. Used in M2 and on any failure.
 - "Switching off" = Linux per-port `isolated` flag; the bridge `switch` still holds lan1-lan8 so a host on any cage still manages the unit.
 - Fault fallback = the boot fell back to the recovery path; always isolated.
+- Per-port exception: `uci set network.lanN_dev.st1008f_open=1` keeps that port non-isolated in every mode (`st1008f-mode` writes `isolate=0` for it at each boot; the plain `isolate` option alone is overwritten). sw2 lan7 = US-48 management port (2026-11-20).
 
 ## The setting (optional override)
 

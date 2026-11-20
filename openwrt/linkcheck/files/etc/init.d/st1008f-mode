@@ -14,7 +14,7 @@ arg() { tr ' ' '\n' < /proc/cmdline | sed -n "s/^st1008f\.$1=//p"; }
 port_sec() { uci show network | sed -n "s/^network\.\([^.]*\)\.name='$1'$/\1/p" | head -n 1; }
 
 start() {
-	local mode=$(arg mode) image=$(arg boot) src=cmdline want=isolated iso=1 i sec
+	local mode=$(arg mode) image=$(arg boot) src=cmdline want=isolated iso=1 i sec piso
 
 	if [ -z "$mode" ]; then	# RAM boot / no bootargs from U-Boot: read the switch itself
 		mode=$(sed -n 's/^M\([123]\)$/m\1/p' $POS 2>/dev/null)
@@ -31,7 +31,9 @@ start() {
 			uci set network.$sec=device
 			uci set network.$sec.name=lan$i
 		fi
-		[ "$(uci -q get network.$sec.isolate)" = $iso ] || uci set network.$sec.isolate=$iso
+		piso=$iso
+		[ "$(uci -q get network.$sec.st1008f_open)" = 1 ] && piso=0	# per-port exception in any mode (lan7: US-48 mgmt)
+		[ "$(uci -q get network.$sec.isolate)" = $piso ] || uci set network.$sec.isolate=$piso
 	done
 	# flash write (overlay) only when the mode changed since the last boot
 	[ -z "$(uci changes network)" ] || uci commit network
