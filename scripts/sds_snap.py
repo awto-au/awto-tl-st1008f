@@ -3,11 +3,15 @@
 
 - Waits (host sleep, bounded) until each HH:MM:SS local time, then one ssh: carrier, DDM rx power, SerDes 10GR PCS
   link (5/0 twice), latched block lock (5/1), latched RX link (4/1), RX equaliser (rxeq), `SerDes N` kernel lines.
-- Reads only. Note: 5/1 and 4/1 are latched-on-read registers (clear on read, docs/SDS-TOOLS.md).
+- Reads only unless --invert (below). Note: 5/1 and 4/1 are latched-on-read registers (clear on read, docs/SDS-TOOLS.md).
 - Waiting for a peer's agreed time slot is the only delay; a time in the past is sampled immediately; cap 10 min total.
 - Log: tmp/logs/sds_snap.log
 
-Usage: python3 scripts/sds_snap.py 22:18:45 22:19:15 [--ip 192.168.25.48] [--lan lan6] [--sds 7]
+- `--invert SET RESTORE` (local times): sets the 10GR RX polarity-invert bit (6/2 bit 13, Linux config_polarity
+  CFG_INV_HSI) at SET and writes the ORIGINAL 6/2 value back at RESTORE (also in a finally on any error).
+  Write on the SerDes of an unused port only (sw1 lan6, 2026-11-20 US-48 xe51 test).
+
+Usage: python3 scripts/sds_snap.py 22:18:45 22:19:15 [--ip 192.168.25.48] [--lan lan6] [--sds 7] [--invert SET RESTORE]
 """
 
 from __future__ import annotations
@@ -50,17 +54,50 @@ def wait_until(hms: str) -> None:
         time.sleep(delay)
 
 
+def ssh(ip: str, cmd: str) -> str:
+    r = subprocess.run([*SSH, f"root@{ip}", cmd], capture_output=True, text=True, timeout=30)
+    if r.returncode:
+        raise SystemExit(f"FAIL ssh {cmd[:50]!r}: rc {r.returncode} {r.stderr.strip()[:200]}")
+    return r.stdout
+
+
+def rd62(ip: str, sds: str) -> int:
+    out = ssh(ip, f"st1008f-sds rd {sds} 6 2")
+    return int(out.strip().split("=")[-1].strip(), 16)
+
+
 def main() -> int:
     ap = argparse.ArgumentParser(description=__doc__.splitlines()[0])
     ap.add_argument("times", nargs="+", help="local HH:MM:SS")
     ap.add_argument("--ip", default="192.168.25.48")
     ap.add_argument("--lan", default="lan6")
     ap.add_argument("--sds", default="7")
+    ap.add_argument("--invert", nargs=2, metavar=("SET", "RESTORE"), help="RX polarity invert window (writes 6/2)")
     a = ap.parse_args()
-    for hms in a.times:
-        wait_until(hms)
-        r = subprocess.run([*SSH, f"root@{a.ip}", CMD.format(lan=a.lan, sds=a.sds)], capture_output=True, text=True, timeout=30)
-        log(f"== snapshot {hms} {a.ip} {a.lan} SerDes {a.sds} (rc {r.returncode})\n{r.stdout.strip()}\n{r.stderr.strip()}")
+    events = [(t, "snap") for t in a.times]
+    orig = None
+    if a.invert:
+        events += [(a.invert[0], "set"), (a.invert[1], "restore")]
+    events.sort(key=lambda e: [int(x) for x in e[0].split(":")])
+    try:
+        for hms, kind in events:
+            wait_until(hms)
+            if kind == "set":
+                orig = rd62(a.ip, a.sds)
+                ssh(a.ip, f"st1008f-sds wr {a.sds} 6 2 0x{orig | (1 << 13):x}")
+                log(f"== {hms} SerDes {a.sds} 6/2: {orig:#06x} -> {orig | (1 << 13):#06x} (RX invert ON)")
+            elif kind == "restore":
+                if orig is not None:
+                    ssh(a.ip, f"st1008f-sds wr {a.sds} 6 2 0x{orig:x}")
+                    log(f"== {hms} SerDes {a.sds} 6/2 restored to {orig:#06x} (readback {rd62(a.ip, a.sds):#06x})")
+                    orig = None
+            else:
+                r = subprocess.run([*SSH, f"root@{a.ip}", CMD.format(lan=a.lan, sds=a.sds)], capture_output=True, text=True, timeout=30)
+                log(f"== snapshot {hms} {a.ip} {a.lan} SerDes {a.sds} (rc {r.returncode})\n{r.stdout.strip()}\n{r.stderr.strip()}")
+    finally:
+        if orig is not None:  # restore on any error path
+            ssh(a.ip, f"st1008f-sds wr {a.sds} 6 2 0x{orig:x}")
+            log(f"== SerDes {a.sds} 6/2 restored to {orig:#06x} (finally)")
     return 0
 
 
