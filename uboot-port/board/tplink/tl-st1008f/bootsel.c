@@ -380,6 +380,10 @@ static void bb_read(void)
  * to UDP :6666 stops autoboot over the network. REC_NETWIN still set at the next boot = the bring-up hung: skip once. */
 #define REC_NETWIN	(REC + 4)
 #define REC_NETWIN_MAGIC	0x4e57494e	/* "NWIN" */
+/* One-shot window request from Linux (`devmem 0x0e000014 32 0x4e575251`, dev.py netboot): opens the window in
+ * any mode on the next boot and is cleared here before use, so it is never left set (#114). */
+#define REC_NETWIN_REQ	(REC + 5)
+#define REC_NETWIN_REQ_MAGIC	0x4e575251	/* "NWRQ" */
 /* rtk network on <= 15 s (host cap, ~8 s typical, st1008_ramload.py) + 7 port commands ~2 s = 17 s, x1.25 */
 #define NETWIN_WDT_MS	22000
 #define NETWIN_CAGE	1
@@ -396,7 +400,10 @@ static bool netwin(void)
 	char cmd[64];
 	int cage = NETWIN_CAGE, c;
 
-	if (st1008f_boot_mode(NULL) != 2)
+	bool req = __raw_readl(REC_NETWIN_REQ) == REC_NETWIN_REQ_MAGIC;
+
+	__raw_writel(0, REC_NETWIN_REQ);
+	if (st1008f_boot_mode(NULL) != 2 && !req)
 		return false;
 	if (__raw_readl(REC_NETWIN) == REC_NETWIN_MAGIC) {
 		__raw_writel(0, REC_NETWIN);

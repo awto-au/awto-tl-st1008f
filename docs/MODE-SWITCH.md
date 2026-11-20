@@ -34,7 +34,8 @@ The 3-position slider on the unit. Read once at power-up by our U-Boot and by Li
 
 - Before the autoboot window U-Boot starts the switch network (`rtk network on quick`: cage 1 only, 2.6 s measured 2026-11-20, #114), lights cage 1 only, sets 192.168.1.1/24, sends its console text as a broadcast (255.255.255.255) and listens on UDP :6666 for a 6 s window (far bridge forwards 4 s after link-up + ESC reaction).
 - ESC sent to UDP :6666 stops autoboot; `./dev.py netboot IMAGE` does that from the host and boots an image from RAM, no serial cable.
-- Cost: only in M2. M1 and M3 boots are unchanged.
+- Cost: only in M2 (M1/M3 unchanged unless the one-shot request below is set).
+- One-shot window in any mode (#114): Linux writes `0x4e575251` ("NWRQ") to phys `0x0e000014` (the reserved record page, survives the reset: `devmem 0x0e000014 32 0x4e575251; reboot -f`); U-Boot clears it at the next boot and opens the network window even in M1/M3. No flash write. `./dev.py netboot --reboot ssh` does this itself. M1 and M3 boots are unchanged.
 - Details, guards, host side: docs/UBOOT-MAINLINE.md#power-up-network-window-80-2026-11-17.
 
 ## How to read the position

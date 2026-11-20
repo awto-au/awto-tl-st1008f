@@ -34,6 +34,8 @@ ESC_PERIOD_S = 0.1             # a datagram before U-Boot's stack is up is lost;
 PROMPT_CAP_S = 90
 CMD_CAP_S = 5                  # one U-Boot command echo over UDP: ms; 5 s names a lost datagram
 SSH_REBOOT_WAIT_S = 6          # ssh ConnectTimeout 5 s + 1: a connect failure shows within this; a live reboot hangs the session
+NETWIN_REQ_ADDR = "0x0e000014"    # bootsel.c REC_NETWIN_REQ (reserved record page, survives the reset)
+NETWIN_REQ_MAGIC = "0x4e575251"  # "NWRQ"
 TFTP_TMO_MS = 500              # U-Boot tftptimeout: one block RTT is ~1 ms; a lost frame waits this long, then the ACK repeats
 TFTP_LOSS = 0.005              # fraction of blocks lost on the DAC under U-Boot (2026-11-20, tmp/tftp-loss.pcap)
 TFTPD_READY_CAP_S = 3          # sudo + python start ~0.5 s measured 2026-11-19, x6; expiry: exit, log path named
@@ -120,7 +122,7 @@ def reboot(how: str, ip: str) -> None:
         # OpenWrt and the plain kernel have different dropbear keys on the same IP: no host-key check (bench LAN, as the other bench scripts)
         p = subprocess.Popen(["ssh", "-o", "ConnectTimeout=5", "-o", "BatchMode=yes", "-o", "StrictHostKeyChecking=no",
                               "-o", "UserKnownHostsFile=/dev/null", "-o", "LogLevel=ERROR", f"root@{ip}",
-                              "sync; reboot -f"],  # the plain kernel ignores a bare `reboot` (no init); sync = flush an OpenWrt overlay first
+                              f"devmem {NETWIN_REQ_ADDR} 32 {NETWIN_REQ_MAGIC}; sync; reboot -f"],  # request the window for this boot in any mode (U-Boot clears it, #114); the plain kernel ignores a bare `reboot`; sync = flush an OpenWrt overlay first
                              stdout=subprocess.PIPE, stderr=subprocess.PIPE, text=True, start_new_session=True)
         try:
             _, err = p.communicate(timeout=SSH_REBOOT_WAIT_S)
