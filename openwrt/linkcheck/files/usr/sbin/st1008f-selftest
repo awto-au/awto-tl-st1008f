@@ -32,6 +32,7 @@ STOCK="cpu=800,ddr=600,lx=175,sram=250"
 # Expiry: TERM to the step's process group, item FAIL "timeout after N s".
 L_FAST=2	# /dev/mem + sysfs reads, one helper exec: < 0.2 s
 L_SFP=2		# 8 x (ethtool -m: I2C 512 B at 100 kHz ~ 55 ms + exec + one awk) ~ 0.7 s
+L_ASIC=3	# 8 cages of reg + netdev + bridge reads: 1.0 s sw2, 1.23-1.53 s sw1 (5 links up, load 2.3) x1.25 -> 2 s, +1 (sleep resolution)
 L_FLASH=2	# 512 KiB slot + 896 KiB loader at 25.5 MHz dual I/O ~ 6 MB/s = 0.25 s + CRC
 L_SRAM=2	# 12 passes over <= 64 KiB from debugfs: ms
 
@@ -556,7 +557,7 @@ have setsid && SETSID=setsid	# own process group: expiry also stops the step's c
 
 # First boot after a sysupgrade: config restore, uci-defaults and JFFS2 mount/GC write to the same SPI flash
 # the steps read from; reads stall for seconds and a 2 s step can expire (sw2 2026-11-20: clocks, asic, mode,
-# sfp). No wait on the normal path: a fast step (limit <= 2 s) that TIMED OUT waits for the flash to be idle
+# sfp). No wait on the normal path: a fast step (limit <= 3 s) that TIMED OUT waits for the flash to be idle
 # and runs once more; a second timeout stands as FAIL.
 # Probe: one raw 64 KiB read of mtd0 (20-30 ms idle on sw2, 10 ms clock); idle = 2 probes <= 50 ms in a row;
 # cap 40 s = 23.3 s x 1.25 + margin (measured first-boot overlay erase, DEFAULT-BOOT.md).
@@ -596,7 +597,7 @@ run() {	# run ITEM LIMIT_S [retried]: step_ITEM in its own process group, TERM'd
 	ms=$(( ($(now_cs) - s0) * 10 ))
 	kv "$1" elapsed_ms $ms
 	if [ -e $W/$1.timeout ]; then
-		if [ -z "$3" ] && [ "$2" -le 2 ]; then
+		if [ -z "$3" ] && [ "$2" -le 3 ]; then
 			flash_settle
 			log "retry: $1 timed out after $2 s; flash idle after $stall_s s"
 			rm -f $W/$1.timeout
@@ -618,7 +619,7 @@ run thermal $L_FAST
 run env $L_FAST
 run flash $L_FLASH
 run sfp $L_SFP
-run asic $L_FAST
+run asic $L_ASIC
 run storm $L_FAST
 run kmemtest $L_FAST
 run sram $L_SRAM
