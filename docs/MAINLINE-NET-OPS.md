@@ -53,6 +53,13 @@ cat /sys/kernel/debug/sfp-p1/state   # tx_disable: 0 now
 - `storm-watch` silent; SG2008P log has no `OSW_DET_LOOP`.
 - sw2 loopbacks (3 ↔ 4 DAC, 7 ↔ 8 fibre, docs/hardware.md): mainline initramfs never bridges; never `port-up` both ends of a pair.
 
+## sw1 <-> sw2 routed copper test link (2026-11-20)
+
+- sw1-lan2 (FS SFP-10G-T, AQR113C) <-> sw2-lan2 (GLC-T, 88E1111) is a second link between the two switches next to the 10G DAC (sw2-lan1 <-> sw1-lan4). Bridged it would be a loop (STP is per bridge, so a separate VLAN does not avoid the STP block either).
+- Both ends run `lan2` as a standalone routed port, not in the `switch` bridge: uci `network.testlink` (device `lan2`, static), sw1 `10.99.0.1/30`, sw2 `10.99.0.2/30`, in firewall zone `lan`; `lan2` removed from `network.lan_vlan.ports`. Persistent (uci commit), carried by the sysupgrade config backup.
+- Use: `ping 10.99.0.2` from sw1 / `10.99.0.1` from sw2, iperf3 over it; the link is invisible to the house LAN and to M1/M2 bridging. Undo: `uci del network.testlink`, add `lan2` back to `lan_vlan.ports`, remove `testlink` from the firewall zone, `network reload`.
+- Checked 2026-11-20T22:32+11:00: both ends 1000 full, 0% loss, 0.7-1.6 ms.
+
 ## OpenWrt with the sw2 loopbacks fitted (#110)
 
 - Boot as usual: `./dev.py ramload uboot-mainline --then openwrt-ours`. Our U-Boot `rtk linkcheck` reports LOOP; ramload accepts it for `openwrt-ours*` (refuses it for other images).
