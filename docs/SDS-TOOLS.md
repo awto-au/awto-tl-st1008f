@@ -129,3 +129,11 @@ Found while porting: `rtk sdsreg get <x> <sds> <page>` (one argument short) dere
 - Ranges (pcs-rtl-otto.c 6.18): vth_p, vth_n 3 bits each, 0-7 (readout WDIG 0x14 [2:0]/[5:3], value ANA_10G 0x13 [5:3]/[2:0], floor `vth_min` 1 in ANA_10G_EXT 0x0b [5:3]); tap0 sign-magnitude, 5-bit magnitude + sign = -31..+31 (ANA_10G_EXT 0x03 [5:0]).
 - The stuck values are the seeds, not noise: `rtpcs_930x_sds_rxcal_init` loads vth 7/7 and tap0 0x1f = 31, both the all-ones maximum. With no input the adapt engine never moves them, and the lock step writes back the unchanged seeds as manual values. Signature = vth 7/7 and tap0 31 together. vth 7/7 alone can be a real adapted value: sw2 lan1 (10G SR fibre, RX -2.36 dBm) re-adapted with its signal present (`readapt 2`, 2026-10-14T23:46+11:00) lands on vth 7/7, tap0 0 again; link stayed up, 0 errored blocks.
 - Adapted values seen on good links (sw2, 2026-10-14): SerDes 5 vth 1/1 tap0 15; SerDes 4 deferred cal vth 2/2; SerDes 4 readapt vth 3/3 tap0 20; SerDes 2 vth 7/7 tap0 0.
+
+## RX calibration in our U-Boot (#114, #83)
+- `shared/rtl930x-sds-rxcal` (Linux `rtpcs_930x_sds_rx_calibrate`, extracted by `scripts/gen_sds_rxcal.py`) runs in `rtk_net.c` `media_set` after the 10G / DAC bring-up.
+  - Skipped when RX is idle (calibrating without signal locks the seeds, see above); up to 3 tries.
+  - Prints `rtk: sds N rx cal ok|FAILED|skipped`. Env `rtk_rxcal=0` disables it (A/B).
+- Result, sw2 cage 1 <-> sw1 lan4 (5 m passive DAC), 2026-11-21T07:58+11:00, build 20261121-074425, `scripts/dac_rxcal_test.py`: 3 link-ups each, TFTP of a 6.0 MB image (4240 blocks of 1468 B per run), tftptimeout 500 ms.
+  - Without calibration: 8, 2, 1 timed-out blocks (11 / 12,720).
+  - With calibration: 0, 0, 0 (0 / 12,720).
