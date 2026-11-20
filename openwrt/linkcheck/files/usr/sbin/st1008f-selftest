@@ -554,7 +554,36 @@ export ST_RUN ST_ETC ST_USR MEM_SECS CPU_SECS MEM_RESERVE IN_STEP
 SETSID=""
 have setsid && SETSID=setsid	# own process group: expiry also stops the step's children
 
-run() {	# run ITEM LIMIT_S: step_ITEM in its own process group, TERM'd at LIMIT_S
+# First boot after a sysupgrade: config restore, uci-defaults and JFFS2 mount/GC write to the same SPI flash
+# the steps read from; reads stall for seconds and a 2 s step can expire (sw2 2026-11-20: clocks, asic, mode,
+# sfp). No wait on the normal path: a fast step (limit <= 2 s) that TIMED OUT waits for the flash to be idle
+# and runs once more; a second timeout stands as FAIL.
+# Probe: one raw 64 KiB read of mtd0 (20-30 ms idle on sw2, 10 ms clock); idle = 2 probes <= 50 ms in a row;
+# cap 40 s = 23.3 s x 1.25 + margin (measured first-boot overlay erase, DEFAULT-BOOT.md).
+STALL_CAP_S=40
+flash_probe_ms() {
+	read -r a _ < /proc/uptime
+	dd if=/dev/mtd0ro of=/dev/null bs=64k count=1 2>/dev/null
+	read -r b _ < /proc/uptime
+	echo $(( (${b%.*}${b#*.} - ${a%.*}${a#*.}) * 10 ))
+}
+flash_settle() {	# returns when the flash is idle or at the cap; stall_s = seconds waited
+	w=0
+	ok=0
+	while [ $w -lt $STALL_CAP_S ]; do
+		if [ "$(flash_probe_ms)" -le 50 ]; then
+			ok=$((ok + 1))
+			[ $ok -ge 2 ] && break
+		else
+			ok=0
+		fi
+		sleep 1
+		w=$((w + 1))
+	done
+	stall_s=$w
+}
+
+run() {	# run ITEM LIMIT_S [retried]: step_ITEM in its own process group, TERM'd at LIMIT_S
 	s0=$(now_cs)
 	$SETSID /bin/sh "$0" --step "$1" > $W/$1.out 2>&1 &
 	p=$!
@@ -567,6 +596,15 @@ run() {	# run ITEM LIMIT_S: step_ITEM in its own process group, TERM'd at LIMIT_
 	ms=$(( ($(now_cs) - s0) * 10 ))
 	kv "$1" elapsed_ms $ms
 	if [ -e $W/$1.timeout ]; then
+		if [ -z "$3" ] && [ "$2" -le 2 ]; then
+			flash_settle
+			log "retry: $1 timed out after $2 s; flash idle after $stall_s s"
+			rm -f $W/$1.timeout
+			grep -v "^$1|" $W/results > $W/results.n
+			mv $W/results.n $W/results
+			run "$1" "$2" retried
+			return
+		fi
 		res "$1" FAIL "timeout after $2 s"
 	elif ! grep -q "^$1|" $W/results; then
 		res "$1" FAIL "step ended without a result"

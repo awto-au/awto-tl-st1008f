@@ -39,7 +39,10 @@ HTTP_PORT = 8008  # as default_boot.fetch
 PUSH_S = 60    # 6 MB over 1G LAN, dropbear cipher on MIPS: wget of the same file took 4.7 s on sw2; x12
 # drop off: the unit stays reachable through the whole flash write, until the reboot
 # (docs/OPENWRT-BUILD-OPS.md sysupgrade timing); x1.25
-DOWN_S = 80
+DOWN_S = 105   # write of an 11.3 MB image to the drop-off measured 81 s (sw1, 2026-11-20); x1.25
+BLOCK = 0x10000          # W25Q256 erase sector
+SLOT_SIZE = SLOT_MAX     # 14848 KiB per A/B slot
+ERASE_S_PER_BLOCK = 0.21  # tail erase via mtd write of 0xff: 59 blocks in 12.4 s on sw2 (2026-11-20)
 # back: flash write worst 264 s (datasheet, as openwrt_install) + reboot to network ~50 s (sw2); x1.25
 UP_S = 390
 
@@ -61,6 +64,17 @@ def ssh(ip: str, cmd: str, cap: float = CMD_S, data: bytes | None = None) -> str
 
 def ping(ip: str) -> bool:
     return subprocess.run(["ping", "-c", "1", "-W", "1", ip], capture_output=True).returncode == 0
+
+
+def neighbour_ip(mac: str, not_ip: str) -> str | None:
+    """An IPv4 address (other than not_ip) the host's neighbour table holds for this MAC; read only."""
+    r = subprocess.run(["ip", "-4", "neigh", "show"], capture_output=True, text=True, timeout=5)
+    net = not_ip.rsplit(".", 1)[0] + "."  # same /24 only: 192.168.1.1 (U-Boot window) is a stale entry for the same MAC
+    for ln in r.stdout.splitlines():
+        f = ln.split()
+        if "lladdr" in f and f[f.index("lladdr") + 1].lower() == mac and f[0] != not_ip and f[0].startswith(net):
+            return f[0]
+    return None
 
 
 def wait(ip: str, up: bool, cap: float, what: str) -> float:
@@ -120,6 +134,7 @@ def main() -> int:
     if a.dry_run:
         log(f"DRY-RUN ok: {a.ip} {before} -> {rev}; nothing uploaded")
         return 0
+    mac = ssh(a.ip, "cat /sys/class/net/switch/address").strip().lower()
     BACKUP.mkdir(parents=True, exist_ok=True)
     out = BACKUP / f"{a.ip}-{time.strftime('%Y%m%d-%H%M%S')}.tar.gz"
     ssh(a.ip, "sysupgrade -b /tmp/cfg.tar.gz")
@@ -154,12 +169,43 @@ def main() -> int:
     if got != md5:
         raise SystemExit(f"FAIL: md5 on the box {got} != {md5}")
     ssh(a.ip, f"sysupgrade {F}-T /tmp/f.bin")
+    if ab:
+        # The idle slot's tail (past the new image) is the new overlay. JFFS2 would erase it at the first boot
+        # (flash reads stall ~25 s, selftest steps time out): blank it now, while the unit is still online.
+        cur = re.search(r"booted: (\w)", ssh(a.ip, "st1008f-slot")).group(1)
+        idle = "b" if cur == "a" else "a"
+        flash_guard.check_mtd(f"firmware_{idle}", "openwrt-sysupgrade-ssh overlay pre-erase")
+        off = -(-len(raw) // BLOCK) * BLOCK
+        n = (SLOT_SIZE - off) // BLOCK
+        t0 = time.monotonic()
+        ssh(a.ip, f"dd if=/dev/zero bs=64k count={n} 2>/dev/null | tr '\\000' '\\377' > /tmp/ff && "
+                  f"mtd -f -p {off} write /tmp/ff firmware_{idle} >/dev/null 2>&1; r=$?; rm -f /tmp/ff; exit $r",
+            n * ERASE_S_PER_BLOCK * 1.25 + 5)
+        log(f"  slot {idle}: overlay area 0x{off:x}+{n} blocks blanked in {time.monotonic() - t0:.0f} s (unit online)")
     log("  pushed, md5 ok, sysupgrade -T ok; upgrading (config kept)")
     subprocess.run([*SSH, f"root@{a.ip}", f"sysupgrade {F}/tmp/f.bin </dev/null >/dev/null 2>&1 &"],
                    capture_output=True, timeout=CMD_S)
     t = wait(a.ip, False, DOWN_S, "the unit to drop off (upgrade started)")
     log(f"  off the network after {t:.0f} s")
-    t = wait(a.ip, True, UP_S, "the unit to answer ping (flash write + boot)")
+    # The new A/B slot can boot with default config (DHCP address) although config is kept: find the unit by MAC
+    # in the neighbour table, put the backup back, wait for the real address.
+    t0 = time.monotonic()
+    restored = False
+    while not ping(a.ip):
+        if time.monotonic() - t0 > UP_S:
+            raise SystemExit(f"TIMEOUT {UP_S} s waiting for {a.ip} (flash write + boot)")
+        if not restored:
+            other = neighbour_ip(mac, a.ip)
+            if other and ping(other):
+                try:
+                    ssh(other, "cat > /tmp/b.tgz; echo etc/uci-defaults/10_disable_services > /tmp/x; "
+                               "tar -xzf /tmp/b.tgz -C / -X /tmp/x; (/etc/init.d/network restart >/dev/null 2>&1 &)",
+                        CMD_S, data=out.read_bytes())
+                    log(f"  up at {other} with default config after {time.monotonic() - t0:.0f} s: backup restored, network restarted")
+                    restored = True
+                except (SystemExit, subprocess.TimeoutExpired) as e:
+                    log(f"  restore via {other} failed: {e}")
+    t = time.monotonic() - t0
     log(f"  answers ping after {t:.0f} s")
     after = ""
     t0 = time.monotonic()

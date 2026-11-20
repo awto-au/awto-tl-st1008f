@@ -22,9 +22,9 @@ Facts, patch status, sizes: [OPENWRT-BUILD.md](OPENWRT-BUILD.md). Log: `tmp/logs
 ## Flash image (A/B, sw1 + sw2)
 
 - Build: `./dev.py build-openwrt --kernel mainline --flash --default-boot --tag diag` -> `tmp/openwrt-7.4diag-sysupgrade.bin`. A change to `openwrt/selftest/` or `files/` needs the full build: `--kernel-only` does not repack the rootfs (same md5 as before the edit).
-- Flash: `python3 scripts/openwrt_sysupgrade_ssh.py --ip IP --image tmp/openwrt-7.4diag-sysupgrade.bin` (backup to `private/sysupgrade-backup/`). It writes the idle slot and reboots into it; the script's 80 s "drop off" wait times out although the upgrade ran.
-- The new slot boots with default config (static address gone, DHCP lease instead): find the unit by MAC (`ip neigh`), copy the backup tar over ssh and `tar -xzf b.tgz -C / -X x` (BusyBox tar has no `--exclude`; exclude `etc/uci-defaults/10_disable_services`), then `/etc/init.d/network restart`.
-- First boot on a fresh slot: selftest steps can hit their 2 s limit (`timeout after 2 s` on mode/sfp/asic); a re-run passes (sw2 asic 1,120 ms). Judge the second run.
+- Flash: `python3 scripts/openwrt_sysupgrade_ssh.py --ip IP --image tmp/openwrt-7.4diag-sysupgrade.bin` (backup to `private/sysupgrade-backup/`, log `tmp/logs/openwrt_sysupgrade_ssh.log`). Steps: backup, push, `sysupgrade -T`, then the idle slot's overlay area (past the image) is blanked with `mtd -f -p OFF write` of 0xff while the unit is still online (59 blocks 13 s on sw2: JFFS2 would otherwise erase it in the background at first boot, 178 ms/block, and stall flash reads), then `sysupgrade`. Drop-off 82-84 s measured.
+- The new slot can boot with default config (DHCP address) although config is kept: the script finds the unit by MAC in the host neighbour table (same /24 only), restores the backup over ssh and restarts the network. By hand: `tar -xzf b.tgz -C / -X x` (BusyBox tar has no `--exclude`; x = `etc/uci-defaults/10_disable_services`), `/etc/init.d/network restart`. Unit not in the neighbour table: Omada clients by MAC (`awto-terminal scripts/omada_snapshot.py`).
+- First boot on a fresh slot still writes (config restore, uci-defaults) while the selftest reads flash: a fast step (limit <= 2 s) that times out waits for flash idle (raw 64 KiB mtd0 read <= 50 ms twice, cap 40 s) and runs once more. First boot after this change: sw2 PASS in 28 s, no retry needed (2026-11-20).
 
 ## Board test (step 1 image)
 

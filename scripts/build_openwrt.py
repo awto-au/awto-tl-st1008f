@@ -296,7 +296,7 @@ FEED_PKGS = ["luci", "luci-app-statistics", "luci-app-snmpd", "luci-app-lldpd", 
              "collectd-mod-cpu", "collectd-mod-interface", "collectd-mod-load", "collectd-mod-memory",
              "collectd-mod-network", "collectd-mod-rrdtool", "collectd-mod-thermal",
              # diagnostics: PHY/MDIO + I2C register access (SFP EEPROM, PCA9534), net + system tracing
-             "phytool", "i2c-tools", "mtr-nojson", "conntrack", "iputils-arping", "iputils-tracepath", "iftop",
+             "phytool", "mdio-tools", "i2c-tools", "mtr-nojson", "conntrack", "iputils-arping", "iputils-tracepath", "iftop",
              "nload", "socat", "htop", "lsof", "sysstat", "nano", "hexedit", "jq", "tmux", "pv"]
 
 
@@ -507,6 +507,18 @@ def overlay_73() -> None:
     # 7.x dtc dropped the graph_child_address check: `-Wno-graph_child_address` is a FATAL ERROR there
     im = TREE / "include/image.mk"
     im.write_text(im.read_text().replace("  -Wno-graph_child_address \\\n", ""))
+    # 7.x folded mdio-bus into libphy: no mdio-bus.ko, so kmod-libphy (pulled in by kmod-mdio-netlink for
+    # mdio-tools) fails to package with "mdio-bus.ko is missing"
+    nd = TREE / "package/kernel/linux/modules/netdevices.mk"
+    nd.write_text(nd.read_text().replace(
+        "FILES:=$(LINUX_DIR)/drivers/net/phy/libphy.ko \\\n    $(LINUX_DIR)/drivers/net/phy/mdio-bus.ko\n"
+        "  AUTOLOAD:=$(call AutoLoad,15,libphy mdio-bus,1)",
+        "FILES:=$(LINUX_DIR)/drivers/net/phy/libphy.ko\n  AUTOLOAD:=$(call AutoLoad,15,libphy,1)"))
+    # out-of-tree kmod version = kernel version + PKG_VERSION = "7.4_rc3.1.3.2": invalid for apk (as perf, see above)
+    mn = TREE / "feeds/packages/kernel/mdio-netlink/Makefile"
+    if mn.exists() and "VERSION:=$(PKG_VERSION)" not in mn.read_text():
+        mn.write_text(mn.read_text().replace("  DEPENDS:=+kmod-libphy\n",
+                                             "  DEPENDS:=+kmod-libphy\n  VERSION:=$(PKG_VERSION)-r$(PKG_RELEASE)\n"))
     # mainline DTS: 1-cell interrupts + mainline rtl930x.dtsi (OpenWrt's dtsi in the same dir would shadow it)
     dts = (ROOT / "mainline/tplink-tl-st1008f-v2.dts").read_text()
     dts = dts.replace('#include "rtl930x.dtsi"', '#include "realtek/rtl930x.dtsi"')
