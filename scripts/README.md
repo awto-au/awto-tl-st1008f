@@ -650,3 +650,9 @@ Log: `tmp/logs/patch_rebase.log`.
 - Run: `python3 scripts/sfp_reattach_test.py [--hold 15] [--watch 12]`.
 - Holds a copper SFP port down, brings it up, logs module PHY BMCR/BMSR changes and sfp kernel messages (#178).
 - Log: `tmp/logs/sfp_reattach_test.log`.
+
+### port_sweep.py
+
+- Run: `python3 scripts/port_sweep.py [--ports lan3,lan4,lan5,lan6,lan8] [--hold 8] [--start-in 10]`.
+- Lights sw2 cages one at a time (1000BASE-X autoneg on), samples carrier + SerDes 1/29, 2/5, then downs each. Cabling finder against a lit far end. Never touches lan1/lan2/lan7.
+- Log: `tmp/logs/port_sweep.log`.
