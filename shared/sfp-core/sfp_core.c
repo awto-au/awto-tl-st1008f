@@ -46,17 +46,34 @@ static int field_is(const sfp_u8 *f, size_t n, const char *s)
 	return n == strlen(s) && !memcmp(f, s, n);
 }
 
+/* Linux sfp_quirks[] fixup entries that change the decode: FS_10GT = sfp_fixup_fs_10gt (RJ45 + 10GBASE-T_SR),
+ * ROLLBALL_CC = sfp_fixup_rollball_cc (ecc 10GBASE-T_SFI). Checked against the kernel by tools/check_linux_sfp.py. */
+enum fixup_kind { FS_10GT, ROLLBALL_CC };
+
+static const struct { const char *vendor, *part; enum fixup_kind kind; } fixups[] = {
+	{ "FS", "SFP-10G-T", FS_10GT },
+	{ "Walsun", "HXSX-ATRC-1", FS_10GT },
+	{ "Walsun", "HXSX-ATRI-1", FS_10GT },
+	{ "OEM", "SFP-10G-T", ROLLBALL_CC },
+	{ "OEM", "RTSFP-10", ROLLBALL_CC },
+	{ "OEM", "RTSFP-10G", ROLLBALL_CC },
+};
+
 int sfp_fixup(sfp_u8 *id, size_t len)
 {
+	size_t i;
+
 	if (len < 56)
 		return 0;
-	if (field_is(id + 20, 16, "FS") && field_is(id + 40, 16, "SFP-10G-T")) {	/* sfp_fixup_fs_10gt */
-		id[2] = 0x22;	/* SFF8024_CONNECTOR_RJ45 */
-		id[36] = 0x1c;	/* SFF8024_ECC_10GBASE_T_SR */
-		return 1;
-	}
-	if (field_is(id + 20, 16, "OEM") && field_is(id + 40, 16, "SFP-10G-T")) {	/* sfp_fixup_rollball_cc */
-		id[36] = 0x16;	/* SFF8024_ECC_10GBASE_T_SFI */
+	for (i = 0; i < sizeof(fixups) / sizeof(fixups[0]); i++) {
+		if (!field_is(id + 20, 16, fixups[i].vendor) || !field_is(id + 40, 16, fixups[i].part))
+			continue;
+		if (fixups[i].kind == FS_10GT) {
+			id[2] = 0x22;	/* SFF8024_CONNECTOR_RJ45 */
+			id[36] = 0x1c;	/* SFF8024_ECC_10GBASE_T_SR */
+		} else {
+			id[36] = 0x16;	/* SFF8024_ECC_10GBASE_T_SFI */
+		}
 		return 1;
 	}
 	return 0;
@@ -186,6 +203,7 @@ static const struct { const char *vendor, *part; unsigned int set; int only; } q
 	{ "OEM", "SFP-2.5G-BX10-U", SFP_IFBIT(SFP_IF_2500BX) },
 	{ "OEM", "SFP-2.5G-LH03-B", SFP_IFBIT(SFP_IF_2500BX) },
 	{ "OEM", "SFP-2.5G-LH20-A", SFP_IFBIT(SFP_IF_2500BX) },
+	{ "TP-LINK", "TL-SM410U", SFP_IFBIT(SFP_IF_2500BX) },
 	{ "ZOERAX", "SFP-2.5G-T", SFP_IFBIT(SFP_IF_2500BX) },
 };
 
