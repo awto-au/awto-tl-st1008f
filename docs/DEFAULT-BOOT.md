@@ -29,7 +29,7 @@ Chain-load from stock (#47 option A, live since 2026-10-11, fd16464).
 
 - Stock env (`./dev.py uboot-chain-env apply`, one `saveenv`, 0.7 s; #105):
   - `bootcmd_stock=boota` (stock's own flash boot)
-  - `ub_ld=cp.b 0x94200000 0x81000000 0xf0000` (960 KiB slot from the mmio window; sw1 still `0x80000`, [growing](#growing-the-chain-slot-155))
+  - `ub_ld=cp.b 0x94200000 0x81000000 0xf0000` (960 KiB slot from the mmio window, both units; [growing](#growing-the-chain-slot-155))
   - `ub_ck=crc32 0x81000000 0xefffc 0x80ffff00; cmp.l 0x80ffff00 0x810efffc 1` (slot CRC vs its last word; sw1 `0x7fffc` / `0x8107fffc`)
   - `ub_go=mw.l 0xa0f80000 0xa5a51008; go 0x81000000` (marker, run)
   - `bootcmd=run ub_ld ub_ck ub_go; run bootcmd_stock`
@@ -54,7 +54,7 @@ Chain-load from stock (#47 option A, live since 2026-10-11, fd16464).
 ### Growing the chain slot (#155)
 
 - Decision: owner 2026-11-07 ([DECISIONS.md](DECISIONS.md)); 512 KiB -> 960 KiB (`0xF0000`) inside `jffs2-log`, `jffs2-cfg` later if needed. Image 515,769 B vs limit 0x7ffc0 (~8 KB slack) is why.
-- One parameter: `UBOOT_CHAIN_SLOT` or `--chain-slot` (`uboot_chain_layout.py`; used by image builder, env, installer, build, flash guard, `ramload --from-flash`). Default 0xF0000 since the sw2 migration; sw1 operations need `UBOOT_CHAIN_SLOT=0x80000` until it is migrated (owner's go).
+- One parameter: `UBOOT_CHAIN_SLOT` or `--chain-slot` (`uboot_chain_layout.py`; used by image builder, env, installer, build, flash guard, `ramload --from-flash`). Default 0xF0000; both units migrated (sw2 2026-11-20, sw1 2026-11-21: `uboot-chain-install-ssh`, then `uboot-chain-env apply --ssh` straight after, no reboot between: the old 512 KiB env would load a truncated image).
 - Migrated: sw2 2026-11-20T09:12-09:14+11:00 (backups of u-boot-env, u-boot-env2, jffs2-log in `private/backup-155/`): install over ssh (read-back PASS), `uboot-chain-env apply --ssh`, warm reboot: stock CRC `3b9471ea` over 0x81000000-0x810efffb, our U-Boot ran, kernel started; `test-bad` PASS (check failed -> stock `boota` -> flash OpenWrt). Image 522,569 B, 460,407 B below the 0xeffc0 limit.
 - Refused: not 64 KiB aligned; end past 0x2EFFFF (`bootstate` 0x2F0000); RAM copy past stock U-Boot (0x83f00000); env/image length mismatch (host pre-check in `uboot-chain-env test|test-bad|apply`, before any board contact); `apply --allow-fallback` at a non-default size.
 - 960 KiB env: `ub_ld=cp.b 0x94200000 0x81000000 0xf0000`, `ub_ck=crc32 0x81000000 0xefffc 0x80ffff00; cmp.l 0x80ffff00 0x810efffc 1`.

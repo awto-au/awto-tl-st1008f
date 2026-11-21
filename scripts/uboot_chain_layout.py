@@ -19,7 +19,7 @@ from pathlib import Path
 ROOT = Path(__file__).resolve().parent.parent
 LOG = ROOT / "tmp/logs/uboot_chain_layout.log"
 
-DEFAULT_SLOT = 0xF0000       # sw2 live since 2026-11-20; sw1 still LEGACY_SLOT until the owner OKs it
+DEFAULT_SLOT = 0xF0000       # sw2 live since 2026-11-20, sw1 since 2026-11-21 (#155)
 LEGACY_SLOT = 0x80000
 REGION_START = 0x200000      # flash offset of jffs2-log = slot start
 REGION_END = 0x2F0000        # bootstate (A/B record, Linux-owned): never touched
