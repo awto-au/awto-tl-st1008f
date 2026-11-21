@@ -457,6 +457,12 @@ def cmd_sds_cal_test(extra: list[str]) -> int:
     return _script("sds_cal_test.py", extra)
 
 
+@command("SerDes read/inspect over ssh via st1008f-sds (#136): rd|rxeq|link|symerr|idle; wr|readapt|cal need --force",
+         args="[--ip IP] [--force] CMD SDS [args]", kind="hardware")
+def cmd_sds(extra: list[str]) -> int:
+    return _script("sds_ssh.py", extra)
+
+
 @command("10G link bring-up failure rate on sw2 (#116): bounce a cage pair N times (default lan7+lan8 fibre loop)",
          args="[--pair lanX lanY] [--rounds N]", kind="hardware")
 def cmd_link_bounce(extra: list[str]) -> int:
