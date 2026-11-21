@@ -1,0 +1,22 @@
+#!/bin/sh /etc/rc.common
+# Config A/B slots (#118, st1008f-cfgslot): restore from the newest valid slot when the overlay holds no marker
+# (fresh overlay after sysupgrade -n / failed JFFS2), save after every uci commit of the main configs.
+START=05
+USE_PROCD=1
+
+MARK=/etc/.st1008f-cfgslot	# lives in the overlay: present = this overlay has been through a save/restore
+
+start_service() {
+	if [ ! -e $MARK ] && st1008f-cfgslot status | grep -q '^active: [01]'; then
+		st1008f-cfgslot restore && : > $MARK
+		# network and system are read after this point (START=05 < network 20)
+	fi
+	( st1008f-cfgslot save >/dev/null 2>&1 && : > $MARK ) &
+}
+
+service_triggers() {
+	local c
+	for c in network system dhcp firewall dropbear uhttpd rpcd snmpd lldpd; do
+		procd_add_config_trigger "config.change" "$c" /usr/sbin/st1008f-cfgslot save
+	done
+}

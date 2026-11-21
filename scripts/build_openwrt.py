@@ -439,14 +439,14 @@ def tarball_73() -> None:
 
 
 def flash_dts(dts: str) -> str:
-    """Writable u-boot-env (fw_setenv, #80/#86)/jffs2-log/bootstate/firmware_a/b; firmware_a/b = openwrt,uimage with the slot match (300-33)."""
+    """Writable u-boot-env (fw_setenv, #80/#86)/jffs2-cfg (config slots, #118)/jffs2-log/bootstate/firmware_a/b; firmware_a/b = openwrt,uimage with the slot match (300-33)."""
     match = {"firmware_a": '"!st1008f.slot=b"', "firmware_b": '"st1008f.slot=b"'}
     n = 0
 
     def edit(m: re.Match) -> str:
         nonlocal n
         blk, label = m[0], m[1]
-        if label not in ("u-boot-env", "jffs2-log", "bootstate", *match):
+        if label not in ("u-boot-env", "jffs2-cfg", "jffs2-log", "bootstate", *match):
             return blk
         n += 1
         blk = re.sub(r"\n\t*read-only;", "", blk)
@@ -456,8 +456,8 @@ def flash_dts(dts: str) -> str:
                               f'\t\t\t\topenwrt,cmdline-match = {match[label]};')
         return blk
     out = re.sub(r"\t\t\tpartition@\w+ \{.*?label = \"([\w-]+)\";.*?\n\t\t\t\};", edit, dts, flags=re.S)
-    if n != 5:
-        sys.exit(f"flash_dts: expected 5 partitions in mainline/tplink-tl-st1008f-v2.dts, edited {n}")
+    if n != 6:
+        sys.exit(f"flash_dts: expected 6 partitions in mainline/tplink-tl-st1008f-v2.dts, edited {n}")
     return out
 
 

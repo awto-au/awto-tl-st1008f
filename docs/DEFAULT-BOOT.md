@@ -318,3 +318,10 @@ Image: `./dev.py build-openwrt --kernel 7.3 --default-boot` (OpenWrt main e5ec5e
   - Its RAM twin (7.4 + 300-17 fixes initramfs) reset the SoC within 32 s in 5 of 5 boots ([NAT-HISTORY.md](NAT-HISTORY.md#l3-offload-fixes-on-the-74-base-59-2026-11-08)); the same build sources are in the flash image.
   - `scripts/openwrt_sysupgrade_ssh.py` has a fixed image path (`tmp/openwrt-build/bin/.../sysupgrade.bin`) and no image argument: flashing the 7.4 file needs an unscripted step.
 - To resume: fix the 7.4 boot hang first; add `--image` to the sysupgrade flow; flash the idle slot (b) and use the trial/fallback mechanism above.
+
+## Config slots (#118)
+- `jffs2-cfg` (1 MiB, writable in the flash DTS since #118) holds two 512 KiB slots; `st1008f-cfgslot save|restore|status|erase`.
+- Slot = 256 B header (`ST1008FCFG1 seq len sha cfg`) + `sysupgrade -b` tarball. Save writes the older slot, reads it back and verifies the SHA-256; the valid slot with the higher seq is active. A cut during a write leaves the new slot invalid and the old one active.
+- `st1008f-cfgslot` init (START=05): no marker `/etc/.st1008f-cfgslot` in the overlay and a valid slot = restore before `network`; then a save. Triggers: `uci commit` of network, system, dhcp, firewall, dropbear, uhttpd, rpcd, snmpd, lldpd. Unchanged content (md5 of the kept files) writes nothing.
+- `firstboot` alone is undone by the next boot's restore: run `st1008f-cfgslot erase` first.
+- Tested on sw2 against a file (CFGSLOT_FILE): alternation, skip-if-unchanged, cut mid-write (header valid, payload partial: old slot stays active), both slots corrupt (restore refuses). Not yet on the real mtd (needs the image with the writable partition) and not with a power cut.

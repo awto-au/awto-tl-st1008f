@@ -1,0 +1,115 @@
+#!/bin/sh
+# Config A/B slots in jffs2-cfg (#118): sysupgrade backup tarball, verified before it counts, newest valid slot wins.
+#   st1008f-cfgslot save [--force]    write the config backup to the older slot, read back, verify (skips if unchanged)
+#   st1008f-cfgslot restore [--dir D] extract the newest valid slot to / (or D)
+#   st1008f-cfgslot status            both slots: seq, length, state
+#   st1008f-cfgslot erase             erase both slots (use with `firstboot`, or the next boot restores the old config)
+# Slot = 256 B header "ST1008FCFG1 seq=N len=N sha=<payload sha256> cfg=<content md5>\n" (space padded) + tar.gz payload.
+# Active = valid slot with the higher seq: a cut during a write leaves the new slot invalid, the old one stays active.
+
+MTD=mtd3		# jffs2-cfg, 1 MiB, 64 KiB erase blocks
+FILE=${CFGSLOT_FILE:-}	# test: a 1 MiB file instead of the flash
+SLOT_SIZE=524288	# 2 x 512 KiB
+HDR=256
+MAGIC=ST1008FCFG1
+MAX_PAYLOAD=$((SLOT_SIZE - HDR))
+W=/tmp/cfgslot.$$
+trap 'rm -rf $W' EXIT
+mkdir -p $W
+
+die() { echo "st1008f-cfgslot: $*" >&2; logger -t st1008f-cfgslot "$*"; exit 1; }
+rd() { dd if=${FILE:-/dev/${MTD}ro} bs=1 skip=$(($1)) count=$(($2)) 2>/dev/null; }	# offset length
+mwrite() {	# offset image
+	if [ -n "$FILE" ]; then dd if=$2 of=$FILE bs=4096 seek=$(($1 / 4096)) conv=notrunc 2>/dev/null
+	else mtd -q -p $1 write $2 $MTD; fi
+}
+
+# slot_info N -> sets seq len sha cfg state (valid|empty|bad)
+slot_info() {
+	local off=$(( $1 * SLOT_SIZE )) h
+	seq=0 len=0 sha= cfg= state=empty
+	h=$(rd $off $HDR | tr -d '\000\377' | head -n 1)
+	case "$h" in "$MAGIC "*) ;; *) [ -z "$h" ] || state=bad; return ;; esac
+	seq=$(echo "$h" | sed -n 's/.* seq=\([0-9]*\) .*/\1/p')
+	len=$(echo "$h" | sed -n 's/.* len=\([0-9]*\) .*/\1/p')
+	sha=$(echo "$h" | sed -n 's/.* sha=\([0-9a-f]*\).*/\1/p')
+	cfg=$(echo "$h" | sed -n 's/.* cfg=\([0-9a-f]*\).*/\1/p')
+	if [ -z "$seq" ] || [ -z "$len" ] || [ "$len" -le 0 ] || [ "$len" -gt $MAX_PAYLOAD ]; then state=bad; return; fi
+	rd $((off + HDR)) $len > $W/p$1
+	[ "$(sha256sum < $W/p$1 | cut -d' ' -f1)" = "$sha" ] && state=valid || state=bad
+}
+
+load() {
+	slot_info 0; s0=$seq l0=$len c0=$cfg st0=$state
+	slot_info 1; s1=$seq l1=$len c1=$cfg st1=$state
+}
+
+cfg_hash() {
+	sysupgrade -l 2>/dev/null | sort | while read -r f; do [ -f "$f" ] && md5sum "$f"; done | md5sum | cut -d' ' -f1
+}
+
+pick() {	# after load: sets a = slot number of the newest valid slot, empty if none
+	a=
+	if [ $st0 = valid ] && { [ $st1 != valid ] || [ $s0 -gt $s1 ]; }; then a=0
+	elif [ $st1 = valid ]; then a=1; fi
+}
+
+cmd_status() {
+	load; pick
+	echo "slot 0: $st0 seq $s0 len $l0"
+	echo "slot 1: $st1 seq $s1 len $l1"
+	echo "active: ${a:-none}"
+}
+
+cmd_save() {
+	local force=0 target seq_new h now c
+	[ "$1" = --force ] && force=1
+	now=$(cfg_hash)
+	load; pick
+	if [ -n "$a" ] && [ $force = 0 ]; then
+		[ "$a" = 0 ] && c=$c0 || c=$c1
+		[ "$c" = "$now" ] && { echo "unchanged, slot $a already holds this config"; return 0; }
+	fi
+	sysupgrade -b $W/new.tgz >/dev/null 2>&1 || die "sysupgrade -b failed"
+	len=$(wc -c < $W/new.tgz)
+	[ "$len" -le $MAX_PAYLOAD ] || die "backup $len B exceeds slot payload $MAX_PAYLOAD B"
+	if [ -z "$a" ]; then target=0 seq_new=1
+	elif [ "$a" = 0 ]; then target=1 seq_new=$((s0 + 1))
+	else target=0 seq_new=$((s1 + 1)); fi
+	sha=$(sha256sum < $W/new.tgz | cut -d' ' -f1)
+	h="$MAGIC seq=$seq_new len=$len sha=$sha cfg=$now"
+	{ printf '%s\n' "$h"; } > $W/h
+	dd if=/dev/zero bs=1 count=$((HDR - $(wc -c < $W/h))) 2>/dev/null | tr '\000' ' ' > $W/pad
+	cat $W/h $W/pad $W/new.tgz > $W/img
+	# Phase 1: write the older slot (erase + program); Phase 2: verify; Phase 3 is implicit (higher seq = active)
+	mwrite $((target * SLOT_SIZE)) $W/img || die "mtd write slot $target failed"
+	slot_info $target
+	[ "$state" = valid ] && [ "$seq" = $seq_new ] || die "verify of slot $target failed ($state): previous slot ${a:-none} stays active"
+	logger -t st1008f-cfgslot "saved config to slot $target seq $seq_new ($len B)"
+	echo "slot $target seq $seq_new ($len B) verified, active"
+}
+
+cmd_restore() {
+	local dir=/
+	[ "$1" = --dir ] && dir=$2
+	load; pick
+	[ -n "$a" ] || die "no valid slot"
+	slot_info $a
+	mkdir -p "$dir"
+	tar xzf $W/p$a -C "$dir" || die "extract of slot $a failed"
+	logger -t st1008f-cfgslot "restored config from slot $a seq $seq to $dir"
+	echo "restored slot $a seq $seq to $dir"
+}
+
+cmd_erase() {
+	if [ -n "$FILE" ]; then head -c 1048576 /dev/zero | tr '\000' '\377' > $FILE; else mtd -q erase $MTD || die "erase failed"; fi
+	logger -t st1008f-cfgslot "erased both slots"
+}
+
+case "$1" in
+	save) shift; cmd_save "$@" ;;
+	restore) shift; cmd_restore "$@" ;;
+	status) cmd_status ;;
+	erase) cmd_erase ;;
+	*) sed -n '2,8p' "$0"; exit 2 ;;
+esac
