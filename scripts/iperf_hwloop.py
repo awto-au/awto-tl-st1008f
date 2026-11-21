@@ -35,9 +35,10 @@ UNDO_SW2 = ["ip link set lan3 down; ip link set lan6 down",
             "bridge vlan del dev lan3 vid 991; bridge vlan del dev lan6 vid 992",
             "bridge vlan del dev lan1 vid 991; bridge vlan del dev lan1 vid 992",
             "bridge vlan add dev lan3 vid 1 pvid untagged; bridge vlan add dev lan6 vid 1 pvid untagged",
+            "for p in lan3 lan6; do [ -e /tmp/hl_add_$p ] && ip link set $p nomaster && rm -f /tmp/hl_add_$p; done",
             "ip link set switch type bridge stp_state 1",
             f"echo 'loop on' > {DBG}; echo unshut > {DBG}",
-            "ip link set lan3 up; ip link set lan6 up"]
+            "for p in lan1 lan3 lan5 lan6 lan7; do ip link set $p up; done"]  # a run once left lan1/lan5/lan7 admin-down (#182)
 UNDO_SW1 = [f"echo 'loop on' > {DBG}; echo unshut > {DBG}"]
 
 
@@ -145,6 +146,10 @@ def main() -> int:
             "ip link set lan3 up; ip link set lan6 up; ethtool -s lan3 autoneg on; ethtool -s lan6 autoneg on; "
             "i=0; while [ $i -lt 150 ]; do [ \"$(cat /sys/class/net/lan3/carrier)\" = 1 ] && [ \"$(cat /sys/class/net/lan6/carrier)\" = 1 ] && break; i=$((i+1)); read -t 0.1 z <>/tmp/wf; done; "
             "read -t 3 z <>/tmp/wf; echo iters=$i lan3=$(cat /sys/class/net/lan3/carrier) lan6=$(cat /sys/class/net/lan6/carrier)"))
+        # st1008f-linkcheck keeps looped cages (lan3<->lan6) out of the bridge at boot: join them for the run, undone in UNDO_SW2
+        log("bridge members: " + ssh(a.sw2,
+            "for p in lan3 lan6; do ip -d link show $p | grep -q 'master switch' || { ip link set $p master switch && touch /tmp/hl_add_$p; }; done; "
+            "ls /tmp/hl_add_* 2>/dev/null | tr '\\n' ' '; echo ok"))
         log("vlans: " + ssh(a.sw2,
             "bridge vlan add dev lan1 vid 991; bridge vlan add dev lan1 vid 992; bridge vlan del dev lan3 vid 1; bridge vlan del dev lan6 vid 1; "
             "bridge vlan add dev lan3 vid 991 pvid untagged; bridge vlan add dev lan6 vid 992 pvid untagged; "
