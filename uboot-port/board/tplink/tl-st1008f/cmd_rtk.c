@@ -516,60 +516,54 @@ static int phy_wr(struct udevice *dev, int r, u16 v, int *retries)
 	return phy_wbyte(dev, r, v >> 8, retries) ?: phy_wbyte(dev, r, v & 0xff, retries);
 }
 
-#define M1111_EXT_SR		0x1b	/* HWCFG mode, as Linux marvell.c MII_M1111_PHY_EXT_SR */
-#define M1111_MODE_MASK		0xf
-#define M1111_MODE_SGMII_NO_CLK	0x4
-#define M1111_FIBER_COPPER_RES	BIT(13)
-#define M1111_FIBER_COPPER_AUTO	BIT(15)
-#define M1111_PAGE		0x16	/* page select; 0 = copper */
-#define PHY_BMCR_RESET		BIT(15)
-#define PHY_BMCR_ANE_RESTART	0x1200	/* AN enable + restart; speed/duplex bits clear */
-#define PHY_ANAR_1000TX_ONLY	0x0c01	/* selector + sym/asym pause, no 10/100: GLC-T module default, Linux sfp advertises 1000baseT/Full only */
-#define PHY_1000CTRL_FULL	0x0200
-/* Linux PHY_RESET_TIMEOUT = 600 ms; the 88E1111 clears BMCR reset in < 1 ms. Expiry: FAIL line, no AN restart */
-#define PHY_RESET_CAP_MS	600
+/* Backend for the core's PHY sequencer: this cage's 0x56 device, retries counted per call */
+struct rtk_phy {
+	struct udevice *dev;
+	int retries;
+};
 
-/* Copper module 88E1111 (ID 0x0141 0x0cc?): what Linux marvell.c does for SGMII (m88e1111_config_init_sgmii +
- * genphy_soft_reset + config_aneg). The module powers up in 1000BASE-X mode with autoneg off (BMCR 0x0140, #178),
- * so with the host SerDes in SGMII no link forms. Returns 0 also for a module that is not an 88E1111. */
+static int rtk_phy_rd(void *c, int r, unsigned short *v)
+{
+	struct rtk_phy *p = c;
+
+	return phy_rd(p->dev, r, v, &p->retries);
+}
+
+static int rtk_phy_wr(void *c, int r, unsigned short v)
+{
+	struct rtk_phy *p = c;
+
+	return phy_wr(p->dev, r, v, &p->retries);
+}
+
+static void rtk_phy_delay(void *c, unsigned int ms)
+{
+	mdelay(ms);
+}
+
+/* Copper module PHY: the register table and sequence are sfp_phy.c (awto-sfp-core). The 88E1111 module powers up
+ * in 1000BASE-X with autoneg off (BMCR 0x0140, #178), so with the host SerDes in SGMII no link forms.
+ * Returns 0 also for a module with no PHY or one the core leaves alone. */
 int rtk_sfp_copper_phy_init(int cage)
 {
-	struct udevice *dev = rtk_chip(cage - 1, SFP_PHY);
-	int retries = 0, ms;
-	u16 id1, id2, v;
+	struct rtk_phy p = { rtk_chip(cage - 1, SFP_PHY), 0 };
+	struct sfp_phy_ops ops = { rtk_phy_rd, rtk_phy_wr, rtk_phy_delay, &p };
+	enum sfp_phy_id id;
+	int r;
 
-	if (!dev || phy_rd(dev, 2, &id1, &retries) || phy_rd(dev, 3, &id2, &retries))
-		return 0;	/* no PHY answer: a fibre or MCU-only module */
-	if (id1 == 0x4101 && phy_rd(dev, 2, &id1, &retries))	/* byte pointer off by one, see sfp_phy() */
+	if (!p.dev)
 		return 0;
-	if (id1 != 0x0141 || (id2 & 0xfff0) != 0x0cc0)
+	id = sfp_phy_identify(&ops);
+	if (id != SFP_PHY_88E1111)
 		return 0;
-	if (phy_rd(dev, M1111_EXT_SR, &v, &retries))
-		goto fail;
-	v = (v & ~(M1111_MODE_MASK | M1111_FIBER_COPPER_AUTO | M1111_FIBER_COPPER_RES)) |
-	    M1111_MODE_SGMII_NO_CLK | M1111_FIBER_COPPER_AUTO;
-	if (phy_wr(dev, M1111_EXT_SR, v, &retries) || phy_wr(dev, M1111_PAGE, 0, &retries) ||
-	    phy_wr(dev, 0, PHY_BMCR_RESET, &retries))
-		goto fail;
-	for (ms = 0; ms < PHY_RESET_CAP_MS; ms += 5) {	/* 5 ms: one byte pair read costs ~1-2 ms */
-		if (phy_rd(dev, 0, &v, &retries))
-			goto fail;
-		if (!(v & PHY_BMCR_RESET))
-			break;
-		mdelay(5);
-	}
-	if (ms >= PHY_RESET_CAP_MS) {
-		printf("rtk: cage %d: copper PHY reset did not clear in %d ms\n", cage, PHY_RESET_CAP_MS);
-		return -ETIMEDOUT;
-	}
-	if (phy_wr(dev, 4, PHY_ANAR_1000TX_ONLY, &retries) || phy_wr(dev, 9, PHY_1000CTRL_FULL, &retries) ||
-	    phy_wr(dev, 0, PHY_BMCR_ANE_RESTART, &retries))
-		goto fail;
-	printf("rtk: cage %d: copper PHY 88E1111: SGMII, autoneg restarted\n", cage);
-	return 0;
-fail:
-	printf("rtk: cage %d: copper PHY 88E1111 setup failed (I2C)\n", cage);
-	return -EIO;
+	r = sfp_phy_init(&ops, id);
+	if (r == 1)
+		printf("rtk: cage %d: copper PHY %s: SGMII, autoneg restarted\n", cage, sfp_phy_name(id));
+	else if (r == -SFP_E_TIMEOUT)
+		printf("rtk: cage %d: copper PHY reset did not clear in 600 ms\n", cage);
+	else if (r < 0)
+		printf("rtk: cage %d: copper PHY %s setup failed (I2C)\n", cage, sfp_phy_name(id));
+	return r < 0 ? r : 0;
 }
 
 static int sfp_phy_write(int cage, int reg, int val)

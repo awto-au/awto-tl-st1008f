@@ -72,6 +72,8 @@ SHARED = {
     "shared/rtl930x-sds-rxcal/rtl930x_sds_rxcal_defs.h": "board/tplink/tl-st1008f/rtl930x_sds_rxcal_defs.h",
     "shared/rtl930x-sds-rxcal/rtl930x_sds_rxcal_stub.h": "board/tplink/tl-st1008f/rtl930x_sds_rxcal_stub.h",
     "shared/sfp-core/sfp_core.c": "board/tplink/tl-st1008f/sfp_core.c",  # vendored from awto-sfp-core (#181), scripts/sync_sfp_core.py
+    "shared/sfp-core/sfp_ddm.c": "board/tplink/tl-st1008f/sfp_ddm.c",
+    "shared/sfp-core/sfp_phy.c": "board/tplink/tl-st1008f/sfp_phy.c",
     "shared/sfp-core/sfp_core.h": "board/tplink/tl-st1008f/sfp_core.h",
 }
 

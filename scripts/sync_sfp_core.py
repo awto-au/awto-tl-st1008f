@@ -1,7 +1,7 @@
 #!/usr/bin/env python3
-"""sync_sfp_core — vendor awto-sfp-core's src/sfp_core.[ch] into shared/sfp-core/ and check it for drift (#181).
+"""sync_sfp_core — vendor awto-sfp-core's src/*.[ch] (sfp_core, sfp_ddm, sfp_phy) into shared/sfp-core/ and check it for drift (#181).
 
-- `stage`: copy the two files from the awto-sfp-core checkout (default /mnt/2tb/git/awto-sfp-core, or $SFP_CORE_REPO)
+- `stage`: copy the files from the awto-sfp-core checkout (default /mnt/2tb/git/awto-sfp-core, or $SFP_CORE_REPO)
   and write shared/sfp-core/MANIFEST.txt (source commit, sha256 of each file). The copy is never edited here.
 - `check`: fails if a vendored file differs from MANIFEST.txt (local edit) or, when the source checkout is present,
   from the source files (source moved on: run `stage`). Run from dev.py gate; works without the checkout.
@@ -21,7 +21,7 @@ from pathlib import Path
 ROOT = Path(__file__).resolve().parent.parent
 DST = ROOT / "shared/sfp-core"
 SRC = Path(os.environ.get("SFP_CORE_REPO", "/mnt/2tb/git/awto-sfp-core"))
-FILES = ("sfp_core.c", "sfp_core.h")
+FILES = ("sfp_core.c", "sfp_ddm.c", "sfp_phy.c", "sfp_core.h")
 LOG = ROOT / "tmp/logs/sync_sfp_core.log"
 
 

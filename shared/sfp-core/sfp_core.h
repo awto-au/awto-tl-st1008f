@@ -53,4 +53,54 @@ int sfp_power_mw(const sfp_u8 *id, size_t len, const char **why);
  * trailing spaces and NULs trimmed, non-printable bytes as '?'. Returns the length. */
 size_t sfp_field(const sfp_u8 *id, size_t len, size_t off, size_t n, char *out);
 
+/* ---- DDM / DOM scaling (sfp_ddm.c; origin ethtool sfpdiag.c, GPL-2.0) ---- */
+
+/* Array index for the live value and the four thresholds. */
+#define SFP_DDM_LWARN	0
+#define SFP_DDM_HWARN	1
+#define SFP_DDM_LALRM	2
+#define SFP_DDM_HALRM	3
+#define SFP_DDM_CURR	4
+#define SFP_DDM_A2_LEN	120	/* A2h bytes 0-119 are read */
+
+/* Calibrated readings (internal calibration: as the module reports, external: slope/offset/polynomial applied).
+ * Units: temp 1/256 C, vcc 0.1 mV, bias 2 uA, powers 0.1 uW. */
+struct sfp_ddm {
+	sfp_u8 supports_dom, supports_alarms;
+	sfp_u8 rx_power_type;		/* 0 = OMA, else average power */
+	sfp_u8 calibrated_ext;
+	unsigned int vcc[5];
+	int temp[5];
+	unsigned int bias[5], tx_power[5], rx_power[5];
+};
+
+/* a0 needs bytes 0-93 (DOM flags 92-93), a2 bytes 0-119. Returns 1 if the module implements DDM and `d` is
+ * filled, 0 if not (d->supports_dom tells "module has none" from "a2 too short", and the rest is zero). */
+int sfp_ddm_decode(const sfp_u8 *a0, size_t a0_len, const sfp_u8 *a2, size_t a2_len, struct sfp_ddm *d);
+
+/* ---- Copper-module PHY (sfp_phy.c) ---- */
+
+#define SFP_E_IO	5	/* returned negated */
+#define SFP_E_TIMEOUT	110
+
+enum sfp_phy_id { SFP_PHY_NONE, SFP_PHY_OTHER, SFP_PHY_88E1111, SFP_PHY_AQR113C };
+
+/* Backend access to the module PHY: 16-bit clause-22 registers, return 0 on success. The backend owns bus
+ * retries and byte order; delay_ms is a plain wait. */
+struct sfp_phy_ops {
+	int (*rd)(void *ctx, int reg, unsigned short *v);
+	int (*wr)(void *ctx, int reg, unsigned short v);
+	void (*delay_ms)(void *ctx, unsigned int ms);
+	void *ctx;
+};
+
+/* Read the PHY ID registers (re-aligns a byte-pointer-off-by-one ID1 read). SFP_PHY_NONE if nothing answers. */
+enum sfp_phy_id sfp_phy_identify(const struct sfp_phy_ops *o);
+const char *sfp_phy_name(enum sfp_phy_id id);
+
+/* Run the SGMII init table for `id`. Returns 1 if done, 0 if there is nothing to do for this PHY (none, other,
+ * or a firmware-managed AQR113C), -SFP_E_IO on a register access failure, -SFP_E_TIMEOUT if the soft reset
+ * does not clear in 600 ms. */
+int sfp_phy_init(const struct sfp_phy_ops *o, enum sfp_phy_id id);
+
 #endif
