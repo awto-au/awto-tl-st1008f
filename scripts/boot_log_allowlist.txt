@@ -219,6 +219,14 @@ rtl83xx-switch switch@1b000000 lan[1-8]: entered (allmulticast|promiscuous) mode
 rtl83xx-switch switch@1b000000 lan[1-8]: Link is (Down|Up - 10Gbps/Full - flow control off)  # per-port link state
 switch: port [1-8]\(lan[1-8]\) entered (blocking|disabled|listening|learning|forwarding) state  # bridge STP port state
 switch: topology change detected, propagating  # bridge STP topology change on link up
+switch: topology change detected, sending tcn bpdu  # bridge STP: this switch is not root, sends a topology change notice on link up
+rtl83xx-switch 1b000000\.switch lan[1-8]: entered (allmulticast|promiscuous) mode  # bridge port setup, 7.4 wording (device name prefix changed)
+rtl838x_eth 1b000000\.switch:ethernet eth0: entered allmulticast mode  # CPU port joins the bridge (7.4)
+rtl83xx-switch 1b000000\.switch lan[1-8]: PHY \[smbus:sfp-p[1-8]:16\] driver \[Marvell 88E1111\] \(irq=POLL\)  # copper SFP module PHY attached (FS SFP-10G-T / GLC-T class, #178)
+VFS: Pivoted into new rootfs  # 7.4 pivot message of the overlay root
+overlayfs: upper fs does not support RENAME_WHITEOUT\.  # jffs2 overlay upper, benign #172
+realtek-otto-watchdog 18003260\.watchdog: running at probe: kept, 29 s timeout  # 300-15: the watchdog keeps running across the handover (benign #166)
+workqueue: work func rtpcs_93xx_rx_cali_work_handler enqueued on deprecated workqueue\. Use system_\{percpu\|dfl\}_wq instead\.  # upstream PCS driver (e2ed57b957 rx_cali_work) uses the deprecated queue; known #172
 rtpcs_930x_setup_serdes: Configuring RTL9300 SERDES [2-9]  # SerDes setup
 rtpcs_930x_sds_config_pll: SDS [2-9] using (LC PLL for 10gbase-r|ring PLL for sgmii)  # SerDes PLL select
 rtpcs_930x_phy_enable_10g_1g (10gbit phy( after)?|1gbit phy( enabled)?|set medium( after)?): [0-9a-f]{8}  # SerDes PHY enable debug print
@@ -394,6 +402,7 @@ List of all bdev filesystems:  # rootfs panic listing
 [uboot]
 \#\# Starting application at 0x81000000 \.\.\.  # stock `go` into our mainline U-Boot (link/load 0x81000000)
 CRC32 for 81000000 \.\.\. 8107fffb ==> [0-9a-f]{8}  # stock chain ub_ck: CRC32 of the copied jffs2-log slot (#105)
+CRC32 for 81000000 \.\.\. 810efffb ==> [0-9a-f]{8}  # stock chain ub_ck on the 960 KiB slot (#155)
 Total of 1 word were the same  # stock chain ub_ck: slot CRC matches its trailer (#105); a mismatch prints `word at` (not allowlisted)
 Load address: 0x81000000  # tftpboot of uboot-mainline.bin
 
@@ -433,7 +442,8 @@ Boot:  trial \(trial slot [ab] attempt [12]/2, fallback slot [ab]\)  # A/B (#117
 Boot:  good \((trial slot [ab] uImage header bad|good slot [ab] uImage header bad|[2-9] trial boots of slot [ab] not confirmed by Linux)\)  # A/B (#117): rollback to the good slot
 Boot:  prompt \(stock env st1008f_boot=prompt\)  # owner-set env flag
 rtk: SFP power \d+\.\d W declared by \d+ modules?, budget \d+\.\d W \(env sfp_budget_mw\)  # `rtk network on`/`rtk port` SFP power total (#30); over budget adds a WARNING line (not allowlisted)
-wdt: on, \d+ ms \(prescale [0-3], \d+ x \d+ ms ticks at lx 175000 kHz\), SoC reset on expiry  # bootsel arms the SoC watchdog before bootm (#73)
+wdt: on, \d+ ms \(prescale [0-3], \d+ x \d+ ms ticks at lx \d+ kHz\), SoC reset on expiry  # bootsel arms the SoC watchdog before bootm (#73); LX follows the core clock (#159)
+wdt: 30000 ms over the maximum, clamped  # requested watchdog timeout above what the divider can do at this LX; clamped to the maximum (benign #159)
 Autoboot in 2 s, ESC for the prompt  # our countdown: ESC-only stop, 2 s (owner #46, #105)
 bootsel: M[02]: stock clocks \(turbo profile in M1 and M3\)  # mode switch picks clocks (#46): M2 and an invalid slider always stock
 bootsel: M[12]: stock clocks \(turbo profile only in M3\)  # older U-Boot slot text (#46)
