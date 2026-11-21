@@ -163,3 +163,16 @@ Core 608, CPU 1350 / DDR 662 / LX 304 / SRAM 500, sw2, plain 7.4-rc1 bench kerne
 - A/B on the flash image (sw2, OpenWrt 7.4-rc3, stock clocks, `nat-ft`, TCP P4, 10 s, 2026-11-21T18:36+11:00, 2 runs per setting): `rps_cpus` 1: 416-432 Mbit/s fwd, 416-430 rev, 120-280 rx drops; `rps_cpus` 0: 477-500 fwd, 477-483 rev, 0 drops; VPE ns/pkt 18.5-18.9 k -> 16.4-16.7 k (#161).
 - A/B eth0 root qdisc on the flash image (sw2, 7.4-rc3, stock clocks, `rps_cpus` 0, `nat-ft`, TCP P4, 10 s, 2 runs, 2026-11-21T18:39+11:00): `mq` + `fq_codel` 471-480 Mbit/s fwd and rev, 0 tx drops; `noqueue` 535-554 (+12-15 %), VPE 14.6-14.8 k ns/pkt vs 16.5-16.8 k, tx drops 198-349 per run (~0.5 %, ring full instead of queue). Not made the default: needs a boot hook for a multi-queue device and the tx drops hit local traffic too (#161).
 - Core 608 on the flash image (#159, sw2, 7.4-rc3 r38460, `st1008f_turbo=cpu=1325,ddr=662,sram=500,swcore=608` set over ssh, software reboot, 2026-11-21T18:48+11:00): kernel reports `LX frequency from PLL: 304166 kHz`, UART `base_baud = 19010375` (LX/16, matches), console readable, `st1008f-selftest` PASS (clocks cpu=1325 ddr=663 lx=304 sram=500, 22 s). 300-23 plus the U-Boot DTB fixup fix the garbled console. Override cleared afterwards (`turbo off`).
+
+## Flash image 7.4-rc3 (OpenWrt r38178 base), 2026-11-21T21:10-21:15+11:00 (sw2, `nat-bench`/`zc_bench.py`, eth0 IRQ pinned to CPU1 for zc)
+| Metric | Core 408, CPU 1350 | Core 608, CPU 1325 |
+|---|---|---|
+| NAT TCP P4 stack (`nat-ft`) fwd / rev | 446 / 443 Mbit/s | 456-462 / 458 Mbit/s |
+| zc+nat 1400 B | 143.9 kpps | 165.6 kpps |
+| zc+nat 64 B | not run | 449.9 kpps |
+| zc / stack UDP 1400 B | 6.1x | 6.9x |
+
+- `nat-ft` on the image (445-462) matches the plain-kernel rows above (413-422); the image row of 85 Mbit/s (core 508, 7.4-rc1) is gone with the `packet_steering=0` default.
+- Eth0 IRQ default sits on CPU0; zc needs `irq-check pin eth0 2` (+4 % at core 408, VPE1 99 %).
+- A first run right after boot read 124 Mbit/s with CPU1 99 % sys; the repeats are stable.
+- `nat-bench setup` prints ping FAIL on the OpenWrt image until `mode` inserts the fw4 accept rules; `mode` then works.
