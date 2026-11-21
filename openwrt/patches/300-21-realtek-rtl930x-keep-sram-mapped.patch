@@ -15,6 +15,8 @@ that is DRAM 0x1f000000 = zone-3 phys 0x2f000000, and accesses there hang.
 remap coexist. Re-program segment 0 with the PLR values right after the remap,
 for RTL930x only, without the unmap segment. A DT mmio-sram node at 0x1f000000 hands it to drivers/misc/sram.c.
 
+diff --git a/arch/mips/generic/board-realtek.c b/arch/mips/generic/board-realtek.c
+index 6b9162d3500b..26dcf7032afc 100644
 --- a/arch/mips/generic/board-realtek.c
 +++ b/arch/mips/generic/board-realtek.c
 @@ -30,6 +30,10 @@
@@ -28,7 +30,7 @@ for RTL930x only, without the unmap segment. A DT mmio-sram node at 0x1f000000 h
  
  #define RTL931X_DRAM_CONFIG		0x14304c
  
-@@ -319,6 +323,26 @@
+@@ -310,6 +314,26 @@ static void rtl930x_prepare_highmem(void)
  	__sync();
  }
  
@@ -52,10 +54,10 @@ for RTL930x only, without the unmap segment. A DT mmio-sram node at 0x1f000000 h
 +	rtl930x_map_sram();
 +}
 +
- static void __init realtek_prom_init(const void *match_data)
+ static void __init realtek_prom_init(const void *fdt, const void *match_data)
  {
  	const struct realtek_soc_data *cfg = match_data;
-@@ -452,7 +476,7 @@
+@@ -443,7 +467,7 @@ static const struct realtek_soc_data rtl930x_soc __initconst = {
  	.apply_quirks = rtl930x_apply_quirks,
  	.read_details = rtl93xx_read_details,
  	.get_memory = realtek_get_system_memory,

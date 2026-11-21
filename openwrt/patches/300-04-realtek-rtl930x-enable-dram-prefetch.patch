@@ -33,7 +33,7 @@ Set them from the RTL930x early quirk hook, before memory sizing.
 + * bootloader. With it on, cached reads and writes stop waiting on one line fill at a time.
 + * Same enable sequence as the Realtek DRAM test: clear, then set.
 + */
-+static void __init rtl930x_apply_quirks(void)
++static void __init rtl930x_apply_quirks(const void *fdt)
 +{
 +	u32 mcr = soc_r32(RTL9300_MCR) & ~(RTL9300_MCR_IPREF | RTL9300_MCR_DPREF);
 +

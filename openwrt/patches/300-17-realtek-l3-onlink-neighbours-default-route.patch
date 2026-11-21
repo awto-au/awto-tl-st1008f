@@ -20,7 +20,7 @@ e5ec5e199f: upstream PR draft, docs/ROUTING-OFFLOAD.md. Both opt-in: HW routing 
   never re-notified).
 ---
 diff --git a/drivers/net/dsa/rtl83xx/l3.c b/drivers/net/dsa/rtl83xx/l3.c
-index 7318a17c7e70..f9250afb2d6e 100644
+index 57ed44b9baaa..6c372937571c 100644
 --- a/drivers/net/dsa/rtl83xx/l3.c
 +++ b/drivers/net/dsa/rtl83xx/l3.c
 @@ -53,6 +53,20 @@
@@ -76,7 +76,7 @@ index 7318a17c7e70..f9250afb2d6e 100644
  #include <net/ndisc.h>
  #include <net/netevent.h>
  #include <net/nexthop.h>
-@@ -158,6 +175,28 @@
+@@ -158,6 +175,28 @@ static bool otto_l3_fasttrack(struct otto_dsa_priv *priv)
  	return priv->l3_ctrl && READ_ONCE(priv->l3_ctrl->fasttrack);
  }
  
@@ -105,7 +105,7 @@ index 7318a17c7e70..f9250afb2d6e 100644
  struct otto_l3_net_event_work {
  	struct work_struct work;
  	struct otto_l3_ctrl *ctrl;
-@@ -887,6 +971,20 @@
+@@ -914,6 +953,20 @@ static int otto_l3_930x_route_matches(struct otto_l3_ctrl *ctrl, int row,
  	return entry.dst_ip == rt->dst_ip;
  }
  
@@ -126,7 +126,7 @@ index 7318a17c7e70..f9250afb2d6e 100644
  static void otto_l3_930x_net6_mask(int prefix_len, struct in6_addr *ip6_m)
  {
  	int o = prefix_len >> 3;
-@@ -1605,6 +1703,24 @@
+@@ -1632,6 +1685,24 @@ static int otto_l3_prefix_rows(struct otto_l3_ctrl *ctrl, u8 type, int min_len)
  	return n;
  }
  
@@ -151,7 +151,7 @@ index 7318a17c7e70..f9250afb2d6e 100644
  /* A row move that fails partway leaves the block half shifted: some rows have
   * moved, and the list still names the rows they were at. Every placement and
   * every compaction after that is computed from those names, so the next route
-@@ -1647,6 +1763,10 @@
+@@ -1674,6 +1745,10 @@ static int otto_l3_route_place(struct otto_l3_ctrl *ctrl, struct otto_l3_route *
  				    r->prefix_len + (r->tb_id == RT_TABLE_LOCAL));
  	rows = otto_l3_prefix_rows(ctrl, r->attr.type, 0);
  
@@ -162,7 +162,7 @@ index 7318a17c7e70..f9250afb2d6e 100644
  	if (r->attr.type == ROUTE_TYPE_IP6UC) {
  		int v4_rows = otto_l3_prefix_rows(ctrl, ROUTE_TYPE_IP4UC, 0);
  
-@@ -1871,6 +1991,34 @@
+@@ -1898,6 +1973,34 @@ static bool otto_l3_fwd_off(struct otto_l3_ctrl *ctrl, u8 type)
  	return type == ROUTE_TYPE_IP6UC ? ctrl->v6_fwd_off : ctrl->v4_fwd_off;
  }
  
@@ -197,7 +197,7 @@ index 7318a17c7e70..f9250afb2d6e 100644
  /* The kernel looks the local table up whole before main, so a local prefix
   * shorter than a host address (AnyIP: ip route add local ... table local)
   * takes the destinations of a longer main route inside it, which the switch,
-@@ -1931,6 +2079,8 @@
+@@ -1958,6 +2061,8 @@ static int otto_l3_route_install(struct otto_l3_ctrl *ctrl, struct otto_l3_route
  	char dst[INET6_ADDRSTRLEN + sizeof("/128")];
  	int slot, err;
  
@@ -206,7 +206,7 @@ index 7318a17c7e70..f9250afb2d6e 100644
  	if (otto_l3_host_shadowed(ctrl, r)) {
  		dev_dbg(ctrl->dev, "%pI4 is an address of the switch, its entry stays\n",
  			&r->dst_ip);
-@@ -1941,8 +2091,16 @@
+@@ -1968,8 +2073,16 @@ static int otto_l3_route_install(struct otto_l3_ctrl *ctrl, struct otto_l3_route
  		slot = ctrl->cfg->find_slot(ctrl, r, true);
  		if (slot == -ENOENT)
  			slot = ctrl->cfg->find_slot(ctrl, r, false);
@@ -225,7 +225,7 @@ index 7318a17c7e70..f9250afb2d6e 100644
  		if (slot < 0)
  			return slot;
  
-@@ -1957,6 +2115,7 @@
+@@ -1984,6 +2097,7 @@ static int otto_l3_route_install(struct otto_l3_ctrl *ctrl, struct otto_l3_route
  	if (r->row < 0) {
  		dev_err(ctrl->dev, "no row for prefix route %s\n",
  			otto_l3_route_dst(r, dst, sizeof(dst)));
@@ -233,7 +233,7 @@ index 7318a17c7e70..f9250afb2d6e 100644
  		return -ENOSPC;
  	}
  
-@@ -2250,7 +2409,7 @@
+@@ -2277,7 +2391,7 @@ static void otto_l3_route_update_hw(struct otto_l3_ctrl *ctrl, struct otto_l3_ro
  	}
  
  	trap = no_port || no_l2 || otto_l3_fwd_off(ctrl, r->attr.type) ||
@@ -242,7 +242,7 @@ index 7318a17c7e70..f9250afb2d6e 100644
  
  	r->attr.valid = true;
  	r->attr.action = trap ? ROUTE_ACT_TRAP2CPU : ROUTE_ACT_FORWARD;
-@@ -2910,14 +3069,14 @@
+@@ -2937,14 +3051,14 @@ static void otto_l3_route_remove(struct otto_l3_ctrl *ctrl, struct otto_l3_route
  	if (otto_l3_host_shadowed(ctrl, r)) {
  		/* The entry for the address is the local route's */
  	} else if (r->is_host_route) {
@@ -261,7 +261,7 @@ index 7318a17c7e70..f9250afb2d6e 100644
  		}
  
  		if (r->tb_id == RT_TABLE_LOCAL && !r->replaced)
-@@ -3076,6 +3235,22 @@
+@@ -3103,6 +3217,22 @@ static struct otto_l3_route *otto_l3_route_alloc(struct otto_l3_ctrl *ctrl,
  	return r;
  }
  
@@ -284,7 +284,7 @@ index 7318a17c7e70..f9250afb2d6e 100644
  static int otto_l3_fib_check_v4(struct otto_l3_ctrl *ctrl,
  				struct fib_entry_notifier_info *info,
  				enum fib_event_type event)
-@@ -3092,8 +3267,16 @@
+@@ -3119,8 +3249,16 @@ static int otto_l3_fib_check_v4(struct otto_l3_ctrl *ctrl,
  		event == FIB_EVENT_ENTRY_ADD ? "add" : "delete",
  		&info->dst, info->dst_len, gw_message, vlan, ndev->dev_addr);
  
@@ -303,7 +303,7 @@ index 7318a17c7e70..f9250afb2d6e 100644
  		return -EINVAL;
  	}
  
-@@ -3122,6 +3305,7 @@
+@@ -3149,6 +3287,7 @@ static void otto_l3_fib_trap_v4(struct otto_l3_ctrl *ctrl, struct fib_entry_noti
  	if (!route) {
  		dev_err(ctrl->dev, "no row to trap %pI4/%d\n", &info->dst, info->dst_len);
  		otto_l3_fib4_info_failed(info);
@@ -311,7 +311,7 @@ index 7318a17c7e70..f9250afb2d6e 100644
  		return;
  	}
  
-@@ -3143,6 +3327,7 @@
+@@ -3170,6 +3309,7 @@ static void otto_l3_fib_trap_v4(struct otto_l3_ctrl *ctrl, struct fib_entry_noti
  		if (route->row < FIRST_PREFIX_ROW)
  			otto_l3_route_free(ctrl, route);
  		otto_l3_fib4_info_failed(info);
@@ -319,7 +319,7 @@ index 7318a17c7e70..f9250afb2d6e 100644
  		return;
  	}
  
-@@ -3244,6 +3429,7 @@
+@@ -3271,6 +3411,7 @@ static int otto_l3_fib_add_v4(struct otto_l3_ctrl *ctrl, struct fib_entry_notifi
  		dev_err(ctrl->dev, "could not allocate a route for gw %pI4\n",
  			&nh->fib_nh_gw4);
  		otto_l3_fib4_info_failed(info);
@@ -327,7 +327,7 @@ index 7318a17c7e70..f9250afb2d6e 100644
  		return -ENOSPC;
  	}
  
-@@ -3313,6 +3499,7 @@
+@@ -3340,6 +3481,7 @@ static int otto_l3_fib_add_v4(struct otto_l3_ctrl *ctrl, struct fib_entry_notifi
  	otto_l3_switch_mac_put(ctrl, route->switch_mac_id);
  	otto_l3_route_free(ctrl, route);
  	otto_l3_fib4_info_failed(info);
@@ -335,7 +335,7 @@ index 7318a17c7e70..f9250afb2d6e 100644
  	return 0;
  }
  
-@@ -3396,14 +3583,11 @@
+@@ -3423,14 +3565,11 @@ static int otto_l3_fib_check_v6(struct otto_l3_ctrl *ctrl, struct fib6_info *rt,
  	if (rt->fib6_flags & RTF_ADDRCONF)
  		return -EOPNOTSUPP;
  
@@ -354,7 +354,7 @@ index 7318a17c7e70..f9250afb2d6e 100644
  		return -EOPNOTSUPP;
  
  	if (rt->fib6_nh->fib_nh_gw_family != AF_INET6)
-@@ -3456,6 +3640,7 @@
+@@ -3484,6 +3623,7 @@ static int otto_l3_fib_trap_v6(struct otto_l3_ctrl *ctrl, struct fib6_info *rt,
  	if (!route) {
  		dev_err(ctrl->dev, "no row to trap %pI6c/%d\n",
  			&rt->fib6_dst.addr, rt->fib6_dst.plen);
@@ -362,15 +362,15 @@ index 7318a17c7e70..f9250afb2d6e 100644
  		return -ENOSPC;
  	}
  
-@@ -3485,6 +3670,7 @@
- 	route->row = otto_l3_route_place(ctrl, route);
- 	if (route->row < FIRST_PREFIX_ROW) {
+@@ -3516,6 +3656,7 @@ static int otto_l3_fib_trap_v6(struct otto_l3_ctrl *ctrl, struct fib6_info *rt,
+ 	err = otto_l3_route_install(ctrl, route);
+ 	if (err) {
  		otto_l3_route_teardown(ctrl, route);
 +		otto_l3_lose(ctrl, ROUTE_TYPE_IP6UC, rt->fib6_dst.plen);
- 		return -ENOSPC;
+ 		return err;
  	}
- 
-@@ -3554,7 +3740,10 @@
+ 	dev_dbg(ctrl->dev, "%pI6c/%d trapped at row %d\n",
+@@ -3604,7 +3745,10 @@ static int otto_l3_fib_add_v6_src(struct otto_l3_ctrl *ctrl, struct fib6_info *r
  	unsigned int plain = 0;
  	int err;
  
@@ -382,7 +382,7 @@ index 7318a17c7e70..f9250afb2d6e 100644
  		return 0;
  
  	/* A row that forwards here is the route without a source, which the
-@@ -3608,6 +3797,7 @@
+@@ -3658,6 +3802,7 @@ static int otto_l3_fib_del_v6_src(struct otto_l3_ctrl *ctrl, struct fib6_info *r
  {
  	struct otto_l3_route_src *s;
  	struct otto_l3_route *route;
@@ -390,7 +390,7 @@ index 7318a17c7e70..f9250afb2d6e 100644
  
  	route = otto_l3_route_find(ctrl, rt->fib6_table->tb6_id, ROUTE_TYPE_IP6UC,
  				   0, &rt->fib6_dst.addr, rt->fib6_dst.plen);
-@@ -3626,8 +3816,16 @@
+@@ -3676,8 +3821,16 @@ static int otto_l3_fib_del_v6_src(struct otto_l3_ctrl *ctrl, struct fib6_info *r
  	list_del(&s->list);
  	kfree(s);
  
@@ -409,7 +409,7 @@ index 7318a17c7e70..f9250afb2d6e 100644
  
  	return 0;
  }
-@@ -3775,6 +3973,7 @@
+@@ -3825,6 +3978,7 @@ static int otto_l3_fib_add_v6(struct otto_l3_ctrl *ctrl, struct fib6_entry_notif
  	route->attr.valid = true;
  	route->row = otto_l3_route_place(ctrl, route);
  	if (route->row < 0) {
@@ -417,7 +417,7 @@ index 7318a17c7e70..f9250afb2d6e 100644
  		fib6_info_hw_flags_set(&init_net, rt, false, false, true);
  	} else {
  		ctrl->cfg->route_write(ctrl, route->row, route);
-@@ -3808,6 +4007,7 @@
+@@ -3858,6 +4012,7 @@ static int otto_l3_fib_add_v6(struct otto_l3_ctrl *ctrl, struct fib6_entry_notif
  	if (route)
  		otto_l3_route_teardown(ctrl, route);
  	fib6_info_hw_flags_set(&init_net, rt, false, false, true);
@@ -425,7 +425,7 @@ index 7318a17c7e70..f9250afb2d6e 100644
  
  	return -ENOSPC;
  }
-@@ -4054,12 +4254,307 @@
+@@ -4104,12 +4259,307 @@ static void otto_l3_local_prefix_check(struct otto_l3_ctrl *ctrl, struct fib_not
  	}
  }
  
@@ -494,7 +494,7 @@ index 7318a17c7e70..f9250afb2d6e 100644
 +			if (IS_REACHABLE(CONFIG_IPV6) && r->f6i && r->row >= FIRST_PREFIX_ROW)
 +				fib6_info_hw_flags_set(&init_net, r->f6i, false, true, false);
 +			else if (r->attr.type == ROUTE_TYPE_IP4UC)
-+				otto_l3_fib4_flags_set(r, false, true, false);	/* demoted: drop rt_offload */
++				otto_l3_fib4_flags_set(ctrl, r, false, true, false);	/* demoted: drop rt_offload */
 +			dev_info(ctrl->dev, "default route %s traps to the CPU\n",
 +				 otto_l3_route_dst(r, dst, sizeof(dst)));
 +		} else if (!held && r->attr.action == ROUTE_ACT_TRAP2CPU &&
@@ -733,7 +733,7 @@ index 7318a17c7e70..f9250afb2d6e 100644
  	int err;
  
  	/* Protect internal structures from changes */
-@@ -4082,7 +4577,14 @@
+@@ -4132,7 +4582,14 @@ static void otto_l3_fib_event_work_do(struct work_struct *work)
  			dev_dbg(ctrl->dev, "route left to the CPU: %d\n", err);
  
  		otto_l3_local_prefix_check(ctrl, &fib_work->fen_info.info);
@@ -749,7 +749,7 @@ index 7318a17c7e70..f9250afb2d6e 100644
  		break;
  	case FIB_EVENT_ENTRY_DEL:
  		err = otto_l3_fib_del_v4(ctrl, &fib_work->fen_info);
-@@ -4090,6 +4592,7 @@
+@@ -4140,6 +4597,7 @@ static void otto_l3_fib_event_work_do(struct work_struct *work)
  			dev_err(ctrl->dev, "fib_del() failed\n");
  
  		otto_l3_local_prefix_check(ctrl, &fib_work->fen_info.info);
@@ -757,7 +757,7 @@ index 7318a17c7e70..f9250afb2d6e 100644
  		fib_info_put(fib_work->fen_info.fi);
  		break;
  	case FIB_EVENT_RULE_ADD:
-@@ -4109,6 +4612,7 @@
+@@ -4159,6 +4617,7 @@ static void otto_l3_fib6_event_work_do(struct work_struct *work)
  	struct otto_l3_fib_event_work *fib_work =
  		container_of(work, struct otto_l3_fib_event_work, work);
  	struct otto_l3_ctrl *ctrl = fib_work->ctrl;
@@ -765,7 +765,7 @@ index 7318a17c7e70..f9250afb2d6e 100644
  	int err = 0;
  
  	/* Protect internal structures from changes */
-@@ -4119,10 +4623,16 @@
+@@ -4169,10 +4628,16 @@ static void otto_l3_fib6_event_work_do(struct work_struct *work)
  	case FIB_EVENT_ENTRY_APPEND:
  		err = otto_l3_fib_add_v6(ctrl, &fib_work->fen6_info, fib_work->members);
  		otto_l3_local_prefix_check(ctrl, &fib_work->fen6_info.info);
@@ -782,7 +782,7 @@ index 7318a17c7e70..f9250afb2d6e 100644
  		break;
  	}
  	if (err)
-@@ -4264,6 +4774,8 @@
+@@ -4303,6 +4768,8 @@ static void otto_l3_net_event_work_do(struct work_struct *work)
  	otto_l3_nexthop_update(net_work->ctrl, net_work->type, net_work->ifindex,
  			       &net_work->gw_addr, net_work->mac, net_work->valid);
  	mutex_unlock(&net_work->ctrl->resource_lock);
@@ -791,7 +791,7 @@ index 7318a17c7e70..f9250afb2d6e 100644
  
  	kfree(net_work);
  }
-@@ -4343,6 +4855,112 @@
+@@ -4382,6 +4849,112 @@ static int otto_l3_netevent_notifier(struct notifier_block *this, unsigned long
  	return NOTIFY_DONE;
  }
  
@@ -904,7 +904,7 @@ index 7318a17c7e70..f9250afb2d6e 100644
  /* debugfs dump of the RTL930x L3 route tables (realtek_otto_l3/routes,
   * realtek_otto_l3/clear_route_hits). Requested on issue #25129; RTL930x
   * only, since the other families' L3 tables have different layouts and are
-@@ -4959,6 +5577,8 @@
+@@ -5044,6 +5617,8 @@ const struct otto_l3_config otto_l3_930x_cfg = {
  	.get_dmac = otto_l3_930x_get_dmac,
  	.set_dmac = otto_l3_930x_set_dmac,
  	.set_egress_intf = otto_l3_930x_set_egress_intf,
@@ -913,7 +913,7 @@ index 7318a17c7e70..f9250afb2d6e 100644
  	.host_route_write = otto_l3_930x_host_route_write,
  	.get_router_mac = otto_l3_930x_get_router_mac,
  	.set_router_mac = otto_l3_930x_set_router_mac,
-@@ -4993,6 +5613,7 @@
+@@ -5079,6 +5654,7 @@ void otto_l3_remove(struct otto_dsa_priv *priv)
  
  	/* A replay would register the FIB notifier again */
  	disable_delayed_work_sync(&ctrl->resync_work);
@@ -921,7 +921,7 @@ index 7318a17c7e70..f9250afb2d6e 100644
  
  	if (ctrl->nd_nb.notifier_call) {
  		unregister_netdevice_notifier(&ctrl->nd_nb);
-@@ -5045,8 +5666,14 @@
+@@ -5131,8 +5707,14 @@ static void otto_l3_fib_flush_work_do(struct work_struct *work)
  	list_for_each_entry_safe(r, tmp, &fw->ctrl->routes_list, list)
  		if (r->tb_id)
  			otto_l3_route_teardown(fw->ctrl, r);
@@ -936,7 +936,7 @@ index 7318a17c7e70..f9250afb2d6e 100644
  }
  
  /* A dump that raced a change to the FIB leaves programmed what it saw, and the
-@@ -5122,6 +5749,7 @@
+@@ -5208,6 +5790,7 @@ int otto_l3_probe(struct device *dev, struct otto_dsa_priv *priv)
  	/* Until the FIB notifier is in place there is nothing to replay */
  	INIT_DELAYED_WORK(&ctrl->resync_work, otto_l3_resync_work_do);
  	disable_delayed_work(&ctrl->resync_work);
@@ -944,7 +944,7 @@ index 7318a17c7e70..f9250afb2d6e 100644
  
  	match = of_match_node(otto_l3_of_ids, dev->of_node);
  	if (!match)
-@@ -5193,6 +5821,7 @@
+@@ -5279,6 +5862,7 @@ int otto_l3_probe(struct device *dev, struct otto_dsa_priv *priv)
  		smp_mb(); /* pairs with the one in otto_l3_resync_request() */
  		if (READ_ONCE(ctrl->resync_wanted))
  			queue_delayed_work(system_long_wq, &ctrl->resync_work, 0);
@@ -953,10 +953,10 @@ index 7318a17c7e70..f9250afb2d6e 100644
  
  	if (ctrl->cfg->dbgfs_init)
 diff --git a/drivers/net/dsa/rtl83xx/l3.h b/drivers/net/dsa/rtl83xx/l3.h
-index 2d086dd0b42a..5f2f08271ebb 100644
+index f0537469254c..406d8058bf16 100644
 --- a/drivers/net/dsa/rtl83xx/l3.h
 +++ b/drivers/net/dsa/rtl83xx/l3.h
-@@ -94,6 +96,8 @@
+@@ -93,6 +93,8 @@ struct otto_l3_route {
  	struct in6_addr dst_ip6;
  	int prefix_len;			/* Network prefix len of the destination net */
  	bool is_host_route;
@@ -965,7 +965,7 @@ index 2d086dd0b42a..5f2f08271ebb 100644
  	bool replaced;			/* torn down for a route to the same destination */
  	int id;				/* ID number of this route */
  	int row;			/* Row it occupies in the prefix route table */
-@@ -147,6 +151,8 @@
+@@ -146,6 +148,8 @@ struct otto_l3_config {
  	int (*set_smac)(struct otto_l3_ctrl *ctrl, u32 idx, u64 mac);
  	int (*get_dmac)(struct otto_l3_ctrl *ctrl, u32 idx, struct otto_l3_dmac *dmac);
  	int (*set_dmac)(struct otto_l3_ctrl *ctrl, u32 idx, const struct otto_l3_dmac *dmac);
@@ -974,7 +974,7 @@ index 2d086dd0b42a..5f2f08271ebb 100644
  	int (*host_route_write)(struct otto_l3_ctrl *ctrl, int idx, struct otto_l3_route *rt);
  	void (*get_router_mac)(struct otto_l3_ctrl *ctrl, u32 idx, struct otto_l3_router_mac *m);
  	void (*set_router_mac)(struct otto_l3_ctrl *ctrl, u32 idx, struct otto_l3_router_mac *m);
-@@ -180,6 +186,9 @@
+@@ -181,6 +185,9 @@ struct otto_l3_ctrl {
  	struct delayed_work resync_work;
  	unsigned int resync_delay;
  	bool resync_wanted;
