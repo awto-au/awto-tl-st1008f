@@ -1,0 +1,6 @@
+#!/bin/sh
+# Packet steering off: netifd's rps_cpus=1 on eth0 costs 12-16 % NAT throughput (#161, docs/NAT.md).
+[ -n "$(uci -q get network.globals.packet_steering)" ] && exit 0
+uci set network.globals.packet_steering=0
+uci commit network
+exit 0

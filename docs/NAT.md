@@ -129,7 +129,7 @@ Core 608, CPU 1350 / DDR 662 / LX 304 / SRAM 500, sw2, plain 7.4-rc1 bench kerne
 |---|---|---|
 | `rx-gro-list` on eth0 + lan1 | on (image sets it at boot) | off: -29 to -41 % on the stack path |
 | fw4 `flow_offloading` | 1 | off: -74 % |
-| eth0 `rps_cpus` | image 1, plain 0 | image: defeats `--napi irq1`; 0 gives +23-39 % on `nat` (#161) |
+| eth0 `rps_cpus` | 0 (image: uci `network.globals.packet_steering=0`, `91_st1008f_steering`) | netifd default 1 cost 12-16 % on `nat-ft` (#161) |
 | eth0 qdisc | `mq` / `pfifo_fast` (image `fq_codel`) | `noqueue`: +12-15 % on the stack at stock clocks, ties on zc |
 | `tx_by_cpu` (rteth) | 0 | stack path with pinned NAPI only (#145) |
 | `cpuq_drop_pages` (rteth, read at open) | 1024 | queue-1 ON pages, OFF = ON - 16; 0 keeps the chip value (78) |
@@ -159,3 +159,5 @@ Core 608, CPU 1350 / DDR 662 / LX 304 / SRAM 500, sw2, plain 7.4-rc1 bench kerne
 ## Sources
 - Ceiling and cost model: [CPU-PORT.md](CPU-PORT.md). Datasheet audit: [DATASHEET-AUDIT.md](DATASHEET-AUDIT.md). Routing offload: [ROUTING-OFFLOAD.md](ROUTING-OFFLOAD.md). Mainline throughput: [MAINLINE-PORT.md](MAINLINE-PORT.md). Canary baseline: [CANARY.md](CANARY.md).
 - Raw rows: `tmp/logs/nat_bench.jsonl`, `tmp/logs/nat_knobs.jsonl`, `tmp/logs/fastest_search_core608.csv`, `tmp/logs/retest_options.jsonl`, `tmp/logs/nat161.jsonl`, `tmp/logs/zc_prefetch_ab.jsonl`, `tmp/logs/openwrt_core_stability.jsonl`.
+
+- A/B on the flash image (sw2, OpenWrt 7.4-rc3, stock clocks, `nat-ft`, TCP P4, 10 s, 2026-11-21T18:36+11:00, 2 runs per setting): `rps_cpus` 1: 416-432 Mbit/s fwd, 416-430 rev, 120-280 rx drops; `rps_cpus` 0: 477-500 fwd, 477-483 rev, 0 drops; VPE ns/pkt 18.5-18.9 k -> 16.4-16.7 k (#161).
