@@ -8,15 +8,19 @@ MARK=/etc/.st1008f-cfgslot	# lives in the overlay: present = this overlay has be
 
 start_service() {
 	if [ ! -e $MARK ] && st1008f-cfgslot status | grep -q '^active: [01]'; then
-		st1008f-cfgslot restore && : > $MARK
-		# network and system are read after this point (START=05 < network 20)
+		st1008f-cfgslot restore && : > $MARK	# before network (START=20) reads its config
 	fi
 	( st1008f-cfgslot save >/dev/null 2>&1 && : > $MARK ) &
+	# procd drops config triggers of a service without an instance: keep an idle one
+	procd_open_instance
+	procd_set_param command /usr/bin/tail -f /dev/null
+	procd_close_instance
+}
+
+reload_service() {
+	st1008f-cfgslot save >/dev/null 2>&1
 }
 
 service_triggers() {
-	local c
-	for c in network system dhcp firewall dropbear uhttpd rpcd snmpd lldpd; do
-		procd_add_config_trigger "config.change" "$c" /usr/sbin/st1008f-cfgslot save
-	done
+	procd_add_reload_trigger network system dhcp firewall dropbear uhttpd rpcd snmpd lldpd
 }

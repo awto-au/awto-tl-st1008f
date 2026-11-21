@@ -7,7 +7,8 @@
 # Slot = 256 B header "ST1008FCFG1 seq=N len=N sha=<payload sha256> cfg=<content md5>\n" (space padded) + tar.gz payload.
 # Active = valid slot with the higher seq: a cut during a write leaves the new slot invalid, the old one stays active.
 
-MTD=mtd3		# jffs2-cfg, 1 MiB, 64 KiB erase blocks
+MTD=jffs2-cfg		# partition label (the mtd tool does not take "mtd3"); 1 MiB, 64 KiB erase blocks
+DEV=$(sed -n "s/^\\(mtd[0-9]*\\):.*\"$MTD\"\$/\\1/p" /proc/mtd)
 FILE=${CFGSLOT_FILE:-}	# test: a 1 MiB file instead of the flash
 SLOT_SIZE=524288	# 2 x 512 KiB
 HDR=256
@@ -18,10 +19,10 @@ trap 'rm -rf $W' EXIT
 mkdir -p $W
 
 die() { echo "st1008f-cfgslot: $*" >&2; logger -t st1008f-cfgslot "$*"; exit 1; }
-rd() { dd if=${FILE:-/dev/${MTD}ro} bs=1 skip=$(($1)) count=$(($2)) 2>/dev/null; }	# offset length
+rd() { dd if=${FILE:-/dev/${DEV}ro} bs=1 skip=$(($1)) count=$(($2)) 2>/dev/null; }	# offset length
 mwrite() {	# offset image
 	if [ -n "$FILE" ]; then dd if=$2 of=$FILE bs=4096 seek=$(($1 / 4096)) conv=notrunc 2>/dev/null
-	else mtd -q -p $1 write $2 $MTD; fi
+	else mtd -qq -p $1 write $2 $MTD; fi
 }
 
 # slot_info N -> sets seq len sha cfg state (valid|empty|bad)
@@ -102,12 +103,12 @@ cmd_restore() {
 }
 
 cmd_erase() {
-	if [ -n "$FILE" ]; then head -c 1048576 /dev/zero | tr '\000' '\377' > $FILE; else mtd -q erase $MTD || die "erase failed"; fi
+	if [ -n "$FILE" ]; then head -c 1048576 /dev/zero | tr '\000' '\377' > $FILE; else mtd -qq erase $MTD || die "erase failed"; fi
 	logger -t st1008f-cfgslot "erased both slots"
 }
 
 case "$1" in
-	save) shift; cmd_save "$@" ;;
+	save) shift; lock /var/lock/st1008f-cfgslot; trap 'lock -u /var/lock/st1008f-cfgslot; rm -rf $W' EXIT; cmd_save "$@" ;;	# boot save and a uci trigger can overlap
 	restore) shift; cmd_restore "$@" ;;
 	status) cmd_status ;;
 	erase) cmd_erase ;;
