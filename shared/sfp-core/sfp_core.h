@@ -78,6 +78,14 @@ struct sfp_ddm {
  * filled, 0 if not (d->supports_dom tells "module has none" from "a2 too short", and the rest is zero). */
 int sfp_ddm_decode(const sfp_u8 *a0, size_t a0_len, const sfp_u8 *a2, size_t a2_len, struct sfp_ddm *d);
 
+/* Soft TX_DISABLE (A2h byte 110 bit 6, SFF-8472 status/control): Linux sfp.c can leave it set across a warm
+ * reboot (UNVR #345), which keeps the laser dark. Pure helpers; the backend does the I2C access
+ * (read A2h 110, and if sfp_soft_tx_disable_value() differs, write it back; a missing A2h is a normal result). */
+#define SFP_A2_STATUS_CTRL	110
+#define SFP_A2_SOFT_TX_DISABLE	0x40
+int sfp_soft_tx_disable_set(sfp_u8 a2_110);	/* 1 if the soft TX_DISABLE bit is set */
+sfp_u8 sfp_soft_tx_disable_value(sfp_u8 a2_110);	/* the byte to write: bit 6 cleared, nothing else changed */
+
 /* ---- Copper-module PHY (sfp_phy.c) ---- */
 
 #define SFP_E_IO	5	/* returned negated */

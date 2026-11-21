@@ -252,3 +252,13 @@ int sfp_ddm_decode(const sfp_u8 *a0, size_t a0_len, const sfp_u8 *a2, size_t a2_
 		ddm_calibrate(a2, d);
 	return 1;
 }
+
+int sfp_soft_tx_disable_set(sfp_u8 a2_110)
+{
+	return !!(a2_110 & SFP_A2_SOFT_TX_DISABLE);
+}
+
+sfp_u8 sfp_soft_tx_disable_value(sfp_u8 a2_110)
+{
+	return a2_110 & (sfp_u8)~SFP_A2_SOFT_TX_DISABLE;
+}
