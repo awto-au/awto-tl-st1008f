@@ -221,11 +221,13 @@ switch: port [1-8]\(lan[1-8]\) entered (blocking|disabled|listening|learning|for
 switch: topology change detected, propagating  # bridge STP topology change on link up
 switch: topology change detected, sending tcn bpdu  # bridge STP: this switch is not root, sends a topology change notice on link up
 rtl83xx-switch 1b000000\.switch lan[1-8]: entered (allmulticast|promiscuous) mode  # bridge port setup, 7.4 wording (device name prefix changed)
-rtl838x_eth 1b000000\.switch:ethernet eth0: entered allmulticast mode  # CPU port joins the bridge (7.4)
+rtl83xx-switch 1b000000\.switch lan[1-8]: (entered|left) (allmulticast|promiscuous) mode  # bridge port setup/teardown, 7.4 wording (device name prefix changed)
+rtl838x_eth 1b000000\.switch:ethernet eth0: (entered|left) allmulticast mode  # CPU port joins/leaves the bridge (7.4)
+rtl838x_eth 1b000000\.switch:ethernet eth0: Link is Down  # CPU port link at bridge/port teardown (benign #185)
 rtl83xx-switch 1b000000\.switch lan[1-8]: PHY \[smbus:sfp-p[1-8]:16\] driver \[Marvell 88E1111\] \(irq=POLL\)  # copper SFP module PHY attached (FS SFP-10G-T / GLC-T class, #178)
 VFS: Pivoted into new rootfs  # 7.4 pivot message of the overlay root
 overlayfs: upper fs does not support RENAME_WHITEOUT\.  # jffs2 overlay upper, benign #172
-realtek-otto-watchdog 18003260\.watchdog: running at probe: kept, 29 s timeout  # 300-15: the watchdog keeps running across the handover (benign #166)
+realtek-otto-watchdog 18003260\.watchdog: running at probe: kept, \d+ s timeout  # 300-15: the watchdog keeps running across the handover (benign #166)
 workqueue: work func rtpcs_93xx_rx_cali_work_handler enqueued on deprecated workqueue\. Use system_\{percpu\|dfl\}_wq instead\.  # upstream PCS driver (e2ed57b957 rx_cali_work) uses the deprecated queue; known #172
 rtpcs_930x_setup_serdes: Configuring RTL9300 SERDES [2-9]  # SerDes setup
 rtpcs_930x_sds_config_pll: SDS [2-9] using (LC PLL for 10gbase-r|ring PLL for sgmii)  # SerDes PLL select
@@ -454,6 +456,7 @@ MSPXDC  # stock SPL token on every chained boot (#105)
 clocks: turbo OK = cpu \d+ MHz, mem \d+ MHz, lx \d+ MHz, sram \d+ MHz(, swcore \d+ MHz)?, MCR [0-9a-f]{8}, spi unchanged  # M3 turbo result (#46); `reverted` is not allowlisted
 clocks: swcore now \d+ kHz \(code [0-3], vco \d+\), e220 [0-9a-f]{8} e214 [0-9a-f]{8}  # turbo swcore= change, read back (#148)
 clocks: lx now \d+ kHz, uart clock updated  # manual `turbo lx=` / `clocks set lx` / swcore change; console follows (#159)
+clocks: 0xbb00e220\[12:9\] = \d+ via LXB_CLK_SEL; console follows  # our U-Boot swcore/LX change trace (#159)
 turbo (cpu|ddr|lx|sram|swcore|swcore_xp)=\d+(,(cpu|ddr|lx|sram|swcore|swcore_xp)=\d+)*  # echo of a manual `turbo` command by the flows (#159)
 clocks: mem now \d+ kHz, DTR0 [0-9a-f]{8} DTR1 [0-9a-f]{8} DTR2 [0-9a-f]{8}, canary 0 bad  # turbo/clocks DDR change, zero canary errors ("0 bad" is not a DENY match)
 
@@ -574,3 +577,6 @@ rtl83xx-switch 1b000000\.switch: storm control bc/mc/uc \d+/\d+/\d+ pps per port
 kmodloader: no module folders for kernel version 7\.\d+-next-\d{8} found  # 7.3 image has everything built in, no /lib/modules (#73)
 Last:  (no valid black-box record \(power-up\)|(unclean|clean|panic|unknown), boot #\d+, up \d+ s, hb \d+, msg ".*")  # our U-Boot: why the last boot ended (#144)
 st1008f-blackbox: (previous boot #\d+ ended .* after \d+ s, msg ".*"|no valid previous record \(cold boot\))  # kernel black box (#144)
+otto_dsa_93xx_setup called  # upstream rename of the rtldsa_93xx_setup debug print (benign #185)
+jffs2: jffs2_scan_eraseblock\(\): Magic bitmask 0x1985 not found at 0x[0-9a-f]+: 0xdead instead  # first boot after sysupgrade: blank-erase marker region of the new overlay (benign #185)
+rtl83xx-switch 1b000000\.switch lan[1-8]: Link is Up - (10Gbps|1Gbps|2\.5Gbps)/Full - flow control rx/tx  # port link with pause negotiated (benign #185)

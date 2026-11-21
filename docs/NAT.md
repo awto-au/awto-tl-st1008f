@@ -176,3 +176,13 @@ Core 608, CPU 1350 / DDR 662 / LX 304 / SRAM 500, sw2, plain 7.4-rc1 bench kerne
 - Eth0 IRQ default sits on CPU0; zc needs `irq-check pin eth0 2` (+4 % at core 408, VPE1 99 %).
 - A first run right after boot read 124 Mbit/s with CPU1 99 % sys; the repeats are stable.
 - `nat-bench setup` prints ping FAIL on the OpenWrt image until `mode` inserts the fw4 accept rules; `mode` then works.
+
+## Flash image on OpenWrt dee2ff6a77 base (#185), 2026-11-22T07:31-07:36+11:00 (sw2, same benches, eth0 IRQ pinned to CPU1 for zc)
+| Metric | Core 408, CPU 1350 | Core 608, CPU 1325 |
+|---|---|---|
+| NAT TCP P4 stack (`nat-ft`) fwd / rev | 488-496 / 489 Mbit/s | 527-528 / 533 Mbit/s |
+| zc+nat 1400 B | 144.0 kpps | 164.5 kpps |
+| zc+nat 64 B | not run | 448.4 kpps |
+
+- Versus the 2026-11-21 image (27663a017a base, previous table): stack path +10 % (core 408) / +15 % (core 608); zc rates unchanged within noise.
+- Boot-log check clean after allowlist updates (otto_dsa setup print, `left` allmulticast/promiscuous, first-boot jffs2 0xdead marker, watchdog timeout any value).
