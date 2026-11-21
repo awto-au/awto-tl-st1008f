@@ -31,7 +31,7 @@ SSH = ["ssh", "-o", "ConnectTimeout=3", "-o", "BatchMode=yes", "-o", "StrictHost
        "-o", "UserKnownHostsFile=/dev/null", "-o", "LogLevel=ERROR"]
 WATCHDOG_S = 150
 DBG = "/sys/kernel/debug/rtl838x/storm"
-UNDO_SW2 = ["ip link set lan3 down; ip link set lan6 down",
+UNDO_SW2 = ["tc qdisc del dev lan3 root 2>/dev/null; tc qdisc del dev lan6 root 2>/dev/null; ip link set lan3 down; ip link set lan6 down",
             "bridge vlan del dev lan3 vid 991; bridge vlan del dev lan6 vid 992",
             "bridge vlan del dev lan1 vid 991; bridge vlan del dev lan1 vid 992",
             "bridge vlan add dev lan3 vid 1 pvid untagged; bridge vlan add dev lan6 vid 1 pvid untagged",
@@ -127,6 +127,7 @@ def main() -> int:
     ap.add_argument("--sw2", default="192.168.25.56")
     ap.add_argument("--sw1", default="192.168.25.48")
     ap.add_argument("--host-nic", default="enp8s0")
+    ap.add_argument("--tbf-mbit", type=int, default=0, help="TBF root qdisc at this rate on sw2 lan3/lan6 egress (offload check, #177)")
     ap.add_argument("--only", default="", help="comma list of run names to execute (default: all)")
     a = ap.parse_args()
     nic = a.host_nic
@@ -154,6 +155,8 @@ def main() -> int:
             "bridge vlan add dev lan1 vid 991; bridge vlan add dev lan1 vid 992; bridge vlan del dev lan3 vid 1; bridge vlan del dev lan6 vid 1; "
             "bridge vlan add dev lan3 vid 991 pvid untagged; bridge vlan add dev lan6 vid 992 pvid untagged; "
             "bridge vlan show | grep -A2 -E '^(lan1|lan3|lan6)' | tr -s ' ' | tr '\\n' ';'"))
+        if a.tbf_mbit:
+            log("tbf: " + ssh(a.sw2, f"for p in lan3 lan6; do tc qdisc replace dev $p root tbf rate {a.tbf_mbit}mbit burst 32k latency 50ms; done; tc qdisc show dev lan3; tc qdisc show dev lan6"))
         log("host setup: " + host(
             f"sudo ip netns add hl && sudo ip netns add hr && "
             f"sudo ip link add link {nic} name {nic}.991 type vlan id 991 && sudo ip link add link {nic} name {nic}.992 type vlan id 992 && "
@@ -182,6 +185,8 @@ def main() -> int:
             y = snap(a)
             log(f"{name}: {out}")
             report(name, x, y)
+        if a.tbf_mbit:
+            log("tbf stats: " + ssh(a.sw2, "tc -s qdisc show dev lan3; tc -s qdisc show dev lan6 | tr -s ' \\n' ' '"))
         log("sw2 lan3/lan6: " + ssh(a.sw2, "for n in lan3 lan6; do echo $n $(ip -s link show $n | tail -4 | tr -s ' ' | tr '\\n' ';'); done"))
     finally:
         host("sudo killall iperf3 2>/dev/null; true")
