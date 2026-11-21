@@ -157,6 +157,7 @@ def main() -> int:
         log(f"DRY-RUN ok: {a.ip} {before} -> {rev}; nothing uploaded")
         return 0
     mac = ssh(a.ip, "cat /sys/class/net/switch/address").strip().lower()
+    boot0 = ssh(a.ip, "cat /proc/sys/kernel/random/boot_id").strip()
     BACKUP.mkdir(parents=True, exist_ok=True)
     out = BACKUP / f"{a.ip}-{time.strftime('%Y%m%d-%H%M%S')}.tar.gz"
     ssh(a.ip, "sysupgrade -b /tmp/cfg.tar.gz")
@@ -209,14 +210,26 @@ def main() -> int:
                    capture_output=True, timeout=CMD_S)
     t = wait(a.ip, False, DOWN_S, "the unit to drop off (upgrade started)")
     log(f"  off the network after {t:.0f} s")
-    # The new A/B slot can boot with default config (DHCP address) although config is kept: find the unit by MAC
-    # in the neighbour table, put the backup back, wait for the real address.
     t0 = time.monotonic()
     restored = False
-    while not ping(a.ip):
+    after = ""
+    # "Back" = the unit answers ssh with a boot_id different from the one read before the upgrade: a ping seen
+    # just before the unit goes down must not count (the final check once ran against the old system).
+    while True:
         if time.monotonic() - t0 > UP_S:
-            raise SystemExit(f"TIMEOUT {UP_S} s waiting for {a.ip} (flash write + boot)")
+            raise SystemExit(f"TIMEOUT {UP_S} s waiting for a new boot on {a.ip} (flash write + boot)")
+        if ping(a.ip):
+            try:  # dropbear starts after network (S21, #114)
+                after, boot1 = ssh(a.ip, ". /etc/openwrt_release; echo $DISTRIB_REVISION; "
+                                         "cat /proc/sys/kernel/random/boot_id", 10).split()
+            except (SystemExit, subprocess.TimeoutExpired, ValueError):
+                continue
+            if boot1 != boot0:
+                break
+            continue
         if not restored:
+            # The new A/B slot can boot with default config (DHCP address) although config is kept: find the unit
+            # by MAC in the neighbour table / ARP sniff, put the backup back, wait for the real address.
             other = neighbour_ip(mac, a.ip) or sniff_ip(mac, a.ip)
             if other and ping(other):
                 try:
@@ -227,16 +240,7 @@ def main() -> int:
                     restored = True
                 except (SystemExit, subprocess.TimeoutExpired) as e:
                     log(f"  restore via {other} failed: {e}")
-    t = time.monotonic() - t0
-    log(f"  answers ping after {t:.0f} s")
-    after = ""
-    t0 = time.monotonic()
-    while time.monotonic() - t0 < CMD_S:  # dropbear starts after network (S21, #114)
-        try:
-            after = ssh(a.ip, ". /etc/openwrt_release; echo $DISTRIB_REVISION", 10).strip()
-            break
-        except (SystemExit, subprocess.TimeoutExpired):
-            continue
+    log(f"  new boot answers ssh after {time.monotonic() - t0:.0f} s")
     if after != rev:
         raise SystemExit(f"FAIL: running revision {after!r}, expected {rev}")
     stp = ssh(a.ip, "cat /sys/class/net/switch/bridge/stp_state").strip()
