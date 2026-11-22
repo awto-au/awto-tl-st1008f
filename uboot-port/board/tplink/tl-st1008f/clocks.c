@@ -452,7 +452,7 @@ struct mem_req {
 /* PHY registers an override may touch: DIDER + DDPDR0/1, DACCR .. DWDQSOR */
 static bool phy_reg_ok(u32 a)
 {
-	return !(a & 3) && ((a >= 0xb8001050 && a <= 0xb8001058) || (a >= 0xb8001500 && a <= 0xb80015c4));
+	return !(a & 3) && ((a >= 0xb8001050 && a <= 0xb8001058) || (a >= 0xb8001500 && a <= 0xb80015c4) || a == 0xb8000388);
 }
 
 static void put_set(u32 base, const u32 *mpcr, u32 d0, u32 d1, u32 d2, u32 flags, u32 mhz,
@@ -757,6 +757,30 @@ const char *otto_turbo_check(const struct otto_turbo *t)
 	return NULL;
 }
 
+#define CMUCR_OC0	0xb8000388	/* SE_DRAM bit 9 = MEM >= OCP0 (CPU/2), docs/OVERCLOCK.md; stock 1, a constant in the SDK */
+
+/* #160: SE_DRAM through the DDR routine's register override: written while clk_oe = 0 and the DRAM is not accessed (the SDK
+ * writes it in cg_mem_pll_init); a plain SRAM-routine write hung both in Linux and here. MEM re-set at its live bin. */
+static int sedram_set(u32 want)
+{
+	u32 cur = R(CMUCR_OC0), val = want ? cur | BIT(9) : cur & ~BIT(9);
+	struct mem_req q = { .method = 1, .nreg = 1 };
+	struct otto_clocks c;
+	int ret;
+
+	if (val == cur) {
+		printf("clocks: CMUCR_OC0 SE_DRAM already %u (%08x)\n", want, cur);
+		return 0;
+	}
+	otto_clocks_read(&c);
+	q.mhz = c.mem_khz / 1000;
+	q.reg[0][0] = CMUCR_OC0;
+	q.reg[0][1] = val;
+	ret = mem_set(&q);
+	printf("clocks: CMUCR_OC0 SE_DRAM %u: %08x -> %08x (%s)\n", want, cur, R(CMUCR_OC0), ret ? "FAIL" : "ok");
+	return ret;
+}
+
 /* CPU (+ SRAM select, applied by the same re-lock); no lock -> re-lock at the previous values */
 static int turbo_cpu(u32 mhz, u32 sram)
 {
@@ -817,6 +841,10 @@ static int turbo_apply(const struct otto_turbo *t, const struct otto_turbo *l)
 		__raw_writel(R(MCR_REG) & ~MCR_PREF, (void __iomem *)MCR_REG);
 		__raw_writel(R(MCR_REG) | MCR_PREF, (void __iomem *)MCR_REG);
 	}
+	if (t->sedram_set)
+		ret = sedram_set(t->sedram);
+	if (ret)
+		return ret;
 	/* SPI stays stock: Linux JFFS2 writes at 102.1 MHz left CRC errors (#50) */
 	__asm__ __volatile__("sync");
 	/* swcore before LX: a VCO point re-codes LX itself (wanted lx = profile lx); never in the SRAM routines */

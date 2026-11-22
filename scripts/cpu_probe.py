@@ -84,8 +84,9 @@ def main():
     ap.add_argument("--cpu", type=int, required=True)
     ap.add_argument("--knob", choices=list(KNOB), default="none")
     ap.add_argument("--secs", type=int, default=180)
+    ap.add_argument("--extra", default="", help="more profile keys, e.g. sedram=0 (our U-Boot, #160)")
     a = ap.parse_args()
-    profile = f"cpu={a.cpu},ddr=662,sram=500,swcore=608"
+    profile = f"cpu={a.cpu},ddr=662,sram=500,swcore=608" + (f",{a.extra}" if a.extra else "")
     log(f"=== cpu {a.cpu} knob {a.knob} secs {a.secs}")
     status = "PASS"
     try:

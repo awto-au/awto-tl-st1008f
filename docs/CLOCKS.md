@@ -504,3 +504,5 @@ SPEC / unverified:
 
 - 1350 stays unstable at core 608; the SRAM timing change moves the first fault later at most (one sample each). No core-voltage control exists on the board (above).
 - Open: the SE_DRAM bit (MEM >= CPU/2 is false at CPU 1350 / DDR 662: OCP0 675 > 662) can only be tested set from U-Boot before Linux starts (RAM boot, blocked while ramload is, #184), or with DDR 675+ retrained (DRAM.md).
+- SE_DRAM from U-Boot (2026-11-23T01:02-01:18+11:00, new `sedram=0|1` turbo key, clocks.c `sedram_set`): a plain SRAM-routine write of CMUCR_OC0 hung the board in U-Boot (watchdog reset, next boot stock clocks). Written through the DDR routine's register override (clk_oe = 0, DRAM idle, as the SDK does) it applies (`0x200 -> 0x0`, "turbo OK" at CPU 1350 / DDR 662 / core 608) and the board then resets during the flash-to-RAM copy before the kernel starts. SE_DRAM stays 1: clearing it does not make CPU 1350 work, with either method. CPU 1325 stays the maximum.
+- Still open for CPU > 1325: DDR 675+ retrained (MEM >= CPU/2 honest at 1350), needs ramload (#184).

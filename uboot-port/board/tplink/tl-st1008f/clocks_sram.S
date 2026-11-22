@@ -94,3 +94,4 @@ otto_cpu_pll_sram:
 	jr	ra
 	 nop
 otto_cpu_pll_sram_end:
+

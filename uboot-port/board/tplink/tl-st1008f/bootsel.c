@@ -157,6 +157,10 @@ static const char *turbo_parse(char *s, struct otto_turbo *t)
 			t->swcore = n;
 		else if (!strcmp(kv, "swcore_xp") && n == 1)
 			t->swcore_xp = 1;
+		else if (!strcmp(kv, "sedram") && n <= 1) {
+			t->sedram_set = 1;
+			t->sedram = n;
+		}
 		else if (strcmp(kv, "spi") || n != 25)
 			return "unknown key, or spi not at stock 25 (#50: Linux reads flash)";
 	}

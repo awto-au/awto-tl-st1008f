@@ -62,7 +62,7 @@ STOCK_NOTE = "NOTE: M1 and M3 boot at the built-in turbo profile (cpu 1350, ddr 
 TURBO_SETS = {"cpu": {800, 1000, 1050} | set(range(1100, 1426, 25)),
               "ddr": {800, 775, 750, 725, 700, 675, 662, 650, 625, 600, 550, 500, 450, 400, 350, 300},
               "lx": {175, 204, 245, 306}, "sram": {250, 500}, "spi": {25},
-              "swcore": {245, 306, 408, 508, 575, 608, 658, 612}, "swcore_xp": {1}}
+              "swcore": {245, 306, 408, 508, 575, 608, 658, 612}, "swcore_xp": {1}, "sedram": {0, 1}}
 SWCORE_XP = {612}  # experimental (#148): needs swcore_xp=1; mirrors clocks.c swc_pts
 SWCORE_LX = {508: 305, 575: 246, 608: 304, 658: 247}  # VCO points re-code LX: an lx= key must be within 1 %
 CHECK_OK = r"Total of 1 word"   # stock cmp.l: equal

@@ -165,6 +165,7 @@ char *st1008f_stock_env(const char *var, char *out, int len);
 struct otto_turbo {
 	u32 cpu, ddr, lx, sram, swcore;	/* MHz, 0 = keep */
 	u32 swcore_xp;		/* 1 = experimental swcore values allowed */
+	u32 sedram_set, sedram;	/* sedram=0|1: CMUCR_OC0 SE_DRAM (bit 9) written from SRAM after CPU/DDR (#160) */
 };
 void otto_turbo_live(struct otto_turbo *t);
 const char *otto_turbo_check(const struct otto_turbo *t);
