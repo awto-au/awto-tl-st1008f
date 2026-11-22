@@ -489,3 +489,18 @@ SPEC / unverified:
 - Limit between 783 and 792 MHz (VCO 4700-4750); not LX (800 hangs at LX 300). VPE1 stays 99 % busy at every passing point: +5 % at 783 vs 608 because the CPU binds, not the core.
 - Hang signature: ssh and ping dead, kernel alive, console garbled (UART divisor fixed at boot for LX 304: real baud = 115200 x LX/304.17). Restore from the console at that baud, `ip link set eth0 down/up`.
 - Persistent use needs `swc_pts` entries in clocks.c (U-Boot refuses LX outside 175/204/245/306 +-1 % and points not in the table); not done.
+
+## CPU above 1325 MHz at core 608 on the OpenWrt image (2026-11-22T23:04-23:32+11:00, #160)
+- `scripts/cpu_probe.py`: sets the chain profile `cpu=N,ddr=662,sram=500,swcore=608`, software reboot, applies one live knob over devmem, then loops the selftest xz decode (`cpu.xz` vs `cpu.md5`) at nice 19 on both CPUs for 90-120 s; FAIL = a wrong decode, an Oops or 25 s of ssh silence; the 1325 profile is always restored.
+- Image 7.4-rc3 on OpenWrt dee2ff6a77, sw2, core 608, DDR 662, SRAM 500, LX 304, 57 C:
+
+| CPU MHz | Knob (live) | Result |
+|---|---|---|
+| 1325 | none | pass, 352 decodes ok in 90 s |
+| 1350 | none | 1 wrong decode at 40 s (94 ok) |
+| 1350 | `CPU_SRAM_ASY_TIMING` 0x85 -> 0x86 (pulse up) | 1 wrong decode at 111 s (470 ok) |
+| 1350 | `CPU_SRAM_ASY_TIMING` 0x85 -> 0x84 (pulse down) | hang at 44 s |
+| 1325 | `CMUCR_OC0` 0xb8000388 bit 9 cleared (SE_DRAM) | ssh dead within 10 s: the flip kills a running system, even at the known-good CPU |
+
+- 1350 stays unstable at core 608; the SRAM timing change moves the first fault later at most (one sample each). No core-voltage control exists on the board (above).
+- Open: the SE_DRAM bit (MEM >= CPU/2 is false at CPU 1350 / DDR 662: OCP0 675 > 662) can only be tested set from U-Boot before Linux starts (RAM boot, blocked while ramload is, #184), or with DDR 675+ retrained (DRAM.md).
