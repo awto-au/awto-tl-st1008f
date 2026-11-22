@@ -8,7 +8,7 @@ Owner decision 2026-11-07 (CPU 1325 by owner choice 2026-11-08): go with what wo
 
 | Domain | Stock | Final | Why the gap |
 |---|---|---|---|
-| Switch core | 408 MHz | 608 | 612 (code 0) wedges CPU-port DMA; 608 is the best-forwarding step (575 / 658 re-code LX); 1400 B rate scales with the core up to 608 |
+| Switch core | 408 MHz | 608 | code 0 (/4) wedges CPU-port DMA, code 1 passes to 783 live (CLOCKS.md); 608 is the persistent step (575 / 658 re-code LX); 1400 B rate scales with the core up to 608 |
 | CPU | 800 | 1325 | highest step stable 5/5 on the OpenWrt image at core 608 (#160); 1350 passes short plain-kernel runs but fails the image at core 575 / 608; 1375 panics at core 608 (passes at 408) |
 | DDR | 600 | 662 | 675 / 700 pass only with `ddr-retrain --write` and give no gain beyond noise |
 | LX | 175 | ~304 | follows the SW VCO; 204 panics on the 7.3 image (#149); codes above 306 need a clocks.c change |
@@ -51,7 +51,7 @@ Owner decision 2026-11-07 (CPU 1325 by owner choice 2026-11-08): go with what wo
 1. switch-core (largest measured lever: 1400 B rate scales 1:1 with the clock, CAMPAIGN-PLAIN-7.4.md; #148 findings in docs/CLOCKS.md).
    - Steps = stock 408 (VCO 2450, code 1) then VCO steps with code 1 (/6): 508 (VCO 3050), 575 (3450), 608 (3650), 658 (3950). Each passed 3/3 boots.
    - Raw words (e214 / e220), also U-Boot `swcore=`: 508 `0x3b8`/`0x30626`; 575 `0x438`/`0x34a26`; 608 `0x478`/`0x36826`; 658 `0x4d8`/`0x38c26` (`fastest_search.SWC`, `swcore_step.py`).
-   - 612 via code 0 (VCO 2450) wedges CPU-port DMA under forwarding: forbidden, not a step. 608 = recommended max (best forwarding); 575/658 re-code LX to 246/247 MHz.
+   - 612 via code 0 (VCO 2450) wedges CPU-port DMA under forwarding: the /4 divider, not the frequency. 608 = highest persistent step (U-Boot points); 575/658 re-code LX to 246/247 MHz.
    - LX and SPI-NOR share the SW VCO: the e220 words re-code them. e214 garbles the UART until e220 re-codes LX: one line, e220 first, relock last.
 2. lx-arb: register-only, cheap. Master IDs and the NIC's bus are unknown (DATASHEET-AUDIT.md:185); candidates are blunt patterns written to all 12 words: `swap` 0x01010101, `m1` 0x11111111, `m0` 0x00000000. Expected effect is small unless another LX master competes. `--discover` records the reset values first.
 3. cpu: pick 1350; 1375 failed 1 of 55 XZ decodes, 1400 fails. Bisection 800..1425 starts at 1100 (known passes), ~6 tests. Expected gain beyond 1350 <= 2 %; 64 B rate is VPE-bound, so it follows the CPU.

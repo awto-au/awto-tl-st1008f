@@ -471,3 +471,21 @@ SPEC / unverified:
 - Fallback if the runtime path fails: SRAM-resident program (64 KiB SRAM, stack in SRAM) re-running the full SPL DDR init at 650 (PHY pre-config 650 branch, DCR provisional `0x21320000`, DTRs, ZQ cal, MRS, DLL reset, tap training, DCR `0x21421003`), then memtest; DRAM contents abandoned, power cycle after.
 - Final form: own SPL (#47 option C).
 - Size: `uboot-mainline.bin` 301,941 -> 307,485 bytes (+5,544; routine 1,124 bytes), 2026-10-11. With the 675-800 bins + MRS: 312,821 bytes, routine 1,284 bytes (2026-10-11, includes other changes since).
+
+## Switch core above 608 MHz, live from Linux (2026-11-22T22:48-22:54+11:00, sw2, OpenWrt dee2ff6a77 image, 7.4-rc3)
+- `scripts/swcore_live.py` writes e220 / e214 / relock over ssh from the 608 profile (no ramload), then `zc_bench.py --nat --len 1400` (zc+nat kpps, payload checksums), always restores 608 (console fallback at the baud that LX implies).
+- All steps code 1 (/6), LX code 5 (4250-4750 VCO: LX 304-339 MHz), NOR code 12-15 (SPI <= 25.3 MHz). One 8 s run per point:
+
+| Core MHz | VCO | LX MHz | zc+nat 1400 B kpps | Result |
+|---|---|---|---|---|
+| 608 | 3650 | 304 | 164.5 (earlier run) | pass |
+| 708 | 4250 | 304 | 165.3 | pass, checksums ok |
+| 733 | 4400 | 314 | 167.7 | pass |
+| 767 | 4600 | 329 | 171.2 | pass |
+| 783 | 4700 | 336 | 173.1 | pass |
+| 792 | 4750 | 339 | - | hang at the PLL write |
+| 800 | 4800 | 343 | - | hang (also with LX 300 MHz, code 6) |
+
+- Limit between 783 and 792 MHz (VCO 4700-4750); not LX (800 hangs at LX 300). VPE1 stays 99 % busy at every passing point: +5 % at 783 vs 608 because the CPU binds, not the core.
+- Hang signature: ssh and ping dead, kernel alive, console garbled (UART divisor fixed at boot for LX 304: real baud = 115200 x LX/304.17). Restore from the console at that baud, `ip link set eth0 down/up`.
+- Persistent use needs `swc_pts` entries in clocks.c (U-Boot refuses LX outside 175/204/245/306 +-1 % and points not in the table); not done.

@@ -18,7 +18,7 @@ Run the measurements: [NAT-OPS.md](NAT-OPS.md). Experiments, dead ends, core-408
 ## Final settings (owner 2026-11-07, CPU refined 2026-11-07 by #160)
 | Domain | Setting | Notes |
 |---|---|---|
-| Switch core | 608 MHz (SW VCO 3650, code 1; e214 `0x478`, e220 `0x36826`) | 612 (code 0) wedges CPU-port DMA: forbidden |
+| Switch core | 608 MHz (SW VCO 3650, code 1; e214 `0x478`, e220 `0x36826`) | code 0 (/4 divider) wedges CPU-port DMA; code 1 passes up to 783 MHz live, see CLOCKS.md |
 | CPU | **1325 MHz** on the OpenWrt image (5/5 stable); 1350 on the plain kernel | 1350 fails on the image at core 575 / 608 (xz decode errors, Oops, #160); 1375 fails at core 608 |
 | DDR | 662 MHz | 675 / 700 pass only with `ddr-retrain --write`, no gain beyond noise |
 | LX | ~304 MHz | follows the SW VCO |
@@ -103,7 +103,7 @@ Core 608, CPU 1350 / DDR 662 / LX 304 / SRAM 500, sw2, plain 7.4-rc1 bench kerne
 
 ## What the remaining limit is
 - The fast path is CPU-bound: the NIC IRQ + softirq VPE (VPE1) is 97-99 % busy at every size, ~170-180 kpps at 1400 B.
-- Cost per packet: ~2 us fixed + a part that follows the switch-core clock (1400 B rate scales with it up to 608; 612 is forbidden). Not cache maintenance.
+- Cost per packet: ~2 us fixed + a part that follows the switch-core clock (1400 B rate scales with it up to ~500, then the CPU binds; code-0 divider wedges, not the frequency). Not cache maintenance.
 - 2.5 Gbit/s of 1500 B frames is ~312 kpps through the CPU port (data + ACKs); the fast path does ~170-180 kpps. Clocks cannot close it: CPU above 1350 fails at 608, DDR 675+ gives no gain, LX / SRAM do not move the rate.
 - `rxdrop` (receive and drop) stops at about the same rate at 1400 B: the limit is receive-side, not the NAT rewrite.
 
