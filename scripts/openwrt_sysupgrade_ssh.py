@@ -34,6 +34,9 @@ BACKUP = ROOT / "private/sysupgrade-backup"
 SLOT_MAX = 14848 * 1024  # IMAGE_SIZE := 14848k, docs/DEFAULT-BOOT.md#ab-slots
 FIRMWARE = (0x300000, 0x1D00000)  # upstream layout: 0x300000 to the end of the 32 MiB chip
 SSH = ["ssh", "-o", "ConnectTimeout=5", "-o", "BatchMode=yes", "-o", "StrictHostKeyChecking=accept-new"]
+# default-config address of a fresh slot: new host key, and the DHCP address may carry a stale known_hosts entry of another unit
+SSH_FRESH = ["ssh", "-o", "ConnectTimeout=5", "-o", "BatchMode=yes", "-o", "StrictHostKeyChecking=no",
+             "-o", "UserKnownHostsFile=/dev/null", "-o", "LogLevel=ERROR"]
 CMD_S = 30     # one SSH command: sysupgrade -T / -b ~2-5 s on a 1 GHz MIPS; x6 for a loaded box
 HTTP_PORT = 8008  # as default_boot.fetch
 PUSH_S = 60    # 6 MB over 1G LAN, dropbear cipher on MIPS: wget of the same file took 4.7 s on sw2; x12
@@ -55,8 +58,8 @@ def log(msg: str) -> None:
         fh.write(line + "\n")
 
 
-def ssh(ip: str, cmd: str, cap: float = CMD_S, data: bytes | None = None) -> str:
-    r = subprocess.run([*SSH, f"root@{ip}", cmd], input=data, capture_output=True, timeout=cap)
+def ssh(ip: str, cmd: str, cap: float = CMD_S, data: bytes | None = None, fresh: bool = False) -> str:
+    r = subprocess.run([*(SSH_FRESH if fresh else SSH), f"root@{ip}", cmd], input=data, capture_output=True, timeout=cap)
     if r.returncode:
         raise SystemExit(f"FAIL ssh {cmd[:60]!r}: rc {r.returncode} {r.stderr.decode(errors='replace').strip()[:300]}")
     return r.stdout.decode(errors="replace")
@@ -235,7 +238,7 @@ def main() -> int:
                 try:
                     ssh(other, "cat > /tmp/b.tgz; echo etc/uci-defaults/10_disable_services > /tmp/x; "
                                "tar -xzf /tmp/b.tgz -C / -X /tmp/x; (/etc/init.d/network restart >/dev/null 2>&1 &)",
-                        CMD_S, data=out.read_bytes())
+                        CMD_S, data=out.read_bytes(), fresh=True)
                     log(f"  up at {other} with default config after {time.monotonic() - t0:.0f} s: backup restored, network restarted")
                     restored = True
                 except (SystemExit, subprocess.TimeoutExpired) as e:
