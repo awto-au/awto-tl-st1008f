@@ -4,7 +4,7 @@
 Needs the unit's mode slider in M2 and the U-Boot chain slot with bootsel.c `netwin` (no setting): U-Boot lights the
 cage 1 on 192.168.1.1; the host answers from a 192.168.1.2/24 alias. Flow:
   reboot (ssh | relay | you) -> ESC datagrams to UDP :6666 every 0.1 s -> prompt seen on the wire
-  -> [turbo PROFILE] -> setenv bootargs -> TFTP (tftpd.py --once) -> bootm.
+  -> setenv bootargs -> TFTP (tftpd.py --once) -> [turbo PROFILE; ] bootm (turbo after the download, same line).
 No flash write, no trial/attempt state: a power cycle returns to the normal boot (the window runs only in M2).
 Log: tmp/logs/uboot_netboot.log
 """
@@ -196,8 +196,6 @@ def main() -> int:
             raise SystemExit(f"no U-Boot prompt in {PROMPT_CAP_S} s; netconsole output seen: {len(seen)} B "
                              f"({'window up, ESC not accepted: stdin nc?' if seen.strip() else 'nothing: slider not in M2, or no link on cage 1'})")
         log(f"prompt after {time.monotonic() - t0:.1f} s")
-        if a.turbo:
-            run_cmd(sock, wire, UBOOT_IP, f"turbo {a.turbo}", r"clocks: turbo (OK|reverted)[^\n]*", 30, "turbo")
         run_cmd(sock, wire, UBOOT_IP, f"setenv bootargs {a.bootargs}", re.escape(PROMPT), CMD_CAP_S, "bootargs")
         tlog = ROOT / "tmp/logs/tftpd.log"
         before = tlog.stat().st_size if tlog.exists() else 0
@@ -229,7 +227,9 @@ def main() -> int:
         if a.port_up:
             con = rl.Console()  # the daemon owns the UART; no daemon: this raises, nothing to fall back to
             mark = con.size()
-        send(sock, UBOOT_IP, f"bootm 0x{LOAD_ADDR:08x}\n")
+        # turbo only after the download, in the same line as bootm: the memory/core clock change stops U-Boot's own
+        # netconsole for good (2026-11-23: wire silent after the DDR step, serial showed `turbo OK`), so nothing after it needs the wire
+        send(sock, UBOOT_IP, (f"turbo {a.turbo}; " if a.turbo else "") + f"bootm 0x{LOAD_ADDR:08x}\n")
         if con:
             con.expect(rl.PLAIN_PROMPT, PLAIN_UP_CAP_S, mark, "plain kernel console prompt")
             rl.plain_mgmt(con, a.ip, a.port_up)

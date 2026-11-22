@@ -191,3 +191,15 @@ Core 608, CPU 1350 / DDR 662 / LX 304 / SRAM 500, sw2, plain 7.4-rc1 bench kerne
 - NAT TCP P4 zc+nat fwd / rev: 1509 / 1505 Mbit/s (1509.2, 1509.7, 1505.2; one run each). Plain kernel at core 408 (2026-11-07, 7.4-rc1): 1458 Mbit/s (table above). The ~1.5 Gbit/s zero-copy rate holds on the image.
 - Plain-kernel A/B on the new base not run: netboot needs the stock U-Boot to send over cage 1, which is a DAC to sw1 (no TX, #184 relay offline); the attempt rebooted sw2 and left sw1 lan4 stuck in RX calibration (#171, cleared by a sw1 reboot, owner OK).
 - Retransmits 1350-1470 per 10 s are the known ASIC CPU-queue drops of the fast path.
+
+## Plain 7.4-rc3 vs OpenWrt image, same patch set, core 608 / CPU 1325 / DDR 662 / LX 304 (#185), 2026-11-23T01:30-01:35+11:00
+- Plain kernel booted by `./dev.py netboot mainline-7.4-rc3-clean-std.bin --reboot ssh --port-up 1 --turbo cpu=1325,ddr=662,sram=500,swcore=608` (our U-Boot window over the sw2-lan1 <-> sw1-lan4 DAC, 19 s from the reboot command to ping); OpenWrt image r38513 on the same boot profile. Single runs, eth0 IRQ on CPU1, zc parameters as `stack_compare.py zc_params(tcp)`.
+
+| Metric | Plain 7.4-rc3 | OpenWrt image |
+|---|---|---|
+| zc+nat UDP 1400 B | 164.0 kpps | 164.5 kpps |
+| zc+nat UDP 64 B | 428.6 kpps | 448.4 kpps |
+| zc+nat TCP P4 fwd / rev | 1671 / 1671 Mbit/s (3 runs) | 1669 / 1672 Mbit/s (second run of two forward; first 1615 right after boot) |
+| stack `nat-ft` TCP P4 fwd / rev | 521-522 / 524 Mbit/s | 527-528 / 533 Mbit/s |
+
+- The ~1.5-1.7 Gbit/s zero-copy rate holds on both; plain and image are within noise at equal clocks.
