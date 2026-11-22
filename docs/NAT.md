@@ -186,3 +186,8 @@ Core 608, CPU 1350 / DDR 662 / LX 304 / SRAM 500, sw2, plain 7.4-rc1 bench kerne
 
 - Versus the 2026-11-21 image (27663a017a base, previous table): stack path +10 % (core 408) / +15 % (core 608); zc rates unchanged within noise.
 - Boot-log check clean after allowlist updates (otto_dsa setup print, `left` allmulticast/promiscuous, first-boot jffs2 0xdead marker, watchdog timeout any value).
+
+## zc TCP on the OpenWrt image (#185), 2026-11-22T15:58+11:00 (sw2, core 408, CPU 1350, OpenWrt dee2ff6a77 base, 7.4-rc3, zc=1, eth0 IRQ on CPU1)
+- NAT TCP P4 zc+nat fwd / rev: 1509 / 1505 Mbit/s (1509.2, 1509.7, 1505.2; one run each). Plain kernel at core 408 (2026-11-07, 7.4-rc1): 1458 Mbit/s (table above). The ~1.5 Gbit/s zero-copy rate holds on the image.
+- Plain-kernel A/B on the new base not run: netboot needs the stock U-Boot to send over cage 1, which is a DAC to sw1 (no TX, #184 relay offline); the attempt rebooted sw2 and left sw1 lan4 stuck in RX calibration (#171, cleared by a sw1 reboot, owner OK).
+- Retransmits 1350-1470 per 10 s are the known ASIC CPU-queue drops of the fast path.
