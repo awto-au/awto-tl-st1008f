@@ -20,6 +20,9 @@ Owner rules 2026-11-23: not a temperature issue; unhandled/spurious interrupts m
 - Pattern across every record: a pointer replaced by the small integer 1 (BadVA 1, 0x1d, 0x9; `a0 == 1` folio pointer; `epc 0x40000000` earlier), in different generic code each time. A stray write of the word 1 into freed or reused memory. Candidates: an RX ring/descriptor ownership word written through a stale address, or another DMA master. The hang crashes (no oops) fit the same writer hitting something fatal.
 - Trigger: 90-160 kpps into sw1's CPU port (flooded one-way UDP, or the bench setup burst); 500 Mbit/s x 4 UDP completed once, crashed within seconds twice. sw2 handles the same load. Reproducer without the ASIC path: host-to-sw1 UDP flood on the CPU alone (nat_bench local).
 - Watchdog: SoC watchdog runs (29 s). Image `stk` (not yet on sw1) adds the pretimeout panic (phase-1 IRQ at 24 s) so a hang with interrupts on leaves an oops, 16 KiB stacks (300-51) and stack-overflow checks.
+- Data corruption on sw1, not on sw2 (`scripts/xfer_check.py`: random 8 MB pushed over ssh into /tmp, md5 + diff). sw2: 8 of 8 rounds clean. sw1: rounds with 1-3 flipped bytes (single bits, mostly bit 3 cleared: 7b->73, ca->c2, ef->e7, 5f->57, b8->b0), one round with a 5194-byte stretch of wrong data; a stall or crash within 4 rounds each time. Same with rx checksum offload off, so the corruption happens after the software checksum, in CPU/RAM/DMA-coherence land.
+- Userspace RAM test (`scripts/tools/memtest.c`, 280 MB, 4 patterns, 40 s each, physical addresses): 0 mismatches on sw1 and sw2. CPU-only RAM traffic is clean; the faults appear with NIC DMA + copy traffic.
+- sw1 went unreachable for more than 5 min after the xfer test (link up on sw2's DAC side, no ping reply, SoC watchdog did not bring it back).
 - `scripts/openwrt_sysupgrade_ssh.py` now fails when the booted slot did not flip (a panic during the flash gave a false PASS).
 
 ## Candidate causes and tests (status)
