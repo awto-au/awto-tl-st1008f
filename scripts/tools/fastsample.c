@@ -3,7 +3,7 @@
  * fastsample: sample the CPU-port NIC counters 100 times a second and send each sample as one UDP datagram to the dev host (#186).
  * Per sample (text): seq t_us eth0 rx_packets rx_dropped rx_errors rx_fifo_errors tx_packets, eth0 IRQ count cpu0 cpu1,
  * rteth ring0_frames ring1_frames (debugfs rxq). A crash loses at most the last period; the host receiver (fastsample_rx.py) keeps the rest.
- * WATCH: the kernel image head (exception/vectored-interrupt code, phys 0x100000, 192 KiB) and the DTB (phys 0x1000, 64 KiB) are read-only after boot;
+ * WATCH: the bus-timeout monitor status words (phys 0x18005104.., 0x18005204..) and the kernel image head (exception/vectored-interrupt code, phys 0x100000, 192 KiB) and the DTB (phys 0x1000, 64 KiB) are read-only after boot;
  * a 16 KiB slice of them is compared with the boot snapshot every sample (whole watch area ten times a second). A difference is sent at once as
  * "CORRUPT phys old new" (first 8 changed words of the slice) and the snapshot is updated: stray writes show where and what.
  * Build: scripts/build_fastsample.py (static musl, BE MIPS). Usage: fastsample HOST PORT [PERIOD_US=10000]
@@ -35,14 +35,14 @@ static long rd_num(int fd)
 }
 
 #define SLICE (16 * 1024)
-#define WATCH_BYTES ((64 + 192 + 4) * 1024)
-#define NREG 3
+#define WATCH_BYTES ((64 + 192 + 4 + 4) * 1024)
+#define NREG 4
 #define NSLICE ((WATCH_BYTES + SLICE - 1) / SLICE)
 
 static unsigned char *wmap[NREG];
 static unsigned char *snap;
-static const unsigned long wbase[NREG] = { 0x1000, 0x100000, 0xd82000 };	// DTB 64 KiB, kernel head 192 KiB, page of vi_handlers[] (phys 0xd82394): only its 8 words 0x394..0x3b3 are compared
-static const unsigned long wlen[NREG] = { 64 * 1024, 192 * 1024, 4 * 1024 };
+static const unsigned long wbase[NREG] = { 0x1000, 0x100000, 0xd82000, 0x18005000 };	// DTB 64 KiB, kernel head 192 KiB, page of vi_handlers[] (phys 0xd82394): only its 8 words 0x394..0x3b3 are compared
+static const unsigned long wlen[NREG] = { 64 * 1024, 192 * 1024, 4 * 1024, 4 * 1024 };
 
 static void watch_init(int mfd)
 {
@@ -74,6 +74,8 @@ static int watch_slice(int n, char *out, int outsz)
 			for (k = 0; k < SLICE / 4 && off + k * 4 < wlen[i]; k++)
 				if (i == 2 && (off + k * 4 < 0x394 || off + k * 4 >= 0x3b4))
 					continue;
+				if (i == 3 && !((off + k * 4 >= 0x104 && off + k * 4 < 0x110) || (off + k * 4 >= 0x204 && off + k * 4 < 0x220 && off + k * 4 != 0x210)))
+					continue;	// bus-timeout monitor status words (OCP 0x104.., LX 0x204..); controls skipped
 				if (cur[k] != old[k]) {
 					if (found < 8)
 						len += snprintf(out + len, outsz - len, "%s%08lx %08x %08x", found ? "," : "CORRUPT ", wbase[i] + off + k * 4UL,

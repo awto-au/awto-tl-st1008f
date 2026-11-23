@@ -274,6 +274,12 @@ def main() -> int:
                 except (SystemExit, subprocess.TimeoutExpired) as e:
                     log(f"  restore via {other} failed: {e}")
     log(f"  new boot answers ssh after {time.monotonic() - t0:.0f} s")
+    if ab:  # a panic reboot also gives a new boot_id and the same version string: the booted slot must have flipped (2026-11-23, sw1)
+        now_slot = re.search(r"booted: (\w)", ssh(a.ip, "st1008f-slot")).group(1)
+        if now_slot == cur:
+            raise SystemExit(f"FAIL: still booted from slot {cur}: the upgrade did not take (crash during the flash? "
+                             f"black box: {ssh(a.ip, 'cat /sys/kernel/debug/st1008f-blackbox/last').strip()})")
+        log(f"  booted slot {cur} -> {now_slot}")
     if after != rev:
         raise SystemExit(f"FAIL: running revision {after!r}, expected {rev}")
     stp = ssh(a.ip, "cat /sys/class/net/switch/bridge/stp_state").strip()

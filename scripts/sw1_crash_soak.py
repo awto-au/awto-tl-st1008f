@@ -7,7 +7,7 @@
   temperature at the crash. Log: tmp/logs/sw1_crash_soak.log (poll line per second, run results).
 - Stops at the first poll miss run (5 s without an answer = crash or hang), at MAX_RUNS, or at Ctrl-C; always sets offload back to 0 and tears the bench down.
 - Limits: RUN_S 20 s per run x MAX_RUNS 15 = 5 min; crashes seen after 25 s to 28 min (#186), so 5 min of load is the cap per attempt.
-Usage: python3 scripts/sw1_crash_soak.py [--runs 15] [--secs 20]
+Usage: python3 scripts/sw1_crash_soak.py [--runs 15] [--secs 20] [--ramp]
 """
 import argparse
 import subprocess
@@ -24,6 +24,7 @@ stop = threading.Event()
 lock = threading.Lock()
 last = {"t": None, "up": None, "temp": None, "dead_since": None}
 prev = {}
+RAMP_S = 8  # per step: long enough for ~8 poll samples, 5 steps = 40 s of ramp
 
 
 def log(msg):
@@ -82,6 +83,7 @@ def main():
     ap = argparse.ArgumentParser()
     ap.add_argument("--runs", type=int, default=15)
     ap.add_argument("--secs", type=int, default=20)
+    ap.add_argument("--ramp", action="store_true", help="before the TCP runs: UDP steps 500..9000 Mbit/s, RAMP_S each (onset test, #186 cause 10)")
     a = ap.parse_args()
     log(f"=== soak: {a.runs} x {a.secs} s, offload on-link on sw2")
     sh([sys.executable, "scripts/nat_bench.py", "setup"], 90)
@@ -90,6 +92,12 @@ def main():
     th = threading.Thread(target=poll, daemon=True)
     th.start()
     try:
+        for mbps in (500, 1500, 3000, 6000, 9000) if a.ramp else ():
+            if stop.is_set():
+                break
+            r = sh([sys.executable, "scripts/nat_bench.py", "run", "--secs", str(RAMP_S), "--udp", str(mbps), "--len", "1460"], RAMP_S * 3 + 30)
+            m = [ln for ln in (r.stdout + r.stderr).splitlines() if "RESULT" in ln]
+            log(f"ramp {mbps} Mbit/s: " + (m[0].split("RESULT ", 1)[1][:60] if m else "no result"))
         for i in range(1, a.runs + 1):
             if stop.is_set():
                 break

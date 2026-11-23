@@ -2,17 +2,19 @@ From: Dan <dan@awto.au>
 Subject: [PATCH] irqchip/realtek-rtl: log spurious and masked-but-pending interrupts (#186)
 
 - Spurious (GIMR & GISR & mask == 0): rate-limited warning with both CPU banks, CP0 cause and status.
-- Masked source raw-pending in GISR (fired despite the GIMR mask): warning with the hwirq mask.
+- Raw-pending in GISR but enabled in neither CPU bank: warning with the hwirq mask (the two timers are enabled on one CPU each and are skipped).
 ---
 --- a/drivers/irqchip/irq-realtek-rtl.c
 +++ b/drivers/irqchip/irq-realtek-rtl.c
-@@ -177,8 +177,25 @@
+@@ -177,8 +177,27 @@
  	pending = readl_be(REG(cpu, RTL_ICTL_GIMR)) &
  		  readl_be(REG(cpu, RTL_ICTL_GISR)) & output->mask;
  
-+	/* #186: a source that is masked in this CPU's GIMR but raw-pending in GISR fired despite the mask (faulty hardware or errata) */
++	/* #186: raw-pending in GISR but enabled in neither CPU's GIMR: fired despite the mask (faulty hardware or errata) */
 +	{
-+		u32 raw = readl_be(REG(cpu, RTL_ICTL_GISR)) & ~readl_be(REG(cpu, RTL_ICTL_GIMR));
++		unsigned int other_cpu = cpu ? 0 : 1;
++		u32 raw = readl_be(REG(cpu, RTL_ICTL_GISR)) & ~readl_be(REG(cpu, RTL_ICTL_GIMR)) &
++			  ~(realtek_ictl_base[other_cpu] ? readl_be(REG(other_cpu, RTL_ICTL_GIMR)) : 0);	/* enabled on the other CPU: normal */
 +
 +		if (unlikely(raw))
 +			pr_warn_ratelimited("realtek-intc: masked source pending on cpu%u: hwirq mask %08x (GIMR %08x GISR %08x)\n",

@@ -66,12 +66,15 @@
 
 		/* kernel console tail kept across a reset, same page as bootrec: our U-Boot and the
 		 * selftest skip that page. Read with devmem 0x0e000800 after the next boot (#120). */
+		/* 2026-11-23 (#186): 62 KiB: console tail + 3 panic/oops dmesg records of 16 KiB (the 2 KiB console ring held only
+		 * the panic tail, the oops text itself was overwritten) */
 		ramoops@e000800 {
 			compatible = "ramoops";
-			reg = <0x0e000800 0x800>;
+			reg = <0x0e000800 0xf800>;
 			no-map;
 			mem-type = <1>;		/* unbuffered: a hang loses nothing in write buffers */
-			console-size = <0x800>;
+			console-size = <0x2000>;
+			record-size = <0x4000>;
 		};
 	};
 

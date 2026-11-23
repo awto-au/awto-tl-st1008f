@@ -1,0 +1,14 @@
+From: awto <noreply@awto.au>
+Subject: [PATCH] mips: 16 KiB kernel stacks on 32-bit with 4 KiB pages
+
+Test for sw1 stack corruption (#186): softirq RX path (bridge, nftables, flow offload) runs on the 8 KiB task stack, no IRQ stacks on MIPS32.
+
+--- a/arch/mips/include/asm/thread_info.h
++++ b/arch/mips/include/asm/thread_info.h
+@@ -78,5 +78,5 @@
+ /* thread information allocation */
+ #if defined(CONFIG_PAGE_SIZE_4KB) && defined(CONFIG_32BIT)
+-#define THREAD_SIZE_ORDER (1)
++#define THREAD_SIZE_ORDER (2)
+ #endif
+ #if defined(CONFIG_PAGE_SIZE_4KB) && defined(CONFIG_64BIT)
