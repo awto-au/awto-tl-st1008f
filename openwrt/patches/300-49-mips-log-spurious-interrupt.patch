@@ -5,16 +5,15 @@ Subject: [PATCH] mips: name the CPU interrupt line in spurious_interrupt() (#186
 ---
 --- a/arch/mips/kernel/irq.c
 +++ b/arch/mips/kernel/irq.c
-@@ -23,7 +23,7 @@
- #include <linux/ftrace.h>
+@@ -24,6 +24,7 @@
  #include <linux/irqdomain.h>
  
--#include <linux/atomic.h>
-+#include <linux/atomic.h>\n#include <asm/mipsregs.h>
+ #include <linux/atomic.h>
++#include <asm/mipsregs.h>
  #include <linux/uaccess.h>
  
  void *irq_stack[NR_CPUS];
-@@ -48,6 +48,10 @@
+@@ -48,6 +49,10 @@
  asmlinkage void spurious_interrupt(void)
  {
  	atomic_inc(&irq_err_count);

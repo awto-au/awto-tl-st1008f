@@ -1,0 +1,38 @@
+From: Dan <dan@awto.au>
+Subject: [PATCH] spi: realtek-rtl: no unaligned u32 accesses to transfer buffers (#186)
+
+- transfer_one() sent and received 4 bytes with plain u32 loads/stores on tx_buf/rx_buf. The SPI core passes buffers at any byte offset
+  (BadVA 0x82b5a041 from `cp` onto JFFS2), so each such word trapped into the kernel unaligned-access emulation (/sys/kernel/debug/mips/unaligned_instructions).
+- get_unaligned()/put_unaligned() on the buffer side; the register accesses are unchanged.
+---
+--- a/drivers/spi/spi-realtek-rtl.c
++++ b/drivers/spi/spi-realtek-rtl.c
+@@ -98,11 +98,12 @@
+ 	while (!(__raw_readl(REG(RTL_SPI_SFCSR)) & RTL_SPI_SFCSR_RDY))
+ 		cpu_relax();
+ }
+-static void send4(struct rtspi *rtspi, const u32 *buf)
++/* the SPI core hands out buffers at any byte offset (data after opcode + address): no u32 loads or stores on them (#186) */
++static void send4(struct rtspi *rtspi, const void *buf)
+ {
+ 	wait_ready(rtspi);
+ 	set_size(rtspi, 4);
+-	__raw_writel(*buf, REG(RTL_SPI_SFDR));
++	__raw_writel(get_unaligned((const u32 *)buf), REG(RTL_SPI_SFDR));
+ }
+ 
+ static void send1(struct rtspi *rtspi, const u8 *buf)
+@@ -112,11 +113,11 @@
+ 	__raw_writel(buf[0] << 24, REG(RTL_SPI_SFDR));
+ }
+ 
+-static void rcv4(struct rtspi *rtspi, u32 *buf)
++static void rcv4(struct rtspi *rtspi, void *buf)
+ {
+ 	wait_ready(rtspi);
+ 	set_size(rtspi, 4);
+-	*buf = __raw_readl(REG(RTL_SPI_SFDR));
++	put_unaligned(__raw_readl(REG(RTL_SPI_SFDR)), (u32 *)buf);
+ }
+ 
+ static void rcv1(struct rtspi *rtspi, u8 *buf)
