@@ -185,7 +185,7 @@ Core 608, CPU 1350 / DDR 662 / LX 304 / SRAM 500, sw2, plain 7.4-rc1 bench kerne
 | zc+nat 1400 B | 144.0 kpps | 164.5 kpps |
 | zc+nat 64 B | not run | 448.4 kpps |
 
-- Versus the 2026-11-21 image (27663a017a base, previous table): stack path +10 % (core 408) / +15 % (core 608); zc rates unchanged within noise.
+- Versus the 2026-11-21 image (27663a017a base, previous table): zc rates unchanged within noise. The stack-path difference (+10 % / +15 %) is not a base effect: see 'Stack path depends on uptime' below.
 - Boot-log check clean after allowlist updates (otto_dsa setup print, `left` allmulticast/promiscuous, first-boot jffs2 0xdead marker, watchdog timeout any value).
 
 ## zc TCP on the OpenWrt image (#185), 2026-11-22T15:58+11:00 (sw2, core 408, CPU 1350, OpenWrt dee2ff6a77 base, 7.4-rc3, zc=1, eth0 IRQ on CPU1)
@@ -214,3 +214,7 @@ Core 608, CPU 1350 / DDR 662 / LX 304 / SRAM 500, sw2, plain 7.4-rc1 bench kerne
 - One stream reaches the same rate as four: the limit is the CPU per packet, not the stream count. The stack `nat-ft` rows read 527-533 Mbit/s at P4 on 2026-11-22 and 590 here (same image and clocks); the spread between runs is not explained.
 
 - Correction 2026-11-23: the 2026-11-22 image stack rows (488-496 at core 408, 527-533 at core 608) were measured with the eth0 IRQ on CPU0 and the plain-kernel row with it on CPU1; the pin does not move the stack path, so the 590-623 rows of 2026-11-23 are a boot-to-boot spread, not the pin.
+
+## Stack path depends on uptime, not on the OpenWrt base (2026-11-23)
+- Stack `nat-ft` TCP P4 fwd, core 608 / CPU 1325, 10 s runs: first runs after a boot ramp 189 -> 439 -> 528 Mbit/s, then a plateau of 527-536 (six runs, 3 min uptime, previous kernel build 2026-11-21). The new-base image at 2 min uptime (2026-11-22) gave 527-533; the same image at ~16 h uptime gave 577-629 (eth0 IRQ on CPU0 or CPU1: no difference). So the 2026-11-22 "+10-15 % from the new base" came from comparing runs taken at different uptimes. Cause of the uptime effect not found: idle system at both ends (90 % idle, 9 % sys, 59 C).
+- Compare stack-path numbers only from the same uptime, after 3 warm-up runs.
