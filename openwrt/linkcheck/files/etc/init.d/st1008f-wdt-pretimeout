@@ -1,0 +1,11 @@
+#!/bin/sh /etc/rc.common
+# SoC watchdog phase-1 IRQ -> panic (governor panic): a hang with interrupts on leaves an oops in pstore (#186).
+# procd sets the 29 s timeout; phase 1 at 29-5 = 24 s, phase 2 reset 5 s later.
+
+START=11
+
+start() {
+	w=/sys/class/watchdog/watchdog0
+	echo panic > $w/pretimeout_governor 2>/dev/null
+	echo 5 > $w/pretimeout 2>/dev/null || logger -p daemon.err -t st1008f-wdt "pretimeout not set"
+}

@@ -15,6 +15,11 @@ Owner rules 2026-11-23: not a temperature issue; unhandled/spurious interrupts m
 - Unaligned-access fixups: SPI driver fixed (300-50).
 - Flash-time crash (sysupgrade, up 63 s): `copy_pte_range` ll on BadVA 0x1d, PTE word 0x21cd7609 (above RAM end) = a corrupted user PTE, same BadVA 0x1d as boot #13. Page-table memory corrupted, same family as #149.
 - Traffic-onset crash (up 72 s, no oops, hang): bench setup started, rx on eth0 went 25 -> 18494 pps in the last second; flood samples show 800-1600 frames per 10 ms with ring 0 level at 1024 (full) then a 137 ms gap, then dead. CPU port was NOT quiet here. Cause 1/2 candidate: ring-full/overrun path in the rteth RX driver.
+- Crash with GRO and rx-gro-list OFF (up 197 s, 3 s after a 90 kpps one-way UDP flood hit the CPU port): `__netif_receive_skb_one_core` BadVA 0x9 (skb->dev == 1) in `process_backlog`. GRO is not the cause.
+- GRO-on crash (up 608 s): `list_add corruption` in `gro_receive_skb`, list head `prev` points inside an `skbuff_head_cache` object = a GRO list entry freed or overwritten.
+- Pattern across every record: a pointer replaced by the small integer 1 (BadVA 1, 0x1d, 0x9; `a0 == 1` folio pointer; `epc 0x40000000` earlier), in different generic code each time. A stray write of the word 1 into freed or reused memory. Candidates: an RX ring/descriptor ownership word written through a stale address, or another DMA master. The hang crashes (no oops) fit the same writer hitting something fatal.
+- Trigger: 90-160 kpps into sw1's CPU port (flooded one-way UDP, or the bench setup burst); 500 Mbit/s x 4 UDP completed once, crashed within seconds twice. sw2 handles the same load. Reproducer without the ASIC path: host-to-sw1 UDP flood on the CPU alone (nat_bench local).
+- Watchdog: SoC watchdog runs (29 s). Image `stk` (not yet on sw1) adds the pretimeout panic (phase-1 IRQ at 24 s) so a hang with interrupts on leaves an oops, 16 KiB stacks (300-51) and stack-overflow checks.
 - `scripts/openwrt_sysupgrade_ssh.py` now fails when the booted slot did not flip (a panic during the flash gave a false PASS).
 
 ## Candidate causes and tests (status)
