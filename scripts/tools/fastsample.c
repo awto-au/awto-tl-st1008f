@@ -34,13 +34,15 @@ static long rd_num(int fd)
 	return strtol(b, NULL, 10);
 }
 
-#define WATCH_BYTES (256 * 1024)
 #define SLICE (16 * 1024)
+#define WATCH_BYTES ((64 + 192 + 4) * 1024)
+#define NREG 3
+#define NSLICE ((WATCH_BYTES + SLICE - 1) / SLICE)
 
-static unsigned char *wmap[2];
+static unsigned char *wmap[NREG];
 static unsigned char *snap;
-static const unsigned long wbase[2] = { 0x1000, 0x100000 };	// DTB 64 KiB, kernel head 192 KiB
-static const unsigned long wlen[2] = { 64 * 1024, 192 * 1024 };
+static const unsigned long wbase[NREG] = { 0x1000, 0x100000, 0xd82000 };	// DTB 64 KiB, kernel head 192 KiB, page of vi_handlers[] (phys 0xd82394): only its 8 words 0x394..0x3b3 are compared
+static const unsigned long wlen[NREG] = { 64 * 1024, 192 * 1024, 4 * 1024 };
 
 static void watch_init(int mfd)
 {
@@ -48,7 +50,7 @@ static void watch_init(int mfd)
 	int i;
 
 	snap = malloc(WATCH_BYTES);
-	for (i = 0; i < 2; i++) {
+	for (i = 0; i < NREG; i++) {
 		wmap[i] = mmap(NULL, wlen[i], PROT_READ, MAP_SHARED, mfd, wbase[i]);
 		if (wmap[i] == MAP_FAILED)
 			wmap[i] = NULL;
@@ -64,12 +66,14 @@ static int watch_slice(int n, char *out, int outsz)
 	unsigned long off = (unsigned long)n * SLICE, base = 0;
 	int i, k, len = 0, found = 0;
 
-	for (i = 0; i < 2; i++) {
+	for (i = 0; i < NREG; i++) {
 		if (off < wlen[i] && wmap[i]) {
 			volatile unsigned int *cur = (volatile unsigned int *)(wmap[i] + off);
 			unsigned int *old = (unsigned int *)(snap + base + off);
 
 			for (k = 0; k < SLICE / 4 && off + k * 4 < wlen[i]; k++)
+				if (i == 2 && (off + k * 4 < 0x394 || off + k * 4 >= 0x3b4))
+					continue;
 				if (cur[k] != old[k]) {
 					if (found < 8)
 						len += snprintf(out + len, outsz - len, "%s%08lx %08x %08x", found ? "," : "CORRUPT ", wbase[i] + off + k * 4UL,
@@ -146,7 +150,7 @@ int main(int argc, char **argv)
 			     (long long)now.tv_sec * 1000000LL + now.tv_nsec / 1000, v[0], v[1], v[2], v[3], v[4], irq0, irq1, r0, r1);
 		sendto(s, out, n, MSG_DONTWAIT, (struct sockaddr *)&to, sizeof(to));
 		if (mfd >= 0 && snap) {
-			int wl = watch_slice(tick++ % 16, wout, sizeof(wout));
+			int wl = watch_slice(tick++ % NSLICE, wout, sizeof(wout));
 
 			if (wl > 0)
 				sendto(s, wout, wl, MSG_DONTWAIT, (struct sockaddr *)&to, sizeof(to));
