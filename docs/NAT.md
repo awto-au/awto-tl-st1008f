@@ -130,6 +130,7 @@ Core 608, CPU 1350 / DDR 662 / LX 304 / SRAM 500, sw2, plain 7.4-rc1 bench kerne
 | `rx-gro-list` on eth0 + lan1 | on (image sets it at boot) | off: -29 to -41 % on the stack path |
 | fw4 `flow_offloading` | 1 | off: -74 % |
 | eth0 `rps_cpus` | 0 (image: uci `network.globals.packet_steering=0`, `91_st1008f_steering`) | netifd default 1 cost 12-16 % on `nat-ft` (#161) |
+| eth0 IRQ affinity | CPU1 (image: hotplug `55-st1008f-irq`, 2026-11-23) | zc +2-4 %; stack `nat-ft` unchanged (577-629 Mbit/s with the IRQ on CPU0 or CPU1, 4 runs each, 2026-11-23) |
 | eth0 qdisc | `mq` / `pfifo_fast` (image `fq_codel`) | `noqueue`: +12-15 % on the stack at stock clocks, ties on zc |
 | `tx_by_cpu` (rteth) | 0 | stack path with pinned NAPI only (#145) |
 | `cpuq_drop_pages` (rteth, read at open) | 1024 | queue-1 ON pages, OFF = ON - 16; 0 keeps the chip value (78) |
@@ -211,3 +212,5 @@ Core 608, CPU 1350 / DDR 662 / LX 304 / SRAM 500, sw2, plain 7.4-rc1 bench kerne
 | zc+nat fwd | 1677.5 Mbit/s (117) | 1673.1 Mbit/s (1272) |
 
 - One stream reaches the same rate as four: the limit is the CPU per packet, not the stream count. The stack `nat-ft` rows read 527-533 Mbit/s at P4 on 2026-11-22 and 590 here (same image and clocks); the spread between runs is not explained.
+
+- Correction 2026-11-23: the 2026-11-22 image stack rows (488-496 at core 408, 527-533 at core 608) were measured with the eth0 IRQ on CPU0 and the plain-kernel row with it on CPU1; the pin does not move the stack path, so the 590-623 rows of 2026-11-23 are a boot-to-boot spread, not the pin.

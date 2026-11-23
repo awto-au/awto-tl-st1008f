@@ -1,0 +1,7 @@
+#!/bin/sh
+# NIC interrupt on VPE1, so VPE0 keeps userland and the zero-copy path runs where its NAPI poll is (#145).
+# Needs the single-CPU affinity patch (300-18). Idempotent; runs on every interface up.
+[ "$ACTION" = ifup ] || exit 0
+irq=$(awk '$NF == "eth0" { sub(":", "", $1); print $1; exit }' /proc/interrupts)
+[ -n "$irq" ] || exit 0
+[ "$(cat /proc/irq/$irq/smp_affinity 2>/dev/null)" = 2 ] || echo 2 > /proc/irq/$irq/smp_affinity
