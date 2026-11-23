@@ -264,7 +264,10 @@ def main() -> int:
             if other and ping(other):
                 try:
                     ssh(other, "cat > /tmp/b.tgz; echo etc/uci-defaults/10_disable_services > /tmp/x; "
-                               "tar -xzf /tmp/b.tgz -C / -X /tmp/x; (/etc/init.d/network restart >/dev/null 2>&1 &)",
+                               "tar -xzf /tmp/b.tgz -C / -X /tmp/x; "
+                               # the boot of the fresh slot saved the DEFAULT config into the cfg slots: re-save the restored one,
+                               # else the next boot restores the default (sw1, 2026-11-23)
+                               "st1008f-cfgslot save --force >/dev/null 2>&1; (/etc/init.d/network restart >/dev/null 2>&1 &)",
                         CMD_S, data=out.read_bytes(), fresh=True)
                     log(f"  up at {other} with default config after {time.monotonic() - t0:.0f} s: backup restored, network restarted")
                     restored = True

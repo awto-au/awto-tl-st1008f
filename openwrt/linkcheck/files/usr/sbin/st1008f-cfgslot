@@ -18,7 +18,7 @@ W=/tmp/cfgslot.$$
 trap 'rm -rf $W' EXIT
 mkdir -p $W
 
-die() { echo "st1008f-cfgslot: $*" >&2; logger -t st1008f-cfgslot "$*"; exit 1; }
+die() { echo "st1008f-cfgslot: $*" >&2; logger -t st1008f-cfgslot "$*"; echo "<4>st1008f-cfgslot: $*" > /dev/kmsg 2>/dev/null; exit 1; }
 rd() { dd if=${FILE:-/dev/${DEV}ro} bs=1 skip=$(($1)) count=$(($2)) 2>/dev/null; }	# offset length
 mwrite() {	# offset image
 	if [ -n "$FILE" ]; then dd if=$2 of=$FILE bs=4096 seek=$(($1 / 4096)) conv=notrunc 2>/dev/null
@@ -99,6 +99,7 @@ cmd_restore() {
 	mkdir -p "$dir"
 	tar xzf $W/p$a -C "$dir" || die "extract of slot $a failed"
 	logger -t st1008f-cfgslot "restored config from slot $a seq $seq to $dir"
+	echo "<5>st1008f-cfgslot: restored config from slot $a seq $seq to $dir" > /dev/kmsg 2>/dev/null	# logd (START=12) is not up at START=05
 	echo "restored slot $a seq $seq to $dir"
 }
 
