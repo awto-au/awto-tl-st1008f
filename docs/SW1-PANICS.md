@@ -25,6 +25,14 @@ Owner rules 2026-11-23: not a temperature issue; unhandled/spurious interrupts m
 - sw1 went unreachable for more than 5 min after the xfer test (link up on sw2's DAC side, no ping reply, SoC watchdog did not bring it back).
 - `scripts/openwrt_sysupgrade_ssh.py` now fails when the booted slot did not flip (a panic during the flash gave a false PASS).
 
+## Off-hardware review 2026-11-24 (sw2 + driver source, sw1 off)
+- RX path (`rteth_hw_receive`, `rteth_create_skb`, page pool: `PP_FLAG_DMA_SYNC_DEV`, `max_len` = PAGE_SIZE, 2 frags of 2048 per page): no stray write found. Ordering is rmb / dma_wmb correct, the new page is allocated before the old one is consumed, ring and descriptor memory is coherent DDR (`sram_rings` = 0 on sw2).
+- Cache model: 34Kc needs no post-DMA flush, so correctness rests on the page-level sync at recycle (whole page, invalidate). No path found where the CPU dirties a posted buffer's lines.
+- Not excluded: zero-copy forward (`zc`, line ~1961 header write-back of 128 bytes), GRO frag pages held while a sibling frag is on the ring.
+- DMA masters on sw2: two GDMA channels (`dma0chan0`, `dma1chan0`, 0 transfers, no client), SPI dirmap (14000000, reads only), SRAM 0x1f000000 (rings not in it). Nothing active besides the NIC.
+- Bit-3-cleared flips (7b->73, ca->c2, ...) look like one weak data-path bit (cache or bus), not a software writer. Network-free copy test on sw1 decides.
+- Debug image `dbg` (SLUB_DEBUG_ON, PAGE_POISONING, DEBUG_LIST) built for sw2 soak: result below when run.
+
 ## Candidate causes and tests (status)
 0. Same family as #149 ([GRO-CORRUPTION-149.md](GRO-CORRUPTION-149.md), writer never identified): OpenWrt image + our patches panicked 9 of 11 boots at fast clocks in `gro_list_prepare` with a bad list node inside the NIC private memory (`napi->poll_list`), BadVA 1 / small values as pointers; the plain minimal-initramfs kernel survived the same clocks. sw1 (busier OpenWrt userland: lldpd, snmpd, collectd, linkwatch, metricsd) may hit the same bug more often. Its diagnostics (`rtl838x_eth.gro_diag=1`, `DEBUG_NET=y`, patch 300-45) exist and were never run on sw1. CP0 Cause.TI (0x40000000) is set in every oops incl. #149's (Compare unused): not specific.
 1. NIC RX DMA writes outside its buffers / page reuse (rteth page pool, rx-gro-list, GRO fraglist; #149 history). Test: sw1 with `rx-gro-list` off; debug image (`--debug`: SLUB_DEBUG_ON, PAGE_POISONING, DEBUG_LIST) on sw1 so a use-after-free reports instead of crashing. NOT DONE.
