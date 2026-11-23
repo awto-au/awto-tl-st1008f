@@ -170,7 +170,8 @@ def main() -> int:
     out.write_bytes(r.stdout)
     log(f"  config backup {len(r.stdout)} B -> {out.relative_to(ROOT)}")
 
-    if a.pull:
+    def pull():
+        """The unit fetches the image over host HTTP (no ssh crypto load: ssh pushes to sw1 stall, 2026-11-06 and 2026-11-23)."""
         import functools
         import http.server
         import shutil
@@ -189,8 +190,15 @@ def main() -> int:
         finally:
             srv.shutdown()
             shutil.rmtree(serve, ignore_errors=True)
+
+    if a.pull:
+        pull()
     else:
-        ssh(a.ip, "cat > /tmp/f.bin", PUSH_S, data=raw)
+        try:
+            ssh(a.ip, "cat > /tmp/f.bin", PUSH_S, data=raw)
+        except (SystemExit, subprocess.TimeoutExpired) as e:
+            log(f"  ssh push failed ({str(e)[:80]}); falling back to the host-HTTP pull")
+            pull()
     got = ssh(a.ip, "md5sum /tmp/f.bin").split()[0]
     if got != md5:
         raise SystemExit(f"FAIL: md5 on the box {got} != {md5}")
@@ -209,8 +217,27 @@ def main() -> int:
             n * ERASE_S_PER_BLOCK * 1.25 + 5)
         log(f"  slot {idle}: overlay area 0x{off:x}+{n} blocks blanked in {time.monotonic() - t0:.0f} s (unit online)")
     log("  pushed, md5 ok, sysupgrade -T ok; upgrading (config kept)")
-    subprocess.run([*SSH, f"root@{a.ip}", f"sysupgrade {F}/tmp/f.bin </dev/null >/dev/null 2>&1 &"],
-                   capture_output=True, timeout=CMD_S)
+    # Launch detached and check it ran: a plain `&` over ssh once left no sysupgrade process (2026-11-23, sw1) and the
+    # script waited blind. Up to 3 tries; each checks /tmp/su.log (written by sysupgrade at once) or an unreachable unit.
+    for attempt in range(1, 4):
+        subprocess.run([*SSH, f"root@{a.ip}", f"rm -f /tmp/su.log; setsid sh -c 'sysupgrade {F}/tmp/f.bin >/tmp/su.log 2>&1' "
+                        "</dev/null >/dev/null 2>&1 &"], capture_output=True, timeout=CMD_S)
+        started = False
+        for _ in range(8):  # 8 x ~1 s: sysupgrade writes its first line within 1 s of start
+            time.sleep(1)
+            try:
+                st = ssh(a.ip, "cat /tmp/su.log 2>/dev/null; ps | grep -q '[s]ysupgrade' && echo RUNNING", 5)
+            except (SystemExit, subprocess.TimeoutExpired):
+                started = True  # unit already going down
+                break
+            if "upgrade:" in st or "RUNNING" in st:
+                started = True
+                break
+        log(f"  sysupgrade launch try {attempt}: {'started' if started else 'NOT started'}")
+        if started:
+            break
+    else:
+        raise SystemExit(f"FAIL: sysupgrade did not start on {a.ip} in 3 tries; /tmp/su.log: {ssh(a.ip, 'cat /tmp/su.log 2>&1', 5)[:300]}")
     t = wait(a.ip, False, DOWN_S, "the unit to drop off (upgrade started)")
     log(f"  off the network after {t:.0f} s")
     t0 = time.monotonic()
