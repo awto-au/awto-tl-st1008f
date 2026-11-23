@@ -31,7 +31,7 @@ Owner rules 2026-11-23: not a temperature issue; unhandled/spurious interrupts m
 - Not excluded: zero-copy forward (`zc`, line ~1961 header write-back of 128 bytes), GRO frag pages held while a sibling frag is on the ring.
 - DMA masters on sw2: two GDMA channels (`dma0chan0`, `dma1chan0`, 0 transfers, no client), SPI dirmap (14000000, reads only), SRAM 0x1f000000 (rings not in it). Nothing active besides the NIC.
 - Bit-3-cleared flips (7b->73, ca->c2, ...) look like one weak data-path bit (cache or bus), not a software writer. Network-free copy test on sw1 decides.
-- Debug image `dbg` (SLUB_DEBUG_ON, PAGE_POISONING, DEBUG_LIST) built for sw2 soak: result below when run.
+- Debug image `dbg` (slab poison/red zone/sanity, DEBUG_LIST) flashed to sw2 (slot a, trial), 2026-11-24: `xfer_check` 8 of 8 clean, 3 x UDP flood (`scripts/udp_flood.py`, ~2 Mpps offered, ~6 kpps reached the CPU port) no poison/list/redzone report. Load did not reach 90 kpps at the CPU; a raw unknown-unicast flood (flooded to the CPU port like sw1's) is still to do.
 
 ## Candidate causes and tests (status)
 0. Same family as #149 ([GRO-CORRUPTION-149.md](GRO-CORRUPTION-149.md), writer never identified): OpenWrt image + our patches panicked 9 of 11 boots at fast clocks in `gro_list_prepare` with a bad list node inside the NIC private memory (`napi->poll_list`), BadVA 1 / small values as pointers; the plain minimal-initramfs kernel survived the same clocks. sw1 (busier OpenWrt userland: lldpd, snmpd, collectd, linkwatch, metricsd) may hit the same bug more often. Its diagnostics (`rtl838x_eth.gro_diag=1`, `DEBUG_NET=y`, patch 300-45) exist and were never run on sw1. CP0 Cause.TI (0x40000000) is set in every oops incl. #149's (Compare unused): not specific.
