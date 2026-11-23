@@ -46,6 +46,9 @@ def main():
             fh.flush()
             tail.append(f"{now:.3f} {line}")
             f = line.split()
+            if line.startswith("CORRUPT"):
+                print(f"{time.strftime('%H:%M:%S')} {line}", flush=True)  # stray write into read-only kernel memory / DTB (phys old new)
+                continue
             if len(f) < 11:
                 continue
             v = [int(x) for x in f[1:]]  # t_us rx drop err fifo tx irq0 irq1 r0 r1 (after seq)

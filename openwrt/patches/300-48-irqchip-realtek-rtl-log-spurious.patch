@@ -1,0 +1,24 @@
+From: Dan <dan@awto.au>
+Subject: [PATCH] irqchip/realtek-rtl: log spurious interrupts with both banks and the CPU cause (#186)
+
+- A parent line that fires with GIMR & GISR & mask == 0 is counted in /proc/interrupts ERR and nothing else.
+- Rate-limited warning: CPU, parent IP line, GIMR/GISR of both CPU banks, mask, CP0 cause and status, so each event names its source.
+---
+--- a/drivers/irqchip/irq-realtek-rtl.c
++++ b/drivers/irqchip/irq-realtek-rtl.c
+@@ -178,7 +178,15 @@
+ 		  readl_be(REG(cpu, RTL_ICTL_GISR)) & output->mask;
+ 
+ 	if (unlikely(!pending)) {
++		unsigned int other = cpu ? 0 : 1;
++
+ 		spurious_interrupt();
++		/* #186: which line, which CPU: both banks' enable/status and the CPU's own cause/status */
++		pr_warn_ratelimited("spurious on cpu%u parent IP%u: GIMR %08x GISR %08x, cpu%u GIMR %08x GISR %08x, mask %08x, cause %08x status %08x\n",
++				    cpu, output->parent_hwirq, readl_be(REG(cpu, RTL_ICTL_GIMR)), readl_be(REG(cpu, RTL_ICTL_GISR)),
++				    other, realtek_ictl_base[other] ? readl_be(REG(other, RTL_ICTL_GIMR)) : 0,
++				    realtek_ictl_base[other] ? readl_be(REG(other, RTL_ICTL_GISR)) : 0,
++				    output->mask, read_c0_cause(), read_c0_status());
+ 		goto out;
+ 	}
+ 
