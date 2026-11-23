@@ -130,7 +130,7 @@ Core 608, CPU 1350 / DDR 662 / LX 304 / SRAM 500, sw2, plain 7.4-rc1 bench kerne
 | `rx-gro-list` on eth0 + lan1 | on (image sets it at boot) | off: -29 to -41 % on the stack path |
 | fw4 `flow_offloading` | 1 | off: -74 % |
 | eth0 `rps_cpus` | 0 (image: uci `network.globals.packet_steering=0`, `91_st1008f_steering`) | netifd default 1 cost 12-16 % on `nat-ft` (#161) |
-| eth0 IRQ affinity | CPU1 (image: hotplug `55-st1008f-irq`, 2026-11-23) | zc +2-4 %; stack `nat-ft` unchanged (577-629 Mbit/s with the IRQ on CPU0 or CPU1, 4 runs each, 2026-11-23) |
+| eth0 IRQ affinity | default (both CPUs; no pin) | no effect: zc 1673-1679 Mbit/s and stack 530-590 Mbit/s with the IRQ on CPU0 or CPU1 (matrix below, 2026-11-23); the pin default was removed |
 | eth0 qdisc | `mq` / `pfifo_fast` (image `fq_codel`) | `noqueue`: +12-15 % on the stack at stock clocks, ties on zc |
 | `tx_by_cpu` (rteth) | 0 | stack path with pinned NAPI only (#145) |
 | `cpuq_drop_pages` (rteth, read at open) | 1024 | queue-1 ON pages, OFF = ON - 16; 0 keeps the chip value (78) |
@@ -174,7 +174,7 @@ Core 608, CPU 1350 / DDR 662 / LX 304 / SRAM 500, sw2, plain 7.4-rc1 bench kerne
 | zc / stack UDP 1400 B | 6.1x | 6.9x |
 
 - `nat-ft` on the image (445-462) matches the plain-kernel rows above (413-422); the image row of 85 Mbit/s (core 508, 7.4-rc1) is gone with the `packet_steering=0` default.
-- Eth0 IRQ default sits on CPU0; zc needs `irq-check pin eth0 2` (+4 % at core 408, VPE1 99 %).
+- Eth0 IRQ placement does not matter for zc (retracted 2026-11-23: the earlier +4 % was run-to-run spread); see 'IRQ placement x stream count'.
 - A first run right after boot read 124 Mbit/s with CPU1 99 % sys; the repeats are stable.
 - `nat-bench setup` prints ping FAIL on the OpenWrt image until `mode` inserts the fw4 accept rules; `mode` then works.
 
@@ -218,3 +218,14 @@ Core 608, CPU 1350 / DDR 662 / LX 304 / SRAM 500, sw2, plain 7.4-rc1 bench kerne
 ## Stack path depends on uptime, not on the OpenWrt base (2026-11-23)
 - Stack `nat-ft` TCP P4 fwd, core 608 / CPU 1325, 10 s runs: first runs after a boot ramp 189 -> 439 -> 528 Mbit/s, then a plateau of 527-536 (six runs, 3 min uptime, previous kernel build 2026-11-21). The new-base image at 2 min uptime (2026-11-22) gave 527-533; the same image at ~16 h uptime gave 577-629 (eth0 IRQ on CPU0 or CPU1: no difference). So the 2026-11-22 "+10-15 % from the new base" came from comparing runs taken at different uptimes. Cause of the uptime effect not found: idle system at both ends (90 % idle, 9 % sys, 59 C).
 - Compare stack-path numbers only from the same uptime, after 3 warm-up runs.
+
+## IRQ placement x stream count (2026-11-23T21:04-21:09+11:00, `scripts/irq_stream_matrix.py`, sw2 OpenWrt image, core 608 / CPU 1325, 10 s forward runs, alternating order, warm-up discarded)
+| Path | IRQ | 1 stream | 4 streams | 10 streams |
+|---|---|---|---|---|
+| stack `nat-ft` | CPU0 | 590, 592 | 585, 565 | 531, 537 |
+| stack `nat-ft` | CPU1 | 583, 590 | 555, 551 | 542, 547 |
+| zc+nat | CPU0 | 633 (first cell, zc not yet engaged), 1678 | 1673, 1678 | 1665, 1662 |
+| zc+nat | CPU1 | 1676, 1679 | 1676, 1674 | 1662, 1524 |
+
+- IRQ on CPU0 and CPU1 are indistinguishable (one outlier cell each way); one stream is as fast as four; ten streams cost 5-10 % on the stack path.
+- The first zc cell after the zc parameters are set can run on the stack path (633 Mbit/s): discard a warm-up run before a zc cell.
