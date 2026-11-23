@@ -203,3 +203,11 @@ Core 608, CPU 1350 / DDR 662 / LX 304 / SRAM 500, sw2, plain 7.4-rc1 bench kerne
 | stack `nat-ft` TCP P4 fwd / rev | 521-522 / 524 Mbit/s | 527-528 / 533 Mbit/s |
 
 - The ~1.5-1.7 Gbit/s zero-copy rate holds on both; plain and image are within noise at equal clocks.
+
+## Single TCP stream vs 4 streams (2026-11-23T15:20+11:00, sw2 OpenWrt image, core 608 / CPU 1325, eth0 IRQ on CPU1, one 10 s run each)
+| Path | P1 | P4 |
+|---|---|---|
+| stack `nat-ft` fwd | 622.8 Mbit/s (18 retransmits) | 590.3 Mbit/s (125) |
+| zc+nat fwd | 1677.5 Mbit/s (117) | 1673.1 Mbit/s (1272) |
+
+- One stream reaches the same rate as four: the limit is the CPU per packet, not the stream count. The stack `nat-ft` rows read 527-533 Mbit/s at P4 on 2026-11-22 and 590 here (same image and clocks); the spread between runs is not explained.
