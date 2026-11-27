@@ -11,7 +11,7 @@ SW2_IP = "192.168.25.56"     # st1008f-2-mgmt
 SW1_MAC = "16:b0:46:e9:0d:c0"  # sw1 base MAC (u-boot-env ethaddr; docs/hardware.md)
 SW2_MAC = "3a:de:0a:91:10:d0"  # sw2 base MAC (set-mac 2026-10-12)
 
-BENCH_UNIT = "sw2"  # unit on the relay + serial console
+BENCH_UNIT = "sw1"  # unit on the relay + serial console (sw2 until the 2026-11-28 swap, #186)
 _UNITS = {"sw1": (SW1_IP, SW1_MAC), "sw2": (SW2_IP, SW2_MAC)}
 LAB_UNIT = "sw1" if BENCH_UNIT == "sw2" else "sw2"
 BENCH_IP, BENCH_MAC = _UNITS[BENCH_UNIT]  # ramload, nat-bench, U-Boot ipaddr
