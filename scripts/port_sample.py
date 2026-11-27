@@ -15,6 +15,7 @@ import subprocess
 import sys
 import time
 from pathlib import Path
+from boards import BENCH_IP  # noqa: E402
 
 ROOT = Path(__file__).resolve().parent.parent
 LOG = ROOT / "tmp/logs/port_sample.log"
@@ -40,7 +41,7 @@ def main() -> int:
     ap.add_argument("--ports", default="lan4,lan5")
     ap.add_argument("--every", type=float, default=2)
     ap.add_argument("--for", dest="dur", type=float, default=60)
-    ap.add_argument("--ip", default="192.168.25.56")
+    ap.add_argument("--ip", default=BENCH_IP)
     a = ap.parse_args()
     ports = a.ports.split(",")
     t_end = time.monotonic() + a.dur

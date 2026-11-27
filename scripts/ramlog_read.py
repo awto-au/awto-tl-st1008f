@@ -9,6 +9,7 @@ import struct
 import subprocess
 import sys
 from pathlib import Path
+from boards import BENCH_IP  # noqa: E402
 
 BASE = 0x0E000800
 SIZE = 0x800
@@ -43,7 +44,7 @@ def decode(words: list[int]) -> str:
 
 def main() -> int:
     ap = argparse.ArgumentParser(description=__doc__)
-    ap.add_argument("--ip", default="192.168.25.56")
+    ap.add_argument("--ip", default=BENCH_IP)
     a = ap.parse_args()
     out = decode(read_words(a.ip))
     LOG.parent.mkdir(parents=True, exist_ok=True)

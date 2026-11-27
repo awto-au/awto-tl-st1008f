@@ -17,6 +17,7 @@ import subprocess
 import sys
 import time
 from pathlib import Path
+from boards import BENCH_IP  # noqa: E402
 
 ROOT = Path(__file__).resolve().parent.parent
 LOG = ROOT / "tmp/logs/sfp_firstattach.log"
@@ -61,7 +62,7 @@ def wait(ip: str, up: bool, cap: float) -> float | None:
 
 def main() -> int:
     ap = argparse.ArgumentParser(description=__doc__.splitlines()[0])
-    ap.add_argument("--ip", default="192.168.25.56")
+    ap.add_argument("--ip", default=BENCH_IP)
     ap.add_argument("--bus", default="smbus:sfp-p2")
     ap.add_argument("--lan", default="lan2")
     a = ap.parse_args()

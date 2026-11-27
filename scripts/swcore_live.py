@@ -14,9 +14,10 @@ import subprocess
 import sys
 import time
 from pathlib import Path
+from boards import BENCH_IP  # noqa: E402
 
 ROOT = Path(__file__).resolve().parent.parent
-IP = "192.168.25.56"
+IP = BENCH_IP
 SSH = ["ssh", "-o", "ConnectTimeout=4", "-o", "StrictHostKeyChecking=no", "-o", "UserKnownHostsFile=/dev/null", "-o", "BatchMode=yes", "-q", f"root@{IP}"]
 BASE = {"e214": 0x478, "e220": 0x36826}  # 608 profile = known good
 LOG = None

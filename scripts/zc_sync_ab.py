@@ -18,6 +18,7 @@ from pathlib import Path
 
 sys.path.insert(0, str(Path(__file__).resolve().parent))
 import nat_bench as nb  # noqa: E402
+from boards import LAB_IP  # noqa: E402
 
 ROOT = Path(__file__).resolve().parent.parent
 LOG = ROOT / "tmp/logs/zc_sync_ab.log"
@@ -60,7 +61,7 @@ def main():
     ap.add_argument("--integrity", action="store_true")
     ap.add_argument("--no-setup", action="store_true")
     a = ap.parse_args()
-    if nb.SW_IP == "192.168.25.48":
+    if nb.SW_IP == LAB_IP:
         sys.exit("refusing sw1")
     variants, lens = a.variants.split(","), [int(x) for x in a.lens.split(",")]
     if not a.no_setup:

@@ -9,6 +9,7 @@ import argparse
 import subprocess
 import time
 from pathlib import Path
+from boards import BENCH_IP, LAB_IP  # noqa: E402
 
 ROOT = Path(__file__).resolve().parent.parent
 SSH = ["ssh", "-o", "ConnectTimeout=6", "-o", "StrictHostKeyChecking=no", "-o", "UserKnownHostsFile=/dev/null", "-o", "BatchMode=yes"]
@@ -40,7 +41,7 @@ def ssh(ip, cmd):
 def main():
     ap = argparse.ArgumentParser()
     ap.add_argument("--tag", required=True)
-    ap.add_argument("--ip", default="192.168.25.56")
+    ap.add_argument("--ip", default=BENCH_IP)
     ap.add_argument("--peer", action="store_true")
     a = ap.parse_args()
     cmds = []
@@ -55,7 +56,7 @@ def main():
     out.append("--- rteth debugfs\n" + ssh(a.ip, "ls /sys/kernel/debug/rteth 2>&1; cat /sys/kernel/debug/rteth/rxq 2>&1 | head -60"))
     out.append("--- link\n" + ssh(a.ip, "ip -s link show lan1; ethtool lan1 2>&1 | head -30"))
     if a.peer:
-        out.append("--- sw1 lan4 (read-only)\n" + ssh("192.168.25.48", "ethtool lan4 2>&1 | head -30; ip -s link show lan4"))
+        out.append("--- sw1 lan4 (read-only)\n" + ssh(LAB_IP, "ethtool lan4 2>&1 | head -30; ip -s link show lan4"))
     text = "\n".join(out)
     print(text)
     log = ROOT / f"tmp/logs/swcore_diag_{a.tag}.log"

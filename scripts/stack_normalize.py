@@ -22,13 +22,13 @@ import subprocess
 import sys
 import time
 from pathlib import Path
+from boards import BENCH_IP  # noqa: E402
 
 ROOT = Path(__file__).resolve().parent.parent
 LOG = ROOT / "tmp/logs/stack_normalize.log"
 TOOLS = ROOT / "tmp/stack-tools"
 OWRT_ROOT = ROOT / "tmp/openwrt-build/staging_dir/target-mips_24kc_musl/root-realtek"
 FW4 = ROOT / "mainline/fw4-b.nft"
-BENCH_IP = "192.168.25.56"  # scripts/boards.py BENCH_IP (sw2); not imported: boards probes the host NIC at import
 REMOTE = "/tmp/stack-tools"
 FLAVOUR = {"A": "owrt", "B": "owrt", "C": "mainline"}
 

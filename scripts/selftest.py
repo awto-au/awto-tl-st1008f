@@ -19,7 +19,7 @@ import time
 from pathlib import Path
 
 sys.path.insert(0, str(Path(__file__).resolve().parent))
-from boards import BENCH_IP, SW1_IP  # noqa: E402
+from boards import BENCH_IP, LAB_IP  # noqa: E402
 
 ROOT = Path(__file__).resolve().parent.parent
 LOG = ROOT / "tmp/logs/selftest.log"
@@ -72,7 +72,7 @@ def main() -> int:
     ap.add_argument("--cpu-secs", type=int, default=5)
     ap.add_argument("--full", action="store_true", help="all 6 memory patterns (mem 60 s, cpu 10 s)")
     a = ap.parse_args()
-    if a.ip == SW1_IP and not a.last and not a.console:
+    if a.ip == LAB_IP and not a.last and not a.console:
         log(f"refused: {a.ip} is sw1 (house switch, network checks only); use --last")
         return 2
     if a.full:

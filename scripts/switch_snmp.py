@@ -14,6 +14,7 @@ import subprocess
 import sys
 import time
 from pathlib import Path
+from boards import LAB_IP  # noqa: E402
 
 ROOT = Path(__file__).resolve().parent.parent
 LOG = ROOT / "tmp/logs/switch_snmp.log"
@@ -61,7 +62,7 @@ def sample(ip: str) -> dict[int, dict]:
 
 def main() -> int:
     ap = argparse.ArgumentParser(description=__doc__.splitlines()[0])
-    ap.add_argument("--ip", default="192.168.25.48")
+    ap.add_argument("--ip", default=LAB_IP)
     ap.add_argument("--every", type=float, default=10.0)
     ap.add_argument("--count", type=int, default=1)
     a = ap.parse_args()

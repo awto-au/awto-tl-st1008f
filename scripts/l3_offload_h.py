@@ -17,7 +17,7 @@ from pathlib import Path
 
 ROOT = Path(__file__).resolve().parent.parent
 sys.path.insert(0, str(ROOT / "scripts"))
-from boards import BENCH_IP, SW1_IP  # noqa: E402
+from boards import BENCH_IP, LAB_IP  # noqa: E402
 import nat_bench as nb  # noqa: E402
 
 LOG = ROOT / "tmp/logs/l3_offload_h.log"
@@ -110,7 +110,7 @@ def main() -> int:
     if a.inner == "rx":
         inner_rx(a.nic)
         return 0
-    if a.ip == SW1_IP or a.ip != BENCH_IP:
+    if a.ip == LAB_IP or a.ip != BENCH_IP:
         print(f"refused: {a.ip} is not the bench unit sw2", file=sys.stderr)
         return 2
     nic_l, nic_w = f"{nb.HOST_NIC}.{nb.LAN_VID}", f"{nb.HOST_NIC}.{nb.WAN_VID}"

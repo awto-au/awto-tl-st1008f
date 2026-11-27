@@ -26,6 +26,7 @@ from pathlib import Path
 sys.path.insert(0, str(Path(__file__).resolve().parent))
 import kernel_base  # noqa: E402
 import stack_normalize as sn  # noqa: E402
+from boards import BENCH_IP, LAB_IP  # noqa: E402
 
 ROOT = Path(__file__).resolve().parent.parent
 LOG = ROOT / "tmp/logs/stack_compare.log"
@@ -578,8 +579,8 @@ def run_stack(stack, clk, profile, a):
 
 
 def run_all(a):
-    if sn.BENCH_IP != "192.168.25.56" or sn.BENCH_IP == "192.168.25.48":
-        sys.exit("refused: sw2 (192.168.25.56) only")
+    if sn.BENCH_IP != BENCH_IP or sn.BENCH_IP == LAB_IP:
+        sys.exit(f"refused: bench unit ({BENCH_IP}, boards.BENCH_UNIT) only")
     if "A" in a.stacks.split(","):
         log("A uses eth0 IRQ CPU0; existing B/C results use CPU1. A versus those results is NOT CONTROLLED.")
     CTRL.mkdir(parents=True, exist_ok=True)

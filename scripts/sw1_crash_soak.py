@@ -18,7 +18,7 @@ from pathlib import Path
 
 ROOT = Path(__file__).resolve().parent.parent
 LOG = ROOT / "tmp/logs/sw1_crash_soak.log"
-SW1, SW2 = "192.168.25.48", "192.168.25.56"
+from boards import SW1_IP as SW1, SW2_IP as SW2  # noqa: E402  identity, not role
 SSH = ["ssh", "-o", "ConnectTimeout=2", "-o", "BatchMode=yes", "-o", "StrictHostKeyChecking=no", "-o", "UserKnownHostsFile=/dev/null", "-o", "LogLevel=ERROR"]
 stop = threading.Event()
 lock = threading.Lock()

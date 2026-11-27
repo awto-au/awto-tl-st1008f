@@ -17,6 +17,7 @@ import subprocess
 import sys
 import time
 from pathlib import Path
+from boards import BENCH_IP  # noqa: E402
 
 ROOT = Path(__file__).resolve().parent.parent
 LOG = ROOT / "tmp/logs/iperf_loop.log"
@@ -43,7 +44,7 @@ def main() -> int:
     ap.add_argument("--a", default="lan3")
     ap.add_argument("--b", default="lan6")
     ap.add_argument("--udp-mbit", type=int, default=1000)
-    ap.add_argument("--ip", default="192.168.25.56")
+    ap.add_argument("--ip", default=BENCH_IP)
     x = ap.parse_args()
     A, B, cap = x.a, x.b, x.dur + 15
     setup = (f"brctl delif switch {A} 2>/dev/null; brctl delif switch {B} 2>/dev/null; "

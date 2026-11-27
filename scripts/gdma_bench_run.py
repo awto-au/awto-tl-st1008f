@@ -10,6 +10,7 @@ import subprocess
 import sys
 import time
 from pathlib import Path
+from boards import BENCH_IP  # noqa: E402
 
 ROOT = Path(__file__).resolve().parent.parent
 LOG = ROOT / "tmp/logs/gdma_bench_run.log"
@@ -18,7 +19,7 @@ SSH = ["ssh", "-o", "ConnectTimeout=5", "-o", "StrictHostKeyChecking=no", "-o", 
 
 def main():
     ap = argparse.ArgumentParser()
-    ap.add_argument("--ip", default="192.168.25.56")
+    ap.add_argument("--ip", default=BENCH_IP)
     ap.add_argument("--runs", type=int, default=3)
     ap.add_argument("--iters", type=int, default=200)
     a = ap.parse_args()

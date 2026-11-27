@@ -15,6 +15,7 @@ from pathlib import Path
 
 sys.path.insert(0, str(Path(__file__).resolve().parent))
 import stack_compare as sc  # noqa: E402
+from boards import BENCH_IP  # noqa: E402
 
 D = sc.ROOT / "tmp/controlled/149"
 VARIANTS = {  # name: (boot clock key, profile, extra normaliser args, one-line description)
@@ -135,8 +136,8 @@ def main():
     ap.add_argument("--boots", type=int, default=4)
     ap.add_argument("--first", type=int, default=0, help="first boot index (resume)")
     a = ap.parse_args()
-    if sc.sn.BENCH_IP != "192.168.25.56":
-        sys.exit("refused: sw2 (192.168.25.56) only")
+    if sc.sn.BENCH_IP != BENCH_IP:
+        sys.exit(f"refused: bench unit ({BENCH_IP}, boards.BENCH_UNIT) only")
     D.mkdir(parents=True, exist_ok=True)
     sc.CTRL, sc.ROWS, sc.BOOTS = D, D / "rows.jsonl", D / "boots.jsonl"
     panics = 0

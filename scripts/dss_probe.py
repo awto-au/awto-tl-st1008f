@@ -13,6 +13,7 @@ import argparse
 import subprocess
 import time
 from pathlib import Path
+from boards import BENCH_IP  # noqa: E402
 
 ROOT = Path(__file__).resolve().parent.parent
 LOG = ROOT / "tmp/logs/dss_probe.log"
@@ -45,7 +46,7 @@ echo "after: c0=$(rd 0x250) c1=$(rd 0x25c) d0=$(rd 0x260) d1=$(rd 0x268)"
 
 def main():
     ap = argparse.ArgumentParser()
-    ap.add_argument("--ip", default="192.168.25.56")
+    ap.add_argument("--ip", default=BENCH_IP)
     ap.add_argument("--tag", default="")
     a = ap.parse_args()
     r = subprocess.run(["ssh", *SSH, f"root@{a.ip}", SNIPPET], capture_output=True, text=True,

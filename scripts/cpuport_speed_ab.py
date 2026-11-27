@@ -12,11 +12,12 @@ import subprocess
 import sys
 import time
 from pathlib import Path
+from boards import BENCH_IP  # noqa: E402
 
 ROOT = Path(__file__).resolve().parent.parent
 LOG = ROOT / "tmp/logs/cpuport_speed_ab.log"
 REG = "0x1b00ca8c"
-SW2 = "192.168.25.56"
+SW2 = BENCH_IP
 
 
 def log(msg):

@@ -21,14 +21,14 @@ import time
 from pathlib import Path
 
 sys.path.insert(0, str(Path(__file__).resolve().parent))
-from boards import BENCH_IP, SW1_IP, SW1_MAC  # noqa: E402
+from boards import BENCH_IP, LAB_IP, LAB_MAC  # noqa: E402
 
 ROOT = Path(__file__).resolve().parent.parent
 CONSOLE_LOG = ROOT / "logs/serial/st1008-console.log"
 LOG = ROOT / "tmp/logs/board_guard.log"
 TAIL = 4 << 20  # bytes of console log read; one boot is <1 MiB
 # the boot line only: sw2 logs sw1's bridge id too (STP "neighbor 7000.<mac> lost"), which is not the console
-MAC_RE = re.compile(r"Using MAC\s+" + re.escape(SW1_MAC).replace(":", "[:-]?"), re.I)
+MAC_RE = re.compile(r"Using MAC\s+" + re.escape(LAB_MAC).replace(":", "[:-]?"), re.I)
 REFUSED = 5
 
 
@@ -56,13 +56,13 @@ def bench_arp_mac() -> str:
 
 def check(argv: list[str]) -> list[str]:
     why = []
-    if any(SW1_IP in a for a in argv):
-        why.append(f"args target sw1 ({SW1_IP}); hardware flows are sw2-only")
+    if any(LAB_IP in a for a in argv):
+        why.append(f"args target the lab unit ({LAB_IP}); hardware flows are bench-only")
     m = MAC_RE.search(last_boot_text())
     if m:
-        why.append(f"console log's last boot shows sw1's MAC {SW1_MAC}: the console is on sw1")
-    if SW1_MAC in bench_arp_mac():
-        why.append(f"ARP: bench IP {BENCH_IP} resolves to sw1's MAC {SW1_MAC}")
+        why.append(f"console log's last boot shows the lab unit MAC {LAB_MAC}: the console is on the lab unit")
+    if LAB_MAC in bench_arp_mac():
+        why.append(f"ARP: bench IP {BENCH_IP} resolves to the lab unit MAC {LAB_MAC}")
     return why
 
 

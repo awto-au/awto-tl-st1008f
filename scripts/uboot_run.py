@@ -21,6 +21,7 @@ from pathlib import Path
 ROOT = Path(__file__).resolve().parent.parent
 sys.path.insert(0, str(Path(__file__).resolve().parent))
 import st1008_ramload as rl  # noqa: E402
+from boards import BENCH_IP  # noqa: E402
 
 LOG = ROOT / "tmp/logs/uboot_run.log"
 CONSOLE_LOG = ROOT / "logs/serial/st1008-console.log"
@@ -42,7 +43,7 @@ def log(msg: str) -> None:
 def main() -> int:
     ap = argparse.ArgumentParser(description=__doc__.splitlines()[0])
     ap.add_argument("cmds", nargs="+")
-    ap.add_argument("--ip", default="192.168.25.56")
+    ap.add_argument("--ip", default=BENCH_IP)
     ap.add_argument("--stay", action="store_true")
     a = ap.parse_args()
     since = CONSOLE_LOG.stat().st_size

@@ -18,6 +18,7 @@ import subprocess
 import sys
 import time
 from pathlib import Path
+from boards import BENCH_IP, LAB_IP  # noqa: E402
 
 ROOT = Path(__file__).resolve().parent.parent
 LOG = ROOT / "tmp/logs/hwloop_pause_ab.log"
@@ -48,8 +49,8 @@ def set_pause(ports: list[tuple[str, str]], on: bool) -> None:
 def main() -> int:
     ap = argparse.ArgumentParser(description=__doc__.splitlines()[0])
     ap.add_argument("--rounds", type=int, default=3)
-    ap.add_argument("--sw1", default="192.168.25.48")
-    ap.add_argument("--sw2", default="192.168.25.56")
+    ap.add_argument("--sw1", default=LAB_IP)
+    ap.add_argument("--sw2", default=BENCH_IP)
     a = ap.parse_args()
     ports = [(a.sw1, "lan4"), (a.sw1, "lan5"), (a.sw2, "lan1")]
     for ip, lan in ports:

@@ -8,7 +8,7 @@ One arm per run; each reboots sw2, then logs lan2's 88E1111 state at 30 s and 60
 - Needs the console daemon (switch_console_daemon.py). Delays: waits only for sw2 (ssh up cap 200 s, console prompts).
 - Log: tmp/logs/copper_ab.log
 
-Usage: python3 scripts/copper_ab.py quick|full [--ip 192.168.25.56]
+Usage: python3 scripts/copper_ab.py quick|full [--ip IP] (default boards.BENCH_IP)
 """
 
 from __future__ import annotations
@@ -22,6 +22,7 @@ from pathlib import Path
 ROOT = Path(__file__).resolve().parent.parent
 sys.path.insert(0, str(Path(__file__).resolve().parent))
 import st1008_ramload as rl  # noqa: E402
+from boards import BENCH_IP  # noqa: E402
 
 LOG = ROOT / "tmp/logs/copper_ab.log"
 CONSOLE_LOG = ROOT / "logs/serial/st1008-console.log"
@@ -65,7 +66,7 @@ def wait_console(pattern: bytes, since: int, cap: float) -> bool:
 def main() -> int:
     ap = argparse.ArgumentParser(description=__doc__.splitlines()[0])
     ap.add_argument("arm", choices=["quick", "full"])
-    ap.add_argument("--ip", default="192.168.25.56")
+    ap.add_argument("--ip", default=BENCH_IP)
     a = ap.parse_args()
     since = console_size()
     old_up = float(ssh(a.ip, "cut -d' ' -f1 /proc/uptime", 5).stdout.strip())  # the reboot is done when uptime drops below this

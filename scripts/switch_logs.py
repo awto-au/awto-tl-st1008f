@@ -23,7 +23,7 @@ from pathlib import Path
 
 sys.path.insert(0, str(Path(__file__).resolve().parent))
 from boot_log_check import DEFAULT_ALLOW, DENY, KERNEL_TS, load_allow  # noqa: E402
-from boards import SW1_IP  # noqa: E402
+from boards import LAB_IP  # noqa: E402
 
 ROOT = Path(__file__).resolve().parent.parent
 LOG = ROOT / "tmp/logs/switch_logs.log"
@@ -95,7 +95,7 @@ def save_partial(out: Path, stdout: str | bytes | None, stderr: str | bytes | No
 
 def main() -> int:
     ap = argparse.ArgumentParser(description=__doc__.splitlines()[0])
-    ap.add_argument("--ip", default=SW1_IP)
+    ap.add_argument("--ip", default=LAB_IP)
     ap.add_argument("--show-ok", action="store_true")
     ap.add_argument("--ephemeral-host-key", action="store_true",
                     help="RAM boot with a temporary SSH host key: do not modify known_hosts or verify the key")

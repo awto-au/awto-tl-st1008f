@@ -3,7 +3,7 @@
 
 - `boot --core 408|608 [--kernel K] [--bootargs A]`: ramload (swcore_step recipe), wait uptime >= 25 s, SPI-clock readout, nat-bench setup + route.
 - `meas --label L [--set CMD] [--reset CMD] [--napi irq1|split|irq] [--m rx1400,rx64,fwd1400,fwd64,stack1400,tcp]`: apply, measure once, reset.
-- Rows -> tmp/logs/retest_options.jsonl, log tmp/logs/retest_options.log. sw2 only (192.168.25.56).
+- Rows -> tmp/logs/retest_options.jsonl, log tmp/logs/retest_options.log. bench unit only (boards.BENCH_IP).
 """
 import argparse
 import json
@@ -12,9 +12,10 @@ import subprocess
 import sys
 import time
 from pathlib import Path
+from boards import BENCH_IP  # noqa: E402
 
 ROOT = Path(__file__).resolve().parent.parent
-IP = "192.168.25.56"
+IP = BENCH_IP
 SSH = ["ssh", "-q", "-o", "ConnectTimeout=6", "-o", "StrictHostKeyChecking=no", "-o", "UserKnownHostsFile=/dev/null", "-o", "BatchMode=yes", f"root@{IP}"]
 LOG = ROOT / "tmp/logs/retest_options.log"
 JSONL = ROOT / "tmp/logs/retest_options.jsonl"

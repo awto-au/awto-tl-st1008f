@@ -15,10 +15,11 @@ import subprocess
 import sys
 import time
 from pathlib import Path
+from boards import BENCH_IP  # noqa: E402
 
 ROOT = Path(__file__).resolve().parent.parent
 SER = ROOT / "logs/serial/st1008-console.log"
-IP = "192.168.25.56"  # sw2 bench mgmt
+IP = BENCH_IP  # sw2 bench mgmt
 SSH = ["ssh", "-o", "ConnectTimeout=4", "-o", "StrictHostKeyChecking=no", "-o", "UserKnownHostsFile=/dev/null",
        "-o", "LogLevel=ERROR", "-o", "BatchMode=yes", f"root@{IP}"]
 BANNER = re.compile(rb"U-Boot 2011\.12")

@@ -12,6 +12,7 @@ import subprocess
 import sys
 import time
 from pathlib import Path
+from boards import BENCH_IP  # noqa: E402
 
 ROOT = Path(__file__).resolve().parent.parent
 LOG = ROOT / "tmp/logs/perf_push.log"
@@ -52,7 +53,7 @@ def push(ip, path, dest, mode):
 
 def main():
     ap = argparse.ArgumentParser()
-    ap.add_argument("--ip", default="192.168.25.56")
+    ap.add_argument("--ip", default=BENCH_IP)
     ap.add_argument("--dest", default="/tmp")
     ap.add_argument("--perf-bin", default=None)
     ap.add_argument("perf_args", nargs="*")

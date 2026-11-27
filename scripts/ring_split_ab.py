@@ -21,6 +21,7 @@ import time
 from pathlib import Path
 
 sys.path.insert(0, str(Path(__file__).resolve().parent))
+from boards import LAB_IP  # noqa: E402
 ROOT = Path(__file__).resolve().parent.parent
 LOG = ROOT / "tmp/logs/ring_split_ab.log"
 JSONL = ROOT / "tmp/logs/ring_split_ab.jsonl"
@@ -195,7 +196,7 @@ def main():
     import nat_bench as nb
     import nat_knobs as nk
     import zc_bench as zb
-    if nb.SW_IP == "192.168.25.48":
+    if nb.SW_IP == LAB_IP:
         sys.exit("refusing sw1")
     prepare(nb, nk, zb, a)
     res = {}

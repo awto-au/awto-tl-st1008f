@@ -13,6 +13,7 @@ import argparse
 import subprocess
 import time
 from pathlib import Path
+from boards import BENCH_IP  # noqa: E402
 
 ROOT = Path(__file__).resolve().parent.parent
 LOG = ROOT / "tmp/logs/gdma_probe.log"
@@ -30,7 +31,7 @@ def log(msg):
 
 def main():
     ap = argparse.ArgumentParser()
-    ap.add_argument("--ip", default="192.168.25.56")
+    ap.add_argument("--ip", default=BENCH_IP)
     ap.add_argument("--only", choices=list(INST))
     ap.add_argument("--write-test", action="store_true")
     a = ap.parse_args()

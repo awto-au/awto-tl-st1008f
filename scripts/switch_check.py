@@ -13,6 +13,7 @@ import subprocess
 import sys
 import time
 from pathlib import Path
+from boards import LAB_IP  # noqa: E402
 
 ROOT = Path(__file__).resolve().parent.parent
 LOG = ROOT / "tmp/logs/switch_check.log"
@@ -50,7 +51,7 @@ def ping(ip: str) -> bool:
 
 def main() -> int:
     ap = argparse.ArgumentParser(description=__doc__.splitlines()[0])
-    ap.add_argument("--ip", default="192.168.25.48")
+    ap.add_argument("--ip", default=LAB_IP)
     ap.add_argument("--wait", type=float, default=0, help="poll ping up to S s (power-up: ~35 s to OpenWrt)")
     a = ap.parse_args()
     t0 = time.monotonic()

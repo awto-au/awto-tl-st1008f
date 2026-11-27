@@ -21,6 +21,7 @@ import subprocess
 import sys
 import time
 from pathlib import Path
+from boards import BENCH_IP  # noqa: E402
 
 ROOT = Path(__file__).resolve().parent.parent
 LOG = ROOT / "tmp/logs/sfp_eeprom_fix.log"
@@ -105,7 +106,7 @@ def main() -> int:
     ap = argparse.ArgumentParser(description=__doc__.splitlines()[0])
     ap.add_argument("--sn", action="append", required=True)
     ap.add_argument("--dry-run", action="store_true")
-    ap.add_argument("--ip", default="192.168.25.56")
+    ap.add_argument("--ip", default=BENCH_IP)
     a = ap.parse_args()
     rc = 0
     for sn in a.sn:

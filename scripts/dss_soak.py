@@ -12,6 +12,7 @@ import argparse
 import subprocess
 import time
 from pathlib import Path
+from boards import BENCH_IP  # noqa: E402
 
 ROOT = Path(__file__).resolve().parent.parent
 CSV = ROOT / "tmp/logs/dss_soak.csv"
@@ -45,7 +46,7 @@ def ssh(ip, cmd, tmo):
 
 def main():
     ap = argparse.ArgumentParser()
-    ap.add_argument("--ip", default="192.168.25.56")
+    ap.add_argument("--ip", default=BENCH_IP)
     ap.add_argument("--minutes", type=float, default=60)
     ap.add_argument("--interval", type=float, default=10)  # 10 s: temperature moves over minutes; DSS read ~0.5 s
     ap.add_argument("--load", type=int, default=0)

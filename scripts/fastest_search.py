@@ -25,7 +25,7 @@ import time
 from pathlib import Path
 
 sys.path.insert(0, str(Path(__file__).resolve().parent))
-from boards import BENCH_IP, SW1_IP  # noqa: E402
+from boards import BENCH_IP, LAB_IP  # noqa: E402
 
 ROOT = Path(__file__).resolve().parent.parent
 LOG = ROOT / "tmp/logs/fastest_search.log"
@@ -421,7 +421,7 @@ def main() -> int:
     ap.add_argument("--arb", default="stock")
     ap.add_argument("--br", default="stock")
     a = ap.parse_args()
-    if a.ip == SW1_IP or a.ip != BENCH_IP:
+    if a.ip == LAB_IP or a.ip != BENCH_IP:
         print(f"refused: {a.ip} is not the bench unit sw2 ({BENCH_IP})", file=sys.stderr)
         return 2
     global CSV_PATH

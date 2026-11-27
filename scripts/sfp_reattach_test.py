@@ -19,6 +19,7 @@ import subprocess
 import sys
 import time
 from pathlib import Path
+from boards import BENCH_IP  # noqa: E402
 
 ROOT = Path(__file__).resolve().parent.parent
 LOG = ROOT / "tmp/logs/sfp_reattach_test.log"
@@ -52,7 +53,7 @@ def main() -> int:
     ap.add_argument("--watch", type=float, default=12, help="seconds of PHY polling after up")
     ap.add_argument("--lan", default="lan2")
     ap.add_argument("--bus", default="smbus:sfp-p2")
-    ap.add_argument("--ip", default="192.168.25.56")
+    ap.add_argument("--ip", default=BENCH_IP)
     a = ap.parse_args()
     ctl = "/sys/kernel/debug/dynamic_debug/control"
     ssh(a.ip, f"echo 'file sfp.c +p' > {ctl}; echo 'file sfp-bus.c +p' > {ctl}; dmesg -c >/dev/null")

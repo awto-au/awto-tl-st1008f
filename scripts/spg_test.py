@@ -35,7 +35,7 @@ from pathlib import Path
 sys.dont_write_bytecode = True  # the _capture child runs as root: no root-owned __pycache__
 sys.path.insert(0, str(Path(__file__).resolve().parent))
 import hw_probe  # noqa: E402
-from boards import SW1_IP, bench_nic  # noqa: E402
+from boards import LAB_IP, bench_nic  # noqa: E402
 from st1008_ramload import Console, network_on  # noqa: E402
 
 ROOT = Path(__file__).resolve().parent.parent
@@ -440,7 +440,7 @@ def main() -> int:
     a = ap.parse_args()
     if a.stage == "_capture":
         return capture(a.nic, a.src, a.cap)
-    if a.target.lower() in ("sw1", "st1008f-1", SW1_IP):
+    if a.target.lower() in ("sw1", "st1008f-1", LAB_IP):
         raise SystemExit("REFUSED: sw1 is the in-service house switch; the packet generator runs on sw2 only")
     LOG.parent.mkdir(parents=True, exist_ok=True)
     log(f"=== spg_test {a.stage}")

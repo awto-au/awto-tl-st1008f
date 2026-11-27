@@ -1,7 +1,7 @@
 #!/usr/bin/env python3
 """canary — one-command regression run of the existing sw2 checks in a fixed order (#138; docs/CANARY.md).
 
-- Bench unit sw2 only: refuses 192.168.25.48 and any IP other than boards.BENCH_IP. Never touches sw1, relay or daemon directly.
+- Bench unit only: refuses boards.LAB_IP and any IP other than boards.BENCH_IP. Never touches the lab unit, relay or daemon directly.
 - A) flash image: boot-link-check x3, hang-test, switch-check. B) plain kernel (ramload picks): selftest, vlanproto, gdma, dss, zc, boot log.
 - Each check: own stall timeout (no output / console-log growth) + total cap; whole run has a backstop. Caps and basis in CHECKS.
 - Verdicts PASS / WARN / FAIL / NOTRUN (not run is never a pass or a fail). Exit 0 = no FAIL, 1 = a FAIL, 2 = refused/usage.
@@ -22,7 +22,7 @@ import time
 from pathlib import Path
 
 sys.path.insert(0, str(Path(__file__).resolve().parent))
-from boards import BENCH_IP, SW1_IP  # noqa: E402
+from boards import BENCH_IP, LAB_IP  # noqa: E402
 
 ROOT = Path(__file__).resolve().parent.parent
 LOG = ROOT / "tmp/logs/canary.log"
@@ -194,8 +194,8 @@ def row_cols() -> list[str]:
 
 # ---------------------------------------------------------------- running
 def refuse(ip: str) -> None:
-    if ip == SW1_IP:
-        print(f"refused: {ip} is sw1 (in-service house switch)", file=sys.stderr)
+    if ip == LAB_IP:
+        print(f"refused: {ip} is the lab unit (no relay/serial)", file=sys.stderr)
         sys.exit(2)
     if ip != BENCH_IP:
         print(f"refused: {ip} is not the bench unit sw2 ({BENCH_IP})", file=sys.stderr)
@@ -440,7 +440,7 @@ def selftest() -> int:
     eq(ids, ["boot_link", "hang_test", "switch"], "select a")
     eq("plain_boot" in select("b", True), False, "select no-ramload")
     eq(select("zc,gdma", False), ["gdma", "zc"], "select ids")
-    for ip in (SW1_IP, "192.168.25.1"):
+    for ip in (LAB_IP, "192.168.25.1"):
         try:
             refuse(ip)
         except SystemExit:

@@ -24,7 +24,7 @@ from pathlib import Path
 sys.path.insert(0, str(Path(__file__).resolve().parent))
 import fastest_search as fs  # noqa: E402
 from retest_options import parse_zc  # noqa: E402  (one zc_bench parser; the manual boot/meas flow lives there)
-from boards import BENCH_IP, SW1_IP  # noqa: E402
+from boards import BENCH_IP, LAB_IP  # noqa: E402
 
 ROOT = fs.ROOT
 CSV_PATH = ROOT / "tmp/logs/load_test.csv"
@@ -299,7 +299,7 @@ def main() -> int:
     ap.add_argument("--options-table", action="store_true")
     ap.add_argument("--dry-run", action="store_true")
     a = ap.parse_args()
-    if a.ip == SW1_IP or a.ip != BENCH_IP:
+    if a.ip == LAB_IP or a.ip != BENCH_IP:
         print(f"refused: {a.ip} is not the bench unit sw2 ({BENCH_IP})", file=sys.stderr)
         return 2
     if a.list:

@@ -9,6 +9,7 @@ import argparse
 import subprocess
 import time
 from pathlib import Path
+from boards import BENCH_IP  # noqa: E402
 
 ROOT = Path(__file__).resolve().parent.parent
 LOG = ROOT / "tmp/logs/cpuport_regs.log"
@@ -34,7 +35,7 @@ REGS = [
 
 def main():
     ap = argparse.ArgumentParser()
-    ap.add_argument("--ip", default="192.168.25.56")
+    ap.add_argument("--ip", default=BENCH_IP)
     a = ap.parse_args()
     cmds = []
     for name, off, n, st in REGS:

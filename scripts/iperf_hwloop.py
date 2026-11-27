@@ -24,6 +24,7 @@ import subprocess
 import sys
 import time
 from pathlib import Path
+from boards import BENCH_IP, LAB_IP  # noqa: E402
 
 ROOT = Path(__file__).resolve().parent.parent
 LOG = ROOT / "tmp/logs/iperf_hwloop.log"
@@ -124,8 +125,8 @@ def main() -> int:
     ap = argparse.ArgumentParser(description=__doc__.splitlines()[0])
     ap.add_argument("--dur", type=int, default=10)
     ap.add_argument("--udp-mbit", type=int, default=1000)
-    ap.add_argument("--sw2", default="192.168.25.56")
-    ap.add_argument("--sw1", default="192.168.25.48")
+    ap.add_argument("--sw2", default=BENCH_IP)
+    ap.add_argument("--sw1", default=LAB_IP)
     ap.add_argument("--host-nic", default="enp8s0")
     ap.add_argument("--tbf-mbit", type=int, default=0, help="TBF root qdisc at this rate on sw2 lan3/lan6 egress (offload check, #177)")
     ap.add_argument("--only", default="", help="comma list of run names to execute (default: all)")

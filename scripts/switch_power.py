@@ -40,7 +40,7 @@ ROOT = Path(__file__).resolve().parent.parent
 LOG = ROOT / "tmp/logs/switch_power.log"
 STAMP = ROOT / "tmp/relay_uptime.json"
 sys.path.insert(0, str(Path(__file__).resolve().parent))
-from boards import SW1_IP  # noqa: E402
+from boards import LAB_IP  # noqa: E402
 SW1_DOWN = 4  # exit: relay `off` took sw1 down (#91)
 
 
@@ -73,7 +73,7 @@ def uptime() -> float | None:
 
 def sw1_up() -> bool:
     """3 pings 0.2 s apart, 0.3 s reply wait: LAN RTT <1 ms; ~0.7 s total."""
-    return subprocess.call(["ping", "-q", "-c", "3", "-i", "0.2", "-W", "0.3", SW1_IP],
+    return subprocess.call(["ping", "-q", "-c", "3", "-i", "0.2", "-W", "0.3", LAB_IP],
                            stdout=subprocess.DEVNULL, stderr=subprocess.DEVNULL) == 0
 
 
@@ -119,10 +119,10 @@ def main() -> int:
         sw1_before = sw1_up()
         log(f"relay off -> {post('turn_off')}")
         if sw1_before and not sw1_up():  # relay feeds sw1, not sw2: restore at once
-            log(f"ERROR sw1 {SW1_IP} stopped answering after relay off: relay on -> {post('turn_on')} (#91)")
+            log(f"ERROR sw1 {LAB_IP} stopped answering after relay off: relay on -> {post('turn_on')} (#91)")
             return SW1_DOWN
         if not sw1_before:
-            log(f"WARN sw1 {SW1_IP} not answering before off: relay tripwire inactive")
+            log(f"WARN sw1 {LAB_IP} not answering before off: relay tripwire inactive")
     if a.op == "cycle":
         time.sleep(a.gap)  # power-rail discharge; user-specified, reason above
         log(f"waited {a.gap}s (discharge)")

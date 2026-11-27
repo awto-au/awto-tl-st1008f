@@ -11,6 +11,7 @@ import argparse
 import subprocess
 import time
 from pathlib import Path
+from boards import BENCH_IP  # noqa: E402
 
 ROOT = Path(__file__).resolve().parent.parent
 LOG = ROOT / "tmp/logs/spd_sensor_probe.log"
@@ -48,7 +49,7 @@ echo "after restore: $(for i in 0 1 2 3 4 5 6 7 8; do rd $((R+4*i)); done | tr '
 
 def main():
     ap = argparse.ArgumentParser()
-    ap.add_argument("--ip", default="192.168.25.56")
+    ap.add_argument("--ip", default=BENCH_IP)
     a = ap.parse_args()
     r = subprocess.run(["ssh", *SSH, f"root@{a.ip}", SNIPPET], capture_output=True, text=True,
                        timeout=90)  # 64 x (4 writes + <=20 reads) of mapped registers, ms each

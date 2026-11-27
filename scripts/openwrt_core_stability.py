@@ -3,7 +3,7 @@
 
 - `openwrt_core_stability.py CONFIG [--boots N] [--start K]`: N fresh ramloads of openwrt-ours, load each, stop at the first FAIL.
 - Load: selftest, nat_bench setup + mode nat, iperf3 TCP -P 4 120 s (one interface), selftest again; PASS = >= 180 s of load, no oops, ssh up.
-- Rows -> tmp/logs/openwrt_core_stability.jsonl, log tmp/logs/openwrt_core_stability.log. sw2 only (192.168.25.56).
+- Rows -> tmp/logs/openwrt_core_stability.jsonl, log tmp/logs/openwrt_core_stability.log. bench unit only (boards.BENCH_IP).
 """
 import argparse
 import json

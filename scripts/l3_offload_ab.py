@@ -24,7 +24,7 @@ from pathlib import Path
 
 ROOT = Path(__file__).resolve().parent.parent
 sys.path.insert(0, str(ROOT / "scripts"))
-from boards import BENCH_IP, SW1_IP  # noqa: E402
+from boards import BENCH_IP, LAB_IP  # noqa: E402
 import nat_bench as nb  # noqa: E402  (import has no side effects beyond a sysfs read)
 
 LOG = ROOT / "tmp/logs/l3_offload_ab.log"
@@ -517,8 +517,8 @@ def main() -> int:
     if a.settle:
         global SETTLE_S
         SETTLE_S = a.settle
-    if a.ip == SW1_IP or a.ip != BENCH_IP or nb.SW_IP != BENCH_IP:
-        print(f"refused: {a.ip} is not the bench unit sw2 ({BENCH_IP}); sw1 {SW1_IP} is the house switch", file=sys.stderr)
+    if a.ip == LAB_IP or a.ip != BENCH_IP or nb.SW_IP != BENCH_IP:
+        print(f"refused: {a.ip} is not the bench unit sw2 ({BENCH_IP}); sw1 {LAB_IP} is the house switch", file=sys.stderr)
         return 2
     cases = [c for c in CASES if not a.only or c[0] in a.only.split(",")]
     log(f"=== l3_offload_ab {' '.join(sys.argv[1:])} (board {a.ip})")

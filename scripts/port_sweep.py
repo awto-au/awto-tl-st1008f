@@ -17,6 +17,7 @@ import subprocess
 import sys
 import time
 from pathlib import Path
+from boards import BENCH_IP  # noqa: E402
 
 ROOT = Path(__file__).resolve().parent.parent
 LOG = ROOT / "tmp/logs/port_sweep.log"
@@ -54,7 +55,7 @@ def main() -> int:
     ap.add_argument("--step", type=float, default=1)
     ap.add_argument("--down", type=float, default=0, help="minimum seconds each port stays admin down before its slot")
     ap.add_argument("--start-in", type=float, default=0, help="seconds to wait before the first port")
-    ap.add_argument("--ip", default="192.168.25.56")
+    ap.add_argument("--ip", default=BENCH_IP)
     a = ap.parse_args()
     ports = a.ports.split(",")
     bad = set(ports) - ALLOWED

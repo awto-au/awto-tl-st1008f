@@ -6,7 +6,7 @@
 - Each step is a host subprocess under a STALL timeout (no output line / CSV growth for `stall` s = hung: kill, log last line,
   silence, loadavg) plus a total backstop (3x the measured worst case where one exists). Caps are in STEPS with their source.
 - After a failed step the board is pinged; no answer = campaign stops (DEAD). No power action is ever taken here.
-- Refuses sw1 (192.168.25.48) in every mode. `--dry-run` prints commands and caps, touches nothing.
+- Refuses the lab unit (boards.LAB_IP) in every mode. `--dry-run` prints commands and caps, touches nothing.
 - Output: tmp/logs/plain_campaign.csv (ts,tag,step,iter,rc,secs,verdict,detail), one-line verdicts in tmp/logs/plain_campaign.log
 - `plain_campaign.py --tag stock|picks [--ip A.B.C.D] [--n 3] [--steps a,b] [--dry-run]`
 """
@@ -24,7 +24,7 @@ import time
 from pathlib import Path
 
 sys.path.insert(0, str(Path(__file__).resolve().parent))
-from boards import BENCH_IP, SW1_IP  # noqa: E402
+from boards import BENCH_IP, LAB_IP  # noqa: E402
 
 ROOT = Path(__file__).resolve().parent.parent
 LOG = ROOT / "tmp/logs/plain_campaign.log"
@@ -260,7 +260,7 @@ def main() -> int:
     ap.add_argument("--steps", default=",".join(DEFAULT), help="subset of: " + " ".join(ALL))
     ap.add_argument("--dry-run", action="store_true", help="print commands and caps, touch nothing")
     a = ap.parse_args()
-    if a.ip == SW1_IP:
+    if a.ip == LAB_IP:
         sys.exit(f"refused: {a.ip} is sw1 (in-service house switch)")
     steps = a.steps.split(",")
     if bad := [s for s in steps if s not in ALL]:
