@@ -43,6 +43,7 @@ Owner rules 2026-11-23: not a temperature issue; unhandled/spurious interrupts m
   - Oops: `inode_permission+0xd0` from `statx` in `st1008f-metrics`, BadVA 4 = `lhu 2(s0)` with s0 = 2: an inode pointer replaced by the small integer 2. Same fingerprint as every earlier record.
   - Record: `tmp/logs/sw1_copycheck_crash_20261127T1609.log`.
 - Verdict: the kernel-pointer corruption does not need NIC bulk traffic; CPU + RAM (page-cache) churn alone triggers it within seconds. Bulk copied data stayed intact, so the fault hits kernel objects, not the copy buffers. Weights candidates 3 (DRAM on sw1), 4 (CPU/MT-SMP) and 8 (U-Boot/DDR init) over 1, 2 and 6 (NIC/DMA/SerDes).
+- Temperatures, both idle (95 % idle), read 2026-11-27T16:47+11:00, same clocks: sw1 SoC `cpu-thermal` 82.9 °C (up 37 min) vs sw2 58.4 °C (up 3 h 50 min). Critical trip 105 °C, no passive trip. sw1 SFP DDM 40.8-49.1 °C, copper module 59.9 °C; sw2 sfp_p8 57.2 °C. Per-chip sensor offset not ruled out.
 - `masked source pending` hwirq 7/8 lines run at ~10 per 5 s on sw1 up to the oops (raw GISR of masked lines, see 2026-11-23).
 
 ## Off-hardware review 2026-11-24 (sw2 + driver source, sw1 off)
