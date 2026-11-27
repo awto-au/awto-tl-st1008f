@@ -3,10 +3,10 @@
 Owner rules 2026-11-23: not a temperature issue; unhandled/spurious interrupts must be explained; every other cause is tested before any slow-clock test.
 
 ## Handover 2026-11-27
-- State: sw1 hung since 2026-11-23, needs an owner power-cycle (owner said leave it off); nothing of mine runs on it. sw2 (.56): plain rc4b image, slot b, config restored, up.
+- State: sw1 powered on by the owner 2026-11-27 ~10:40+11:00, up after its own panic reboots (see Findings 2026-11-27). sw2 (.56): plain rc4b image, slot b, config restored, up.
 - Done off-hardware: RX driver read (no stray writer found), DMA masters on sw2 (only the NIC active), `dbg` image (slab poison, red zones, DEBUG_LIST) on sw2: `xfer_check` clean, `nat_bench rxdrop` flood clean (debug kernel only takes ~9.5 kpps).
 - Next, in order:
-  - Power-cycle sw1 (owner), then a network-free copy/compare in /tmp (cp + md5 loops, no NIC): clean = fault needs the NIC path, bit flips = CPU/RAM path.
+  - ~~Network-free copy/compare~~ done 2026-11-27: kernel panic in round 5, no NIC load (Findings 2026-11-27).
   - `./dev.py nat-bench rxdrop` on sw2 plain image (reaches higher pps than `dbg`).
   - Flash `tmp/openwrt-7.4stk-sysupgrade.bin` to sw1 (watchdog pretimeout panic, 16 KiB stacks); `--pull` mode, verify md5 and slot flip (ssh pushes crash sw1).
   - `tmp/openwrt-7.4dbg-debug-sysupgrade.bin` on sw1 (slab poison, DEBUG_LIST): a use-after-free reports instead of crashing.
@@ -37,6 +37,14 @@ Owner rules 2026-11-23: not a temperature issue; unhandled/spurious interrupts m
 - sw1 went unreachable for more than 5 min after the xfer test (link up on sw2's DAC side, no ping reply, SoC watchdog did not bring it back).
 - `scripts/openwrt_sysupgrade_ssh.py` now fails when the booted slot did not flip (a panic during the flash gave a false PASS).
 
+## Findings 2026-11-27 (sw1, rc4b image, CPU 1325 / core 608, BogoMIPS 875.72)
+- Idle panic (no test running, up 5340 s, ~12:09+11:00): NULL deref in `hrtimer_start_range_ns_user` from `usleep_range_state` <- `rtl9300_i2c_do_xfer` <- `st_media_work` (SFP media poll). Panic reboot by itself. Record: `tmp/logs/sw1_pstore_20261127.log`.
+- Network-free copy test (`scripts/copy_check.py`: 16 MiB urandom in /tmp, per round `cp` + md5 of src and dst on the box, only status lines over ssh): rounds 1-4 clean (1.44-1.49 s each, 64 MiB copied, 0 flipped bytes), panic in round 5 at up 14425 s (16:09:16+11:00), back on ssh 55 s later.
+  - Oops: `inode_permission+0xd0` from `statx` in `st1008f-metrics`, BadVA 4 = `lhu 2(s0)` with s0 = 2: an inode pointer replaced by the small integer 2. Same fingerprint as every earlier record.
+  - Record: `tmp/logs/sw1_copycheck_crash_20261127T1609.log`.
+- Verdict: the kernel-pointer corruption does not need NIC bulk traffic; CPU + RAM (page-cache) churn alone triggers it within seconds. Bulk copied data stayed intact, so the fault hits kernel objects, not the copy buffers. Weights candidates 3 (DRAM on sw1), 4 (CPU/MT-SMP) and 8 (U-Boot/DDR init) over 1, 2 and 6 (NIC/DMA/SerDes).
+- `masked source pending` hwirq 7/8 lines run at ~10 per 5 s on sw1 up to the oops (raw GISR of masked lines, see 2026-11-23).
+
 ## Off-hardware review 2026-11-24 (sw2 + driver source, sw1 off)
 - RX path (`rteth_hw_receive`, `rteth_create_skb`, page pool: `PP_FLAG_DMA_SYNC_DEV`, `max_len` = PAGE_SIZE, 2 frags of 2048 per page): no stray write found. Ordering is rmb / dma_wmb correct, the new page is allocated before the old one is consumed, ring and descriptor memory is coherent DDR (`sram_rings` = 0 on sw2).
 - Cache model: 34Kc needs no post-DMA flush, so correctness rests on the page-level sync at recycle (whole page, invalidate). No path found where the CPU dirties a posted buffer's lines.
@@ -62,5 +70,6 @@ Owner rules 2026-11-23: not a temperature issue; unhandled/spurious interrupts m
 
 ## Tools
 - `scripts/tools/fastsample.c` + `scripts/fastsample_rx.py`: 100 Hz CPU-port counters, IRQ counts, ring frames, stray-write watch, UDP to the host.
+- `scripts/xfer_check.py IP`: data over ssh into /tmp, md5 + diff (NIC RX path). `scripts/copy_check.py IP`: same check with on-box data, no NIC load; stall guard 1.25 x slowest round.
 - `scripts/sw1_crash_soak.py`: sustained ASIC-routed traffic with a 1 Hz sw1 poll. `scripts/irq_stream_matrix.py`: IRQ placement x stream count.
 - sw1 crash record: `/sys/kernel/debug/st1008f-blackbox/last`, `/sys/fs/pstore/console-ramoops-0` (2 KiB; the enlarged region in the DTS did not take effect in the image).

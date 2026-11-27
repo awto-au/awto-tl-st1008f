@@ -819,7 +819,7 @@ Not isolated:
 | #140 in-place / XDP NAT fast path | prototype works (`300-39`) | SRAM buffers, second VPE, IPv6, fragments, soak |
 | #145 best knob combination as image default | +31 % measured | fix `tx_by_cpu` reclaim first |
 | #146 balance VPEs by flow | not tried | PIE ACL hit -> RX ring 1, NAPI ring 1 on VPE1 |
-| #147 fewer DDR misses per packet | not tried | prefetch next descriptor and headers; sync only used bytes |
+| #147 fewer DDR misses per packet | closed: no gain at 1400 B ([#147 prefetch A/B](#147-prefetch-ab-2026-11-08)) | 300-42, 300-44 parked, default off |
 | #103 other clock domains, SRAM for hot data | picks adopted; rings in SRAM fail | SRAM packet buffers |
 | #60 NIC driver | `300-11/12/13/27/28/40` shipped | per-flow second CPU (#146) |
 | #59 L3 offload gaps | `300-17` written, not measured | measure `l3_default_*`, `l3_onlink` |
