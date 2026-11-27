@@ -39,13 +39,14 @@ Owner rules 2026-11-23: not a temperature issue; unhandled/spurious interrupts m
 2. Another DMA master writing RAM: RTL9300 GDMA memcpy engine (300-41), SPI-NOR dirmap reads (300-07), L2 notification ring, SRAM window remap (300-21). Test: list which are bound on sw1 (`dmesg`, `/proc/iomem`), widen the stray-write detector to all kernel text + the page-table pool. NOT DONE.
 3. DRAM faults on sw1's own chip (training, refresh): Test: U-Boot `memtest` on sw1 at the live profile, long pass. NOT DONE.
 4. CPU erratum / MT-SMP (34Kc branch + return prediction on, both VPEs): Test: `maxcpus=1` (one VPE) and a build that sets Config7 BP/RPS off, compare crash rate. NOT DONE.
-5. Spurious interrupts: Test: log each one with both intc banks and CP0 cause/status (300-48, image `spur`). IN PROGRESS.
+5. Spurious interrupts: Test: log each one with both intc banks and CP0 cause/status (300-48, image `spur`). Explained on sw2 (see Findings 2026-11-23); sw1 NOT DONE.
 6. sw1's SerDes 8 (lan7, #171) RX calibration worker failing every ~30 s with `rtpcs_93xx_rx_cali_work` on a deprecated workqueue: periodic kernel work on SFP/cable-specific state (sw1 has AQR113C copper, DAC, fibre; sw2 does not). Test: take lan7's SFP out of the bridge / tx-disable it and rerun the soak; check crash times against the 30 s cycle. NOT DONE.
 7. Our patches (rebased at the OpenWrt bump; loop detect 300-26 sends a probe every second, L3 300-17, 300-43): sw1 ran the previous image 19 h 50 min idle with the fast profile without a panic. Test: bisect by building without 300-26, then 300-17, then 300-43. NOT DONE.
 8. Different U-Boot on sw1 (installed 2026-11-21, sw2 2026-11-23: MCR reads `0x20e41e60` vs `0x20e41c60` in logs). Test: install the same U-Boot slot on sw1 (ssh, allowed). NOT DONE.
 9. Per-unit config: sw1 loop detect, STP, VLAN 991/992 tags, SFP set. Test: sw2 config on sw1 and reverse. NOT DONE.
 10. Power / load step (not temperature): Test: ramped versus stepped traffic onset on sw1. NOT DONE.
-11. Slow-clock test (stock clocks): LAST, only after 1-10.
+11. CPU writer vs DMA writer (complements 2): MIPS WatchLo/Hi on the corrupted word, both VPEs, value-filtered, `dump_stack()` on hit. Watch fires = CPU writer named; silent watch + corrupt word = DMA. NOT DONE.
+12. Slow-clock test (stock clocks): LAST, only after 1-11.
 
 ## Tools
 - `scripts/tools/fastsample.c` + `scripts/fastsample_rx.py`: 100 Hz CPU-port counters, IRQ counts, ring frames, stray-write watch, UDP to the host.
