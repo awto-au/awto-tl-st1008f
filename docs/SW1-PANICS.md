@@ -45,6 +45,8 @@ Owner rules 2026-11-23: not a temperature issue; unhandled/spurious interrupts m
 - Verdict: the kernel-pointer corruption does not need NIC bulk traffic; CPU + RAM (page-cache) churn alone triggers it within seconds. Bulk copied data stayed intact, so the fault hits kernel objects, not the copy buffers. Weights candidates 3 (DRAM on sw1), 4 (CPU/MT-SMP) and 8 (U-Boot/DDR init) over 1, 2 and 6 (NIC/DMA/SerDes).
 - Temperatures, both idle (95 % idle), read 2026-11-27T16:47+11:00, same clocks: sw1 SoC `cpu-thermal` 82.9 °C (up 37 min) vs sw2 58.4 °C (up 3 h 50 min). Critical trip 105 °C, no passive trip. sw1 SFP DDM 40.8-49.1 °C, copper module 59.9 °C; sw2 sfp_p8 57.2 °C. Per-chip sensor offset not ruled out.
 - `masked source pending` hwirq 7/8 lines run at ~10 per 5 s on sw1 up to the oops (raw GISR of masked lines, see 2026-11-23).
+- Hang ~21:24+11:00 (boot 16:10, up 18869 s): no oops, no pstore record, blackbox `state=unclean (hang, watchdog or power cut)`, boot 64.
+- First boot with the same U-Boot slot as sw2 + `ddr=662` (candidate 8) at ~21:25+11:00: idle, up 10 h 47 min at 2026-11-28T08:12+11:00, no panic, no new pstore record. SoC 79.0 °C vs sw2 54.5 °C.
 
 ## Off-hardware review 2026-11-24 (sw2 + driver source, sw1 off)
 - RX path (`rteth_hw_receive`, `rteth_create_skb`, page pool: `PP_FLAG_DMA_SYNC_DEV`, `max_len` = PAGE_SIZE, 2 frags of 2048 per page): no stray write found. Ordering is rmb / dma_wmb correct, the new page is allocated before the old one is consumed, ring and descriptor memory is coherent DDR (`sram_rings` = 0 on sw2).
