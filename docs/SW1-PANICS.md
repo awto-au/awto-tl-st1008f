@@ -2,6 +2,18 @@
 
 Owner rules 2026-11-23: not a temperature issue; unhandled/spurious interrupts must be explained; every other cause is tested before any slow-clock test.
 
+## Handover 2026-11-27
+- State: sw1 hung since 2026-11-23, needs an owner power-cycle (owner said leave it off); nothing of mine runs on it. sw2 (.56): plain rc4b image, slot b, config restored, up.
+- Done off-hardware: RX driver read (no stray writer found), DMA masters on sw2 (only the NIC active), `dbg` image (slab poison, red zones, DEBUG_LIST) on sw2: `xfer_check` clean, `nat_bench rxdrop` flood clean (debug kernel only takes ~9.5 kpps).
+- Next, in order:
+  - Power-cycle sw1 (owner), then a network-free copy/compare in /tmp (cp + md5 loops, no NIC): clean = fault needs the NIC path, bit flips = CPU/RAM path.
+  - `./dev.py nat-bench rxdrop` on sw2 plain image (reaches higher pps than `dbg`).
+  - Flash `tmp/openwrt-7.4stk-sysupgrade.bin` to sw1 (watchdog pretimeout panic, 16 KiB stacks); `--pull` mode, verify md5 and slot flip (ssh pushes crash sw1).
+  - `tmp/openwrt-7.4dbg-debug-sysupgrade.bin` on sw1 (slab poison, DEBUG_LIST): a use-after-free reports instead of crashing.
+  - Same U-Boot slot on sw1 as sw2 (candidate 8), then the rest of the list below; slow-clock test last.
+- Flash tool bug found 2026-11-27 (sw2, slot a -> b): `openwrt_sysupgrade_ssh.py` printed `TIMEOUT 105 s waiting for the unit to drop off`, the unit booted slot b with default config (DHCP, .119) instead of the saved static .56. Recovery: `ssh ... 'cat > /tmp/restore.tar.gz' < private/sysupgrade-backup/<ip>-<stamp>.tar.gz`, then `sysupgrade -r /tmp/restore.tar.gz; reboot`. Cause not found; check before the next A/B flash.
+- Console: the daemon was not running; `./dev.py console-restart` started it, `scripts/switch_console.py send "<cmd>"` drives the serial shell.
+
 ## Evidence (sw1 = st1008f-1, new image, CPU 1325 / core 608; sw2 same image does not panic)
 - Panics: boot #11 up 188 s `Fatal exception in interrupt`; #13 up 65 s `copy_pte_range` BadVA 0x1d in `sh` fork; #14 up 216 s `epc 0x40000000` out of `except_vec_vi_end+0xc4` (idle task); #19 up 810 s `__pgd_free` with a garbage instruction word; further reboots at 120 s, 560 s, 2120 s with no record.
 - Common: a corrupted pointer or code word in generic code, different place each time = a stray write or CPU fault, not one driver function.
