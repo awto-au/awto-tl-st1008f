@@ -179,7 +179,7 @@ Existing work (checked 2026-10-12):
 
 ## 5. Next steps (dependency order)
 
-Done 2026-10-12: boot, one cage at 10G, NAT bench ([NAT-HISTORY.md](NAT-HISTORY.md) "Mainline 7.3"), NIC profiling by ftrace (#67), SMP (section 9), OpenWrt userspace on 7.3 ([OPENWRT-BUILD.md](OPENWRT-BUILD.md) step 2).
+Done 2026-10-12: boot, one cage at 10G, NAT bench ([NAT-HISTORY.md](history/NAT-HISTORY.md) "Mainline 7.3"), NIC profiling by ftrace (#67), SMP (section 9), OpenWrt userspace on 7.3 ([OPENWRT-BUILD.md](OPENWRT-BUILD.md) step 2).
 
 1. 10GBASE-R on the other cages (PCS calibration, issue #16 stage 5).
 2. SMP-safe doorbell + TX completion on the other VPE (`300-14`, parked, #60): lowered throughput on SMP ([section 9](#parked-300-14-both-ring-doorbell--tx-napi-on-smp-2026-10-12)).
@@ -307,20 +307,20 @@ Network, 2026-10-12 (commit b02ed5f; 1 GHz via our U-Boot and 800 MHz via stock)
   - `eth0: Failed to create a device link to DSA switch`: eth node is a child of the switch node.
   - `lower interface lanN not found` + `fib_add() failed`: `l3.c` offloads routes only on bridge/VLAN uppers; a standalone port stays on the CPU path.
   - `sfp-p4: unknown connector id 0x03`: GLC-SX-MM EEPROM.
-- NAT / NIC numbers: [NAT-HISTORY.md](NAT-HISTORY.md) "Mainline 7.3".
+- NAT / NIC numbers: [NAT-HISTORY.md](history/NAT-HISTORY.md) "Mainline 7.3".
 
 ### Profiling (#67)
 
 - Kernel side in: `PERF_EVENTS`, `HW_PERF_EVENTS` (34K: 2 32-bit counters), `FUNCTION_TRACER`, `FUNCTION_GRAPH_TRACER`, `DYNAMIC_FTRACE`.
 - No `perf` binary: OpenWrt 24.10.7 publishes no realtek / `mips_24kc` `perf` package; the host cross gcc (`mips64-linux-gnu-`) is kernel-only (no libc).
-- Used instead: ftrace `function_graph` via `./dev.py rteth-ftrace` (`scripts/rteth_ftrace.py`, over SSH under `nat-bench` load); per-function split in [NAT-HISTORY.md](NAT-HISTORY.md).
+- Used instead: ftrace `function_graph` via `./dev.py rteth-ftrace` (`scripts/rteth_ftrace.py`, over SSH under `nat-bench` load); per-function split in [NAT-HISTORY.md](history/NAT-HISTORY.md).
 - `function_graph` limits: every function keeps its mcount hook, load drops from ~320 to 50-90 Mbit/s and absolute µs inflate (depth-1 roots sum ~45 µs/pkt vs 25 µs untraced); `funcgraph-irqs` must stay on (off: NAPI polls run from irq exit are missed, only ~35 % of xmit calls seen); depth ≥ 2 overruns a 16 MiB buffer in 3 s (per-call averages stay valid).
 - CP0 perf IRQ: with the 2-cell intc the PMU gets irq 7 (`Performance counters: mips/34K PMU enabled, 2 32-bit counters ... irq 7`) and the timer conflict is gone; sampling (`perf record`) still untested.
 
 ### Not done here
 
 - `generic/pending-6.18/700`, `701` (nft flowtable device events, ignore `EOPNOTSUPP` on offload): apply on 7.3, not applied; software flowtables do not need them.
-- Results of the first boots: [NAT-HISTORY.md](NAT-HISTORY.md) "Mainline 7.3"; operations: [MAINLINE-NET-OPS.md](MAINLINE-NET-OPS.md).
+- Results of the first boots: [NAT-HISTORY.md](history/NAT-HISTORY.md) "Mainline 7.3"; operations: [MAINLINE-NET-OPS.md](MAINLINE-NET-OPS.md).
 
 ## 8. Patch series status (v7.4-rc1)
 
@@ -411,6 +411,6 @@ CPU = MIPS 34Kc, 1 core / 2 VPEs. CP0 values: [HARDWARE-INVENTORY.md](HARDWARE-I
 - No FPU (Config1 FP = 0): soft-float userspace is right.
 - Kernel tune: OpenWrt's generic Makefile forces `-mtune=24kc` for every MIPS32r2; `308-tune-switch-4kec.patch` retunes RTL838x only. A same-shape patch could set `-mtune=34kc` for RTL930x; gain expected small, not measured.
 - Userspace `CPU_TYPE:=34kc` rebuild: not measured.
-- HIGHMEM cost and `300-13` fix: [NAT-HISTORY.md](NAT-HISTORY.md) "HIGHMEM and 512 MiB". Decision: keep HIGHMEM (512 MiB) ([DECISIONS.md](DECISIONS.md)).
+- HIGHMEM cost and `300-13` fix: [NAT-HISTORY.md](history/NAT-HISTORY.md) "HIGHMEM and 512 MiB". Decision: keep HIGHMEM (512 MiB) ([DECISIONS.md](DECISIONS.md)).
 - 512 MiB verified 2026-10-12: MemTotal 508264 kB (HighTotal 262144, LowTotal 246120); `./dev.py mem-stress` (tmpfs of MemFree − 48 MiB, 26 copies of a 16 MiB urandom seed = 432 MiB, HighFree → 784 kB, md5 every copy, 2 passes) 0 bad, no Oops/OOM, on 2 boots; `--no-highmem` kernel MemTotal 245976 kB.
 - `page_pool` allocations are `GFP_ATOMIC` (no `__GFP_HIGHMEM`) and slab is lowmem: every NIC buffer is lowmem, no driver change needed.

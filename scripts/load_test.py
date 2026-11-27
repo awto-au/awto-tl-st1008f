@@ -34,7 +34,7 @@ fs.LOG = LOG
 PY = sys.executable
 Z = str(ROOT / "scripts/zc_bench.py")
 P = "/sys/module/rtl838x_eth/parameters"
-# Baselines: docs/CAMPAIGN-PLAIN-7.4.md (zc forwarding 1400 B, #147 rx-only, stack rate). None = no number in the docs: first run seeds it.
+# Baselines: docs/history/CAMPAIGN-PLAIN-7.4.md (zc forwarding 1400 B, #147 rx-only, stack rate). None = no number in the docs: first run seeds it.
 BASE = {"picks": {"zc1400": 143.0, "rx1400": 143.3, "rx64": 228.3, "stack1400": 62.1, "tcp_fwd": None, "tcp_rev": None},
         "stock": {"zc1400": 119.4, "rx1400": 143.5, "rx64": None, "stack1400": 44.4, "tcp_fwd": None, "tcp_rev": None}}
 ZC_ARGS = ["--nat", "--zc-only", "--napi", "irq1", "--secs", "6"]

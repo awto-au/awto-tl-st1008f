@@ -1,5 +1,5 @@
 #!/usr/bin/env python3
-"""zc_sync_ab — A/B of the zc cache-sync variants (300-42, docs/CAMPAIGN-PLAIN-7.4.md) on a booted plain kernel.
+"""zc_sync_ab — A/B of the zc cache-sync variants (300-42, docs/history/CAMPAIGN-PLAIN-7.4.md) on a booted plain kernel.
 
 - Precondition: `./dev.py ramload ... mainline-kernel --mgmt` done, `nat-bench setup` + `mode route` (done here unless --no-setup).
 - Variants are runtime module parameters (zc_sync_bytes, zc_rx_part); rounds interleave the variants to spread drift.

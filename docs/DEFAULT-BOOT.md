@@ -315,7 +315,7 @@ Image: `./dev.py build-openwrt --kernel 7.3 --default-boot` (OpenWrt main e5ec5e
 
 - Not flashed. Image `tmp/openwrt-7.4-sysupgrade.bin` (compat 2.0, host-built) left untouched; sw2 stays on its flash 6.18 slot a, `good`, chain profile unchanged.
 - Reasons:
-  - Its RAM twin (7.4 + 300-17 fixes initramfs) reset the SoC within 32 s in 5 of 5 boots ([NAT-HISTORY.md](NAT-HISTORY.md#l3-offload-fixes-on-the-74-base-59-2026-11-08)); the same build sources are in the flash image.
+  - Its RAM twin (7.4 + 300-17 fixes initramfs) reset the SoC within 32 s in 5 of 5 boots ([NAT-HISTORY.md](history/NAT-HISTORY.md#l3-offload-fixes-on-the-74-base-59-2026-11-08)); the same build sources are in the flash image.
   - `scripts/openwrt_sysupgrade_ssh.py` has a fixed image path (`tmp/openwrt-build/bin/.../sysupgrade.bin`) and no image argument: flashing the 7.4 file needs an unscripted step.
 - To resume: fix the 7.4 boot hang first; add `--image` to the sysupgrade flow; flash the idle slot (b) and use the trial/fallback mechanism above.
 

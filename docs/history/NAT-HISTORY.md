@@ -1,6 +1,6 @@
 # NAT history: experiments, results and dead ends (#65)
 
-Everything dated or superseded that used to live in NAT.md and NAT-PROGRESS.md, with the original conditions and numbers. Where we are today: [NAT.md](NAT.md). Run steps: [NAT-OPS.md](NAT-OPS.md). Newest CPU-port facts and sweeps (frame size, clocks, queue-1 threshold): [CPU-PORT.md](CPU-PORT.md). Raw rows: `tmp/logs/nat_bench.jsonl`, `tmp/logs/nat_knobs.jsonl`.
+Everything dated or superseded that used to live in NAT.md and NAT-PROGRESS.md, with the original conditions and numbers. Where we are today: [NAT.md](../NAT.md). Run steps: [NAT-OPS.md](../NAT-OPS.md). Newest CPU-port facts and sweeps (frame size, clocks, queue-1 threshold): [CPU-PORT.md](../CPU-PORT.md). Raw rows: `tmp/logs/nat_bench.jsonl`, `tmp/logs/nat_knobs.jsonl`.
 
 - Moved on 2026-11-07 from NAT.md (385 lines) and NAT-PROGRESS.md (186 lines); content unchanged apart from headings, ordering and cross-links.
 - Sections run chronologically; each keeps its own conditions (clocks, kernel, image, date). Numbers from different sections are comparable only when the conditions match.
@@ -31,7 +31,7 @@ Everything dated or superseded that used to live in NAT.md and NAT-PROGRESS.md, 
 | 2026-11-06 | [Where we are (2026-11-06)](#where-we-are-2026-11-06), [Ledger](#ledger-tcp-p4-nat--flowtable-unless-noted), [Tried, did not help](#tried-did-not-help) | 507 Mbit/s best, 20 % of target |
 | undated | [Hybrid NAT](#hybrid-nat-cpu-rewrite--asic-forward-63), [Hybrid NAT (#63)](#hybrid-nat-63) | Not started; saves egress stack only |
 | undated | [Strategy](#strategy-65-owner-2026-10-11), [IPv6 fast path](#ipv6-fast-path-how-most-traffic-avoids-nat), [Related](#related) | IPv6-first; NAT on CPU as fallback |
-| 2026-11-06/07 | CPU-port register map, SPD_SEL writes, frame-size sweep, clock sweep at 1400 B, queue-1 threshold | In [CPU-PORT.md](CPU-PORT.md) |
+| 2026-11-06/07 | CPU-port register map, SPD_SEL writes, frame-size sweep, clock sweep at 1400 B, queue-1 threshold | In [CPU-PORT.md](../CPU-PORT.md) |
 
 ## Combinations: what came back better
 
@@ -140,7 +140,7 @@ Same boot as above, 2026-10-12.
 | base to picks, SRAM mapped | TCP 348 to 444; UDP 64 B 72.8 to 94.5 | same | same | same |
 | OpenWrt 7.3 stock vs picks 1350 | defaults 283-294 vs 388; best combination 369-377 vs 507 | 2026-11-06 | picks | [Where we are (2026-11-06)](#where-we-are-2026-11-06) |
 | CPU 1375 vs 1350 | 1 wrong decode in 55 under load at 1375 | #109 | 1350 | [Where we are (2026-11-06)](#where-we-are-2026-11-06) |
-| 1400 B fast path: LX 245 / DDR 500 / CPU 1000 (one at a time, -20 to -26 %) | 138.4 / 136.2 / 132.3 vs ~143 kpps | UDP+NAT, picks, 2026-11-06 | 3-8 % only: ceiling not clock bound | [CPU-PORT.md](CPU-PORT.md) |
+| 1400 B fast path: LX 245 / DDR 500 / CPU 1000 (one at a time, -20 to -26 %) | 138.4 / 136.2 / 132.3 vs ~143 kpps | UDP+NAT, picks, 2026-11-06 | 3-8 % only: ceiling not clock bound | [CPU-PORT.md](../CPU-PORT.md) |
 
 ### Q: On-chip SRAM and memory placement
 
@@ -167,11 +167,11 @@ Picks (CPU 1350 / DDR 662 / LX 306 / SRAM 500), OpenWrt 7.3, sw2 RAM boot, 2026-
 | TCP P4, real NAT: flowtable `flags offload` feeds the fast path, client -> server | 420 (software flowtable) | 1250 | 3.0x; best software-NAT result is 507 | same |
 | TCP P4, same, server -> client | - | 1187 | - | same |
 
-- Evidence for the 1400 B limit not being CPU: [CPU-PORT.md](CPU-PORT.md) (frame-size sweep, clock sweep); the stack-path equivalents are in the tables above.
+- Evidence for the 1400 B limit not being CPU: [CPU-PORT.md](../CPU-PORT.md) (frame-size sweep, clock sweep); the stack-path equivalents are in the tables above.
 
 ### Q: Queue-1 drop threshold (`300-40`)
 
-Picks, iperf3 TCP P4 through NAT, fast path, `--napi irq1`, 2026-11-06; forward / reverse. Full table and the evidence: [CPU-PORT.md](CPU-PORT.md) (queue 1 drop threshold).
+Picks, iperf3 TCP P4 through NAT, fast path, `--napi irq1`, 2026-11-06; forward / reverse. Full table and the evidence: [CPU-PORT.md](../CPU-PORT.md) (queue 1 drop threshold).
 
 | ON/OFF pages | Goodput Mbit/s | Retransmits | Verdict |
 |---|---|---|---|
@@ -196,7 +196,7 @@ Picks, iperf3 TCP P4 through NAT, fast path, `--napi irq1`, 2026-11-06; forward 
 | Variant | Result | Conditions, date | Verdict | Evidence |
 |---|---|---|---|---|
 | 7.3 + `300-11` (gro-list on) vs OpenWrt 6.18 | TCP NAT +7-37 %, UDP +36-38 %, RX-only +41-44 %, TX-only level | 2026-10-12 | 7.3 | [Mainline 7.3](#mainline-73-2026-10-12) |
-| linux-next vs 7.3 | tcp-P4 358-360 vs 325 Mbit/s | sw2, 2026-10-12 | next | [MAINLINE-PORT.md](MAINLINE-PORT.md#throughput-one-run-each) |
+| linux-next vs 7.3 | tcp-P4 358-360 vs 325 Mbit/s | sw2, 2026-10-12 | next | [MAINLINE-PORT.md](../MAINLINE-PORT.md#throughput-one-run-each) |
 | SMP vs UP | 322-334 vs 346 | 2026-10-12 | UP a few % faster on throughput | [Ledger](#ledger-tcp-p4-nat--flowtable-unless-noted) |
 | OpenWrt 7.3 vs initramfs | 283-294 at 800 MHz vs 350 at 1000 MHz = the clock ratio | 2026-11-06 | no image gap; the old low OpenWrt numbers were fraglist GRO off | [Where we are (2026-11-06)](#where-we-are-2026-11-06) |
 
@@ -356,7 +356,7 @@ Conditions:
 
 ### NIC path (`300-12`, 2026-10-12)
 
-linux-next vs 7.3 on sw2 (2026-10-12): [MAINLINE-PORT.md](MAINLINE-PORT.md#throughput-one-run-each) (next: tcp-P4 358-360 vs 325 Mbit/s).
+linux-next vs 7.3 on sw2 (2026-10-12): [MAINLINE-PORT.md](../MAINLINE-PORT.md#throughput-one-run-each) (next: tcp-P4 358-360 vs 325 Mbit/s).
 
 Same boot and topology as above (DDR 600, CPU 1 GHz, HIGHMEM=y). `./dev.py nic-bench run`, 3 runs per step, one boot per step; rows tagged `nic-*` in `tmp/logs/nat_bench.jsonl`. Cells: min-max of 3. `fwd kpps` = eth0 TX. `ns/pkt` = busy VPE time per eth0 RX packet.
 
@@ -402,19 +402,19 @@ Same boot and topology as "NIC path" (DDR 600, CPU 1 GHz, UP, `300-12`). `./dev.
 ### Driver facts and open points (`rtl838x_eth`, #60)
 
 - `NETIF_F_RXCSUM` rests on `RX_CHK_CRC_EN` = L2 CRC check only. The driver sets `CHECKSUM_UNNECESSARY` whenever `L2_ERR` = 0, so L4 checksums of locally terminated TCP/UDP are never verified.
-- RX CPU tag: `L2_ERR_PKT`, `L3_ERR_PKT`, no L4-OK bit. TX CPU tag: no checksum or TSO bit. No interrupt-coalescing register (only per-ring RX_DONE / RX_RUNOUT masks); registers: [DATASHEET-AUDIT.md](DATASHEET-AUDIT.md) "CPU NIC / DMA interface".
+- RX CPU tag: `L2_ERR_PKT`, `L3_ERR_PKT`, no L4-OK bit. TX CPU tag: no checksum or TSO bit. No interrupt-coalescing register (only per-ring RX_DONE / RX_RUNOUT masks); registers: [DATASHEET-AUDIT.md](../DATASHEET-AUDIT.md) "CPU NIC / DMA interface".
 - Threaded NAPI: not tested.
 - `300-12` doorbell writes `cached | this ring's fetch bit`, i.e. 0 into the other ring's `TX_FETCH`. SDK `r9300_nicTxFetch_set` is an RMW (writes back a pending 1). Whether a written 0 cancels a pending fetch is undocumented: a risk on SMP and on UP with both rings active.
-- `300-14` (parked in `openwrt/patches-parked/`, not applied; lowers throughput: [MAINLINE-PORT.md](MAINLINE-PORT.md) section 9). SMP-safe doorbell: every kick writes both fetch bits (an extra fetch of a ring with no OWN descriptor is a no-op); still one lockless `writel`.
+- `300-14` (parked in `openwrt/patches-parked/`, not applied; lowers throughput: [MAINLINE-PORT.md](../MAINLINE-PORT.md) section 9). SMP-safe doorbell: every kick writes both fetch bits (an extra fetch of a ring with no OWN descriptor is a no-op); still one lockless `writel`.
 - `300-14` module parameter `tx_cpu` (`/sys/module/rtl838x_eth/parameters/tx_cpu`, runtime): −1 (default) = `300-12` inline reclaim; N = per-ring TX NAPI on CPU N via `smp_call_function_single_async`, RX poll skips reclaim, a full ring stops the queue for the TX NAPI. Measured SMP 2026-10-12 (eth0 on CPU1): `tx_cpu=0` (TX NAPI on the other VPE) drops throughput to ~44 %; `tx_cpu=1` not measured. Idea: freeing is cache-miss heavy (~110 ns stalls), which 34Kc MT can overlap with VPE0's RX/NAT, unlike RPS; but VPE1 shares the pipeline and takes issue slots from VPE0.
 - SMP race review of `300-11`/`300-12` (code reading): reclaim always under the txq lock (xmit holds it; RX poll takes `__netif_tx_lock`); BQL `completed_queue` and wake under the same lock; `napi_consume_skb(budget=1)` in xmit runs BH-disabled (OK); TX stats `unsigned long` (no tearing); RX stats under `rx_lock`. Only the doorbell needed a change.
 - Generic `300-12` parts (reclaim, ring 128, kick batch) apply to RTL838x/839x/931x: build-tested only.
-- SMP measurements (UP vs SMP, eth0 on CPU0 / CPU1): [MAINLINE-PORT.md](MAINLINE-PORT.md) section 9.
+- SMP measurements (UP vs SMP, eth0 on CPU0 / CPU1): [MAINLINE-PORT.md](../MAINLINE-PORT.md) section 9.
 
 ### On-chip SRAM on the NIC path (#103, code reading)
 
 - Basis: `rtl838x_eth.c` + `300-11/12/20` on next-20261009. One forwarded frame = 1 RX slot + 1 TX slot + its reclaim. Counts = loads/stores the C code issues; not measured.
-- SRAM: 64 KiB at bus `0x1f000000`, Linux gen_pool since `300-21` ([HARDWARE-INVENTORY.md](HARDWARE-INVENTORY.md#64-kib-sram)). Latency: `./dev.py sram-bench` (`300-22`; not run yet).
+- SRAM: 64 KiB at bus `0x1f000000`, Linux gen_pool since `300-21` ([HARDWARE-INVENTORY.md](../HARDWARE-INVENTORY.md#64-kib-sram)). Latency: `./dev.py sram-bench` (`300-22`; not run yet).
 - Descriptors: `rx_data` + `tx_data` from `dmam_alloc_coherent` = uncached DDR (KSEG1). 2 RX + 2 TX rings x (128 ring words x 4 B + 128 frags x 32 B) = 18 KiB: fits.
 
 Uncached DDR accesses per forwarded frame:
@@ -525,7 +525,7 @@ Call graph, TCP NAT, VPE0 (`./dev.py nat-perf --test tcp-P4 --callgraph`, inclus
 
 ## Combinations (2026-11-06, `./dev.py nat-knobs`)
 
-Live switches, no rebuild: [NAT-OPS.md](NAT-OPS.md) "Knobs". OpenWrt 7.3 b455c5b, stock clocks (CPU 800, `ramload openwrt-ours` boots from stock U-Boot), sw2 RAM boot, NAT + flowtable, default route destination, TCP `-P 4` 10 s, one run per cell (spread about +-3 %). Rows: `tmp/logs/nat_knobs.jsonl`.
+Live switches, no rebuild: [NAT-OPS.md](../NAT-OPS.md) "Knobs". OpenWrt 7.3 b455c5b, stock clocks (CPU 800, `ramload openwrt-ours` boots from stock U-Boot), sw2 RAM boot, NAT + flowtable, default route destination, TCP `-P 4` 10 s, one run per cell (spread about +-3 %). Rows: `tmp/logs/nat_knobs.jsonl`.
 
 Each idea alone against the default (283-294):
 
@@ -686,7 +686,7 @@ Idea (owner research chat 2026-10-09..11): PIE matches the flow, the CPU rewrite
 - The box needs: a DHCPv6-PD prefix from the ISP on the WAN, RA (plus optional DHCPv6) per LAN VLAN, and the v6 routes offloaded.
 - Offload requirements, both from #59:
   - Upstream: `::/0` is not offloaded, so install `2000::/3 via <ISP gw>` (verified here).
-  - Downstream: LAN clients are on-link, so the trap path applies (58.5 Mbit/s here) without on-link neighbour host routes. This is the blocker for v6 at line rate in a real topology; `300-17` `l3_onlink` adds them (mainline 7.3 port, not yet measured: [ROUTING-OFFLOAD.md](ROUTING-OFFLOAD.md), #59).
+  - Downstream: LAN clients are on-link, so the trap path applies (58.5 Mbit/s here) without on-link neighbour host routes. This is the blocker for v6 at line rate in a real topology; `300-17` `l3_onlink` adds them (mainline 7.3 port, not yet measured: [ROUTING-OFFLOAD.md](../ROUTING-OFFLOAD.md), #59).
 - Major content (video, CDNs, big clouds) is mostly v6-capable. What fraction of the household's traffic is v6: not measured.
 
 ## Related
@@ -695,11 +695,11 @@ Idea (owner research chat 2026-10-09..11): PIE matches the flow, the CPU rewrite
 - #59 offload gaps.
 - #60 NIC driver.
 - #63 hybrid NAT.
-- #66 ASIC-routed traffic bypasses nftables ([ROUTING-OFFLOAD.md](ROUTING-OFFLOAD.md)).
+- #66 ASIC-routed traffic bypasses nftables ([ROUTING-OFFLOAD.md](../ROUTING-OFFLOAD.md)).
 - #71 kernel NAT path review.
-- #68 no hidden/disabled rewrite hardware in the die ([HIDDEN-FEATURES.md](HIDDEN-FEATURES.md)).
+- #68 no hidden/disabled rewrite hardware in the die ([HIDDEN-FEATURES.md](../HIDDEN-FEATURES.md)).
 - #22 all-port test.
-- [ROUTING-OFFLOAD.md](ROUTING-OFFLOAD.md).
+- [ROUTING-OFFLOAD.md](../ROUTING-OFFLOAD.md).
 
 ## NAT-PROGRESS header and snapshot (2026-11-06)
 
@@ -802,19 +802,19 @@ Measured:
 - Second VPE: shares one 34Kc pipeline and one L1; the memory miss queue is the shared bottleneck (a streaming neighbour removes 75 %). Pinned per-ring NAPI + `tx_by_cpu` + `noqueue` is the only multi-VPE combination that won (+31 %, VPE0/VPE1 94/95 %).
 - 2.5 Gbit/s of 1500 B frames is ~312 kpps through the CPU port (data + ACKs): 3.2 us per packet at 1 GHz. The stack path is 10-30 us.
 - Fast path at 1400 B: 143 kpps = 1.66 Gbit/s each way (3.3 Gbit/s through the port); VPE busy 97-99 % at every size; cost ~1.5-2 us fixed + ~4 ns per byte (~2 Gbit/s asymptote). Cutting CPU, DDR or LX by ~25 % costs 3-8 %. `rxdrop` (receive and drop) also stops at 137 kpps at 1400 B.
-- CPU-port speed field (`SPD_SEL`): writes of 10G / 2.5G / 5G alone leave sw2 unreachable; no rate measured at any other setting ([CPU-PORT.md](CPU-PORT.md)).
+- CPU-port speed field (`SPD_SEL`): writes of 10G / 2.5G / 5G alone leave sw2 unreachable; no rate measured at any other setting ([CPU-PORT.md](../CPU-PORT.md)).
 
 Not isolated:
 - The cause of the 1400 B ceiling. It is byte-dependent and nearly clock-independent: candidates are NIC DMA, bus/DDR contention, or the chip feeding the CPU queue. #149 (RX panic that depends on LX clock) hints that the bus clock touches the DMA path; unconfirmed.
 - Whether PIE CPU-QID steering applies to frames trapped by an L3 route, and the real gain of a per-flow ring split (#146).
 - Stack-path ceiling on this CPU: estimate only (1-1.7 Gbit/s at 1500 B, not measured).
-- GDMA engines work as memcpy/checksum (`kmod/gdma_test`) but the fast path copies nothing; speed sensors read 0 (#151, [HIDDEN-FEATURES.md](HIDDEN-FEATURES.md)).
+- GDMA engines work as memcpy/checksum (`kmod/gdma_test`) but the fast path copies nothing; speed sensors read 0 (#151, [HIDDEN-FEATURES.md](../HIDDEN-FEATURES.md)).
 
 ### Open issues
 | Issue | State | Next step |
 |---|---|---|
 | #65 Fast NAT 2.5 Gbit/s | best 544 stack, 1.25-1.66 Gbit/s fast path | find the 1400 B ceiling cause (#148) |
-| #148 CPU-port ceiling, SRAM/cache-locked data | parked P0 (#151); sweeps in [CPU-PORT.md](CPU-PORT.md) | stock-clock perf control, real-length RX/TX cache sync, GDMA probe |
+| #148 CPU-port ceiling, SRAM/cache-locked data | parked P0 (#151); sweeps in [CPU-PORT.md](../CPU-PORT.md) | stock-clock perf control, real-length RX/TX cache sync, GDMA probe |
 | #149 RX panic in `gro_list_prepare` | open, 4 panics | same load + perf at stock clocks (0/3 vs 3/3) |
 | #140 in-place / XDP NAT fast path | prototype works (`300-39`) | SRAM buffers, second VPE, IPv6, fragments, soak |
 | #145 best knob combination as image default | +31 % measured | fix `tx_by_cpu` reclaim first |
@@ -943,7 +943,7 @@ Not isolated:
 
 - All within 2 % (run-to-run spread is ~5 %): no tunable moves the NAT rate; no repeats run. 4 flows never stress the table size or hash.
 - `nf_conntrack_max` and hashsize cannot be restored by `nat_knobs reset` (state `dflt` is a no-op); the later cells in the `nat` pass ran with max 4096 / hashsize 1024 in place. Boot afterwards.
-- Absolute rates here (248 / 341) are below the 413-422 stack rows in [NAT.md](NAT.md); the setup differs (`nat_bench run` to 10.99.2.2, IRQ on VPE0, no `irq1`), not investigated.
+- Absolute rates here (248 / 341) are below the 413-422 stack rows in [NAT.md](../NAT.md); the setup differs (`nat_bench run` to 10.99.2.2, IRQ on VPE0, no `irq1`), not investigated.
 - Open for #71: nothing in the stack path is conntrack-bound once the flowtable carries the flow; remaining acceptance is a decision (close with this table) or a UDP many-flow test of table size / hash (needs a flow generator).
 
 ## OpenWrt image vs plain kernel NAT TCP (#161)

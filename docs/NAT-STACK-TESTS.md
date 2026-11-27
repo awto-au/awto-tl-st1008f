@@ -1,6 +1,6 @@
 # NAT stack comparison plan: OpenWrt r38178 without project changes vs our build vs plain kernel
 
-Status 2026-11-09: plan + config audit + images built (A, B-clean, B-profile, C-clean2, C-clean3); A7 not buildable; normaliser + gate written. The first TrueNAS B/C common-clock run stopped because its UDP helper required glibc; incomplete rows remain under `tmp/controlled/truenas/`. The corrected run completed 174/174 rows under `tmp/controlled/truenas-static/`: B/C's gate is CONTROLLED, but A's CPU0 IRQ and other differences make the combined A/B/C gate **NOT CONTROLLED**. See [NAT-STACK-RESULTS.md](NAT-STACK-RESULTS.md) for measurements and final state. Earlier numbers: [NAT-STACKS.md](NAT-STACKS.md) (audit, legend, gaps), [NAT.md](NAT.md).
+Status 2026-11-09: plan + config audit + images built (A, B-clean, B-profile, C-clean2, C-clean3); A7 not buildable; normaliser + gate written. The first TrueNAS B/C common-clock run stopped because its UDP helper required glibc; incomplete rows remain under `tmp/controlled/truenas/`. The corrected run completed 174/174 rows under `tmp/controlled/truenas-static/`: B/C's gate is CONTROLLED, but A's CPU0 IRQ and other differences make the combined A/B/C gate **NOT CONTROLLED**. See [NAT-STACK-RESULTS.md](NAT-STACK-RESULTS.md) for measurements and final state. Earlier numbers: [NAT-STACKS.md](history/NAT-STACKS.md) (audit, legend, gaps), [NAT.md](NAT.md).
 
 - Owner request 2026-11-08: drop the "unknown" rows; one clean comparison on the same kernel generation.
 - Every figure from this plan states its profile: **clean** (no tracing, numbers) or **profile** (perf / ftrace on, diagnosis only). Profile figures never share a table with clean ones.
@@ -65,7 +65,7 @@ OpenWrt r38178 booted on sw2 and initially passed management ping and SSH. Its k
 - C kernel fragment `mainline/st1008f-v2-clean-fw4.config` adds the nf_tables expressions the ruleset needs (LIMIT, LOG, REJECT*, FIB*, REDIR, QUOTA, NUMGEN, HASH); all survived olddefconfig. No perf in the image (`perf_push.py` over ssh), no procd, no irqbalance, no netifd.
 - **C-clean3** (`./dev.py build-kernel --bench --clean --owrt-busybox`; `mainline_initramfs.py --owrt-busybox`): same kernel config as clean2; initramfs uses the OpenWrt root-realtek BusyBox 1.38.0 (dynamic, musl) + applet symlinks, musl 1.2.6, libgcc_s, dropbear 2026.94, nft + libs, ip-full, tc-full, ethtool 7.2 (DT_NEEDED closure); `/init` = mount proc/sys/dev/debugfs, shell on `/dev/console` (this BusyBox has no cttyhack/stty), no selftest, no tracefs; `port-up` starts dropbear; `/etc/fw4-b.nft`. Nothing from 24.10.7: iperf3 comes from the normaliser (pinned, below). The B and C snapshots show different native binary hashes despite the common build-tree origin. Out dir `tmp/build-mips-v7.4-rc1-bench-clean-owrt3`.
 - Profile C (`mainline-7.4-rc1.bin`) keeps the old userland (no `/etc/fw4-b.nft`: `nat_bench.py` skips fw4).
-- Userland gap to B (old C): B runs OpenWrt main userland incl. fw4 hook chains and `fq_codel` on eth0; old C had neither (C-clean2 has both). Candidate cause of the unexplained `nat` TCP gap (plain 240 vs image 85.5, [NAT-STACKS.md](NAT-STACKS.md) / #161). Alignment at test time: load B's `nft list ruleset` (saved in `tmp/logs/nat161_openwrt_settings.txt`) into C before `nat` rows, and `tc qdisc replace dev eth0 root fq_codel` is now the kernel default in the clean image. A fresh minimal initramfs with current BusyBox is not worth it: BusyBox does not sit in the forwarding path; the iperf3 / nft / ip versions are the ones that matter. Exact parity (B's own BusyBox etc.) = C-clean3, owner 2026-11-08.
+- Userland gap to B (old C): B runs OpenWrt main userland incl. fw4 hook chains and `fq_codel` on eth0; old C had neither (C-clean2 has both). Candidate cause of the unexplained `nat` TCP gap (plain 240 vs image 85.5, [NAT-STACKS.md](history/NAT-STACKS.md) / #161). Alignment at test time: load B's `nft list ruleset` (saved in `tmp/logs/nat161_openwrt_settings.txt`) into C before `nat` rows, and `tc qdisc replace dev eth0 root fq_codel` is now the kernel default in the clean image. A fresh minimal initramfs with current BusyBox is not worth it: BusyBox does not sit in the forwarding path; the iperf3 / nft / ip versions are the ones that matter. Exact parity (B's own BusyBox etc.) = C-clean3, owner 2026-11-08.
 
 ## Config audit
 
@@ -99,7 +99,7 @@ Sources: A = final kernel `.config` of the built upstream r38178 tree (`tmp/kern
 | NF_FLOW_TABLE / NFT_FLOW_OFFLOAD | m | m | y | same code |
 | CONNTRACK_TIMESTAMP / acct | n / sysctl default 0 | n / 0 | n / 0 | same |
 | NETFILTER_EGRESS | n* | n | **y** | one static-key branch on TX; C pays it |
-| DEFAULT_NET_SCH / FQ_CODEL | fq_codel / y | fq_codel / y | **unset / n** | eth0 root qdisc: fq_codel + BQL (B) vs pfifo_fast / noqueue (C). Flagged as candidate in [NAT-HISTORY.md](NAT-HISTORY.md) (nat gap); `noqueue` on plain gave 544 vs 528 |
+| DEFAULT_NET_SCH / FQ_CODEL | fq_codel / y | fq_codel / y | **unset / n** | eth0 root qdisc: fq_codel + BQL (B) vs pfifo_fast / noqueue (C). Flagged as candidate in [NAT-HISTORY.md](history/NAT-HISTORY.md) (nat gap); `noqueue` on plain gave 544 vs 528 |
 | RPS / RFS_ACCEL / XPS / NET_FLOW_LIMIT / BQL | y y y / y / y | same | same | same defaults; runtime `rps_cpus` differ per image (dumped by `nat161_compare.py`) |
 | GRO list / `rx-gro-list` | runtime | runtime | runtime | C's `port-up` sets it on; A and B: OpenWrt netifd default; record per boot |
 | rteth driver | built-in, upstream | built-in (`NET_RTL838X=y`) | built-in | none: A has upstream rteth without `300-11..43` (no TX ring 32, no BQL xmit_more, no SRAM rings) |
@@ -113,7 +113,7 @@ A column read from the built `.config` (no derived values left).
 
 ### Debug / trace state behind every published number
 
-| Rows ([NAT-STACKS.md](NAT-STACKS.md)) | Kernel config in the image | Tracing / debug active during the number |
+| Rows ([NAT-STACKS.md](history/NAT-STACKS.md)) | Kernel config in the image | Tracing / debug active during the number |
 |---|---|---|
 | 6.18 (OpenWrt SNAPSHOT r36962, 2026-10-11) | upstream defaults (derived, earlier snapshot): no PERF, no FTRACE; DEBUG_INFO reduced | none |
 | 7.3 image rows (2026-11-06) | image built before `29b22a6` (2026-11-07): no PERF / PROFILING | none |
@@ -206,7 +206,7 @@ C clean build result: built OK (0 warnings, all overlay options survived olddefc
 The completed TrueNAS run covered common clocks only; actual rows and gate are in [NAT-STACK-RESULTS.md](NAT-STACK-RESULTS.md).
 
 Clock sets (all via ramload `--stock-clocks --then <img> --cage 1 --pre turbo ... --pre <raw core>`):
-- **common**: core 508 (raw e220 `0x30626`) + CPU 1350 + DDR 662 + LX 306 + SRAM 500. Stable on B and C ([NAT-STACKS.md](NAT-STACKS.md) Observations, #161).
+- **common**: core 508 (raw e220 `0x30626`) + CPU 1350 + DDR 662 + LX 306 + SRAM 500. Stable on B and C ([NAT-STACKS.md](history/NAT-STACKS.md) Observations, #161).
 - **final**: core 608 (raw e220 `0x36826`) + CPU 1325 + DDR 662 + LX 306 + SRAM 500, where stable (7.4 image and plain: yes; A: untested, may fail).
 
 Tests per stack and clock set (profile clean, perf/ftrace off):

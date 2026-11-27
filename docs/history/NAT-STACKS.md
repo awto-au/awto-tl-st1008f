@@ -1,6 +1,6 @@
 # NAT and routing across software stacks: audit and gaps
 
-Every measurement that exists per stack, with clocks, date and source. Graphs: [NAT-REPORT.html](NAT-REPORT.html#s10) (section 10; `python3 scripts/nat_report.py`). Final numbers: [NAT.md](NAT.md); conditions per row: [NAT-HISTORY.md](NAT-HISTORY.md).
+Every measurement that exists per stack, with clocks, date and source. Graphs: [NAT-REPORT.html](../NAT-REPORT.html#s10) (section 10; `python3 scripts/nat_report.py`). Final numbers: [NAT.md](../NAT.md); conditions per row: [NAT-HISTORY.md](NAT-HISTORY.md).
 
 - Stacks: see the legend below. Table `Stack` column keeps the short names 6.18 / 7.3 / 7.3 I / 7.4 / plain 7.4.
 - Clock notation: CPU MHz / switch core MHz. Stock = 800 / 408 (DDR 600, LX 175). Base = 1000 / 408 (DDR 650). Picks = 1350 / 408 (DDR 662, LX 306, SRAM 500). Final = 1325-1350 / 608 (LX 304).

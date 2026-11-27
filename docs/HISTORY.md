@@ -1,5 +1,7 @@
 # History — how the 10G-in-U-Boot result was reached
 
+NAT, clock and campaign history (old experiments, kept unchanged): [history/README.md](history/README.md). Conclusions: [FINDINGS.md](FINDINGS.md).
+
 Lab notebook. Times are AEDT (+11:00). Sources: the local serial logs (`logs/serial/`), dated notes from
 earlier versions of the reference docs, and the original tracking issue. Reference facts live in
 [hardware.md](hardware.md), [UBOOT-REFERENCE.md](UBOOT-REFERENCE.md), [FIRMWARE-ANALYSIS.md](FIRMWARE-ANALYSIS.md).
@@ -139,7 +141,7 @@ One line per result; detail in the linked docs/issues. Owner decisions: [DECISIO
 
 ## NAT experiments
 
-- Every NAT/NIC measurement, dead end and "which combination won" (2026-10-11 onward): [NAT-HISTORY.md](NAT-HISTORY.md).
+- Every NAT/NIC measurement, dead end and "which combination won" (2026-10-11 onward): [NAT-HISTORY.md](history/NAT-HISTORY.md).
 - Today's state: [NAT.md](NAT.md). CPU-port sweeps: [CPU-PORT.md](CPU-PORT.md).
 
 

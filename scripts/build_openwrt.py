@@ -581,7 +581,7 @@ def selftest_files(dst: Path, strict: bool = False) -> None:
 
 
 GRO_HOTPLUG = """#!/bin/sh
-# fraglist GRO on the CPU port and the user ports: +35 % IPv4 NAT with the flowtable (docs/NAT-HISTORY.md)
+# fraglist GRO on the CPU port and the user ports: +35 % IPv4 NAT with the flowtable (docs/history/NAT-HISTORY.md)
 [ "$ACTION" = ifup ] || exit 0
 for d in eth0 /sys/class/net/lan*; do ethtool -K "${d##*/}" rx-gro-list on 2>/dev/null; done
 """

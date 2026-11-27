@@ -95,7 +95,7 @@ for d in /sys/class/net/lan*; do
   ip -o link show "$l" | grep -q '[<,]UP[,>]' && { echo "refused: $l is up (one cage at a time)"; exit 1; }
 done
 ip link set eth0 up && ip link set "lan$n" up || exit 1
-# fraglist GRO on the CPU port, as OpenWrt does: +45 % NAT/flowtable forwarding (docs/NAT-HISTORY.md)
+# fraglist GRO on the CPU port, as OpenWrt does: +45 % NAT/flowtable forwarding (docs/history/NAT-HISTORY.md)
 ethtool -K eth0 rx-gro-list on; ethtool -K "lan$n" rx-gro-list on
 dev=lan$n
 if [ -n "$vid" ]; then

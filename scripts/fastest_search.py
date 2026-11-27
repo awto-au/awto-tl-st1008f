@@ -36,7 +36,7 @@ CONSOLE = ROOT / "logs/serial/st1008-console.log"
 PY = sys.executable
 DEVPY = str(ROOT / "dev.py")
 BAD_CONSOLE = re.compile(rb"Oops|\bBUG\b|Kernel panic|gro_list_prepare")
-BASE = {"kpps_1400": 143.3}  # --base overrides (core 608 baseline); picks, rx-only 1400 B (CAMPAIGN-PLAIN-7.4.md, #147); a scan point must beat it by GAIN
+BASE = {"kpps_1400": 143.3}  # --base overrides (core 608 baseline); picks, rx-only 1400 B (history/CAMPAIGN-PLAIN-7.4.md, #147); a scan point must beat it by GAIN
 GAIN = 1.03                  # 6x the 0.5 % spread measured at 408/306 MHz
 PICKS = {"cpu": 1350, "ddr": 662, "lx": 306, "sram": 500}
 CORE = {"sw": None}          # --core: fixed switch-core point added to every settings dict
@@ -203,7 +203,7 @@ def quick(st: dict, tag: str, dry: bool, kernel: str | None = None) -> dict:
     res["bogomips"] = (ssh("grep -i bogomips /proc/cpuinfo | head -1") or "").split(":")[-1].strip()
     res["kernel"] = (ssh("uname -r") or "").strip()
     res["clocks"] = " ".join((ssh("dmesg | grep 'LX frequency' | tail -1") or "").split()[-6:])
-    for attempt in (1, 2):   # one retry only for a stalled flood (harness artefact, CAMPAIGN-PLAIN-7.4.md #147), never for noise
+    for attempt in (1, 2):   # one retry only for a stalled flood (harness artefact, history/CAMPAIGN-PLAIN-7.4.md #147), never for noise
         rc, out = run([PY, str(ROOT / "scripts/ceiling_rxtx.py"), "--tag", tag, "--n", "1", "--sizes", "64,1400", "--modes", "rx", "--secs", "6"],
                       *CAPS["ceiling"])
         k = {int(s): float(v) for s, v in re.findall(r"SUMMARY rx (\d+) B: ([\d.]+) kpps", out)}

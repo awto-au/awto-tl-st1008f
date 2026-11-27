@@ -46,7 +46,7 @@ V_ORDER = {"PASS": 0, "WARN": 1, "NOTRUN": 2, "FAIL": 3}
 # id: (group, summary, stall s, total s, basis). Unmeasured caps are marked; secs in canary.csv tighten them.
 CHECKS = {
     "boot_link": ("a", "boot-link-check x3: every cage up, no sync-clock/silent-console strings (#137 #138 #116)", 60, 540,
-                  "60 s/round measured (CAMPAIGN-PLAIN-7.4 2026-11-07, 10 rounds in 10 min) x3 rounds x3; stall = console-log silence"),
+                  "60 s/round measured (history/CAMPAIGN-PLAIN-7.4 2026-11-07, 10 rounds in 10 min) x3 rounds x3; stall = console-log silence"),
     "hang_test": ("a", "SoC watchdog resets a board stuck in /bin/sh (#138)", 170, 400,
                   "silent window <= open_timeout 92 + 30 HW + 10 boot x1.25 = HANG_RESET_S 165; total = prompt ~35 + 165 + normal boot 60 + margin"),
     "switch": ("a", "switch-check on sw2: ping, ssh, bridge/STP, ports (read-only)", 45, 45,

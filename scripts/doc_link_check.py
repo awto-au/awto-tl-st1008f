@@ -1,5 +1,5 @@
 #!/usr/bin/env python3
-"""Check relative links and anchors in docs/*.md, and the docs/README.md index.
+"""Check relative links and anchors in docs/*.md, docs/history/*.md, and the docs/README.md index.
 
 - Every relative link target exists; every `#anchor` matches a heading (GitHub slug rules) or `<a id/name>`.
 - docs/README.md links every docs/*.md exactly once (index completeness).
@@ -108,7 +108,7 @@ def main() -> int:
     ap = argparse.ArgumentParser(description=__doc__.splitlines()[0])
     ap.add_argument("extra", nargs="*", help="more Markdown files to check (repo-relative)")
     a = ap.parse_args()
-    files = sorted(DOCS.glob("*.md")) + [ROOT / p for p in a.extra]
+    files = sorted(DOCS.glob("*.md")) + sorted((DOCS / "history").glob("*.md")) + [ROOT / p for p in a.extra]
     LOG.parent.mkdir(parents=True, exist_ok=True)
     with LOG.open("w", encoding="utf-8") as log:
         bad = []

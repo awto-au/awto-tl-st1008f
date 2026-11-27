@@ -1,5 +1,5 @@
 #!/usr/bin/env python3
-"""ceiling_rxtx — CPU-port ceiling by direction: rx-only (rxdrop) vs tx-only (pktgen) per frame size (docs/CAMPAIGN-PLAIN-7.4.md).
+"""ceiling_rxtx — CPU-port ceiling by direction: rx-only (rxdrop) vs tx-only (pktgen) per frame size (docs/history/CAMPAIGN-PLAIN-7.4.md).
 
 - Precondition: plain bench kernel booted (`./dev.py ramload ... mainline-kernel --mgmt`); nat-bench setup + mode route done here.
 - rx: nat_bench rxdrop (UDP flood host -> lan1.991, dropped at ingress); per run ASIC drop counters (clear-on-read)

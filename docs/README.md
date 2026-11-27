@@ -1,7 +1,7 @@
 # Docs index
 
 - Reference docs are facts, present tense. Run/verify/recover steps live in the matching `*-OPS.md`.
-- Narrative, timeline and dead ends: [HISTORY.md](HISTORY.md). Owner decisions: [DECISIONS.md](DECISIONS.md).
+- Narrative, timeline and dead ends: [HISTORY.md](HISTORY.md); old experiments: [history/](history/README.md). Owner decisions: [DECISIONS.md](DECISIONS.md).
 - Issues link here; results live in these docs, not only in issue comments.
 
 ## Board and hardware
@@ -46,8 +46,9 @@
 
 ## Routing, NAT, NIC
 
-- [NAT.md](NAT.md) — NAT where we are today: data path, best numbers, ceilings, tunables, open issues (#65). Ops: [NAT-OPS.md](NAT-OPS.md).
-- [NAT-HISTORY.md](NAT-HISTORY.md) — NAT experiments and dead ends, dated; "Combinations: what came back better" (#65, #60). [NAT-PROGRESS.md](NAT-PROGRESS.md) is a pointer stub.
+- [NAT.md](NAT.md) — NAT live state: final settings, data path, tunables, hazards, open issues (#65). Ops: [NAT-OPS.md](NAT-OPS.md).
+- [FINDINGS.md](FINDINGS.md) — one page: NAT verdict, limits, what does not help, final settings, owner decisions, open items.
+- [history/README.md](history/README.md) — old campaigns and experiments, kept unchanged (NAT-HISTORY, NAT-STACKS, CAMPAIGN-PLAIN-7.4, old results of FASTEST-SETTINGS / OVERCLOCK / NAT); not comparable.
 - [CPU-PORT.md](CPU-PORT.md) — CPU port 28 registers, 1400 B ceiling, frame-size and clock sweeps (#148).
 - [GRO-CORRUPTION-149.md](GRO-CORRUPTION-149.md) — #149 `gro_list_prepare` panic: reconstructed RX/GRO paths, opt-in diagnostics (300-45), board plan.
 - [RESET-REASON.md](RESET-REASON.md) — the black box: why the last boot ended (panic text, clean, hang), kept across resets; ops: [RESET-REASON-OPS.md](RESET-REASON-OPS.md) (#144).

@@ -1,6 +1,6 @@
 # CPU port (RTL9303 port 28): registers and measured rate
 
-Facts only. Where we are: [NAT.md](NAT.md). Experiments and results over time: [NAT-HISTORY.md](NAT-HISTORY.md). Issue #148.
+Facts only. Where we are: [NAT.md](NAT.md). Experiments and results over time: [NAT-HISTORY.md](history/NAT-HISTORY.md). Issue #148.
 
 ## What it is
 - Port 28 = internal CPU port: DMA to RAM through `rtl838x_eth`, no SerDes, no PHY. 2 RX rings, 2 TX rings, ring chosen by RX reason (`QM_RSN2CPUQID`).
@@ -82,7 +82,7 @@ Facts only. Where we are: [NAT.md](NAT.md). Experiments and results over time: [
 
 - Cutting any one clock by a quarter costs 3-8 %: the 1400 B ceiling is almost independent of CPU, DDR and LX clocks, so it sits in a fixed-rate path outside them (switch core to NIC / CPU-queue transfer). `rxdrop` (receive and drop) stops at the same 137 kpps.
 - Switch-core clock (`0xbb00e220` DIVN2_SWCORE 8:5) is the 1400 B limit: 306 MHz (-25 %) gives 108 kpps rx-only / 110 forwarding, 245 MHz (-40 %) 87 kpps, 408 MHz (stock) 143.5 / 144.8, 612 MHz (+50 %) 182 kpps rx-only (+27 %). 64 B unaffected. Table: docs/CAMPAIGN-PLAIN-7.4.md 'Switch-core clock vs the 1400 B ceiling'.
-- Result: 612 MHz via divider code 0 wedges CPU-port DMA (lan1 silent after rx runs); 608 via VCO 3650 code 1 is the maximum usable step: [CAMPAIGN-PLAIN-7.4.md](CAMPAIGN-PLAIN-7.4.md). The 'almost independent of CPU, DDR and LX' line above stays true because those clocks are not the limit.
+- Result: 612 MHz via divider code 0 wedges CPU-port DMA (lan1 silent after rx runs); 608 via VCO 3650 code 1 is the maximum usable step: [CAMPAIGN-PLAIN-7.4.md](history/CAMPAIGN-PLAIN-7.4.md). The 'almost independent of CPU, DDR and LX' line above stays true because those clocks are not the limit.
 - LX 204 MHz: the 7.3 RX path panics in `gro_list_prepare` (2/2, #149); 245 and 306 are stable.
 - Valid `turbo` steps: LX 175 / 204 / 245 / 306; CPU 800 / 1000 / 1050 / 1100-1425 step 25; an invalid value rejects the whole profile ('nothing changed', board stays at stock clocks).
 
