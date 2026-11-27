@@ -39,6 +39,9 @@ def main():
     ap.add_argument("ip")
     ap.add_argument("--rounds", type=int, default=40)
     ap.add_argument("--size-mb", type=int, default=16)
+    ap.add_argument("--stall-s", type=float, default=0,
+                    help="fixed round limit when other load runs alongside (round time follows its phases; "
+                         "liveness then comes from stress_trace / rail_watch); 0 = 1.25 x slowest round")
     a = ap.parse_args()
     (ROOT / "tmp/logs").mkdir(parents=True, exist_ok=True)
     log = (ROOT / f"tmp/logs/copy_check_{a.ip}.log").open("a")
@@ -67,7 +70,7 @@ def main():
         if line.startswith("ROUND"):
             dt = now - last
             slowest = max(slowest, dt)
-            limit = max(FLOOR_S, 1.25 * slowest)
+            limit = a.stall_s or max(FLOOR_S, 1.25 * slowest)
             line += f" ({dt:.2f} s)"
             bad += " BAD " in line
         done |= line == "DONE"

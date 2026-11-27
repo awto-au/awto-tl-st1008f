@@ -69,10 +69,11 @@ Owner rules 2026-11-23: not a temperature issue; unhandled/spurious interrupts m
 9. Per-unit config: sw1 loop detect, STP, VLAN 991/992 tags, SFP set. Test: sw2 config on sw1 and reverse. NOT DONE.
 10. Power / load step (not temperature): Test: ramped versus stepped traffic onset on sw1. NOT DONE.
 11. CPU writer vs DMA writer (complements 2): MIPS WatchLo/Hi on the corrupted word, both VPEs, value-filtered, `dump_stack()` on hit. Watch fires = CPU writer named; silent watch + corrupt word = DMA. NOT DONE.
-12. Slow-clock test (stock clocks): LAST, only after 1-11.
+12. Slow-clock test (stock clocks): LAST, only after every other candidate.
+13. Power supply / power budget (owner 2026-11-28): fast profile (CPU 1325, DDR 662, core 608) plus copper 10G-T modules (SFP-10G-T, AQR113C) at the lab position; no budget kept. Sensor: SFP DDM Vcc per cage = the 3.3 V cage rail (`scripts/rail_watch.py`, 1 Hz). Test: sw2 at the lab spot (copper module, house uplink) under 2 h stress + copy load, rails logged; sw1 at the bench without the copper load. IN PROGRESS.
 
 ## Tools
 - `scripts/tools/fastsample.c` + `scripts/fastsample_rx.py`: 100 Hz CPU-port counters, IRQ counts, ring frames, stray-write watch, UDP to the host.
-- `scripts/xfer_check.py IP`: data over ssh into /tmp, md5 + diff (NIC RX path). `scripts/copy_check.py IP`: same check with on-box data, no NIC load; stall guard 1.25 x slowest round.
+- `scripts/xfer_check.py IP`: data over ssh into /tmp, md5 + diff (NIC RX path). `scripts/copy_check.py IP`: same check with on-box data, no NIC load; stall guard 1.25 x slowest round, `--stall-s` alongside other load. `scripts/rail_watch.py IP`: 1 Hz SFP Vcc (3.3 V rail) + temps.
 - `scripts/sw1_crash_soak.py`: sustained ASIC-routed traffic with a 1 Hz sw1 poll. `scripts/irq_stream_matrix.py`: IRQ placement x stream count.
 - sw1 crash record: `/sys/kernel/debug/st1008f-blackbox/last`, `/sys/fs/pstore/console-ramoops-0` (2 KiB; the enlarged region in the DTS did not take effect in the image).
