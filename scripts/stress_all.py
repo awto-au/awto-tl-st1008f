@@ -44,6 +44,10 @@ def loop_setup(ip: str, a: str, b: str) -> None:
             f"ip -n {NS} link set {b} down; ip -n {NS} link set {b} address {LOOP_MAC}; ip -n {NS} link set {b} up; "
             f"ip -n {NS} link set lo up; ip -n {NS} addr replace {LOOP_B}/30 dev {b}; "
             f"ip addr replace {LOOP_A}/30 dev {a}; ip link set {a} up")
+    t0 = time.monotonic()  # 10G-T retrain after the netns move; slowest seen ~14 s -> 20 s, then the ping check fails it
+    while time.monotonic() - t0 < 20 and box(ip, f"ip netns exec {NS} cat /sys/class/net/{b}/carrier").stdout.strip() != "1":
+        time.sleep(1)
+    log(f"loop {a}:{b} carrier after {time.monotonic() - t0:.0f} s")
 
 
 def loop_teardown(ip: str, b: str) -> None:
@@ -58,6 +62,8 @@ def main() -> int:
     ap.add_argument("--loop", default="lan3:lan4", help="cabled cage pair A:B, '' = none")
     ap.add_argument("--lab-ok", action="store_true", help="owner request: the lab unit (stress_trace --sw1-ok)")
     ap.add_argument("--loop-teardown", action="store_true")
+    ap.add_argument("--no-selftest", action="store_true", help="skip the CPU+RAM selftest (its I2C checks time out beside 10 ms Vcc reads)")
+    ap.add_argument("--vcc-slow", default="p1", help="cages vcc_watch reads once per second instead of every 10 ms")
     a = ap.parse_args()
     (ROOT / "tmp/logs").mkdir(parents=True, exist_ok=True)
     la, lb = a.loop.split(":") if a.loop else ("", "")
@@ -77,11 +83,13 @@ def main() -> int:
             return 2
     t = str(a.secs)
     procs = {
-        "vcc": [PY, "scripts/vcc_watch.py", a.ip, "--secs", t],
+        "vcc": [PY, "scripts/vcc_watch.py", a.ip, "--secs", t, "--slow", a.vcc_slow],
         "rails": [PY, "scripts/rail_watch.py", a.ip, "--secs", t],
         "stress": [PY, "scripts/stress_trace.py", "--ip", a.ip, "--full", "--duration", t, *(["--sw1-ok"] if a.lab_ok else [])],
         "host_iperf": ["iperf3", "-c", a.ip, "-B", a.bind, "-p", "5201", "--bidir", "-P", "4", "-t", t, "-J"],
     }
+    if a.no_selftest:
+        del procs["stress"]
     if la:
         procs["loop_iperf"] = [*SSH, f"root@{a.ip}", f"iperf3 -c {LOOP_B} -B {LOOP_A} -p 5202 --bidir -t {t} -J"]
     log(f"start {a.ip} for {a.secs} s: {', '.join(procs)} (logs tmp/logs/stress_all-{ts}-*.log)")

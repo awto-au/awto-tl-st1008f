@@ -64,6 +64,8 @@ Owner rules 2026-11-23: not a temperature issue; unhandled/spurious interrupts m
   - Cage 4 at 3.10 V is below the SFP+ supply minimum (3.135 V, SFF-8431); DDM Vcc accuracy is +/-3 % (SFF-8472), so it is at the limit, not proven under.
   - Other cages unchanged (3.275-3.295 V) = the drop is local to the loaded cages (cage filter / module), not a sag of the shared 3.3 V rail.
   - 10G link 13:55-14:00, no traffic: cage 4 PHY 65.6 -> 85.9 °C (~4 °C/min, still rising), case 74.3 °C (module case rating 70 °C), Vcc down to 3.072 V. Cage 3 PHY sensor frozen at 66.875 °C for 8 min while its case went 31 -> 55 °C, and lan3 kept carrier 1 after the far end dropped = cage 3 module PHY hung.
+  - Second try 15:53: both ports bounced, 10G link back in 6-8 s; lan4 into the netns -> link down, no carrier within 20 s; cage 3 PHY 89.4 °C, lan3 again carrier 1 with the far end down (same hang). Reproducible failure of the 10G-T pair at this spot; ports left down, loop traffic never ran.
+  - Full-load run 14:03-14:33 (`stress_all.py`, no loop): selwyn -> sw2 iperf3 `--bidir -P 4` over lan8 28 Mbit/s up / 127 Mbit/s down, 18239 retransmits (CPU 94 % busy, 45 % softirq); SoC max 66.1 °C; no crash, same boot. Selftest FAIL `mode sfp asic` = 2-3 s timeouts of its I2C checks beside the 10 ms Vcc sampler (SCHED_FIFO), not a hardware fault; memory + CPU checks passed.
   - After lan4 went to a netns (link down ~14:00) the link never returned (2 min in the netns, 1 min back in the main ns); cage 4 PHY cooled to 59.6 °C by 14:03.
 - Verdict: the lab-spot load (copper module, house uplink, fast clocks) does not make sw2 fault, and the 3.3 V rail holds. sw1's fault and heat stay with sw1 so far; sw1 at the bench is the next check.
 

@@ -19,7 +19,7 @@ from pathlib import Path
 
 ROOT = Path(__file__).resolve().parent.parent
 BIN = ROOT / "tmp" / "vccsample"
-LOSS_S = 3  # box prints every 1 s; 3 missed lines = down, not a slow I2C sweep (worst seen ~0.1 s)
+LOSS_S = 10  # box prints every 1 s; under full CPU load a sweep stretches past a second (#186 docs/SW1-PANICS.md)
 SSH = ["ssh", "-o", "ConnectTimeout=3", "-o", "ServerAliveInterval=2", "-o", "BatchMode=yes"]
 
 
