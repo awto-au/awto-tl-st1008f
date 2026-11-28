@@ -51,7 +51,7 @@ Owner rules 2026-11-23: not a temperature issue; unhandled/spurious interrupts m
 ## Findings 2026-11-28 (after the swap: sw2 at the lab spot, rc4b image, CPU 1325 / DDR 662 / core 608)
 - sw2 at the lab spot now carries the lab load: SFP-10G-T copper module on lan1 (house uplink, 1000 Mb/s), 10GSR on lan5-8; config still its bench config (#188).
 - 2 h stress, 08:47-10:48+11:00: `stress_trace.py --full --duration 7200` (93 selftest runs, CPU + all memory patterns) plus `copy_check.py --rounds 3000 --stall-s 60` alongside. Result: PASS, no ping loss, 0 of 3000 copy rounds corrupted (16 MiB each), no oops, no pstore record, dmesg clean.
-- Temps (1 Hz, `rail_watch.py`): SoC 55.8-59.7 °C; copper module PHY 65.2-66.7 °C; SFP modules 36.8-45.7 °C.
+- Temps (`rail_watch.py`, one sample per 1.6 s median, 4474 samples): SoC 55.8-59.7 °C; copper module PHY 65.2-66.7 °C; SFP modules 36.8-45.7 °C.
 - 3.3 V cage rail (SFP DDM Vcc): per cage range ≤ 14 mV over the run, 3.268-3.309 V overall (SFF-8472 range 3.135-3.465 V). No droop under load.
 - Verdict: the lab-spot load (copper module, house uplink, fast clocks) does not make sw2 fault, and the 3.3 V rail holds. sw1's fault and heat stay with sw1 so far; sw1 at the bench is the next check.
 
@@ -77,10 +77,10 @@ Owner rules 2026-11-23: not a temperature issue; unhandled/spurious interrupts m
 10. Power / load step (not temperature): Test: ramped versus stepped traffic onset on sw1. NOT DONE.
 11. CPU writer vs DMA writer (complements 2): MIPS WatchLo/Hi on the corrupted word, both VPEs, value-filtered, `dump_stack()` on hit. Watch fires = CPU writer named; silent watch + corrupt word = DMA. NOT DONE.
 12. Slow-clock test (stock clocks): LAST, only after every other candidate.
-13. Power supply / power budget (owner 2026-11-28): fast profile (CPU 1325, DDR 662, core 608) plus copper 10G-T modules (SFP-10G-T, AQR113C) at the lab position; no budget kept. Sensor: SFP DDM Vcc per cage = the 3.3 V cage rail (`scripts/rail_watch.py`, 1 Hz). Test: sw2 at the lab spot (copper module, house uplink) under 2 h stress + copy load, rails logged; sw1 at the bench without the copper load. sw2 half DONE 2026-11-28: no fault, 3.3 V rail flat (Findings 2026-11-28); sw1 at the bench NOT DONE. Core rail unmeasured (no sensor).
+13. Power supply / power budget (owner 2026-11-28): fast profile (CPU 1325, DDR 662, core 608) plus copper 10G-T modules (SFP-10G-T, AQR113C) at the lab position; no budget kept. Sensor: SFP DDM Vcc per cage = the 3.3 V cage rail (`scripts/rail_watch.py`, one sample per 1.6 s: sees a steady sag only, not ms-scale dips). Test: sw2 at the lab spot (copper module, house uplink) under 2 h stress + copy load, rails logged; sw1 at the bench without the copper load. sw2 half DONE 2026-11-28: no fault, 3.3 V rail flat (Findings 2026-11-28); sw1 at the bench NOT DONE. Core rail unmeasured (no sensor).
 
 ## Tools
 - `scripts/tools/fastsample.c` + `scripts/fastsample_rx.py`: 100 Hz CPU-port counters, IRQ counts, ring frames, stray-write watch, UDP to the host.
-- `scripts/xfer_check.py IP`: data over ssh into /tmp, md5 + diff (NIC RX path). `scripts/copy_check.py IP`: same check with on-box data, no NIC load; stall guard 1.25 x slowest round, `--stall-s` alongside other load. `scripts/rail_watch.py IP`: 1 Hz SFP Vcc (3.3 V rail) + temps.
+- `scripts/xfer_check.py IP`: data over ssh into /tmp, md5 + diff (NIC RX path). `scripts/copy_check.py IP`: same check with on-box data, no NIC load; stall guard 1.25 x slowest round, `--stall-s` alongside other load. `scripts/rail_watch.py IP`: SFP Vcc (3.3 V rail) + temps.
 - `scripts/sw1_crash_soak.py`: sustained ASIC-routed traffic with a 1 Hz sw1 poll. `scripts/irq_stream_matrix.py`: IRQ placement x stream count.
 - sw1 crash record: `/sys/kernel/debug/st1008f-blackbox/last`, `/sys/fs/pstore/console-ramoops-0` (2 KiB; the enlarged region in the DTS did not take effect in the image).

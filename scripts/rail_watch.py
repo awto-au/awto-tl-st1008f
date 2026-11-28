@@ -1,5 +1,5 @@
 #!/usr/bin/env python3
-"""rail_watch — 1 Hz board rails + temps over SSH: SFP DDM Vcc (3.3 V cage rail) per cage, SoC temp, module temps (#186).
+"""rail_watch — board rails (1 s loop + I2C reads of every hwmon file) + temps over SSH: SFP DDM Vcc (3.3 V cage rail) per cage, SoC temp, module temps (#186).
 
 - One ssh session runs a busybox loop on the box; the host stamps each line.
 - Loss: no line for LOSS_S = unit down; logged with the last sample, then reconnects until --secs runs out.
