@@ -8,6 +8,7 @@
 #include <dm.h>
 #include <env.h>
 #include <asm/gpio.h>
+#include <linux/string.h>
 #include <vsprintf.h>
 #include "rtk.h"
 #include "sfp_core.h"
@@ -17,7 +18,17 @@
 
 int rtk_sfp_power_mw(const u8 *id, const char **why)
 {
-	return sfp_power_mw(id, 96, why);	/* sfp_core: declared level, copper table for BASE-T */
+	u8 fx[96];
+
+	/* Linux quirk fixups first: FS SFP-10G-T etc. claim 10GBASE-SR + LC, so the copper table misses them */
+	memcpy(fx, id, sizeof(fx));
+	if (sfp_fixup(fx, sizeof(fx))) {
+		int mw = sfp_power_mw(fx, sizeof(fx), why);
+
+		*why = "copper table, quirk";
+		return mw;
+	}
+	return sfp_power_mw(fx, sizeof(fx), why);	/* sfp_core: declared level, copper table for BASE-T */
 }
 
 int rtk_sfp_budget_mw(void)

@@ -247,11 +247,13 @@ CONFIG_BUSYBOX_CONFIG_SETSID=y
 """
 
 # Timeouts. Basis: this host (30 threads), -j8, nice 19; measured values in docs/OPENWRT-BUILD.md.
-# Each = measured worst case x1.25 where measured, else the stated estimate. Expiry kills make, logs elapsed.
+# Shared dev box (awto-dan#53): primary guard = STALL_S without an output line; T_* = overall backstop,
+# 3x the measured cold worst case where measured, else the stated estimate. Expiry kills make, logs elapsed.
+STALL_S = 60
 T_DEFCONFIG = 60       # defconfig incl. package-metadata scan: 9 s first run, 1 s after; ~1 min names a hang
 T_DOWNLOAD = 600       # ~0.43 GB dl/ (first run); 600 s = 0.7 MB/s floor, names a stuck mirror
-T_WORLD = 1800         # first full build (tools 7 + toolchain 8 + packages/kernel/images ~8 min) ~1400 s x1.25
-T_KERNEL = 180         # --kernel-only 6.18: 132 s x1.25 (2026-10-12)
+T_WORLD = 4200         # first full build (tools 7 + toolchain 8 + packages/kernel/images ~8 min) ~1400 s x3
+T_KERNEL = 1200        # backstop only (a loaded shared box runs past 3x the unloaded time); STALL_S is the guard
 T_GIT = 300            # shallow clone/fetch of OpenWrt main: ~10 s; 300 s names a stuck remote
 T_FEEDS = 600          # first feeds update = full clones of packages + luci (~0.4 GB) at >= 1 MB/s; later runs seconds
 DISK_POLL_S = 30       # free-space check while make runs: >4 GB cannot go in 30 s at -j8
@@ -329,6 +331,36 @@ def run(cmd: list, timeout: float, cwd: Path = TREE, comment: bool = True) -> in
         why.append("timeout")
         os.killpg(p.pid, 9)
 
+    last = [time.time(), ""]
+
+    def group_cpu_ticks() -> int:
+        """utime+stime of every live process in make's process group (silent steps like the xz'd cpio still use CPU)."""
+        ticks = 0
+        for d in Path("/proc").iterdir():
+            if d.name.isdigit():
+                try:
+                    f = (d / "stat").read_text().rsplit(")", 1)[1].split()
+                except OSError:
+                    continue
+                if int(f[2]) == p.pid:  # field 5 = pgrp (session leader = make)
+                    ticks += int(f[11]) + int(f[12])
+        return ticks
+
+    cpu = [group_cpu_ticks()]
+
+    def stall_watch():
+        while p.poll() is None:
+            if (t := group_cpu_ticks()) != cpu[0]:
+                cpu[0] = t
+                last[0] = max(last[0], time.time() - STALL_S / 2)  # CPU progress counts as liveness, output still preferred
+            if time.time() - last[0] > STALL_S:
+                why.append("stall")
+                log(f"STALL: no output and no CPU progress for {STALL_S} s, "
+                    f"last line: {last[1].rstrip()[:160]!r}, loadavg {os.getloadavg()[0]:.1f}")
+                os.killpg(p.pid, 9)
+                return
+            time.sleep(5)
+
     def disk_watch():
         while p.poll() is None:
             if (gb := free_gb()) < MIN_FREE_GB:
@@ -341,8 +373,10 @@ def run(cmd: list, timeout: float, cwd: Path = TREE, comment: bool = True) -> in
     timer = threading.Timer(timeout, expire)
     timer.start()
     threading.Thread(target=disk_watch, daemon=True).start()
+    threading.Thread(target=stall_watch, daemon=True).start()
     with MAKE_LOG.open("a") as fh:
         for line in p.stdout:
+            last[0], last[1] = time.time(), line
             fh.write(line)
             fh.flush()
             tail.append(line)
@@ -350,7 +384,7 @@ def run(cmd: list, timeout: float, cwd: Path = TREE, comment: bool = True) -> in
     timer.cancel()
     if why:
         log(f"KILLED ({why[0]}): limit {timeout} s, elapsed {time.time() - t0:.0f} s: {' '.join(cmd[5:])}")
-        return 124 if why[0] == "timeout" else 3
+        return 3 if why[0] == "disk" else 124
     log(f"exit {rc} ({time.time() - t0:.0f} s)")
     if rc:
         for line in tail:
