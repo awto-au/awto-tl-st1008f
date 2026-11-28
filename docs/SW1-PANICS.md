@@ -53,9 +53,9 @@ Owner rules 2026-11-23: not a temperature issue; unhandled/spurious interrupts m
 - 2 h stress, 08:47-10:48+11:00: `stress_trace.py --full --duration 7200` (93 selftest runs, CPU + all memory patterns) plus `copy_check.py --rounds 3000 --stall-s 60` alongside. Result: PASS, no ping loss, 0 of 3000 copy rounds corrupted (16 MiB each), no oops, no pstore record, dmesg clean.
 - Temps (`rail_watch.py`, one sample per 1.6 s median, 4474 samples): SoC 55.8-59.7 °C; copper module PHY 65.2-66.7 °C; SFP modules 36.8-45.7 °C.
 - 3.3 V cage rail (SFP DDM Vcc): per cage range ≤ 14 mV over the run, 3.268-3.309 V overall (SFF-8472 range 3.135-3.465 V). No droop under load.
-- 10 ms Vcc polling (`vcc_watch.py`, on-box `vccsample`, SCHED_FIFO), 2026-11-28T13:33+11:00, 116 s incl. one selftest run (CPU 60 s + mem 30 s):
+- 10 ms Vcc polling (`vcc_watch.py`, on-box `vccsample`, SCHED_FIFO), 2026-11-28T13:33+11:00, 150 s incl. one selftest run (CPU 60 s + mem 30 s):
   - Read cost per cage: ~0.9 ms (10GSR), ~8.7 ms (SFP-10G-T in cage 1) -> cage 1 read once per second, the other 4 every tick.
-  - 96 sweeps/s achieved (11142), 3 % late; slowest sweep 190 ms (kernel I2C users on the same master, e.g. sfp poll / `st_media_work`).
+  - 97 sweeps/s achieved (14568), 2.5 % late (371); slowest sweep 190 ms (kernel I2C users on the same master, e.g. sfp poll / `st_media_work`).
   - Module Vcc resolution ~13-14 mV per step (3277 <-> 3290); cage 7 toggles ~40 times/s = module updates at least that fast.
   - Range: 3261-3309 mV; lowest = one step on cage 8; 0 dips >= 30 mV below the previous second's mean.
 - Verdict: the lab-spot load (copper module, house uplink, fast clocks) does not make sw2 fault, and the 3.3 V rail holds. sw1's fault and heat stay with sw1 so far; sw1 at the bench is the next check.
