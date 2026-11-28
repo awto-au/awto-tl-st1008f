@@ -159,6 +159,8 @@ From the OpenWrt v2 DTS (`SWITCH_PORT_SFP(p,l,s,c,g)` = SoC port, label, SerDes,
   - Unknown: 3.3 V SFP rail(s) and regulator rating on this PCB; per-module draw with laser on / link up. #30.
   - Check 2026-10-12 (one 10G SR in cage 1): U-Boot `rtk sfp power` 1.0 W by 1 module, budget 15.0 W; Linux `power_total_mw` 1000, `power_cage_mw` `1000 0 0 0 0 0 0 0`.
   - No vendor precedent: the managed ST5008F firmware has no power-level (A0 byte 64) handling or budget (#30).
+  - Third-party input measurement (ServeTheHome review, 2022-06-26, TL-ST1008F **v1**, stock firmware): 3.1 W idle with no modules; ~22 W with SFP+-to-10GBASE-T modules + 10 km LR optics, of the 24 W adapter. Ubiquiti UF-RJ45-10G did not work in it. https://www.servethehome.com/cheapest-10gbe-8-port-switch-tp-link-tl-st1008f-review/2/
+  - sw2 load 2026-11-28 (declared/table, not measured): 2 x 10GBASE-T 6.0 W + 3 x 1000BASE-T 3.6 W + 3 x 10G SR 3.0 W = 12.6 W of the 15.0 W budget; with the 6 W board draw ~20.8 W input of 24 W (87 %), before the fast clock profile's extra draw (unmeasured).
   - GLC-T (copper): declares level 1, no DDM (no A2 page), so nothing measurable; real 10GBASE-T modules draw 2.5-3 W and commonly still declare level 1.
 - **Counted power per module** (same rules in U-Boot and Linux):
   - A0 byte 64: bit 5 → level 3 = 2.0 W; else bit 1 → level 2 = 1.5 W; else level 1 = 1.0 W. Linux `sfp.c` also gates these on byte 94 (SFF-8472 rev ≥ 10.2 / 11.4) and needs DDM (byte 92 bit 6) to switch levels; the count ignores those gates (a module may draw its declared level regardless).
