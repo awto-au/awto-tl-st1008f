@@ -16,6 +16,8 @@ _UNITS = {"sw1": (SW1_IP, SW1_MAC), "sw2": (SW2_IP, SW2_MAC)}
 LAB_UNIT = "sw1" if BENCH_UNIT == "sw2" else "sw2"
 BENCH_IP, BENCH_MAC = _UNITS[BENCH_UNIT]  # ramload, nat-bench, U-Boot ipaddr
 LAB_IP, LAB_MAC = _UNITS[LAB_UNIT]
+FREE_UNITS = {"sw2"}  # owner 2026-11-28: flash + reboot any time, whatever its role
+LAB_GUARDED = LAB_UNIT not in FREE_UNITS  # lab-unit refusals apply only to a unit not in FREE_UNITS
 BENCH_CONSOLE = "/dev/serial/by-id/usb-1a86_USB2.0-Serial-if00-port0"  # bench UART (CH340 "USB2.0-Serial", 2026-11-18); the Prolific PL2303 is the US-48 bench console
 
 BENCH_NIC_MAC = "00:02:c9:56:ff:e2"  # selwyn 10G NIC (bench cage 1, .30); its enpNs0 name moves between boots

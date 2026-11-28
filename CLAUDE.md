@@ -7,6 +7,7 @@ Addresses, MACs and relay: registry boxes `st1008f-1`, `st1008f-2` (`awto-termin
 ## Units (owner 2026-10-12, roles 2026-11-27; `scripts/boards.py`)
 - Name, IP, MAC stay with the hardware (sw1 = st1008f-1, sw2 = st1008f-2). Rules follow the ROLE; which unit has which role = `boards.BENCH_UNIT` only (units swapped 2026-11-27, #186).
 - **Lab unit** (`boards.LAB_IP`): no relay, no serial. Not the house LAN (owner 2026-11-18). Cabling moves: never trust a doc for what is on a port, run `cabling_map.py` (awto-terminal, read-only, LLDP per cage). Power-cycle/reboot only on owner request; network checks otherwise (`./dev.py switch-check`). Reflash only on owner request (2026-10-13): `./dev.py openwrt-sysupgrade-ssh --ip <lab IP>` (keeps config, backup first).
+- **sw2 exempt (owner 2026-11-28):** flash and reboot sw2 any time without asking, whatever its role; keep working. `boards.FREE_UNITS`; guards skip a free lab unit (`boards.LAB_GUARDED`).
 - **Bench unit** (`boards.BENCH_IP`): on the relay + serial console; all hardware flows target it. Guards (`board_guard.py` etc.) refuse the lab unit by IP and MAC.
 - Docs/issues before 2026-11-27 say "sw2" for the bench and "sw1" for the lab unit.
 

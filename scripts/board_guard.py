@@ -21,7 +21,7 @@ import time
 from pathlib import Path
 
 sys.path.insert(0, str(Path(__file__).resolve().parent))
-from boards import BENCH_IP, LAB_IP, LAB_MAC  # noqa: E402
+from boards import BENCH_IP, LAB_GUARDED, LAB_IP, LAB_MAC  # noqa: E402
 
 ROOT = Path(__file__).resolve().parent.parent
 CONSOLE_LOG = ROOT / "logs/serial/st1008-console.log"
@@ -56,6 +56,8 @@ def bench_arp_mac() -> str:
 
 def check(argv: list[str]) -> list[str]:
     why = []
+    if not LAB_GUARDED:
+        return why  # the lab unit is in boards.FREE_UNITS (owner: flash/reboot any time)
     if any(LAB_IP in a for a in argv):
         why.append(f"args target the lab unit ({LAB_IP}); hardware flows are bench-only")
     m = MAC_RE.search(last_boot_text())

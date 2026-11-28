@@ -26,7 +26,7 @@ import time
 from pathlib import Path
 
 sys.path.insert(0, str(Path(__file__).resolve().parent))
-from boards import BENCH_IP, LAB_IP  # noqa: E402
+from boards import BENCH_IP, LAB_GUARDED, LAB_IP  # noqa: E402
 
 ROOT = Path(__file__).resolve().parent.parent
 LOG = ROOT / "tmp/logs/stress_trace.log"
@@ -146,7 +146,7 @@ def main() -> int:
                     help="also forward traffic through the CPU path the whole time (nat-bench NAT + flowtable, sw2 bench only)")
     ap.add_argument("--sw1-ok", action="store_true", help="allow sw1, the in-service house switch (owner request, #144)")
     a = ap.parse_args()
-    if a.ip == SW1 and not a.sw1_ok:
+    if a.ip == SW1 and LAB_GUARDED and not a.sw1_ok:
         sys.exit(f"refused: {SW1} is the lab unit (no relay/serial); --sw1-ok = owner request, a failing run costs ~100 s outage")
     stamp = time.strftime("%Y%m%d-%H%M%S")
     base = ROOT / f"tmp/logs/stress_trace-{a.ip}-{stamp}"
