@@ -58,6 +58,11 @@ Owner rules 2026-11-23: not a temperature issue; unhandled/spurious interrupts m
   - 97 sweeps/s achieved (14568), 2.5 % late (371); slowest sweep 190 ms (kernel I2C users on the same master, e.g. sfp poll / `st_media_work`).
   - Module Vcc resolution ~13-14 mV per step (3277 <-> 3290); cage 7 toggles ~40 times/s = module updates at least that fast.
   - Range: 3261-3309 mV; lowest = one step on cage 8; 0 dips >= 30 mV below the previous second's mean.
+- Two SFP-10G-T (AQR113C) in sw2 cages 3 + 4, cabled to each other, 2026-11-28T13:53-13:55+11:00 (`rail_watch.py`):
+  - Ports admin down: cage 3 Vcc 3.322 V, cage 4 3.188-3.192 V; cage 4 case temp still rising (45.2 -> 47.2 °C) = `ip link set down` does not power the module down.
+  - Ports up, 10 Gb/s link: cage 3 3.322 -> 3.213-3.222 V (-100 mV), cage 4 3.190 -> 3.097-3.103 V (-90 mV); PHYs 63.6 -> 67.1 °C within 45 s (critical 70).
+  - Cage 4 at 3.10 V is below the SFP+ supply minimum (3.135 V, SFF-8431); DDM Vcc accuracy is +/-3 % (SFF-8472), so it is at the limit, not proven under.
+  - Other cages unchanged (3.275-3.295 V) = the drop is local to the loaded cages (cage filter / module), not a sag of the shared 3.3 V rail.
 - Verdict: the lab-spot load (copper module, house uplink, fast clocks) does not make sw2 fault, and the 3.3 V rail holds. sw1's fault and heat stay with sw1 so far; sw1 at the bench is the next check.
 
 ## Off-hardware review 2026-11-24 (sw2 + driver source, sw1 off)
