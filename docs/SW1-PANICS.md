@@ -63,6 +63,8 @@ Owner rules 2026-11-23: not a temperature issue; unhandled/spurious interrupts m
   - Ports up, 10 Gb/s link: cage 3 3.322 -> 3.213-3.222 V (-100 mV), cage 4 3.190 -> 3.097-3.103 V (-90 mV); PHYs 63.6 -> 67.1 °C within 45 s (critical 70).
   - Cage 4 at 3.10 V is below the SFP+ supply minimum (3.135 V, SFF-8431); DDM Vcc accuracy is +/-3 % (SFF-8472), so it is at the limit, not proven under.
   - Other cages unchanged (3.275-3.295 V) = the drop is local to the loaded cages (cage filter / module), not a sag of the shared 3.3 V rail.
+  - 10G link 13:55-14:00, no traffic: cage 4 PHY 65.6 -> 85.9 °C (~4 °C/min, still rising), case 74.3 °C (module case rating 70 °C), Vcc down to 3.072 V. Cage 3 PHY sensor frozen at 66.875 °C for 8 min while its case went 31 -> 55 °C, and lan3 kept carrier 1 after the far end dropped = cage 3 module PHY hung.
+  - After lan4 went to a netns (link down ~14:00) the link never returned (2 min in the netns, 1 min back in the main ns); cage 4 PHY cooled to 59.6 °C by 14:03.
 - Verdict: the lab-spot load (copper module, house uplink, fast clocks) does not make sw2 fault, and the 3.3 V rail holds. sw1's fault and heat stay with sw1 so far; sw1 at the bench is the next check.
 
 ## Off-hardware review 2026-11-24 (sw2 + driver source, sw1 off)
